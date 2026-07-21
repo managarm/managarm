@@ -271,7 +271,8 @@ HelError helCreateUniverse(HelHandle *handle) {
 		return translateError(universeOutcome.error());
 
 	*handle = this_universe->attachDescriptor(
-			AnyDescriptor::make<DescriptorType::universe>(std::move(*universeOutcome)));
+			AnyDescriptor::make<DescriptorType::universe>(
+					std::move(*universeOutcome), kHelRightGrant | kHelRightTake | kHelRightAssign));
 
 	return kHelErrNone;
 }
@@ -288,7 +289,14 @@ helTransferDescriptor(HelHandle handle, HelHandle universeHandle, HelTransferDes
 	if(universeHandle == kHelThisUniverse) {
 		universe = thisUniverse.lock();
 	}else{
-		auto universeOutcome = thisUniverse->resolveObject<DescriptorType::universe>(universeHandle);
+		uint32_t rightsRequired;
+		if (direction == kHelTransferDescriptorOut) {
+			rightsRequired = kHelRightGrant;
+		} else {
+			assert(direction == kHelTransferDescriptorIn);
+			rightsRequired = kHelRightTake;
+		}
+		auto universeOutcome = thisUniverse->resolveObject<DescriptorType::universe>(universeHandle, rightsRequired);
 		if(!universeOutcome)
 			return translateError(universeOutcome.error());
 		universe = std::move(*universeOutcome);
@@ -378,7 +386,7 @@ HelError helCloseDescriptor(HelHandle universeHandle, HelHandle handle) {
 	if(universeHandle == kHelThisUniverse) {
 		universe = thisUniverse.lock();
 	}else{
-		auto universeOutcome = thisUniverse->resolveObject<DescriptorType::universe>(universeHandle);
+		auto universeOutcome = thisUniverse->resolveObject<DescriptorType::universe>(universeHandle, kHelRightGrant);
 		if(!universeOutcome)
 			return translateError(universeOutcome.error());
 		universe = std::move(*universeOutcome);
@@ -1797,7 +1805,7 @@ HelError helCreateThread(HelHandle universe_handle, HelHandle space_handle,
 	if(universe_handle == kHelNullHandle) {
 		universe = this_thread->getUniverse().lock();
 	}else{
-		auto universeOutcome = this_universe->resolveObject<DescriptorType::universe>(universe_handle);
+		auto universeOutcome = this_universe->resolveObject<DescriptorType::universe>(universe_handle, kHelRightGrant | kHelRightTake | kHelRightAssign);
 		if(!universeOutcome)
 			return translateError(universeOutcome.error());
 		universe = std::move(*universeOutcome);
