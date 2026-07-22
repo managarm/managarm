@@ -15,6 +15,10 @@ bool haveTimer();
 // Get the raw timestamp in preemption timer ticks.
 uint64_t getRawTimestampCounter();
 
+// Calibrate BogoMIPS against the architecture's raw timestamp counter.
+// The result is scaled by 100 to preserve two decimal places.
+uint64_t calibrateBogoMips(uint64_t frequencyHz);
+
 // Called by the architecture-specific code. Handles timer deadline
 // expiry.
 void handleTimerInterrupt();

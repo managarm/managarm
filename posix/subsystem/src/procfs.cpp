@@ -1,5 +1,7 @@
 #include <async/cancellation.hpp>
+#include <bragi/helpers-std.hpp>
 #include <functional>
+#include <kerncfg.bragi.hpp>
 #include <linux/magic.h>
 #include <print>
 #include <string.h>
@@ -11,6 +13,7 @@
 #include "procfs.hpp"
 #include "process.hpp"
 #include "protocols/fs/common.hpp"
+#include "requests.hpp"
 
 #include <bitset>
 #include <sys/epoll.h>
@@ -306,6 +309,7 @@ std::shared_ptr<Link> DirectoryNode::createRootDirectory() {
 	the_node->_entries.insert(std::move(self_thread_link));
 
 	the_node->directMkregular("uptime", std::make_shared<UptimeNode>());
+	the_node->directMkregular("cpuinfo", std::make_shared<CpuInfoNode>());
 	the_node->directMknode("mounts", std::make_shared<MountsLink>());
 
 	auto sysLink = the_node->directMkdir("sys");
@@ -511,6 +515,137 @@ async::result<void> UptimeNode::store(std::string) {
 	// TODO: proper error reporting.
 	std::cout << "posix: Can't store to a /proc/uptime file" << std::endl;
 	co_return;
+}
+
+async::result<managarm::kerncfg::GetCpuInfoResponse> getCpuInfo(uint64_t cpu) {
+	managarm::kerncfg::GetCpuInfoRequest req;
+	req.set_cpu(cpu);
+	auto [offer, sendReq, recvHead] =
+		co_await helix_ng::exchangeMsgs(
+			getKerncfgLane(),
+			helix_ng::offer(
+				helix_ng::want_lane,
+				helix_ng::sendBragiHeadOnly(req, frg::stl_allocator{}),
+				helix_ng::recvInline()
+			)
+		);
+
+	HEL_CHECK(offer.error());
+	HEL_CHECK(sendReq.error());
+	HEL_CHECK(recvHead.error());
+
+	auto preamble = bragi::read_preamble(recvHead);
+	assert(!preamble.error());
+
+	std::vector<std::byte> tail(preamble.tail_size());
+	auto [recvTail] = co_await helix_ng::exchangeMsgs(
+		offer.descriptor(), helix_ng::recvBuffer(tail.data(), tail.size())
+	);
+	HEL_CHECK(recvTail.error());
+
+	auto response = *bragi::parse_head_tail<managarm::kerncfg::GetCpuInfoResponse>(
+		recvHead, tail);
+	recvHead.reset();
+	co_return response;
+}
+
+async::result<std::expected<std::string, Error>> CpuInfoNode::show(Process *) {
+	managarm::kerncfg::GetNumCpuRequest req;
+
+	auto [offer, sendReq, recvResp] =
+		co_await helix_ng::exchangeMsgs(
+			getKerncfgLane(),
+			helix_ng::offer(
+				helix_ng::sendBragiHeadOnly(req, frg::stl_allocator{}),
+				helix_ng::recvInline()
+			)
+		);
+
+	HEL_CHECK(offer.error());
+	HEL_CHECK(sendReq.error());
+	HEL_CHECK(recvResp.error());
+
+	auto resp = *bragi::parse_head_only<managarm::kerncfg::GetNumCpuResponse>(recvResp);
+	recvResp.reset();
+	assert(resp.error() == managarm::kerncfg::Error::SUCCESS);
+
+	std::stringstream stream;
+	for(uint64_t cpu = 0; cpu < resp.num_cpu(); ++cpu) {
+#if defined(__x86_64__)
+		auto cpuInfoResp = co_await getCpuInfo(cpu);
+		assert(cpuInfoResp.error() == managarm::kerncfg::Error::SUCCESS);
+
+		stream << "processor\t: " << cpu << '\n'
+			<< "vendor_id\t: " << cpuInfoResp.vendor_id() << '\n'
+			<< "cpu family\t: " << cpuInfoResp.cpu_family() << '\n'
+			<< "model\t\t: " << cpuInfoResp.model() << '\n'
+			<< "model name\t: " << cpuInfoResp.model_name() << '\n'
+			<< "stepping\t: " << cpuInfoResp.stepping() << '\n'
+			<< "microcode\t: 0x" << std::hex << cpuInfoResp.microcode_revision()
+			<< std::dec << '\n'
+			<< "cpu MHz\t\t: " << (cpuInfoResp.frequency_hz() / 1'000'000) << '.'
+			<< std::setw(3) << std::setfill('0')
+			<< ((cpuInfoResp.frequency_hz() % 1'000'000) / 1'000)
+			<< std::setfill(' ') << '\n'
+			<< "cache size\t: 0 KB\n"
+			<< "physical id\t: 0\n"
+			<< "siblings\t: 1\n"
+			<< "core id\t\t: " << cpu << '\n'
+			<< "cpu cores\t: 1\n"
+			<< "apicid\t\t: " << cpuInfoResp.apic_id() << '\n'
+			<< "initial apicid\t: " << cpu << '\n'
+			<< "fpu\t\t: " << (cpuInfoResp.fpu() ? "yes" : "no") << '\n'
+			<< "fpu_exception\t: " << (cpuInfoResp.fpu_exception() ? "yes" : "no") << '\n'
+			<< "cpuid level\t: " << cpuInfoResp.cpuid_level() << '\n'
+			<< "wp\t\t: " << (cpuInfoResp.write_protect() ? "yes" : "no") << '\n'
+			<< "flags\t\t: " << cpuInfoResp.flags() << '\n'
+			<< "bugs\t\t: " << cpuInfoResp.bugs() << '\n'
+			<< "bogomips\t: " << (cpuInfoResp.bogo_mips() / 100) << '.'
+			<< std::setw(2) << std::setfill('0') << (cpuInfoResp.bogo_mips() % 100)
+			<< std::setfill(' ') << '\n'
+			<< "clflush size\t: " << cpuInfoResp.clflush_size() << '\n'
+			<< "cache_alignment\t: " << cpuInfoResp.cache_alignment() << '\n'
+			<< "address sizes\t: " << cpuInfoResp.physical_address_bits()
+			<< " bits physical, " << cpuInfoResp.virtual_address_bits() << " bits virtual\n"
+			<< "power management:\n\n";
+#elif defined(__aarch64__)
+		auto cpuInfoResp = co_await getCpuInfo(cpu);
+		assert(cpuInfoResp.error() == managarm::kerncfg::Error::SUCCESS);
+
+		stream << "processor\t: " << cpu << '\n'
+			<< "BogoMIPS\t: " << (cpuInfoResp.bogo_mips() / 100) << '.'
+			<< std::setw(2) << std::setfill('0') << (cpuInfoResp.bogo_mips() % 100)
+			<< std::setfill(' ') << '\n'
+			<< "Features\t: " << cpuInfoResp.features() << '\n'
+			<< "CPU implementer\t: 0x" << std::hex << std::setw(2)
+			<< std::setfill('0') << cpuInfoResp.cpu_implementer() << std::dec
+			<< std::setfill(' ') << '\n'
+			<< "CPU architecture: " << cpuInfoResp.cpu_architecture() << '\n'
+			<< "CPU variant\t: 0x" << std::hex << cpuInfoResp.cpu_variant() << std::dec << '\n'
+			<< "CPU part\t: 0x" << std::hex << std::setw(3) << std::setfill('0')
+			<< cpuInfoResp.cpu_part() << std::dec << std::setfill(' ') << '\n'
+			<< "CPU revision\t: " << cpuInfoResp.cpu_revision() << "\n\n";
+#elif defined(__riscv)
+		auto cpuInfoResp = co_await getCpuInfo(cpu);
+		assert(cpuInfoResp.error() == managarm::kerncfg::Error::SUCCESS);
+
+		stream << "processor\t: " << cpu << '\n'
+			<< "hart\t\t: " << cpuInfoResp.hart_id() << '\n'
+			<< "isa\t\t: " << cpuInfoResp.isa() << '\n'
+			<< "mmu\t\t: " << cpuInfoResp.mmu();
+		if(!cpuInfoResp.uarch().empty())
+			stream << '\n' << "uarch\t\t: " << cpuInfoResp.uarch();
+		stream << "\n\n";
+#else
+#error Unsupported architecture
+#endif
+	}
+
+	co_return stream.str();
+}
+
+async::result<void> CpuInfoNode::store(std::string) {
+	throw std::runtime_error("Cannot store to /proc/cpuinfo");
 }
 
 async::result<std::expected<std::string, Error>> OstypeNode::show(Process *) {

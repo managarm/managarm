@@ -8,6 +8,25 @@ namespace thor {
 static constexpr bool logTimers = false;
 static constexpr bool logProgress = false;
 
+uint64_t calibrateBogoMips(uint64_t frequencyHz) {
+	if(!frequencyHz)
+		return 0;
+
+	// BogoMIPS is traditionally based on the number of simple loops
+	// executed per second. Keep the calibration short since this runs
+	// during early CPU initialization.
+	constexpr uint64_t iterations = 1'000'000;
+	auto start = getRawTimestampCounter();
+	for(uint64_t i = 0; i < iterations; ++i)
+		asm volatile("nop" ::: "memory");
+	auto elapsed = getRawTimestampCounter() - start;
+	if(!elapsed)
+		return 0;
+
+	// One BogoMIPS is 500,000 loops/second.
+	return (iterations * frequencyHz * 100) / (elapsed * 500'000);
+}
+
 
 namespace {
 
