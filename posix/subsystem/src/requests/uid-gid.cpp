@@ -346,4 +346,18 @@ HandleRequest::operator()(managarm::posix::GetSgidRequest &&req,
 	co_return {};
 }
 
+async::result<std::expected<void, DispatchError>>
+HandleRequest::operator()(managarm::posix::SetSgidRequest &&req,
+		helix::BorrowedDescriptor conversation, bragi::preamble preamble,
+		std::shared_ptr<Process> self, std::shared_ptr<Generation>) {
+	id = preamble.id();
+	logBragiRequest(req);
+
+	logRequest(logRequests, self, "SET_SGID", "sgid={}", req.sgid());
+
+	Error err = self->threadGroup()->setSgid(req.sgid());
+	co_await sendErrorResponse<managarm::posix::SetSgidResponse>(conversation, err | toPosixProtoError);
+	co_return {};
+}
+
 } // namespace requests

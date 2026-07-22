@@ -1249,3 +1249,13 @@ message SetSuidResponse 230 {
 head(128):
 	Errors error;
 }
+
+message SetSgidRequest 231 {
+head(128):
+	uint64 sgid;
+}
+
+message SetSgidResponse 232 {
+head(128):
+	Errors error;
+}

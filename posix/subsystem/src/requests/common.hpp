@@ -403,6 +403,10 @@ struct HandleRequest {
 	operator()(managarm::posix::GetSgidRequest &&req, helix::BorrowedDescriptor conversation,
 			bragi::preamble preamble, std::shared_ptr<Process> self,
 			std::shared_ptr<Generation> generation);
+	async::result<std::expected<void, DispatchError>>
+	operator()(managarm::posix::SetSgidRequest &&req, helix::BorrowedDescriptor conversation,
+			bragi::preamble preamble, std::shared_ptr<Process> self,
+			std::shared_ptr<Generation> generation);
 
 	// From process.cpp
 	async::result<std::expected<void, DispatchError>>

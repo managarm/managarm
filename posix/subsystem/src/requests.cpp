@@ -87,6 +87,7 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 			managarm::posix::SetGroupsRequest,
 			managarm::posix::GetSuidRequest,
 			managarm::posix::GetSgidRequest,
+			managarm::posix::SetSgidRequest,
 			// From process.cpp
 			managarm::posix::WaitIdRequest,
 			managarm::posix::WaitRequest,
