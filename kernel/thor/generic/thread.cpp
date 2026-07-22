@@ -51,8 +51,8 @@ void Thread::migrateCurrent() {
 	size_t n = -1;
 	for (size_t i = 0; i < getCpuCount(); i++) {
 		bool bit = 0;
-		if ((i + 7) / 8 < mask.size())
-			bit = mask[(i + 7) / 8] & (1 << (i % 8));
+		if (i / 8 < mask.size())
+			bit = mask[i / 8] & (1 << (i % 8));
 
 		if (bit) {
 			n = i;
