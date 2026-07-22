@@ -104,6 +104,7 @@ auto VmContext::splitAreaOn_(uintptr_t addr, size_t size) ->
 		if (base < addr && (base + area.areaSize) > addr) {
 			Area right;
 			right.copyOnWrite = area.copyOnWrite;
+			right.stack = area.stack;
 			right.areaSize = area.areaSize - (addr - base);
 			right.nativeFlags = area.nativeFlags;
 			right.fileView = area.fileView.dup();
@@ -129,7 +130,7 @@ auto VmContext::splitAreaOn_(uintptr_t addr, size_t size) ->
 async::result<frg::expected<Error, void *>>
 VmContext::mapFile(uintptr_t hint, helix::UniqueDescriptor memory,
 		smarter::shared_ptr<File, FileHandle> file,
-		intptr_t offset, size_t size, bool copyOnWrite, uint32_t nativeFlags) {
+		intptr_t offset, size_t size, bool copyOnWrite, uint32_t nativeFlags, bool stack) {
 	size_t alignedSize = (size + 0xFFF) & ~size_t(0xFFF);
 
 	// Perform the actual mapping.
@@ -179,6 +180,7 @@ VmContext::mapFile(uintptr_t hint, helix::UniqueDescriptor memory,
 	// Construct the new area.
 	Area area;
 	area.copyOnWrite = copyOnWrite;
+	area.stack = stack;
 	area.areaSize = alignedSize;
 	area.nativeFlags = nativeFlags;
 	area.fileView = std::move(memory);

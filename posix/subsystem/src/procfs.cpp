@@ -90,6 +90,12 @@ RegularFile::readSome(Process *process, void *data, size_t max_length, async::ca
 
 	assert(_offset <= _buffer.size());
 	size_t chunk = std::min(_buffer.size() - _offset, max_length);
+
+	if(chunk == max_length && chunk != 0) {
+		while(chunk != 0 && _buffer[_offset + chunk - 1] != '\n')
+			chunk--;
+	}
+
 	memcpy(data, _buffer.data() + _offset, chunk);
 	_offset += chunk;
 	co_return chunk;
@@ -666,39 +672,62 @@ async::result<std::expected<std::string, Error>> MapNode::show(Process *) {
 
 	auto vmContext = p->vmContext();
 	std::stringstream stream;
+
 	for (auto area : *vmContext) {
-		stream << std::hex << area.baseAddress();
-		stream << "-";
-		stream << std::hex << area.baseAddress() + area.size();
-		stream << " ";
-		stream << (area.isReadable() ? "r" : "-");
-		stream << (area.isWritable() ? "w" : "-");
-		stream << (area.isExecutable() ? "x" : "-");
-		stream << (area.isPrivate() ? "p" : "-");
-		stream << " ";
+		auto startSize = stream.tellp();
+
+		std::format_to(std::ostreambuf_iterator(stream),
+				"{:08x}-{:08x} {}{}{}{} ",
+				area.baseAddress(), area.baseAddress() + area.size(),
+				area.isReadable() ? "r" : "-",
+				area.isWritable() ? "w" : "-",
+				area.isExecutable() ? "x" : "-",
+				area.isPrivate() ? "p" : "s");
+
 		auto backingFile = area.backingFile();
 		if(backingFile && backingFile->associatedLink() && backingFile->associatedMount()) {
-			stream << std::setfill('0') << std::setw(8) << area.backingFileOffset();
-			stream << " ";
 			auto fsNode = backingFile->associatedLink()->getTarget();
 			ViewPath viewPath = {backingFile->associatedMount(), backingFile->associatedLink()};
 			auto fileStats = co_await fsNode->getStats();
 			DeviceId deviceId{};
+			// TODO: Fill in the device id for other files too.
 			if (fsNode->getType() == VfsType::charDevice || fsNode->getType() == VfsType::blockDevice)
 				deviceId = fsNode->readDevice();
 			assert(fileStats);
 
-			stream << std::dec << std::setfill('0') << std::setw(2) << deviceId.first << ":" << deviceId.second;
+			std::format_to(std::ostreambuf_iterator(stream),
+					"{:08x} {:02x}:{:02x} {} ",
+					area.backingFileOffset(),
+					deviceId.first,
+					deviceId.second,
+					fileStats.value().inodeNumber);
+
+			auto endSize = stream.tellp();
+
+			for(size_t i = endSize - startSize; i < 25 + sizeof(void *) * 6 - 1; i++) {
+				stream << " ";
+			}
+
 			stream << " ";
-			stream << std::setw(0) << fileStats.value().inodeNumber;
-			stream << "    ";
+
 			stream << viewPath.getPath(p->fsContext()->getRoot());
+		} else if(area.isStack()) {
+			stream << "00000000 00:00 0 ";
+
+			auto endSize = stream.tellp();
+
+			for(size_t i = endSize - startSize; i < 25 + sizeof(void *) * 6 - 1; i++) {
+				stream << " ";
+			}
+
+			stream << " [stack]";
 		} else {
 			// TODO: In the case of memfd files, show the name here.
-			stream << "00000000 00:00 0";
+			stream << "00000000 00:00 0 ";
 		}
 		stream << "\n";
 	}
+
 	co_return stream.str();
 }
 
