@@ -111,12 +111,22 @@ struct HandleRequest {
 		Response resp;
 		resp.set_error(err);
 
-		auto [send_resp] = co_await helix_ng::exchangeMsgs(
-			conversation,
-			helix_ng::sendBragiHeadOnly(resp, frg::stl_allocator{})
-		);
+		if (resp.size_of_tail()) {
+			auto [send_resp, send_tail] = co_await helix_ng::exchangeMsgs(
+				conversation,
+				helix_ng::sendBragiHeadTail(resp, frg::stl_allocator{})
+			);
 
-		HEL_CHECK(send_resp.error());
+			HEL_CHECK(send_resp.error());
+			HEL_CHECK(send_tail.error());
+		} else {
+			auto [send_resp] = co_await helix_ng::exchangeMsgs(
+				conversation,
+				helix_ng::sendBragiHeadOnly(resp, frg::stl_allocator{})
+			);
+
+			HEL_CHECK(send_resp.error());
+		}
 		logBragiReply(resp);
 	}
 
