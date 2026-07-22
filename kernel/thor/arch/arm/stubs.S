@@ -254,7 +254,10 @@ forkExecutorRegisters:
 	str x4, [x0, THOR_FRAME_SP]
 
 	// Set new PSTATE
-	mov x4, #5
+	mrs x4, currentel
+	lsr x4, x4, #2
+	lsl x4, x4, #2
+	orr x4, x4, #1
 	mrs x5, daif
 	orr x4, x4, x5
 	str x4, [x0, THOR_FRAME_SPSR]

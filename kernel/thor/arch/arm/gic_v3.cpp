@@ -30,6 +30,7 @@ static constexpr uint8_t defaultPrio = 0xA0;
 namespace dist_reg {
 	static constexpr arch::bit_register<uint32_t> control{0x0};
 	static constexpr arch::bit_register<uint32_t> type{0x4};
+	static constexpr arch::bit_register<uint32_t> pidr2{0xffe8};
 
 	static constexpr uintptr_t irqGroupBase = 0x80;
 	static constexpr uintptr_t irqConfigBase = 0xC00;
@@ -54,6 +55,12 @@ namespace dist_type {
 	static constexpr arch::field<uint32_t, bool> securityExtensions{10, 1};
 }
 
+namespace dist_pidr2 {
+	static constexpr arch::field<uint32_t, uint8_t> arch{4, 4};
+	static constexpr uint8_t arch_gicv3 = 3;
+	static constexpr uint8_t arch_gicv4 = 4;
+}
+
 namespace dist_router {
 	static constexpr arch::field<uint64_t, uint8_t> aff0{0, 8};
 	static constexpr arch::field<uint64_t, uint8_t> aff1{8, 8};
@@ -64,7 +71,10 @@ namespace dist_router {
 namespace redist_reg {
 	static constexpr arch::bit_register<uint64_t> type{0x8};
 	static constexpr arch::bit_register<uint32_t> waker{0x14};
+	static constexpr arch::bit_register<uint32_t> pidr2{dist_reg::pidr2};
 }
+
+#define redist_pidr2 dist_pidr2
 
 namespace redist_waker {
 	static constexpr arch::field<uint32_t, bool> processorSleep{1, 1};
@@ -72,6 +82,7 @@ namespace redist_waker {
 }
 
 namespace redist_type {
+	static constexpr arch::field<uint64_t, bool> vlpis{1, 1};
 	static constexpr arch::field<uint64_t, bool> last{4, 1};
 	static constexpr arch::field<uint64_t, uint32_t> affinity{32, 32};
 }
@@ -157,8 +168,7 @@ bool GicPinV3::setMode(TriggerMode trigger, Polarity polarity) {
 	if(irq_ < 16)
 		return false;
 
-	if(polarity == Polarity::low)
-		return false;
+	(void)polarity;
 
 	auto bitOffset = irq_ % 16 * 2;
 	auto offset = irq_ / 16 * 4;
@@ -187,7 +197,8 @@ bool GicPinV3::setMode(TriggerMode trigger, Polarity polarity) {
 }
 
 IrqStrategy GicPinV3::program(TriggerMode mode, Polarity polarity) {
-	bool success = setMode(mode, polarity);
+	(void)polarity;
+	bool success = setMode(mode, Polarity::high);
 	assert(success);
 
 	if(irq_ >= 32)
@@ -250,9 +261,61 @@ void GicPinV3::setPriority_(uint8_t priority) {
 	arch::scalar_store_relaxed(space, dist_reg::irqPriorityBase + offset, value);
 }
 
+void addRedistRange(uintptr_t address, size_t size) {
+	auto redistPtr = KernelVirtualMemory::global().allocate(size);
+	for(size_t i = 0; i < size; i += kPageSize) {
+		KernelPageSpace::global().mapSingle4k(VirtualAddr(redistPtr) + i, address + i,
+				page_access::write, CachingMode::mmio);
+	}
+
+	auto redistCount = size / 0x20000;
+	size_t offset = 0;
+
+	for(size_t i = 0; i < redistCount; ++i) {
+		arch::mem_space space{(void *)(VirtualAddr(redistPtr) + offset)};
+
+		// Check if we have a redistributor.
+		auto pidr2 = space.load_relaxed(redist_reg::pidr2);
+		uint8_t arch = pidr2 & redist_pidr2::arch;
+		if(arch != redist_pidr2::arch_gicv3 && arch != redist_pidr2::arch_gicv4) {
+			warningLogger() << "No redistributor present" << frg::endlog;
+			break;
+		}
+
+		auto type = space.load_relaxed(redist_reg::type);
+		uint32_t redistAff = type & redist_type::affinity;
+		bool vlpis = type & redist_type::vlpis;
+		bool last = type & redist_type::last;
+
+		infoLogger() << "thor: GIC redistributor at " << frg::hex_fmt{address + offset}
+		             << " affinity " << frg::hex_fmt{redistAff}
+		             << (vlpis ? " vlpi" : "")
+		             << (last ? " last" : "") << frg::endlog;
+
+		redists->emplace_back(space);
+
+		if(last)
+			break;
+
+		// Skip RD_base and SGI_base.
+		offset += 0x20000;
+
+		// If VLPIS is present, skip the VLPI_base and reserved space.
+		if(vlpis)
+			offset += 0x20000;
+
+		if(offset >= size)
+			break;
+	}
+}
+
 bool initGicV3() {
+	auto root = getDeviceTreeRoot();
+	if (!root)
+		return false;
+
 	DeviceTreeNode *gicNode = nullptr;
-	getDeviceTreeRoot()->forEach([&](DeviceTreeNode *node) -> bool {
+	root->forEach([&](DeviceTreeNode *node) -> bool {
 		if(node->isCompatible(dtGicV3Compatible)) {
 			gicNode = node;
 			return true;
@@ -270,33 +333,43 @@ bool initGicV3() {
 	auto reg = gicNode->reg();
 	dist.initialize(reg[0].addr, reg[0].size);
 
-
-	auto redistPtr = KernelVirtualMemory::global().allocate(reg[1].size);
-	for(size_t i = 0; i < reg[1].size; i += kPageSize) {
-		KernelPageSpace::global().mapSingle4k(VirtualAddr(redistPtr) + i, reg[1].addr + i,
-				page_access::write, CachingMode::mmio);
-	}
-
-	auto redistCount = reg[1].size / 0x20000;
 	redists.initialize(*kernelAlloc);
+	addRedistRange(reg[1].addr, reg[1].size);
 
-	for(size_t i = 0; i < redistCount; ++i) {
-		arch::mem_space space{(void *)(VirtualAddr(redistPtr) + i * 0x20000)};
-		redists->emplace_back(space);
+	dist->init();
 
-		if(space.load_relaxed(redist_reg::type) & redist_type::last)
-			break;
+	gicV3.initialize();
+
+	externalIrq = gicV3.get();
+
+	gicNode->associateIrqController(gicV3.get());
+
+	return true;
+}
+
+bool initGicV3FromAcpi(
+    uintptr_t distributor,
+    size_t distributorSize,
+    frg::span<const GicRedistributorRange> redistributorRanges
+) {
+	infoLogger() << "thor: found ACPI GICv3 distributor at " << frg::hex_fmt{distributor}
+	             << frg::endlog;
+
+	dist.initialize(distributor, distributorSize);
+
+	redists.initialize(*kernelAlloc);
+	for (auto range : redistributorRanges)
+		addRedistRange(range.address, range.size);
+
+	if (!redists->size()) {
+		warningLogger() << "thor: ACPI GICv3 has no redistributor ranges" << frg::endlog;
+		return false;
 	}
 
 	dist->init();
 
 	gicV3.initialize();
-	
 	externalIrq = gicV3.get();
-
-	initGicOnThisCpuV3();
-
-	gicNode->associateIrqController(gicV3.get());
 
 	return true;
 }
@@ -425,6 +498,10 @@ Gic::Pin *GicV3::getPin(uint32_t irq) {
 		return nullptr;
 
 	return irqPins_[irq];
+}
+
+uint32_t GicV3::irqCount() {
+	return irqPins_.size();
 }
 
 }

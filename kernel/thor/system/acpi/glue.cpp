@@ -90,7 +90,7 @@ uacpi_status uacpi_kernel_raw_io_read(uacpi_io_addr address, T *out_value) {
 }
 #else
 template <typename T>
-uacpi_status uacpi_kernel_raw_io_read(uacpi_io_addr address, T *out_value) {
+uacpi_status uacpi_kernel_raw_io_read(uacpi_io_addr, T) {
 	return UACPI_STATUS_UNIMPLEMENTED;
 }
 

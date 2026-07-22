@@ -1,3 +1,9 @@
+#include <frg/optional.hpp>
+#include <frg/scope_exit.hpp>
+#include <frg/utility.hpp>
+#include <stddef.h>
+#include <thor-internal/acpi/acpi.hpp>
+#include <thor-internal/arch/cpu.hpp>
 #include <thor-internal/arch/gic.hpp>
 #include <thor-internal/arch/timer.hpp>
 #include <thor-internal/arch/trap.hpp>
@@ -11,6 +17,8 @@
 #include <thor-internal/fiber.hpp>
 #include <thor-internal/load-balancing.hpp>
 #include <thor-internal/rcu.hpp>
+#include <uacpi/acpi.h>
+#include <uacpi/tables.h>
 
 namespace thor {
 
@@ -29,7 +37,17 @@ namespace {
 		CpuData *cpuContext;
 	};
 
+	enum class EnableMethod {
+		unknown,
+		spinTable,
+		psci
+	};
+
+	constexpr uint32_t psciIdCpuOn64 = 0xC4000003;
+
 	struct Psci {
+		Psci(bool usesHvc) : cpuOn_{psciIdCpuOn64}, usesHvc_{usesHvc} {}
+
 		Psci(DeviceTreeNode *node) {
 			auto methodProp = node->dtNode().findProperty("method");
 			if (!methodProp)
@@ -42,7 +60,7 @@ namespace {
 
 			auto onProp = node->dtNode().findProperty("cpu-on");
 			if (!onProp) {
-				cpuOn_ = 0xC4000003;
+				cpuOn_ = psciIdCpuOn64;
 			} else {
 				auto it = onProp->access();
 				if (!it.readCells(cpuOn_, 1))
@@ -71,6 +89,20 @@ namespace {
 	};
 
 	frg::manual_box<Psci> psci_;
+
+	bool hasAcpiField(size_t length, size_t offset, size_t size) {
+		return offset <= length && size <= length - offset;
+	}
+
+	template <typename T>
+	bool copyAcpiEntry(T *entry, const void *ptr, size_t length, size_t requiredLength) {
+		memset(entry, 0, sizeof(T));
+		if (length < requiredLength)
+			return false;
+
+		memcpy(entry, ptr, frg::min(sizeof(T), length));
+		return true;
+	}
 
 	void secondaryMain(StatusBlock *statusBlock) {
 		initializeIrqVectors();
@@ -102,41 +134,22 @@ namespace {
 	}
 }
 
-bool bootSecondary(DeviceTreeNode *node, size_t cpuIndex) {
-	infoLogger() << "thor: Starting CPU \"" << node->path() << "\"" << frg::endlog;
-	uint64_t id = node->reg()[0].addr;
+uint32_t affinityFromMpidr(uint64_t mpidr);
 
-	auto methodProp = node->dtNode().findProperty("enable-method");
-	if (!methodProp)
-		panicLogger() << node->path() << " has no enable-method" << frg::endlog;
-
-	enum class EnableMethod {
-		unknown,
-		spinTable,
-		psci
-	} method = EnableMethod::unknown;
-
-	size_t i = 0;
-	while (i < methodProp->size()) {
-		frg::string_view sv{reinterpret_cast<const char *>(methodProp->data()) + i};
-		i += sv.size() + 1;
-
-		if (sv == "psci")
-			method = EnableMethod::psci;
-		else if (sv == "spin-table")
-			method = EnableMethod::spinTable;
-	}
-
-	if (method == EnableMethod::unknown) {
-		infoLogger() << "thor: We don't know how to start this CPU" << frg::endlog;
-		return false;
-	}
+bool bootSecondary(
+    uint64_t id,
+    size_t cpuIndex,
+    EnableMethod method,
+    frg::optional<uint64_t> releaseAddress = frg::null_opt
+) {
+	infoLogger() << "thor: Starting CPU with MPIDR " << frg::hex_fmt{id} << frg::endlog;
 
 	// Allocate a stack for the initialization code.
 	constexpr size_t stackSize = 0x10000;
 	void *stackPtr = kernelAlloc->allocate(stackSize);
 
 	auto *context = getCpuData(cpuIndex);
+	context->affinity = affinityFromMpidr(id);
 
 	// Participate in global TLB invalidation *before* paging is used by the target CPU.
 	initializeAsidContext(context);
@@ -170,7 +183,7 @@ bool bootSecondary(DeviceTreeNode *node, size_t cpuIndex) {
 	statusBlock->stack = (uintptr_t)stackPtr + stackSize;
 	statusBlock->main = &secondaryMain;
 	statusBlock->cpuContext = context;
-	statusBlock->cpuId = id;
+	statusBlock->cpuId = static_cast<int>(cpuIndex);
 
 	bool dontWait = false;
 
@@ -178,18 +191,9 @@ bool bootSecondary(DeviceTreeNode *node, size_t cpuIndex) {
 		case EnableMethod::spinTable: {
 			infoLogger() << "thor: This CPU uses a spin-table" << frg::endlog;
 
-
-			auto addrProp = node->dtNode().findProperty("cpu-release-addr");
-			if (!addrProp)
-				panicLogger() << node->path() << " has no cpu-release-addr" << frg::endlog;
-
-			uint64_t ptr;
-			auto it = addrProp->access();
-			if(!it.readCells(ptr, 2)) {
-				if(!it.readCells(ptr, 1)) {
-					panicLogger() << node->path() << " has an empty cpu-release-addr" << frg::endlog;
-				}
-			}
+			if (!releaseAddress)
+				panicLogger() << "thor: spin-table CPU has no release address" << frg::endlog;
+			uint64_t ptr = *releaseAddress;
 
 			infoLogger() << "thor: Release address is " << frg::hex_fmt{ptr} << frg::endlog;
 
@@ -271,20 +275,182 @@ bool bootSecondary(DeviceTreeNode *node, size_t cpuIndex) {
 	return !dontWait;
 }
 
+bool bootSecondaryFromDt(DeviceTreeNode *node, size_t cpuIndex) {
+	infoLogger() << "thor: Starting CPU \"" << node->path() << "\"" << frg::endlog;
+
+	auto methodProp = node->dtNode().findProperty("enable-method");
+	if (!methodProp)
+		panicLogger() << node->path() << " has no enable-method" << frg::endlog;
+
+	EnableMethod method = EnableMethod::unknown;
+	size_t i = 0;
+	while (i < methodProp->size()) {
+		frg::string_view sv{reinterpret_cast<const char *>(methodProp->data()) + i};
+		i += sv.size() + 1;
+
+		if (sv == "psci")
+			method = EnableMethod::psci;
+		else if (sv == "spin-table")
+			method = EnableMethod::spinTable;
+	}
+
+	if (method == EnableMethod::unknown) {
+		infoLogger() << "thor: We don't know how to start this CPU" << frg::endlog;
+		return false;
+	}
+
+	frg::optional<uint64_t> releaseAddress = frg::null_opt;
+	if (method == EnableMethod::spinTable) {
+		auto addrProp = node->dtNode().findProperty("cpu-release-addr");
+		if (!addrProp)
+			panicLogger() << node->path() << " has no cpu-release-addr" << frg::endlog;
+
+		uint64_t ptr;
+		auto it = addrProp->access();
+		if(!it.readCells(ptr, 2)) {
+			if(!it.readCells(ptr, 1)) {
+				panicLogger() << node->path() << " has an empty cpu-release-addr" << frg::endlog;
+			}
+		}
+		releaseAddress = ptr;
+	}
+
+	return bootSecondary(node->reg()[0].addr, cpuIndex, method, releaseAddress);
+}
+
+bool initPsciFromAcpi() {
+	acpi_fadt *fadt;
+	if (uacpi_table_fadt(&fadt) != UACPI_STATUS_OK) {
+		infoLogger() << "thor: ACPI FADT not found, trying GICC parking protocol"
+		             << frg::endlog;
+		return false;
+	}
+
+	constexpr size_t requiredFadtLength = offsetof(acpi_fadt, arm_boot_arch)
+	                                      + sizeof(fadt->arm_boot_arch);
+	if (fadt->hdr.length < requiredFadtLength) {
+		infoLogger() << "thor: FADT is too small for ARM boot architecture flags" << frg::endlog;
+		return false;
+	}
+
+	if (!(fadt->arm_boot_arch & ACPI_ARM_PSCI_COMPLIANT)) {
+		infoLogger() << "thor: ACPI FADT does not advertise PSCI" << frg::endlog;
+		return false;
+	}
+
+	psci_.initialize(fadt->arm_boot_arch & ACPI_ARM_PSCI_USE_HVC);
+	return true;
+}
+
+bool bootApsFromAcpi() {
+	auto havePsci = initPsciFromAcpi();
+
+	uacpi_table madtTbl;
+	if (uacpi_table_find_by_signature("APIC", &madtTbl) != UACPI_STATUS_OK)
+		panicLogger() << "thor: Unable to initialize APs, no MADT found" << frg::endlog;
+	frg::scope_exit finish{[&] { uacpi_table_unref(&madtTbl); }};
+
+	auto *madt = reinterpret_cast<acpi_madt *>(madtTbl.ptr);
+	auto bspAffinity = getCpuData()->affinity;
+
+	size_t apCpuIndex = 1;
+	size_t enabledCpuCount = 0;
+	size_t offset = sizeof(acpi_madt);
+	while (offset < madt->hdr.length) {
+		acpi_entry_hdr generic;
+		auto genericPtr = reinterpret_cast<void *>(madtTbl.virt_addr + offset);
+		memcpy(&generic, genericPtr, sizeof(generic));
+		if (generic.length < sizeof(acpi_entry_hdr))
+			panicLogger() << "thor: MADT entry has invalid length " << generic.length
+			              << frg::endlog;
+
+		if (generic.type == ACPI_MADT_ENTRY_TYPE_GICC) {
+			acpi_madt_gicc entry;
+			constexpr size_t requiredGiccLength =
+			    offsetof(acpi_madt_gicc, flags) + sizeof(entry.flags);
+			if (!copyAcpiEntry(&entry, genericPtr, generic.length, requiredGiccLength)) {
+				warningLogger() << "thor: Ignoring truncated MADT GICC entry"
+				                << frg::endlog;
+				offset += generic.length;
+				continue;
+			}
+
+			if (entry.flags & ACPI_GICC_ENABLED) {
+				++enabledCpuCount;
+				if (!hasAcpiField(generic.length, offsetof(acpi_madt_gicc, mpidr),
+				        sizeof(entry.mpidr))) {
+					panicLogger() << "thor: Enabled MADT GICC entry has no MPIDR"
+					              << frg::endlog;
+				}
+
+				auto affinity = affinityFromMpidr(entry.mpidr);
+				if (affinity != bspAffinity) {
+					if (static_cast<uint64_t>(apCpuIndex) >= cpuConfigNote->totalCpus) {
+						panicLogger() << "thor: CPU index " << apCpuIndex
+						              << " exceeds expected number of CPUs "
+						              << cpuConfigNote->totalCpus << frg::endlog;
+					}
+					if (apCpuIndex < cpuConfigNote->effectiveCpus) {
+						if (havePsci) {
+							bootSecondary(entry.mpidr, apCpuIndex, EnableMethod::psci);
+						} else if (hasAcpiField(generic.length,
+						            offsetof(acpi_madt_gicc, parking_protocol_version),
+						            sizeof(entry.parking_protocol_version))
+						        && hasAcpiField(generic.length,
+						            offsetof(acpi_madt_gicc, parked_address),
+						            sizeof(entry.parked_address))
+						        && entry.parking_protocol_version && entry.parked_address) {
+							bootSecondary(
+							    entry.mpidr,
+							    apCpuIndex,
+							    EnableMethod::spinTable,
+							    entry.parked_address
+							);
+						} else {
+							panicLogger() << "thor: Enabled MADT GICC entry for MPIDR "
+							              << frg::hex_fmt{entry.mpidr}
+							              << " has neither PSCI nor parking protocol"
+							              << frg::endlog;
+						}
+					}
+					++apCpuIndex;
+				}
+			}
+		}
+
+		offset += generic.length;
+	}
+
+	if (enabledCpuCount != cpuConfigNote->totalCpus)
+		panicLogger() << "thor: Found " << enabledCpuCount << " CPUs but Eir detected "
+		              << cpuConfigNote->totalCpus << frg::endlog;
+
+	return true;
+}
+
 static initgraph::Task initAPs{&globalInitEngine, "arm.init-aps",
-	initgraph::Requires{getDeviceTreeParsedStage(), getTaskingAvailableStage()},
+	initgraph::Requires{
+	    acpi::getTablesDiscoveredStage(),
+	    getDeviceTreeParsedStage(),
+	    getBootProcessorReadyStage(),
+	    getTaskingAvailableStage()
+	},
 	[] {
-		getDeviceTreeRoot()->forEach([&](DeviceTreeNode *node) -> bool {
+		if (acpiRsdpNote->rsdp) {
+			bootApsFromAcpi();
+			return;
+		}
+		auto root = getDeviceTreeRoot();
+		if (!root)
+			return;
+		root->forEach([&](DeviceTreeNode *node) -> bool {
 			if (node->isCompatible<2>({"arm,psci", "arm,psci-1.0"})) {
 				psci_.initialize(node);
 				return true;
 			}
-
 			return false;
 		});
-
 		auto bspAffinity = getCpuData()->affinity;
-
 		size_t apCpuIndex = 1;
 		auto bootApFromDt = [&](DeviceTreeNode *node) {
 			auto affinity = node->reg()[0].addr;
@@ -297,12 +463,9 @@ static initgraph::Task initAPs{&globalInitEngine, "arm.init-aps",
 						<< frg::endlog;
 			}
 			if (apCpuIndex < cpuConfigNote->effectiveCpus)
-				bootSecondary(node, apCpuIndex);
+				bootSecondaryFromDt(node, apCpuIndex);
 			++apCpuIndex;
 		};
-
-		auto root = getDeviceTreeRoot();
-
 		if (auto it = root->children().find("cpus"); it != root->children().end()) {
 			auto cpus = it->get<1>();
 			cpus->forEach([&](DeviceTreeNode *node) {
