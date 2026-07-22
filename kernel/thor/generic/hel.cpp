@@ -3470,7 +3470,7 @@ HelError helAutomateIrq(HelHandle handle, uint32_t flags, HelHandle kernlet_hand
 		return translateError(irqOutcome.error());
 	auto irq = std::move(*irqOutcome);
 
-	auto kernletOutcome = this_universe->resolveObject<DescriptorType::boundKernlet>(kernlet_handle);
+	auto kernletOutcome = this_universe->resolveObject<DescriptorType::boundKernlet>(kernlet_handle, kHelRightAssign);
 	if(!kernletOutcome)
 		return translateError(kernletOutcome.error());
 	auto kernlet = std::move(*kernletOutcome);
@@ -3540,7 +3540,7 @@ HelError helBindKernlet(HelHandle handle, const HelKernletData *data, size_t num
 	auto this_thread = getCurrentThread();
 	auto this_universe = this_thread->getUniverse();
 
-	auto kernletOutcome = this_universe->resolveObject<DescriptorType::kernletObject>(handle);
+	auto kernletOutcome = this_universe->resolveObject<DescriptorType::kernletObject>(handle, kHelRightAssign);
 	if(!kernletOutcome)
 		return translateError(kernletOutcome.error());
 	auto kernlet = std::move(*kernletOutcome);
@@ -3609,7 +3609,7 @@ HelError helBindKernlet(HelHandle handle, const HelKernletData *data, size_t num
 	}
 
 	*bound_handle = this_universe->attachDescriptor(
-			AnyDescriptor::make<DescriptorType::boundKernlet>(std::move(bound)));
+			AnyDescriptor::make<DescriptorType::boundKernlet>(std::move(bound), kHelRightAssign));
 
 	return kHelErrNone;
 }
