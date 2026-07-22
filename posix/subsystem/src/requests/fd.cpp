@@ -267,7 +267,12 @@ HandleRequest::operator()(managarm::posix::EpollCallRequest &&req,
 		// Translate POLL events to EPOLL events.
 		if(req.events(i) & ~(POLLIN | POLLPRI | POLLOUT | POLLRDHUP | POLLERR | POLLHUP
 				| POLLNVAL | POLLWRNORM | POLLRDNORM)) {
-			std::cout << "\e[31mposix: Unexpected events for poll()\e[39m" << std::endl;
+			std::println(
+			    "\e[31mposix: Unexpected events {:#x} for poll()\e[39m",
+			    req.events(i)
+			        & ~(POLLIN | POLLPRI | POLLOUT | POLLRDHUP | POLLERR | POLLHUP | POLLNVAL
+			            | POLLWRNORM | POLLRDNORM)
+			);
 			co_await sendErrorResponse<managarm::posix::EpollCallResponse>(conversation, managarm::posix::Errors::ILLEGAL_ARGUMENTS);
 			co_return {};
 		}
