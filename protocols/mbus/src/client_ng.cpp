@@ -158,6 +158,13 @@ async::result<Result<Properties>> Entity::getProperties() const {
 	if (preamble.error() || preamble.id() != bragi::message_id<managarm::mbus::GetPropertiesResponse>)
 		co_return Error::protocolViolation;
 
+	auto maybeResp = bragi::parse_head_only<managarm::mbus::GetPropertiesResponse>(recvHead);
+	recvHead.reset();
+	if (!maybeResp)
+		co_return Error::protocolViolation;
+
+	auto &resp = *maybeResp;
+
 	std::vector<std::byte> tail(preamble.tail_size());
 	auto [recvTail] =
 		co_await helix_ng::exchangeMsgs(
@@ -166,12 +173,9 @@ async::result<Result<Properties>> Entity::getProperties() const {
 		);
 	HEL_CHECK(recvTail.error());
 
-	auto maybeResp = bragi::parse_head_tail<managarm::mbus::GetPropertiesResponse>(recvHead, tail);
-	recvHead.reset();
-	if (!maybeResp)
+	bragi::limited_reader reader{tail.data(), tail.size()};
+	if (!resp.decode_tail(reader))
 		co_return Error::protocolViolation;
-
-	auto &resp = *maybeResp;
 	if (resp.error() == managarm::mbus::Error::NO_SUCH_ENTITY)
 		co_return Error::noSuchEntity;
 
@@ -349,6 +353,13 @@ async::result<Result<EnumerationResult>> Enumerator::nextEvents() {
 	if (preamble.error() || preamble.id() != bragi::message_id<managarm::mbus::EnumerateResponse>)
 		co_return Error::protocolViolation;
 
+	auto maybeResp = bragi::parse_head_only<managarm::mbus::EnumerateResponse>(recvRespHead);
+	recvRespHead.reset();
+	if (!maybeResp)
+		co_return Error::protocolViolation;
+
+	auto &resp = *maybeResp;
+
 	std::vector<std::byte> tail(preamble.tail_size());
 	auto [recvRespTail] =
 		co_await helix_ng::exchangeMsgs(
@@ -357,12 +368,9 @@ async::result<Result<EnumerationResult>> Enumerator::nextEvents() {
 		);
 	HEL_CHECK(recvRespTail.error());
 
-	auto maybeResp = bragi::parse_head_tail<managarm::mbus::EnumerateResponse>(recvRespHead, tail);
-	recvRespHead.reset();
-	if (!maybeResp)
+	bragi::limited_reader reader{tail.data(), tail.size()};
+	if (!resp.decode_tail(reader))
 		co_return Error::protocolViolation;
-
-	auto &resp = *maybeResp;
 	if (resp.error() == managarm::mbus::Error::NO_SUCH_ENTITY)
 		co_return Error::noSuchEntity;
 
