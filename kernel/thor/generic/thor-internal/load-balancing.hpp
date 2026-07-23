@@ -1,6 +1,7 @@
 #pragma once
 
 #include <async/barrier.hpp>
+#include <frg/array.hpp>
 #include <frg/span.hpp>
 #include <thor-internal/coroutine.hpp>
 #include <thor-internal/cpu-data.hpp>
@@ -19,15 +20,23 @@ struct LbControlBlock {
 		return (getCpuCount() + 7) / 8;
 	}
 
-	LbControlBlock(Thread *thread, LbNode *node)
-	: thread_{thread->self.lock()}, node_{node}, affinityMask_{*kernelAlloc} {
+	LbControlBlock(Thread *thread)
+	: thread_{thread->self.lock()}, affinityMask_{*kernelAlloc} {
 		affinityMask_.resize(affinityMaskSize());
 		for (size_t i = 0; i < getCpuCount(); ++i)
 			affinityMask_[i / 8] |= (1 << (i % 8));
 	}
 
 	CpuData *getAssignedCpu() {
-		return _assignedCpu.load(std::memory_order_relaxed);
+		return _assignedCpu.load(std::memory_order_acquire);
+	}
+
+	void setAssignedCpu(CpuData *cpu) {
+		_assignedCpu.store(cpu, std::memory_order_release);
+	}
+
+	LbNode *getNode() {
+		return node_.load(std::memory_order_acquire);
 	}
 
 	// Precondition: mask.size() == affinityMaskSize().
@@ -35,8 +44,7 @@ struct LbControlBlock {
 		auto irqLock = frg::guard(&irqMutex());
 		auto lock = frg::guard(&mutex_);
 
-		assert(affinityMask_.size() == mask.size());
-		memcpy(mask.data(), affinityMask_.data(), affinityMaskSize());
+		getAffinityMaskLocked(mask);
 	}
 
 	// Precondition: mask.size() == affinityMaskSize().
@@ -45,16 +53,21 @@ struct LbControlBlock {
 		auto irqLock = frg::guard(&irqMutex());
 		auto lock = frg::guard(&mutex_);
 
-		assert(affinityMask_.size() == mask.size());
-		assert(std::any_of(mask.begin(), mask.end(), [] (uint8_t x) -> bool { return x; }));
-		memcpy(affinityMask_.data(), mask.data(), affinityMaskSize());
+		setAffinityMaskLocked(mask);
 	}
 
 	bool inAffinityMask(size_t cpuIndex) {
 		auto irqLock = frg::guard(&irqMutex());
 		auto lock = frg::guard(&mutex_);
 
-		return affinityMask_[cpuIndex / 8] & (1 << (cpuIndex % 8));
+		return inAffinityMaskLocked(cpuIndex);
+	}
+
+	static size_t findFirstCpu(frg::span<const uint8_t> mask) {
+		for(size_t i = 0; i < getCpuCount(); ++i)
+			if(mask[i / 8] & (1 << (i % 8)))
+				return i;
+		return static_cast<size_t>(-1);
 	}
 
 private:
@@ -65,8 +78,9 @@ private:
 	// Not necessarily the CPU that the thread runs on currently.
 	std::atomic<CpuData *> _assignedCpu{nullptr};
 
-	// Protected by the LbNode that currently owns the node.
-	LbNode *node_{nullptr};
+	// Advisory ownership snapshot. List membership under the expected node's
+	// mutex is authoritative.
+	std::atomic<LbNode *> node_{nullptr};
 
 	// Protected by the LbNode that currently owns the node.
 	frg::default_list_hook<LbControlBlock> hook_;
@@ -75,12 +89,34 @@ private:
 	// Protected by the LbNode that currently owns the node.
 	uint64_t load_{0};
 
-	// Protects members that can be written by public functions.
-	// Note that this mutex does not protect assigendCpu_, node_, hook_, load_ etc.
+	// Serializes explicit affinity setters for this control block.
+	frg::ticket_spinlock affinitySetterMutex_;
+
+	// Set while an explicit setter owns affinitySetterMutex_. Automatic
+	// balancing rejects active control blocks instead of waiting on them.
+	std::atomic<bool> affinityUpdateActive_{false};
+
+	// Protects affinityMask_. Ownership transactions acquire this after their
+	// node locks. It does not protect assignedCpu_, node_, hook_ or load_.
 	frg::ticket_spinlock mutex_;
 
-	// Protected by mutex_;
+	// Protected by mutex_.
 	frg::vector<uint8_t, KernelAlloc> affinityMask_;
+
+	void getAffinityMaskLocked(frg::span<uint8_t> mask) {
+		assert(affinityMask_.size() == mask.size());
+		memcpy(mask.data(), affinityMask_.data(), affinityMaskSize());
+	}
+
+	void setAffinityMaskLocked(frg::span<const uint8_t> mask) {
+		assert(affinityMask_.size() == mask.size());
+		assert(findFirstCpu(mask) != static_cast<size_t>(-1));
+		memcpy(affinityMask_.data(), mask.data(), affinityMaskSize());
+	}
+
+	bool inAffinityMaskLocked(size_t cpuIndex) {
+		return affinityMask_[cpuIndex / 8] & (1 << (cpuIndex % 8));
+	}
 };
 
 // Per-CPU load balancing data structure.
@@ -99,11 +135,10 @@ struct LbNode {
 		>
 	> tasks;
 
-	// Constant during main phase of load balancing.
+	// Protected accounting snapshot used to derive ideal load.
 	uint64_t totalLoad{0};
 
-	// Equal to totalLoad before load balancing but updated during load balancing.
-	// Protected by mutex during main phase of load balancing.
+	// Live list ownership accounting. Protected by mutex.
 	uint64_t currentLoad{0};
 };
 
@@ -125,14 +160,18 @@ struct LoadBalancer {
 	// The thread is detached from the load balancer when the weak reference goes out of scope.
 	void connect(Thread *thread, CpuData *cpu);
 
+	// Synchronously commit affinity metadata and ownership, then request an
+	// asynchronous migration at the next return-to-user condition point.
+	void setAffinity(Thread *thread, frg::span<const uint8_t> mask);
+
 private:
 	coroutine<void> run_(CpuData *cpu);
 
-	// Move tasks from srcNode to dstNode to balance load.
-	// newLoad: newLoad at dstNode after balancing.
-	void balanceBetween_(LbNode *srcNode, LbNode *dstNode, uint64_t &newLoad, uint64_t idealLoad);
+	// Move a bounded batch of tasks from srcNode to dstNode to balance load.
+	void balanceBetween_(LbNode *srcNode, LbNode *dstNode, uint64_t idealLoad);
 
 	async::barrier barrier_;
+	uint64_t systemLoad_{0};
 };
 
 } // namespace thor
