@@ -369,6 +369,11 @@ void LoadBalancer::balanceBetween_(LbNode *srcNode, LbNode *dstNode, uint64_t id
 		}
 	}
 
+	// Most source/destination pairs are already balanced. Avoid taking both
+	// node locks in that steady-state case.
+	if(!numCandidates)
+		return;
+
 	// Revalidate and commit at most this one batch. Stale selections are
 	// rejected until the next balancing round instead of being retried.
 	{
