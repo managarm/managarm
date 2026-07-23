@@ -66,8 +66,8 @@ void LoadBalancer::connect(Thread *thread, CpuData *cpu) {
 		auto lock = frg::guard(&node->mutex);
 
 		node->tasks.push_back(cb);
-		cb->node_.store(node, std::memory_order_release);
 		cb->setAssignedCpu(cpu);
+		cb->node_.store(node, std::memory_order_release);
 	}
 	thread->_lbCb = cb;
 }
@@ -115,8 +115,8 @@ void LoadBalancer::setAffinity(Thread *thread, frg::span<const uint8_t> mask) {
 				newNode->tasks.push_back(cb);
 				newNode->currentLoad += cb->load_;
 			}
-			cb->node_.store(newNode, std::memory_order_release);
 			cb->setAssignedCpu(assignedCpu);
+			cb->node_.store(newNode, std::memory_order_release);
 		});
 
 		cb->affinityUpdateActive_.store(false, std::memory_order_release);
@@ -398,8 +398,8 @@ void LoadBalancer::balanceBetween_(LbNode *srcNode, LbNode *dstNode, uint64_t id
 				srcNode->currentLoad -= cb->load_;
 				dstNode->tasks.push_back(cb);
 				dstNode->currentLoad += cb->load_;
-				cb->node_.store(dstNode, std::memory_order_release);
 				cb->setAssignedCpu(dstNode->cpu);
+				cb->node_.store(dstNode, std::memory_order_release);
 				committed[i] = true;
 			}
 		});
