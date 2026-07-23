@@ -1,6 +1,7 @@
 executable('kernel-tests',
 	[
 		'src/main.cpp',
+		'src/affinity.cpp',
 		'src/faults.cpp',
 		'src/mapping.cpp',
 		'src/memory.cpp',
