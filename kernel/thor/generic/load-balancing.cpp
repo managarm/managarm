@@ -218,6 +218,10 @@ void LoadBalancer::balanceBetween_(LbNode *srcNode, LbNode *dstNode, uint64_t &n
 			cb->_assignedCpu.store(dstNode->cpu, std::memory_order_relaxed);
 			stolenTasks.push_back(cb);
 
+			// Notify the thread such that it eventually moves to its assigned CPU.
+			if (auto thread = cb->thread_.lock())
+				Thread::migrateOther(thread);
+
 			srcNode->currentLoad -= cb->load_;
 			newLoad += cb->load_;
 		}
