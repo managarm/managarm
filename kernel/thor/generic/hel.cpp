@@ -3611,14 +3611,17 @@ HelError helGetAffinity(HelHandle handle, uint8_t *mask, size_t size, size_t *ac
 	auto this_thread = getCurrentThread();
 	auto this_universe = this_thread->getUniverse();
 
-	auto threadOutcome = this_universe->resolveObject<DescriptorType::thread>(handle);
-	if(!threadOutcome)
-		return translateError(threadOutcome.error());
-	auto thread = smarter::rc_policy_downcast<smarter::default_rc_policy>(std::move(*threadOutcome));
-
 	frg::vector<uint8_t, KernelAlloc> buf{*kernelAlloc};
 	buf.resize(maskSize);
-	thread->_lbCb->getAffinityMask({buf.data(), maskSize});
+	if(handle == kHelThisThread) {
+		this_thread->_lbCb->getAffinityMask({buf.data(), maskSize});
+	}else{
+		auto threadOutcome = this_universe->resolveObject<DescriptorType::thread>(handle);
+		if(!threadOutcome)
+			return translateError(threadOutcome.error());
+		auto thread = smarter::rc_policy_downcast<smarter::default_rc_policy>(std::move(*threadOutcome));
+		thread->_lbCb->getAffinityMask({buf.data(), maskSize});
+	}
 
 	size_t used_size = size > buf.size() ? buf.size() : size;
 
@@ -3642,12 +3645,7 @@ HelError helSetAffinity(HelHandle handle, uint8_t *mask, size_t size) {
 	if (!readUserArray(mask, buf.data(), size))
 		return kHelErrFault;
 
-	size_t n = 0;
-	for (auto i : buf) {
-		n += __builtin_popcount(i);
-	}
-
-	if (n < 1) {
+	if (LbControlBlock::findFirstCpu({buf.data(), maskSize}) == static_cast<size_t>(-1)) {
 		return kHelErrIllegalArgs;
 	}
 
@@ -3655,16 +3653,14 @@ HelError helSetAffinity(HelHandle handle, uint8_t *mask, size_t size) {
 	auto this_universe = this_thread->getUniverse();
 
 	if(handle == kHelThisThread) {
-		this_thread->_lbCb->setAffinityMask({buf.data(), maskSize});
-		Thread::migrateCurrent();
+		LoadBalancer::singleton().setAffinity(this_thread.get(), {buf.data(), maskSize});
 	} else {
 		auto threadOutcome = this_universe->resolveObject<DescriptorType::thread>(handle);
 		if(!threadOutcome)
 			return translateError(threadOutcome.error());
 		auto thread = smarter::rc_policy_downcast<smarter::default_rc_policy>(std::move(*threadOutcome));
 
-		thread->_lbCb->setAffinityMask({buf.data(), maskSize});
-		infoLogger() << "thor: TODO: helSetAffinity does not migrate other threads!" << frg::endlog;
+		LoadBalancer::singleton().setAffinity(thread.get(), {buf.data(), maskSize});
 	}
 
 	return kHelErrNone;

@@ -26,57 +26,6 @@ namespace {
 // Thread
 // --------------------------------------------------------
 
-void Thread::migrateCurrent() {
-	assert(currentIpl() < ipl::noSchedule);
-
-	auto this_thread = getCurrentThread().get();
-	auto maskSize = LbControlBlock::affinityMaskSize();
-
-	frg::vector<uint8_t, KernelAlloc> mask{*kernelAlloc};
-	mask.resize(maskSize);
-	this_thread->_lbCb->getAffinityMask({mask.data(), maskSize});
-
-	StatelessIrqLock irq_lock;
-	auto lock = frg::guard(&this_thread->_mutex);
-
-	assert(this_thread->_runState == kRunActive);
-	localScheduler.get().update();
-	Scheduler::suspendCurrent();
-	this_thread->_updateRunTime();
-	this_thread->_runState = kRunDeferred;
-	this_thread->_uninvoke();
-
-	Scheduler::unassociate(this_thread);
-
-	size_t n = -1;
-	for (size_t i = 0; i < getCpuCount(); i++) {
-		bool bit = 0;
-		if ((i + 7) / 8 < mask.size())
-			bit = mask[(i + 7) / 8] & (1 << (i % 8));
-
-		if (bit) {
-			n = i;
-			break;
-		}
-	}
-	// Affinity masks are guaranteed to not be all zeros.
-	assert(n != static_cast<size_t>(-1));
-
-	auto *new_scheduler = &localScheduler.getFor(n);
-
-	Scheduler::associate(this_thread, new_scheduler);
-	Scheduler::resume(this_thread);
-	localScheduler.get().forceReschedule();
-
-	forkExecutor([&] {
-		runOnStack([] (Continuation cont, Executor *executor, frg::unique_lock<Mutex> lock) {
-			scrubStack(executor, cont);
-			lock.unlock();
-			localScheduler.get().commitReschedule();
-		}, getCpuData()->detachedStack.base(), &this_thread->_executor, std::move(lock));
-	}, &this_thread->_executor);
-}
-
 void Thread::blockCurrent(Condition checkedConditions) {
 	assert(currentIpl() < ipl::noSchedule);
 
@@ -386,6 +335,46 @@ void Thread::terminateCurrent_() {
 }
 
 template<typename ImageAccessor>
+void Thread::migrateCurrentToAssignedCpu(ImageAccessor image) {
+	auto this_thread = getCurrentThread();
+
+	auto assignedCpu = this_thread->_lbCb->getAssignedCpu();
+	if(assignedCpu == getCpuData())
+		return;
+
+	StatelessIrqLock irq_lock;
+	auto lock = frg::guard(&this_thread->_mutex);
+
+	assert(this_thread->_runState == kRunActive);
+
+	// Handle thread migration due to load balancing.
+	assert(assignedCpu);
+	if(logMigration)
+		infoLogger() << "thor: " << (void *)this_thread.get()
+				<< " is moved to CPU " << assignedCpu->cpuIndex << frg::endlog;
+
+	this_thread->_updateRunTime();
+	this_thread->_runState = kRunDeferred;
+	saveExecutor(&this_thread->_executor, image);
+	localScheduler.get().update();
+	Scheduler::suspendCurrent();
+	this_thread->_uninvoke();
+	Scheduler::unassociate(this_thread.get());
+
+	auto *newScheduler = &localScheduler.get(assignedCpu);
+	Scheduler::associate(this_thread.get(), newScheduler);
+	Scheduler::resume(this_thread.get());
+	localScheduler.get().forceReschedule();
+
+	runOnStack([] (Continuation cont, ImageAccessor image,
+			frg::unique_lock<Mutex> lock) {
+		scrubStack(image, cont);
+		lock.unlock();
+		localScheduler.get().commitReschedule();
+	}, getCpuData()->detachedStack.base(), image, std::move(lock));
+}
+
+template<typename ImageAccessor>
 void Thread::genericHandleConditions(ImageAccessor image) {
 	assert(image.iplState()->current < ipl::noPreemption);
 	auto thisThread = getCurrentThread();
@@ -402,6 +391,11 @@ void Thread::genericHandleConditions(ImageAccessor image) {
 		auto c = Condition{1} << frg::floor_log2(pending);
 
 		switch (c) {
+			case condition::cpuMigration:
+				clearPending(c);
+				// Does not return if the thread is actually migrated.
+				migrateCurrentToAssignedCpu(image);
+				break;
 			case condition::passiveWq:
 				[[fallthrough]];
 			case condition::exceptionalWq:
@@ -434,44 +428,6 @@ void Thread::handleConditions(FaultImageAccessor image) {
 
 void Thread::handleConditions(IrqImageAccessor image) {
 	genericHandleConditions(image);
-}
-
-void Thread::raiseSignals(SyscallImageAccessor image) {
-	assert(image.iplState()->current < ipl::noPreemption);
-	auto this_thread = getCurrentThread();
-
-	if(auto assignedCpu = this_thread->_lbCb->getAssignedCpu(); assignedCpu != getCpuData()) {
-		StatelessIrqLock irq_lock;
-		auto lock = frg::guard(&this_thread->_mutex);
-
-		assert(this_thread->_runState == kRunActive);
-
-		// Handle thread migration due to load balancing.
-		assert(assignedCpu);
-		if(logMigration)
-			infoLogger() << "thor: " << (void *)this_thread.get()
-					<< " is moved to CPU " << assignedCpu->cpuIndex << frg::endlog;
-
-		this_thread->_updateRunTime();
-		this_thread->_runState = kRunDeferred;
-		saveExecutor(&this_thread->_executor, image);
-		localScheduler.get().update();
-		Scheduler::suspendCurrent();
-		this_thread->_uninvoke();
-		Scheduler::unassociate(this_thread.get());
-
-		auto *newScheduler = &localScheduler.get(assignedCpu);
-		Scheduler::associate(this_thread.get(), newScheduler);
-		Scheduler::resume(this_thread.get());
-		localScheduler.get().forceReschedule();
-
-		runOnStack([] (Continuation cont, SyscallImageAccessor image,
-				frg::unique_lock<Mutex> lock) {
-			scrubStack(image, cont);
-			lock.unlock();
-			localScheduler.get().commitReschedule();
-		}, getCpuData()->detachedStack.base(), image, std::move(lock));
-	}
 }
 
 void Thread::unblockOther(smarter::borrowed_ptr<Thread> thread) {
@@ -507,6 +463,10 @@ void Thread::killOther(smarter::borrowed_ptr<Thread>) {
 
 void Thread::interruptOther(smarter::borrowed_ptr<Thread> thread) {
 	thread->raiseCondition_(condition::interrupt);
+}
+
+void Thread::migrateOther(smarter::borrowed_ptr<Thread> thread) {
+	thread->raiseCondition_(condition::cpuMigration);
 }
 
 Error Thread::resumeOther(smarter::borrowed_ptr<Thread> thread) {
@@ -772,7 +732,7 @@ void Thread::AssociatedWorkQueue::wakeup() {
 	}
 }
 
-void Thread::updateLoad() {
+void Thread::updateLoad(bool applyDecay, uint64_t decayFactor, int decayScale) {
 	auto irqLock = frg::guard(&irqMutex());
 	auto lock = frg::guard(&_mutex);
 
@@ -783,17 +743,14 @@ void Thread::updateLoad() {
 	if (_loadRunnable)
 		factor = (_loadRunnable << loadShift) / (_loadRunnable + _loadNotRunnable);
 	_loadLevel.store(factor, std::memory_order_relaxed);
-}
-
-void Thread::decayLoad(uint64_t decayFactor, int decayScale) {
-	auto irqLock = frg::guard(&irqMutex());
-	auto lock = frg::guard(&_mutex);
 
 	// Apply a decay factor. Since this affects both numerator and denominator of the load level,
 	// the load level is not immediately affected by this decay.
-	auto decayTime = [&] (uint64_t t) -> uint64_t { return (t * decayFactor) >> decayScale; };
-	_loadRunnable = decayTime(_loadRunnable);
-	_loadNotRunnable = decayTime(_loadNotRunnable);
+	if(applyDecay) {
+		auto decayTime = [&] (uint64_t t) -> uint64_t { return (t * decayFactor) >> decayScale; };
+		_loadRunnable = decayTime(_loadRunnable);
+		_loadNotRunnable = decayTime(_loadNotRunnable);
+	}
 }
 
 } // namespace thor
