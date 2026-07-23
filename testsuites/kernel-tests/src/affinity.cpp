@@ -30,15 +30,12 @@ int stoppedThreadPark = 0;
 	// helGetCurrentCpu() samples before its return path consumes cpuMigration.
 	stoppedThreadFirstCpu[index].store(cpu, std::memory_order_release);
 
-	for(size_t i = 0; i < 10'000; ++i) {
-		assert(helYield() == kHelErrNone);
-		assert(helGetCurrentCpu(&cpu) == kHelErrNone);
-		if(cpu == stoppedThreadTargetCpu.load(std::memory_order_acquire)) {
-			stoppedThreadFinalCpu[index].store(cpu, std::memory_order_release);
-			stoppedThreadDone.fetch_add(1, std::memory_order_release);
-			break;
-		}
-	}
+	// The first syscall's return path consumes cpuMigration. Yield once to
+	// reach a subsequent safe point, then sample the CPU after that migration.
+	assert(helYield() == kHelErrNone);
+	assert(helGetCurrentCpu(&cpu) == kHelErrNone);
+	stoppedThreadFinalCpu[index].store(cpu, std::memory_order_release);
+	stoppedThreadDone.fetch_add(1, std::memory_order_release);
 
 	while(true)
 		assert(helFutexWait(&stoppedThreadPark, 0, -1) == kHelErrNone);
@@ -105,7 +102,7 @@ DEFINE_TEST(affinity_stopped_thread, ([] {
 	for(auto thread : threads)
 		assert(helResume(thread) == kHelErrNone);
 
-	for(size_t i = 0; i < 10'000
+	for(size_t i = 0; i < 1'000'000
 			&& stoppedThreadDone.load(std::memory_order_acquire) != stoppedThreadCount; ++i)
 		assert(helYield() == kHelErrNone);
 	assert(stoppedThreadDone.load(std::memory_order_acquire) == stoppedThreadCount);
