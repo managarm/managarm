@@ -933,7 +933,10 @@ HelError helCreateVirtualizedCpu(HelHandle handle, HelHandle *out) {
 	}
 
 	*out = this_universe->attachDescriptor(
-			AnyDescriptor::make<DescriptorType::virtualizedCpu>(std::move(vcpu)));
+		AnyDescriptor::make<DescriptorType::virtualizedCpu>(
+			std::move(vcpu), kHelRightRead | kHelRightWrite | kHelRightInvoke | kHelRightSignal
+		)
+	);
 	return kHelErrNone;
 #elif defined(__riscv) && __riscv_xlen == 64
 	if(!getCpuData()->haveVirtualization) {
@@ -954,7 +957,10 @@ HelError helCreateVirtualizedCpu(HelHandle handle, HelHandle *out) {
 	smarter::shared_ptr<VirtualizedCpu> vcpu = std::move(*vcpuOutcome);
 
 	*out = this_universe->attachDescriptor(
-			AnyDescriptor::make<DescriptorType::virtualizedCpu>(std::move(vcpu)));
+		AnyDescriptor::make<DescriptorType::virtualizedCpu>(
+			std::move(vcpu), kHelRightRead | kHelRightWrite | kHelRightInvoke | kHelRightSignal
+		)
+	);
 	return kHelErrNone;
 #else
 	(void)handle;
@@ -970,7 +976,7 @@ HelError helRunVirtualizedCpu(HelHandle handle, HelVmexitReason *exitInfo) {
 	auto this_thread = getCurrentThread();
 	auto this_universe = this_thread->getUniverse();
 
-	auto vcpuOutcome = this_universe->resolveObject<DescriptorType::virtualizedCpu>(handle);
+	auto vcpuOutcome = this_universe->resolveObject<DescriptorType::virtualizedCpu>(handle, kHelRightInvoke);
 	if(!vcpuOutcome)
 		return translateError(vcpuOutcome.error());
 	auto vcpu = std::move(*vcpuOutcome);
@@ -992,7 +998,7 @@ HelError helAssertVirtualizedIrq(HelHandle handle, uint64_t irq, uint8_t level) 
 	auto this_thread = getCurrentThread();
 	auto this_universe = this_thread->getUniverse();
 
-	auto vcpuOutcome = this_universe->resolveObject<DescriptorType::virtualizedCpu>(handle);
+	auto vcpuOutcome = this_universe->resolveObject<DescriptorType::virtualizedCpu>(handle, kHelRightSignal);
 	if(!vcpuOutcome)
 		return translateError(vcpuOutcome.error());
 	auto vcpu = std::move(*vcpuOutcome);
@@ -2009,7 +2015,7 @@ HelError helLoadRegisters(HelHandle handle, int set, void *image) {
 				return std::unexpected{threadOutcome.error()};
 			thread = smarter::rc_policy_downcast<smarter::default_rc_policy>(std::move(*threadOutcome));
 		} else if(desc.is<DescriptorType::virtualizedCpu>()) {
-			auto vcpuOutcome = desc.resolveObject<DescriptorType::virtualizedCpu>();
+			auto vcpuOutcome = desc.resolveObject<DescriptorType::virtualizedCpu>(kHelRightRead);
 			if(!vcpuOutcome)
 				return std::unexpected{vcpuOutcome.error()};
 			vcpu = std::move(*vcpuOutcome);
@@ -2284,7 +2290,7 @@ HelError helStoreRegisters(HelHandle handle, int set, const void *image) {
 					return std::unexpected{threadOutcome.error()};
 				thread = smarter::rc_policy_downcast<smarter::default_rc_policy>(std::move(*threadOutcome));
 			}else if(desc.is<DescriptorType::virtualizedCpu>()) {
-				auto vcpuOutcome = desc.resolveObject<DescriptorType::virtualizedCpu>();
+				auto vcpuOutcome = desc.resolveObject<DescriptorType::virtualizedCpu>(kHelRightWrite);
 				if(!vcpuOutcome)
 					return std::unexpected{vcpuOutcome.error()};
 				vcpu = std::move(*vcpuOutcome);
