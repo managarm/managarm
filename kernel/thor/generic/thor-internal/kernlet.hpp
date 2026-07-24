@@ -3,6 +3,7 @@
 #include <frg/vector.hpp>
 #include <frg/variant.hpp>
 #include <thor-internal/event.hpp>
+#include <thor-internal/rcu-base.hpp>
 
 namespace thor {
 
@@ -20,7 +21,7 @@ struct KernletParameterDefn {
 	size_t offset;
 };
 
-struct KernletObject {
+struct KernletObject : RcuProtected {
 	// This is only required so that BoundKernlet can access the _entry.
 	// TODO: Add a getIrqAutomationEntry() function instead.
 	friend struct BoundKernlet;
@@ -45,7 +46,7 @@ private:
 	size_t _instanceSize;
 };
 
-struct BoundKernlet {
+struct BoundKernlet : RcuProtected {
 private:
 	struct CtorToken {};
 

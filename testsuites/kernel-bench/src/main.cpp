@@ -187,7 +187,8 @@ void doFutexBenchmark() {
 		while(!bench.isRepetitionDone()) {
 			for(int i = 0; i < 100; ++i) {
 				int futex = 1;
-				HEL_CHECK(helFutexWait(&futex, 0, -1));
+				auto e = helFutexWait(&futex, 0, -1);
+				assert(e == kHelErrFutexRace);
 				++n;
 			}
 		}

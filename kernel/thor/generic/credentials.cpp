@@ -3,11 +3,13 @@
 #include <thor-internal/credentials.hpp>
 #include <thor-internal/kernel-heap.hpp>
 #include <thor-internal/random.hpp>
+#include <thor-internal/rcu.hpp>
 
 namespace thor {
 
 std::expected<smarter::shared_ptr<TokenObject>, Error> TokenObject::create() {
-	return smarter::allocate_shared<TokenObject>(*kernelAlloc, CtorToken{});
+	auto ptr = allocate_rcu_shared<TokenObject>(*kernelAlloc, CtorToken{});
+	return ptr;
 }
 
 Credentials::Credentials() {

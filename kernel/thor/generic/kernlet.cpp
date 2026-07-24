@@ -32,7 +32,7 @@ namespace {
 
 std::expected<smarter::shared_ptr<KernletObject>, Error> KernletObject::create(
 		void *entry, const frg::vector<KernletParameterType, KernelAlloc> &bind_types) {
-	auto ptr = smarter::allocate_shared<KernletObject>(*kernelAlloc, CtorToken{}, entry, bind_types);
+	auto ptr = allocate_rcu_shared<KernletObject>(*kernelAlloc, CtorToken{}, entry, bind_types);
 	return ptr;
 }
 
@@ -76,7 +76,7 @@ const KernletParameterDefn &KernletObject::defnOfBindParameter(size_t index) {
 
 std::expected<smarter::shared_ptr<BoundKernlet>, Error> BoundKernlet::create(
 		smarter::shared_ptr<KernletObject> object) {
-	auto ptr = smarter::allocate_shared<BoundKernlet>(*kernelAlloc, CtorToken{}, std::move(object));
+	auto ptr = allocate_rcu_shared<BoundKernlet>(*kernelAlloc, CtorToken{}, std::move(object));
 	return ptr;
 }
 

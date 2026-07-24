@@ -10,6 +10,7 @@
 #include <thor-internal/error.hpp>
 #include <thor-internal/kernel-heap.hpp>
 #include <thor-internal/kernlet.hpp>
+#include <thor-internal/rcu-base.hpp>
 #include <thor-internal/work-queue.hpp>
 
 namespace thor {
@@ -299,7 +300,7 @@ protected:
 // ----------------------------------------------------------------------------
 
 // This class implements the user-visible part of IRQ handling.
-struct IrqObject : IrqSink {
+struct IrqObject : IrqSink, RcuProtected {
 	friend AwaitIrqNode;
 
 	void automate(smarter::shared_ptr<BoundKernlet> kernlet);

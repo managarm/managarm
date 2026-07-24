@@ -523,7 +523,7 @@ public:
 		PageAccessor accessor{root};
 		memset(accessor.get(), 0, kPageSize);
 
-		auto ptr = smarter::allocate_shared<IntelIommuDmaSpace>(
+		auto ptr = allocate_rcu_shared<IntelIommuDmaSpace>(
 				*kernelAlloc, CtorToken{}, root, iommu, domainId);
 		ptr->selfPtr = ptr;
 		ptr->setupInitialHole(0x1000, (1UL << 39) - 0x1000);

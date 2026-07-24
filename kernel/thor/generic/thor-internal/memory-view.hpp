@@ -19,6 +19,7 @@
 #include <thor-internal/types.hpp>
 #include <thor-internal/pfn-db.hpp>
 #include <thor-internal/rcu.hpp>
+#include <thor-internal/rcu-base.hpp>
 
 namespace thor {
 
@@ -312,7 +313,7 @@ private:
 };
 
 // View on some pages of memory. This is the "frontend" part of a memory object.
-struct MemoryView {
+struct MemoryView : RcuProtected {
 protected:
 	MemoryView(EvictionQueue *associatedEvictionQueue = nullptr)
 	: associatedEvictionQueue_{associatedEvictionQueue} { }
@@ -412,7 +413,7 @@ struct SliceRange {
 	size_t size;
 };
 
-struct MemorySlice {
+struct MemorySlice : RcuProtected {
 private:
 	struct CtorToken {};
 

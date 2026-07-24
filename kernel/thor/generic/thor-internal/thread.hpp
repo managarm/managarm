@@ -8,6 +8,7 @@
 #include <thor-internal/credentials.hpp>
 #include <thor-internal/cpu-data.hpp>
 #include <thor-internal/error.hpp>
+#include <thor-internal/rcu.hpp>
 #include <thor-internal/schedule.hpp>
 #include <thor-internal/universe.hpp>
 #include <thor-internal/work-queue.hpp>
@@ -134,7 +135,7 @@ public:
 			smarter::shared_ptr<Universe> universe,
 			smarter::shared_ptr<AddressSpace, BindableHandle> address_space,
 			AbiParameters abi) {
-		auto thread = smarter::allocate_shared<Thread>(*kernelAlloc, CtorToken{},
+		auto thread = allocate_rcu_shared<Thread>(*kernelAlloc, CtorToken{},
 				std::move(universe), std::move(address_space), abi);
 		thread->self = thread;
 		thread->_executorContext->exceptionalWq = &thread->_pagingWorkQueue;
