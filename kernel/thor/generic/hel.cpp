@@ -2604,9 +2604,15 @@ HelError helCreateStream(HelHandle *lane1_handle, HelHandle *lane2_handle, uint3
 	if(!lanesOutcome)
 		return translateError(lanesOutcome.error());
 	*lane1_handle = this_universe->attachDescriptor(
-			AnyDescriptor::make<DescriptorType::lane>(std::move(lanesOutcome->get<0>())));
+		AnyDescriptor::make<DescriptorType::lane>(
+			std::move(lanesOutcome->get<0>()), kHelRightInvoke | kHelRightManage
+		)
+	);
 	*lane2_handle = this_universe->attachDescriptor(
-			AnyDescriptor::make<DescriptorType::lane>(std::move(lanesOutcome->get<1>())));
+		AnyDescriptor::make<DescriptorType::lane>(
+			std::move(lanesOutcome->get<1>()), kHelRightInvoke | kHelRightManage
+		)
+	);
 
 	return kHelErrNone;
 }
@@ -2627,7 +2633,7 @@ HelError doSubmitExchangeMsgs(HelHandle laneHandle, smarter::shared_ptr<IpcQueue
 	auto thisThread = getCurrentThread();
 	auto thisUniverse = thisThread->getUniverse();
 
-	auto laneOutcome = thisUniverse->resolveObject<DescriptorType::lane>(laneHandle);
+	auto laneOutcome = thisUniverse->resolveObject<DescriptorType::lane>(laneHandle, kHelRightInvoke);
 	if(!laneOutcome)
 		return translateError(laneOutcome.error());
 	auto lane = std::move(*laneOutcome);
@@ -3102,7 +3108,10 @@ HelError doSubmitExchangeMsgs(HelHandle laneHandle, smarter::shared_ptr<IpcQueue
 					assert(universe);
 
 					handle = universe->attachDescriptor(
-							AnyDescriptor::make<DescriptorType::lane>(node->lane()));
+						AnyDescriptor::make<DescriptorType::lane>(
+							node->lane(), kHelRightInvoke | kHelRightManage
+						)
+					);
 				}
 
 				item->helHandleResult = {translateError(node->error()), 0, handle};
@@ -3116,7 +3125,10 @@ HelError doSubmitExchangeMsgs(HelHandle laneHandle, smarter::shared_ptr<IpcQueue
 					assert(universe);
 
 					handle = universe->attachDescriptor(
-							AnyDescriptor::make<DescriptorType::lane>(node->lane()));
+						AnyDescriptor::make<DescriptorType::lane>(
+							node->lane(), kHelRightInvoke | kHelRightManage
+						)
+					);
 				}
 
 				item->helHandleResult = {translateError(node->error()), 0, handle};
@@ -3186,7 +3198,7 @@ HelError helShutdownLane(HelHandle handle) {
 	auto this_thread = getCurrentThread();
 	auto this_universe = this_thread->getUniverse();
 
-	auto laneOutcome = this_universe->resolveObject<DescriptorType::lane>(handle);
+	auto laneOutcome = this_universe->resolveObject<DescriptorType::lane>(handle, kHelRightManage);
 	if(!laneOutcome)
 		return translateError(laneOutcome.error());
 	auto lane = std::move(*laneOutcome);
