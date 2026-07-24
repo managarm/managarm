@@ -5,7 +5,7 @@ edition = "2024"
 
 [dependencies]
 anyhow = "1.0"
-bragi = "0.2"
+bragi = "0.3"
 indexmap = "2"
 object = { version = "0.37", default-features = false, features = ["write"] }
 hel.workspace = true

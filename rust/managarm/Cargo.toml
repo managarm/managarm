@@ -6,7 +6,7 @@ edition = "2024"
 [dependencies]
 anyhow = "1.0"
 async-trait = "0.1"
-bragi = "0.2"
+bragi = "0.3"
 hel.workspace = true
 hel-sys.workspace = true
 thiserror = "2.0"
