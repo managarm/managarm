@@ -852,7 +852,11 @@ HelError helCreateSpace(HelHandle *handle) {
 		return translateError(spaceOutcome.error());
 
 	*handle = this_universe->attachDescriptor(
-			AnyDescriptor::make<DescriptorType::addressSpace>(std::move(*spaceOutcome)));
+		AnyDescriptor::make<DescriptorType::addressSpace>(
+			std::move(*spaceOutcome),
+			kHelRightGrant | kHelRightRead | kHelRightWrite | kHelRightAssign | kHelRightProvision
+		)
+	);
 
 	return kHelErrNone;
 }
@@ -1108,7 +1112,7 @@ HelError helMapMemory(HelHandle memory_handle, HelHandle space_handle,
 		auto spaceOutcome = this_universe->inspectDescriptor(space_handle,
 				[&](AnyDescriptor &desc) -> std::expected<void, Error> {
 			if(desc.is<DescriptorType::addressSpace>()) {
-				auto addressSpaceOutcome = desc.resolveObject<DescriptorType::addressSpace>();
+				auto addressSpaceOutcome = desc.resolveObject<DescriptorType::addressSpace>(kHelRightGrant);
 				if(!addressSpaceOutcome)
 					return std::unexpected{addressSpaceOutcome.error()};
 				space = std::move(*addressSpaceOutcome);
@@ -1183,7 +1187,7 @@ HelError doSubmitProtectMemory(HelHandle space_handle, smarter::shared_ptr<IpcQu
 	if(space_handle == kHelNullHandle) {
 		space = this_thread->getAddressSpace().lock();
 	}else{
-		auto spaceOutcome = this_universe->resolveObject<DescriptorType::addressSpace>(space_handle);
+		auto spaceOutcome = this_universe->resolveObject<DescriptorType::addressSpace>(space_handle, kHelRightGrant);
 		if(!spaceOutcome)
 			return translateError(spaceOutcome.error());
 		space = std::move(*spaceOutcome);
@@ -1225,7 +1229,7 @@ HelError helUnmapMemory(HelHandle space_handle, void *pointer, size_t length) {
 		auto spaceOutcome = this_universe->inspectDescriptor(space_handle,
 				[&](AnyDescriptor &desc) -> std::expected<void, Error> {
 			if(desc.is<DescriptorType::addressSpace>()) {
-				auto addressSpaceOutcome = desc.resolveObject<DescriptorType::addressSpace>();
+				auto addressSpaceOutcome = desc.resolveObject<DescriptorType::addressSpace>(kHelRightGrant);
 				if(!addressSpaceOutcome)
 					return std::unexpected{addressSpaceOutcome.error()};
 				space = std::move(*addressSpaceOutcome);
@@ -1274,7 +1278,7 @@ HelError doSubmitSynchronizeSpace(HelHandle spaceHandle, smarter::shared_ptr<Ipc
 	if(spaceHandle == kHelNullHandle) {
 		space = thisThread->getAddressSpace().lock();
 	}else{
-		auto spaceOutcome = thisUniverse->resolveObject<DescriptorType::addressSpace>(spaceHandle);
+		auto spaceOutcome = thisUniverse->resolveObject<DescriptorType::addressSpace>(spaceHandle, kHelRightProvision);
 		if(!spaceOutcome)
 			return translateError(spaceOutcome.error());
 		space = std::move(*spaceOutcome);
@@ -1312,7 +1316,7 @@ HelError helPointerPhysical(HelHandle spaceHandle, const void *pointer, uintptr_
 		auto spaceOutcome = thisUniverse->inspectDescriptor(spaceHandle,
 				[&](AnyDescriptor &desc) -> std::expected<void, Error> {
 			if(desc.is<DescriptorType::addressSpace>()) {
-				auto addressSpaceOutcome = desc.resolveObject<DescriptorType::addressSpace>();
+				auto addressSpaceOutcome = desc.resolveObject<DescriptorType::addressSpace>(kHelRightProvision);
 				if(!addressSpaceOutcome)
 					return std::unexpected{addressSpaceOutcome.error()};
 				space = std::move(*addressSpaceOutcome);
@@ -1455,7 +1459,7 @@ HelError doSubmitReadMemory(HelHandle handle, smarter::shared_ptr<IpcQueue> queu
 				std::move(*viewOutcome), address, length, buffer, std::move(queue), context,
 				enable_detached_coroutine{getCurrentThread()->mainWorkQueue().lock()});
 	}else if(descriptor.is<DescriptorType::addressSpace>()) {
-		auto spaceOutcome = descriptor.resolveObject<DescriptorType::addressSpace>();
+		auto spaceOutcome = descriptor.resolveObject<DescriptorType::addressSpace>(kHelRightRead);
 		if(!spaceOutcome)
 			return translateError(spaceOutcome.error());
 		readVirtualSpace(
@@ -1586,7 +1590,7 @@ HelError doSubmitWriteMemory(HelHandle handle, smarter::shared_ptr<IpcQueue> que
 				std::move(*viewOutcome), address, length, buffer, std::move(queue), context,
 				enable_detached_coroutine{getCurrentThread()->mainWorkQueue().lock()});
 	}else if(descriptor.is<DescriptorType::addressSpace>()) {
-		auto spaceOutcome = descriptor.resolveObject<DescriptorType::addressSpace>();
+		auto spaceOutcome = descriptor.resolveObject<DescriptorType::addressSpace>(kHelRightWrite);
 		if(!spaceOutcome)
 			return translateError(spaceOutcome.error());
 		writeVirtualSpace(
@@ -1827,7 +1831,9 @@ HelError helCreateThread(HelHandle universe_handle, HelHandle space_handle,
 	if(space_handle == kHelNullHandle) {
 		space = this_thread->getAddressSpace().lock();
 	}else{
-		auto spaceOutcome = this_universe->resolveObject<DescriptorType::addressSpace>(space_handle);
+		auto spaceOutcome = this_universe->resolveObject<DescriptorType::addressSpace>(
+			space_handle, kHelRightRead | kHelRightWrite | kHelRightAssign
+		);
 		if(!spaceOutcome)
 			return translateError(spaceOutcome.error());
 		space = std::move(*spaceOutcome);
