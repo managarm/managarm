@@ -647,7 +647,7 @@ HelError helAlterMemoryIndirection(HelHandle indirectHandle, size_t slot,
 				return std::unexpected{viewOutcome.error()};
 			memoryView = std::move(*viewOutcome);
 		} else if(desc.is<DescriptorType::memorySlice>()) {
-			auto sliceOutcome = desc.resolveObject<DescriptorType::memorySlice>();
+			auto sliceOutcome = desc.resolveObject<DescriptorType::memorySlice>(kHelRightAssign);
 			if(!sliceOutcome)
 				return std::unexpected{sliceOutcome.error()};
 			memoryView = (*sliceOutcome)->getView();
@@ -697,8 +697,12 @@ HelError helCreateSliceView(HelHandle memoryHandle,
 	auto sliceOutcome = MemorySlice::create(std::move(view), offset, size, cachingFlags);
 	if(!sliceOutcome)
 		return translateError(sliceOutcome.error());
+	// TODO: We should inherit the proper rights here instead of unconditionally gaining RWX.
 	*handle = this_universe->attachDescriptor(
-			AnyDescriptor::make<DescriptorType::memorySlice>(std::move(*sliceOutcome)));
+		AnyDescriptor::make<DescriptorType::memorySlice>(
+			std::move(*sliceOutcome), kHelRightRead | kHelRightWrite | kHelRightExecute | kHelRightAssign
+		)
+	);
 
 	return kHelErrNone;
 }
@@ -1071,10 +1075,18 @@ HelError helMapMemory(HelHandle memory_handle, HelHandle space_handle,
 	smarter::shared_ptr<VirtualSpace> vspace;
 	bool isVspace = false;
 
+	uint32_t requiredRights = kHelRightAssign;
+	if (flags & kHelMapProtRead)
+		requiredRights |= kHelRightRead;
+	if (flags & kHelMapProtWrite)
+		requiredRights |= kHelRightWrite;
+	if (flags & kHelMapProtExecute)
+		requiredRights |= kHelRightExecute;
+
 	auto memoryOutcome = this_universe->inspectDescriptor(memory_handle,
 			[&](AnyDescriptor &desc) -> std::expected<void, Error> {
 		if(desc.is<DescriptorType::memorySlice>()) {
-			auto sliceOutcome = desc.resolveObject<DescriptorType::memorySlice>();
+			auto sliceOutcome = desc.resolveObject<DescriptorType::memorySlice>(requiredRights);
 			if(!sliceOutcome)
 				return std::unexpected{sliceOutcome.error()};
 			slice = std::move(*sliceOutcome);
