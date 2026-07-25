@@ -242,13 +242,6 @@ struct AnyDescriptor {
 	template<DescriptorType K>
 	static AnyDescriptor make(DescriptorPointer<K> ptr, uint32_t rights);
 
-	// Legacy overload that sets rights to zero.
-	// TODO: Remove this after rights are integrated everywhere.
-	template<DescriptorType K>
-	static AnyDescriptor make(DescriptorPointer<K> ptr) {
-		return make<K>(std::move(ptr), 0);
-	}
-
 	AnyDescriptor() = default;
 
 	AnyDescriptor(const AnyDescriptor &other)
@@ -283,15 +276,6 @@ struct AnyDescriptor {
 	template<DescriptorType K>
 	bool is() const {
 		return type_ == K;
-	}
-
-	// Legacy overload that does not check rights.
-	// TODO: Remove this after rights are integrated everywhere.
-	template<DescriptorType K>
-	std::expected<DescriptorPointer<K>, Error> resolveObject() const {
-		if (!is<K>())
-			return std::unexpected{Error::badDescriptor};
-		return resolve_<K>();
 	}
 
 	// Resolves the descriptor to the object it holds (takes a new reference).
@@ -443,15 +427,7 @@ public:
 		return std::forward<Fn>(fn)(*desc);
 	}
 
-	// Looks up a handle and resolves it to the object held by its descriptor.
-	// Fails with badDescriptor unless the descriptor is of type K.
-	template<DescriptorType K>
-	std::expected<DescriptorPointer<K>, Error> resolveObject(Handle handle) {
-		return inspectDescriptor(handle, [](AnyDescriptor &desc) {
-			return desc.resolveObject<K>();
-		});
-	}
-
+	// Convenience wrapper for getDescriptor() -> resolveObject().
 	template<DescriptorType K>
 	std::expected<DescriptorPointer<K>, Error> resolveObject(Handle handle, uint32_t rights) {
 		return inspectDescriptor(handle, [&](AnyDescriptor &desc) {
@@ -459,6 +435,7 @@ public:
 		});
 	}
 
+	// Convenience wrapper for getDescriptor() -> resolveCapability().
 	template<DescriptorType K>
 	std::expected<std::tuple<DescriptorPointer<K>, uint32_t>, Error>
 	resolveCapability(Handle handle, uint32_t rights) {
