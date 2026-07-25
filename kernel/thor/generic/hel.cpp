@@ -253,7 +253,7 @@ HelError helSubmitAsyncNop(HelHandle queueHandle, uintptr_t context) {
 	auto thisThread = getCurrentThread();
 	auto thisUniverse = thisThread->getUniverse();
 
-	auto queueOutcome = thisUniverse->resolveObject<DescriptorType::queue>(queueHandle);
+	auto queueOutcome = thisUniverse->resolveObject<DescriptorType::queue>(queueHandle, kHelRightInvoke);
 	if(!queueOutcome)
 		return translateError(queueOutcome.error());
 
@@ -417,7 +417,11 @@ HelError helCreateQueue(const HelQueueParameters *paramsPtr, HelHandle *handle) 
 	if(!queueOutcome)
 		return translateError(queueOutcome.error());
 	*handle = thisUniverse->attachDescriptor(
-			AnyDescriptor::make<DescriptorType::queue>(std::move(*queueOutcome)));
+		AnyDescriptor::make<DescriptorType::queue>(
+			std::move(*queueOutcome),
+			kHelRightRead | kHelRightWrite | kHelRightInvoke | kHelRightAssign | kHelRightWait | kHelRightSignal
+		)
+	);
 
 	return kHelErrNone;
 }
@@ -429,7 +433,7 @@ HelError helDriveQueue(HelHandle handle, uint32_t flags, uint32_t notifyMask) {
 	auto thisThread = getCurrentThread();
 	auto thisUniverse = thisThread->getUniverse();
 
-	auto queueOutcome = thisUniverse->resolveObject<DescriptorType::queue>(handle);
+	auto queueOutcome = thisUniverse->resolveObject<DescriptorType::queue>(handle, kHelRightInvoke | kHelRightWait);
 	if(!queueOutcome)
 		return translateError(queueOutcome.error());
 	auto queue = std::move(*queueOutcome);
@@ -462,7 +466,7 @@ HelError helAlertQueue(HelHandle handle) {
 	auto thisThread = getCurrentThread();
 	auto thisUniverse = thisThread->getUniverse();
 
-	auto queueOutcome = thisUniverse->resolveObject<DescriptorType::queue>(handle);
+	auto queueOutcome = thisUniverse->resolveObject<DescriptorType::queue>(handle, kHelRightSignal);
 	if(!queueOutcome)
 		return translateError(queueOutcome.error());
 	auto queue = std::move(*queueOutcome);
@@ -1130,7 +1134,7 @@ HelError helMapMemory(HelHandle memory_handle, HelHandle space_handle,
 				return std::unexpected{sliceOutcome.error()};
 			slice = std::move(*sliceOutcome);
 		}else if(desc.is<DescriptorType::queue>()) {
-			auto queueOutcome = desc.resolveObject<DescriptorType::queue>();
+			auto queueOutcome = desc.resolveObject<DescriptorType::queue>(requiredRights);
 			if(!queueOutcome)
 				return std::unexpected{queueOutcome.error()};
 			auto memory = (*queueOutcome)->getMemory();
