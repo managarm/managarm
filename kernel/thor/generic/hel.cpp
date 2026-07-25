@@ -812,7 +812,7 @@ HelError doSubmitPopulateSpace(HelHandle handle, smarter::shared_ptr<IpcQueue> q
 	auto this_thread = getCurrentThread();
 	auto this_universe = this_thread->getUniverse();
 
-	auto dmaSpaceOutcome = this_universe->resolveObject<DescriptorType::dmaSpace>(handle);
+	auto dmaSpaceOutcome = this_universe->resolveObject<DescriptorType::dmaSpace>(handle, kHelRightProvision);
 	if(!dmaSpaceOutcome)
 		return translateError(dmaSpaceOutcome.error());
 	auto space = std::move(*dmaSpaceOutcome);
@@ -1113,7 +1113,7 @@ HelError helMapMemory(HelHandle memory_handle, HelHandle space_handle,
 				isVspace = true;
 				vspace = std::move(*vspaceOutcome);
 			} else if(desc.is<DescriptorType::dmaSpace>()) {
-				auto dmaOutcome = desc.resolveObject<DescriptorType::dmaSpace>();
+				auto dmaOutcome = desc.resolveObject<DescriptorType::dmaSpace>(kHelRightGrant);
 				if(!dmaOutcome)
 					return std::unexpected{dmaOutcome.error()};
 				isVspace = true;
@@ -1225,7 +1225,7 @@ HelError helUnmapMemory(HelHandle space_handle, void *pointer, size_t length) {
 				space = std::move(*addressSpaceOutcome);
 				return {};
 			}else if(desc.is<DescriptorType::dmaSpace>()) {
-				auto dmaOutcome = desc.resolveObject<DescriptorType::dmaSpace>();
+				auto dmaOutcome = desc.resolveObject<DescriptorType::dmaSpace>(kHelRightGrant);
 				if(!dmaOutcome)
 					return std::unexpected{dmaOutcome.error()};
 				vspace = std::move(*dmaOutcome);
@@ -1312,7 +1312,7 @@ HelError helPointerPhysical(HelHandle spaceHandle, const void *pointer, uintptr_
 				space = std::move(*addressSpaceOutcome);
 				return {};
 			} else if(desc.is<DescriptorType::dmaSpace>()) {
-				auto dmaOutcome = desc.resolveObject<DescriptorType::dmaSpace>();
+				auto dmaOutcome = desc.resolveObject<DescriptorType::dmaSpace>(kHelRightProvision);
 				if(!dmaOutcome)
 					return std::unexpected{dmaOutcome.error()};
 				dmaSpace = std::move(*dmaOutcome);

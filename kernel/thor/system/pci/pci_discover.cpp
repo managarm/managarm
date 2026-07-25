@@ -783,9 +783,9 @@ coroutine<frg::expected<Error>> PciEntity::handleRequest(smarter::shared_ptr<Str
 			co_return Error::protocolViolation;
 		}
 
-		auto descriptor = AnyDescriptor::make<DescriptorType::dmaSpace>(*noopDmaSpace);
+		auto descriptor = AnyDescriptor::make<DescriptorType::dmaSpace>(*noopDmaSpace, kHelRightGrant | kHelRightProvision);
 		if (iommuDomain)
-			descriptor = AnyDescriptor::make<DescriptorType::dmaSpace>(iommuDomain->space_);
+			descriptor = AnyDescriptor::make<DescriptorType::dmaSpace>(iommuDomain->space_, kHelRightGrant | kHelRightProvision);
 
 		managarm::hw::GetDmaSpaceResponse<KernelAlloc> resp{*kernelAlloc};
 		resp.set_iommu_active(iommuDomain != nullptr);
