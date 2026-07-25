@@ -312,7 +312,9 @@ coroutine<frg::expected<Error>> PciEntity::handleRequest(smarter::shared_ptr<Str
 			descriptor = AnyDescriptor::make<DescriptorType::io>(bars[index].io, kHelRightAssign);
 		}else{
 			assert(bars[index].type == PciBar::kBarMemory);
-			descriptor = AnyDescriptor::make<DescriptorType::memoryView>(bars[index].memory);
+			descriptor = AnyDescriptor::make<DescriptorType::memoryView>(
+				bars[index].memory, kHelRightRead | kHelRightWrite | kHelRightAssign | kHelRightProvision | kHelRightPin
+			);
 		}
 
 		managarm::hw::SvrResponse<KernelAlloc> resp{*kernelAlloc};
@@ -333,7 +335,9 @@ coroutine<frg::expected<Error>> PciEntity::handleRequest(smarter::shared_ptr<Str
 		}
 
 		assert(expansionRom.address);
-		auto descriptor = AnyDescriptor::make<DescriptorType::memoryView>(expansionRom.memory);
+		auto descriptor = AnyDescriptor::make<DescriptorType::memoryView>(
+			expansionRom.memory, kHelRightRead | kHelRightAssign | kHelRightProvision | kHelRightPin
+		);
 
 		managarm::hw::SvrResponse<KernelAlloc> resp{*kernelAlloc};
 		resp.set_error(managarm::hw::Errors::SUCCESS);
@@ -715,7 +719,10 @@ coroutine<frg::expected<Error>> PciEntity::handleRequest(smarter::shared_ptr<Str
 			FRG_CO_TRY(co_await sendResponse(conversation, std::move(resp)));
 
 			auto descError = co_await pushDescriptor(conversation,
-					AnyDescriptor::make<DescriptorType::memoryView>(fb->memory));
+				AnyDescriptor::make<DescriptorType::memoryView>(
+					fb->memory, kHelRightRead | kHelRightWrite | kHelRightAssign | kHelRightProvision | kHelRightPin
+				)
+			);
 			// TODO: improve error handling here.
 			assert(descError == Error::success);
 		}
@@ -771,7 +778,8 @@ coroutine<frg::expected<Error>> PciEntity::handleRequest(smarter::shared_ptr<Str
 			FRG_CO_TRY(co_await sendResponse(conversation, std::move(resp)));
 
 			auto descError = co_await pushDescriptor(conversation,
-					AnyDescriptor::make<DescriptorType::memoryView>(vbt));
+				AnyDescriptor::make<DescriptorType::memoryView>(vbt, kHelRightRead | kHelRightAssign | kHelRightProvision | kHelRightPin)
+			);
 			// TODO: improve error handling here.
 			assert(descError == Error::success);
 		}

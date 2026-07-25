@@ -507,7 +507,11 @@ HelError helAllocateMemory(size_t size, uint32_t flags,
 		return translateError(memoryOutcome.error());
 
 	*handle = thisUniverse->attachDescriptor(
-			AnyDescriptor::make<DescriptorType::memoryView>(std::move(*memoryOutcome)));
+		AnyDescriptor::make<DescriptorType::memoryView>(
+			std::move(*memoryOutcome),
+			kHelRightRead | kHelRightWrite | kHelRightExecute | kHelRightAssign | kHelRightProvision | kHelRightPin | kHelRightFence | kHelRightManage
+		)
+	);
 
 	return kHelErrNone;
 }
@@ -517,7 +521,7 @@ HelError doSubmitResizeMemory(HelHandle handle, smarter::shared_ptr<IpcQueue> qu
 	auto this_thread = getCurrentThread();
 	auto this_universe = this_thread->getUniverse();
 
-	auto memoryOutcome = this_universe->resolveObject<DescriptorType::memoryView>(handle);
+	auto memoryOutcome = this_universe->resolveObject<DescriptorType::memoryView>(handle, kHelRightManage);
 	if(!memoryOutcome)
 		return translateError(memoryOutcome.error());
 	auto memory = std::move(*memoryOutcome);
@@ -562,9 +566,17 @@ HelError helCreateManagedMemory(size_t size, uint32_t flags,
 		return translateError(frontalOutcome.error());
 
 	*backing_handle = thisUniverse->attachDescriptor(
-			AnyDescriptor::make<DescriptorType::memoryView>(std::move(*backingOutcome)));
+		AnyDescriptor::make<DescriptorType::memoryView>(
+			std::move(*backingOutcome),
+			kHelRightRead | kHelRightWrite | kHelRightExecute | kHelRightAssign | kHelRightProvision | kHelRightPin | kHelRightFence | kHelRightManage
+		)
+	);
 	*frontal_handle = thisUniverse->attachDescriptor(
-			AnyDescriptor::make<DescriptorType::memoryView>(std::move(*frontalOutcome)));
+		AnyDescriptor::make<DescriptorType::memoryView>(
+			std::move(*frontalOutcome),
+			kHelRightRead | kHelRightWrite | kHelRightExecute | kHelRightAssign | kHelRightProvision | kHelRightPin | kHelRightFence | kHelRightManage
+		)
+	);
 
 	return kHelErrNone;
 }
@@ -581,7 +593,7 @@ HelError helCopyOnWrite(HelHandle memoryHandle,
 			return kHelErrBadDescriptor;
 		view = getSpecialMemoryView(memoryHandle);
 	} else {
-		auto viewOutcome = this_universe->resolveObject<DescriptorType::memoryView>(memoryHandle);
+		auto viewOutcome = this_universe->resolveObject<DescriptorType::memoryView>(memoryHandle, kHelRightAssign);
 		if(!viewOutcome)
 			return translateError(viewOutcome.error());
 		view = std::move(*viewOutcome);
@@ -591,7 +603,11 @@ HelError helCopyOnWrite(HelHandle memoryHandle,
 	if(!sliceOutcome)
 		return translateError(sliceOutcome.error());
 	*outHandle = this_universe->attachDescriptor(
-			AnyDescriptor::make<DescriptorType::memoryView>(std::move(*sliceOutcome)));
+		AnyDescriptor::make<DescriptorType::memoryView>(
+			std::move(*sliceOutcome),
+			kHelRightRead | kHelRightWrite | kHelRightExecute | kHelRightAssign | kHelRightDerive | kHelRightProvision | kHelRightPin | kHelRightFence | kHelRightManage
+		)
+	);
 
 	return kHelErrNone;
 }
@@ -609,7 +625,11 @@ HelError helAccessPhysical(uintptr_t physical, size_t size, HelHandle *handle) {
 	if(!memoryOutcome)
 		return translateError(memoryOutcome.error());
 	*handle = this_universe->attachDescriptor(
-			AnyDescriptor::make<DescriptorType::memoryView>(std::move(*memoryOutcome)));
+		AnyDescriptor::make<DescriptorType::memoryView>(
+			std::move(*memoryOutcome),
+			kHelRightRead | kHelRightWrite | kHelRightExecute | kHelRightAssign | kHelRightProvision | kHelRightPin | kHelRightManage
+		)
+	);
 
 	return kHelErrNone;
 }
@@ -622,7 +642,11 @@ HelError helCreateIndirectMemory(size_t numSlots, HelHandle *handle) {
 	if(!memoryOutcome)
 		return translateError(memoryOutcome.error());
 	*handle = this_universe->attachDescriptor(
-			AnyDescriptor::make<DescriptorType::memoryView>(std::move(*memoryOutcome)));
+		AnyDescriptor::make<DescriptorType::memoryView>(
+			std::move(*memoryOutcome),
+			kHelRightRead | kHelRightWrite | kHelRightExecute | kHelRightAssign | kHelRightProvision | kHelRightFence | kHelRightManage
+		)
+	);
 
 	return kHelErrNone;
 }
@@ -632,7 +656,7 @@ HelError helAlterMemoryIndirection(HelHandle indirectHandle, size_t slot,
 	auto thisThread = getCurrentThread();
 	auto thisUniverse = thisThread->getUniverse();
 
-	auto indirectOutcome = thisUniverse->resolveObject<DescriptorType::memoryView>(indirectHandle);
+	auto indirectOutcome = thisUniverse->resolveObject<DescriptorType::memoryView>(indirectHandle, kHelRightManage);
 	if(!indirectOutcome)
 		return translateError(indirectOutcome.error());
 	auto indirectView = std::move(*indirectOutcome);
@@ -642,7 +666,7 @@ HelError helAlterMemoryIndirection(HelHandle indirectHandle, size_t slot,
 	auto memoryOutcome = thisUniverse->inspectDescriptor(memoryHandle,
 			[&](AnyDescriptor &desc) -> std::expected<void, Error> {
 		if(desc.is<DescriptorType::memoryView>()) {
-			auto viewOutcome = desc.resolveObject<DescriptorType::memoryView>();
+			auto viewOutcome = desc.resolveObject<DescriptorType::memoryView>(kHelRightAssign);
 			if(!viewOutcome)
 				return std::unexpected{viewOutcome.error()};
 			memoryView = std::move(*viewOutcome);
@@ -685,7 +709,7 @@ HelError helCreateSliceView(HelHandle memoryHandle,
 	auto this_thread = getCurrentThread();
 	auto this_universe = this_thread->getUniverse();
 
-	auto viewOutcome = this_universe->resolveObject<DescriptorType::memoryView>(memoryHandle);
+	auto viewOutcome = this_universe->resolveObject<DescriptorType::memoryView>(memoryHandle, kHelRightAssign);
 	if(!viewOutcome)
 		return translateError(viewOutcome.error());
 	auto view = std::move(*viewOutcome);
@@ -712,7 +736,7 @@ HelError doSubmitForkMemory(HelHandle handle, smarter::shared_ptr<IpcQueue> queu
 	auto this_thread = getCurrentThread();
 	auto this_universe = this_thread->getUniverse();
 
-	auto viewOutcome = this_universe->resolveObject<DescriptorType::memoryView>(handle);
+	auto viewOutcome = this_universe->resolveObject<DescriptorType::memoryView>(handle, kHelRightDerive);
 	if(!viewOutcome)
 		return translateError(viewOutcome.error());
 	auto view = std::move(*viewOutcome);
@@ -741,8 +765,13 @@ HelError doSubmitForkMemory(HelHandle handle, smarter::shared_ptr<IpcQueue> queu
 			co_return;
 		}
 
+		// TODO: We should inherit the proper rights here instead of unconditionally gaining RWX.
 		HelHandle forkedHandle = universe->attachDescriptor(
-				AnyDescriptor::make<DescriptorType::memoryView>(outcome.value()));
+			AnyDescriptor::make<DescriptorType::memoryView>(
+				outcome.value(),
+				kHelRightRead | kHelRightWrite | kHelRightExecute | kHelRightAssign | kHelRightDerive | kHelRightProvision | kHelRightPin | kHelRightFence | kHelRightManage
+			)
+		);
 
 		HelHandleResult helResult{.error = kHelErrNone, .handle = forkedHandle};
 		QueueSource ipcSource{&helResult, sizeof(HelHandleResult), nullptr};
@@ -758,7 +787,7 @@ HelError doSubmitWritebackFence(HelHandle handle, smarter::shared_ptr<IpcQueue> 
 	auto this_thread = getCurrentThread();
 	auto this_universe = this_thread->getUniverse();
 
-	auto memoryOutcome = this_universe->resolveObject<DescriptorType::memoryView>(handle);
+	auto memoryOutcome = this_universe->resolveObject<DescriptorType::memoryView>(handle, kHelRightFence);
 	if(!memoryOutcome)
 		return translateError(memoryOutcome.error());
 	auto memory = std::move(*memoryOutcome);
@@ -787,7 +816,7 @@ HelError doSubmitInvalidateMemory(HelHandle handle, smarter::shared_ptr<IpcQueue
 	auto this_thread = getCurrentThread();
 	auto this_universe = this_thread->getUniverse();
 
-	auto memoryOutcome = this_universe->resolveObject<DescriptorType::memoryView>(handle);
+	auto memoryOutcome = this_universe->resolveObject<DescriptorType::memoryView>(handle, kHelRightManage);
 	if(!memoryOutcome)
 		return translateError(memoryOutcome.error());
 	auto memory = std::move(*memoryOutcome);
@@ -1091,7 +1120,7 @@ HelError helMapMemory(HelHandle memory_handle, HelHandle space_handle,
 				return std::unexpected{sliceOutcome.error()};
 			slice = std::move(*sliceOutcome);
 		}else if(desc.is<DescriptorType::memoryView>()) {
-			auto viewOutcome = desc.resolveObject<DescriptorType::memoryView>();
+			auto viewOutcome = desc.resolveObject<DescriptorType::memoryView>(requiredRights);
 			if(!viewOutcome)
 				return std::unexpected{viewOutcome.error()};
 			auto memory = std::move(*viewOutcome);
@@ -1464,7 +1493,7 @@ HelError doSubmitReadMemory(HelHandle handle, smarter::shared_ptr<IpcQueue> queu
 	};
 
 	if(descriptor.is<DescriptorType::memoryView>()) {
-		auto viewOutcome = descriptor.resolveObject<DescriptorType::memoryView>();
+		auto viewOutcome = descriptor.resolveObject<DescriptorType::memoryView>(kHelRightRead);
 		if(!viewOutcome)
 			return translateError(viewOutcome.error());
 		readMemoryView(thisThread.lock(),
@@ -1595,7 +1624,7 @@ HelError doSubmitWriteMemory(HelHandle handle, smarter::shared_ptr<IpcQueue> que
 	};
 
 	if(descriptor.is<DescriptorType::memoryView>()) {
-		auto viewOutcome = descriptor.resolveObject<DescriptorType::memoryView>();
+		auto viewOutcome = descriptor.resolveObject<DescriptorType::memoryView>(kHelRightWrite);
 		if(!viewOutcome)
 			return translateError(viewOutcome.error());
 		writeMemoryView(thisThread.lock(),
@@ -1634,7 +1663,7 @@ HelError helMemoryInfo(HelHandle handle, size_t *size) {
 	auto this_thread = getCurrentThread();
 	auto this_universe = this_thread->getUniverse();
 
-	auto memoryOutcome = this_universe->resolveObject<DescriptorType::memoryView>(handle);
+	auto memoryOutcome = this_universe->resolveObject<DescriptorType::memoryView>(handle, kHelRightNull);
 	if(!memoryOutcome)
 		return translateError(memoryOutcome.error());
 	auto memory = std::move(*memoryOutcome);
@@ -1647,7 +1676,7 @@ HelError doSubmitManageMemory(HelHandle handle, smarter::shared_ptr<IpcQueue> qu
 	auto this_thread = getCurrentThread();
 	auto this_universe = this_thread->getUniverse();
 
-	auto memoryOutcome = this_universe->resolveObject<DescriptorType::memoryView>(handle);
+	auto memoryOutcome = this_universe->resolveObject<DescriptorType::memoryView>(handle, kHelRightManage);
 	if(!memoryOutcome)
 		return translateError(memoryOutcome.error());
 	auto memory = std::move(*memoryOutcome);
@@ -1703,7 +1732,7 @@ HelError helUpdateMemory(HelHandle handle, int type,
 	auto this_thread = getCurrentThread();
 	auto this_universe = this_thread->getUniverse();
 
-	auto memoryOutcome = this_universe->resolveObject<DescriptorType::memoryView>(handle);
+	auto memoryOutcome = this_universe->resolveObject<DescriptorType::memoryView>(handle, kHelRightManage);
 	if(!memoryOutcome)
 		return translateError(memoryOutcome.error());
 	auto memory = std::move(*memoryOutcome);
@@ -1734,7 +1763,7 @@ HelError doSubmitLockMemoryView(HelHandle handle, smarter::shared_ptr<IpcQueue> 
 	auto this_thread = getCurrentThread();
 	auto this_universe = this_thread->getUniverse();
 
-	auto memoryOutcome = this_universe->resolveObject<DescriptorType::memoryView>(handle);
+	auto memoryOutcome = this_universe->resolveObject<DescriptorType::memoryView>(handle, kHelRightPin);
 	if(!memoryOutcome)
 		return translateError(memoryOutcome.error());
 	auto memory = std::move(*memoryOutcome);
@@ -1804,7 +1833,7 @@ HelError helLoadahead(HelHandle handle, uintptr_t offset, size_t length) {
 	auto this_thread = getCurrentThread();
 	auto this_universe = this_thread->getUniverse();
 
-	auto memoryOutcome = this_universe->resolveObject<DescriptorType::memoryView>(handle);
+	auto memoryOutcome = this_universe->resolveObject<DescriptorType::memoryView>(handle, kHelRightProvision);
 	if(!memoryOutcome)
 		return translateError(memoryOutcome.error());
 
@@ -3609,7 +3638,7 @@ HelError helBindKernlet(HelHandle handle, const HelKernletData *data, size_t num
 		if(defn.type == KernletParameterType::offset) {
 			bound->setupOffsetBinding(i, d.handle);
 		}else if(defn.type == KernletParameterType::memoryView) {
-			auto memoryOutcome = this_universe->resolveObject<DescriptorType::memoryView>(d.handle);
+			auto memoryOutcome = this_universe->resolveObject<DescriptorType::memoryView>(d.handle, kHelRightAssign);
 			if(!memoryOutcome)
 				return translateError(memoryOutcome.error());
 			auto memory = std::move(*memoryOutcome);

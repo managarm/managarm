@@ -188,7 +188,9 @@ struct MbusNode final : private KernelBusObject {
 				panicLogger() << "thor: Failed to create hardware memory" << frg::endlog;
 			auto memory = std::move(*memoryOutcome);
 
-			auto descriptor = AnyDescriptor::make<DescriptorType::memoryView>(memory);
+			auto descriptor = AnyDescriptor::make<DescriptorType::memoryView>(
+				memory, kHelRightRead | kHelRightWrite | kHelRightAssign | kHelRightProvision | kHelRightPin
+			);
 
 			managarm::hw::SvrResponse<KernelAlloc> resp{*kernelAlloc};
 			resp.set_error(managarm::hw::Errors::SUCCESS);

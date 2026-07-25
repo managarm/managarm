@@ -247,7 +247,10 @@ namespace initrd {
 					assert(respError == Error::success);
 
 					auto memoryError = co_await pushDescriptor(conversation,
-							AnyDescriptor::make<DescriptorType::memoryView>(file->module->getMemory()));
+						AnyDescriptor::make<DescriptorType::memoryView>(
+							file->module->getMemory(), kHelRightRead | kHelRightAssign | kHelRightProvision | kHelRightPin | kHelRightFence
+						)
+					);
 					// TODO: improve error handling here.
 					assert(memoryError == Error::success);
 				}else{

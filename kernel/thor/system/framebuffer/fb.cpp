@@ -267,7 +267,9 @@ struct FbMbusNode final : private KernelBusObject {
 
 			managarm::hw::SvrResponse<KernelAlloc> resp{*kernelAlloc};
 
-			auto descriptor = AnyDescriptor::make<DescriptorType::memoryView>(fb->memory);
+			auto descriptor = AnyDescriptor::make<DescriptorType::memoryView>(
+				fb->memory, kHelRightRead | kHelRightWrite | kHelRightAssign | kHelRightProvision | kHelRightPin
+			);
 			resp.set_error(managarm::hw::Errors::SUCCESS);
 
 			FRG_CO_TRY(co_await sendResponse(conversation, std::move(resp)));
