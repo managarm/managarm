@@ -881,7 +881,10 @@ HelError helCreateVirtualizedSpace(HelHandle *handle) {
 	}
 
 	*handle = this_universe->attachDescriptor(
-			AnyDescriptor::make<DescriptorType::virtualizedSpace>(std::move(vspace)));
+		AnyDescriptor::make<DescriptorType::virtualizedSpace>(
+			std::move(vspace), kHelRightGrant | kHelRightRead | kHelRightWrite | kHelRightAssign
+		)
+	);
 	return kHelErrNone;
 #elif defined(__riscv) && __riscv_xlen == 64
 	if(!getCpuData()->haveVirtualization) {
@@ -896,7 +899,10 @@ HelError helCreateVirtualizedSpace(HelHandle *handle) {
 	smarter::shared_ptr<VirtualizedPageSpace> vspace = std::move(*vspaceOutcome);
 
 	*handle = this_universe->attachDescriptor(
-			AnyDescriptor::make<DescriptorType::virtualizedSpace>(std::move(vspace)));
+		AnyDescriptor::make<DescriptorType::virtualizedSpace>(
+			std::move(vspace), kHelRightGrant | kHelRightRead | kHelRightWrite | kHelRightAssign
+		)
+	);
 	return kHelErrNone;
 #else
 	(void)handle;
@@ -912,7 +918,7 @@ HelError helCreateVirtualizedCpu(HelHandle handle, HelHandle *out) {
 	auto this_thread = getCurrentThread();
 	auto this_universe = this_thread->getUniverse();
 
-	auto vspaceOutcome = this_universe->resolveObject<DescriptorType::virtualizedSpace>(handle);
+	auto vspaceOutcome = this_universe->resolveObject<DescriptorType::virtualizedSpace>(handle, kHelRightAssign);
 	if(!vspaceOutcome)
 		return translateError(vspaceOutcome.error());
 	auto vspace = std::move(*vspaceOutcome);
@@ -945,7 +951,7 @@ HelError helCreateVirtualizedCpu(HelHandle handle, HelHandle *out) {
 	auto this_thread = getCurrentThread();
 	auto this_universe = this_thread->getUniverse();
 
-	auto vspaceOutcome = this_universe->resolveObject<DescriptorType::virtualizedSpace>(handle);
+	auto vspaceOutcome = this_universe->resolveObject<DescriptorType::virtualizedSpace>(handle, kHelRightAssign);
 	if(!vspaceOutcome)
 		return translateError(vspaceOutcome.error());
 	auto vspace = std::move(*vspaceOutcome);
@@ -1107,7 +1113,7 @@ HelError helMapMemory(HelHandle memory_handle, HelHandle space_handle,
 					return std::unexpected{addressSpaceOutcome.error()};
 				space = std::move(*addressSpaceOutcome);
 			} else if(desc.is<DescriptorType::virtualizedSpace>()) {
-				auto vspaceOutcome = desc.resolveObject<DescriptorType::virtualizedSpace>();
+				auto vspaceOutcome = desc.resolveObject<DescriptorType::virtualizedSpace>(kHelRightGrant);
 				if(!vspaceOutcome)
 					return std::unexpected{vspaceOutcome.error()};
 				isVspace = true;
@@ -1464,7 +1470,7 @@ HelError doSubmitReadMemory(HelHandle handle, smarter::shared_ptr<IpcQueue> queu
 				std::move(space), address, length, buffer, std::move(queue), context,
 				enable_detached_coroutine{getCurrentThread()->mainWorkQueue().lock()});
 	}else if(descriptor.is<DescriptorType::virtualizedSpace>()) {
-		auto vspaceOutcome = descriptor.resolveObject<DescriptorType::virtualizedSpace>();
+		auto vspaceOutcome = descriptor.resolveObject<DescriptorType::virtualizedSpace>(kHelRightRead);
 		if(!vspaceOutcome)
 			return translateError(vspaceOutcome.error());
 		readVirtualSpace(
@@ -1595,7 +1601,7 @@ HelError doSubmitWriteMemory(HelHandle handle, smarter::shared_ptr<IpcQueue> que
 				std::move(space), address, length, buffer, std::move(queue), context,
 				enable_detached_coroutine{getCurrentThread()->mainWorkQueue().lock()});
 	}else if(descriptor.is<DescriptorType::virtualizedSpace>()) {
-		auto vspaceOutcome = descriptor.resolveObject<DescriptorType::virtualizedSpace>();
+		auto vspaceOutcome = descriptor.resolveObject<DescriptorType::virtualizedSpace>(kHelRightWrite);
 		if(!vspaceOutcome)
 			return translateError(vspaceOutcome.error());
 		writeVirtualSpace(
