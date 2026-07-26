@@ -263,6 +263,25 @@ extern inline __attribute__ (( always_inline )) HelError helSyscall5 (int number
 	return error;
 }
 
+extern inline __attribute__ (( always_inline )) HelError helSyscall5_1 (int number,
+		HelWord arg0, HelWord arg1, HelWord arg2, HelWord arg3, HelWord arg4, HelWord *res0) {
+	register HelWord error asm("a0");
+	register HelWord code asm("a0") = number;
+	register HelWord in0 asm("a1") = arg0;
+	register HelWord in1 asm("a2") = arg1;
+	register HelWord in2 asm("a3") = arg2;
+	register HelWord in3 asm("a4") = arg3;
+	register HelWord in4 asm("a5") = arg4;
+	register HelWord out0 asm("a1");
+
+	asm volatile ( "ecall" : "=r" (error), "=r" (out0)
+			: "r" (code), "r" (in0), "r" (in1), "r" (in2), "r" (in3), "r" (in4)
+			: "memory" );
+
+	*res0 = out0;
+	return error;
+}
+
 extern inline __attribute__ (( always_inline )) HelError helSyscall6 (int number,
 		HelWord arg0, HelWord arg1, HelWord arg2, HelWord arg3, HelWord arg4,
 		HelWord arg5) {

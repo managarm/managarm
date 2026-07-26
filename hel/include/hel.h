@@ -254,6 +254,8 @@ static const HelRights kHelRightSignal = UINT32_C(1) << 12;
 // - Thread: required to resume.
 // - Thread: required to kill.
 static const HelRights kHelRightManage = UINT32_C(1) << 13;
+// All rights (even unspecified ones). Easier to recognize in code than a literal.
+static const HelRights kHelRightsMax = ~UINT32_C(0);
 
 struct HelX86SegmentRegister {
 	uint64_t base;
@@ -395,10 +397,8 @@ enum {
 	kHelItemWantLane = (1 << 16),
 };
 
-enum HelTransferDescriptorFlags {
-	kHelTransferDescriptorOut,
-	kHelTransferDescriptorIn,
-};
+static const uint32_t kHelTransferDescriptorOut = UINT32_C(1) << 0;
+static const uint32_t kHelTransferDescriptorIn = UINT32_C(1) << 1;
 
 struct HelSgItem {
 	void *buffer;
@@ -1073,7 +1073,7 @@ HEL_C_LINKAGE HelError helCreateUniverse(HelHandle *handle);
 //!    	Handle to the copied descriptor (valid in the universe specified by @p universeHandle).
 HEL_C_LINKAGE HelError
 helTransferDescriptor(HelHandle handle, HelHandle universeHandle,
-		enum HelTransferDescriptorFlags direction, HelHandle *outHandle);
+		uint32_t flags, uint32_t exposedRights, uint32_t requiredRights, HelHandle *outHandle);
 
 HEL_C_LINKAGE HelError helDescriptorInfo(HelHandle handle, struct HelDescriptorInfo *info);
 

@@ -83,7 +83,14 @@ struct BorrowedResource : BorrowedDescriptor {
 
 	UniqueResource<Tag> dup() const {
 		HelHandle new_handle;
-		HEL_CHECK(helTransferDescriptor(getHandle(), kHelThisUniverse, kHelTransferDescriptorOut, &new_handle));
+		HEL_CHECK(helTransferDescriptor(
+			getHandle(),
+			kHelThisUniverse,
+			kHelTransferDescriptorOut,
+			kHelRightsMax,
+			kHelRightNull,
+			&new_handle
+		));
 		return UniqueResource<Tag>(new_handle);
 	}
 };

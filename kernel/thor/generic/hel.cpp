@@ -278,7 +278,17 @@ HelError helCreateUniverse(HelHandle *handle) {
 }
 
 HelError
-helTransferDescriptor(HelHandle handle, HelHandle universeHandle, HelTransferDescriptorFlags direction, HelHandle *outHandle) {
+helTransferDescriptor(
+	HelHandle handle,
+	HelHandle universeHandle,
+	uint32_t flags,
+	uint32_t exposedRights,
+	uint32_t requiredRights,
+	HelHandle *outHandle
+) {
+	if(flags & ~(kHelTransferDescriptorOut | kHelTransferDescriptorIn))
+		return kHelErrIllegalArgs;
+	uint32_t direction = flags & (kHelTransferDescriptorOut | kHelTransferDescriptorIn);
 	if(direction != kHelTransferDescriptorOut && direction != kHelTransferDescriptorIn)
 		return kHelErrIllegalArgs;
 
@@ -316,10 +326,14 @@ helTransferDescriptor(HelHandle handle, HelHandle universeHandle, HelTransferDes
 	auto maybeDescriptor = srcUniverse->getDescriptor(handle);
 	if (!maybeDescriptor)
 		return kHelErrNoDescriptor;
+	auto descriptor = std::move(*maybeDescriptor);
 
-	// TODO: make sure the descriptor is copyable.
+	descriptor.exposeRights(exposedRights);
 
-	*outHandle = dstUniverse->attachDescriptor(std::move(*maybeDescriptor));
+	if (!checkRights(descriptor.rights(), requiredRights))
+		return kHelErrBadRights;
+
+	*outHandle = dstUniverse->attachDescriptor(std::move(descriptor));
 	return kHelErrNone;
 }
 

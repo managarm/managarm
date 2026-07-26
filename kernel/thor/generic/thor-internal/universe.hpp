@@ -33,6 +33,10 @@ struct IrqObject;
 struct OneshotEvent;
 struct BitsetEvent;
 
+inline bool checkRights(uint32_t rights, uint32_t requiredRights) {
+	return (rights & requiredRights) == requiredRights;
+}
+
 // --------------------------------------------------------
 // Lane handles.
 // --------------------------------------------------------
@@ -285,7 +289,7 @@ struct AnyDescriptor {
 	std::expected<DescriptorPointer<K>, Error> resolveObject(uint32_t requiredRights) const {
 		if (!is<K>())
 			return std::unexpected{Error::badDescriptor};
-		if ((rights_ & requiredRights) != requiredRights)
+		if (!checkRights(rights_, requiredRights))
 			return std::unexpected{Error::badRights};
 		return resolve_<K>();
 	}
@@ -296,10 +300,15 @@ struct AnyDescriptor {
 	resolveCapability(uint32_t requiredRights) const {
 		if (!is<K>())
 			return std::unexpected{Error::badDescriptor};
-		if ((rights_ & requiredRights) != requiredRights)
+		if (!checkRights(rights_, requiredRights))
 			return std::unexpected{Error::badRights};
 		auto object = FRG_TRY(resolve_<K>());
 		return std::tuple{std::move(object), rights_};
+	}
+
+	// Keep only the rights in the exposedRights mask.
+	void exposeRights(uint32_t exposedRights) {
+		rights_ &= exposedRights;
 	}
 
 private:
