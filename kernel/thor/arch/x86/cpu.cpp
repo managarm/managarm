@@ -373,6 +373,29 @@ initgraph::Stage *getCpuFeaturesKnownStage() {
 	return &s;
 }
 
+namespace {
+
+// Determine the XSAVE region size from the enabled components:
+// while cpuid can report the size of *all* components, that may be much larger than what we actually enable.
+size_t xsaveRegionSizeFor(uint64_t xcr0Mask) {
+	// Legacy FXSAVE area plus the XSAVE header. Components 0 (x87) and 1 (SSE) live in there.
+	size_t size = 576;
+
+	for(int i = 2; i < 64; ++i) {
+		if(!(xcr0Mask & (uint64_t(1) << i)))
+			continue;
+		// EBX is the offset of the component, EAX its size. Take the maximum over all components.
+		auto leaf = common::x86::cpuid(0xD, i);
+		auto end = size_t{leaf[1]} + size_t{leaf[0]};
+		if(end > size)
+			size = end;
+	}
+
+	return size;
+}
+
+} // namespace
+
 static initgraph::Task enumerateCpuFeaturesTask{&globalInitEngine, "x86.enumerate-cpu-features",
 	initgraph::Entails{getCpuFeaturesKnownStage()},
 	[] {
@@ -385,9 +408,6 @@ static initgraph::Task enumerateCpuFeaturesTask{&globalInitEngine, "x86.enumerat
 		if(common::x86::cpuid(0x1)[2] & (uint32_t(1) << 26)) {
 			debugLogger() << "thor: CPUs support XSAVE" << frg::endlog;
 			globalCpuFeatures.haveXsave = true;
-
-			auto xsaveCpuid = common::x86::cpuid(0xD);
-			globalCpuFeatures.xsaveRegionSize = xsaveCpuid[2];
 		}else{
 			debugLogger() << "thor: CPUs do not support XSAVE!" << frg::endlog;
 		}
@@ -406,6 +426,23 @@ static initgraph::Task enumerateCpuFeaturesTask{&globalInitEngine, "x86.enumerat
 			}else{
 				debugLogger() << "thor: CPUs do not support AVX-512!" << frg::endlog;
 			}
+
+			// Compute supported xcr0 features.
+			uint64_t xcr0Mask = (uint64_t(1) << 0) // x87 feature set.
+					| (uint64_t(1) << 1); // SSE feature set.
+
+			if(globalCpuFeatures.haveAvx)
+				xcr0Mask |= uint64_t(1) << 2; // AVX feature set.
+
+			if(globalCpuFeatures.haveZmm)
+				xcr0Mask |= (uint64_t(1) << 5)  // AVX-512 opmask registers.
+						| (uint64_t(1) << 6)  // ZMM{0 -> 15}.
+						| (uint64_t(1) << 7); // ZMM{16 -> 31}.
+
+			globalCpuFeatures.xcr0Mask = xcr0Mask;
+			globalCpuFeatures.xsaveRegionSize = xsaveRegionSizeFor(xcr0Mask);
+			debugLogger() << "thor: XSAVE region size is "
+					<< globalCpuFeatures.xsaveRegionSize << " bytes" << frg::endlog;
 		}
 
 		if(common::x86::cpuid(0x80000007)[3] & (1 << 8)) {
@@ -671,20 +708,11 @@ void initializeThisProcessor() {
 		cr4 |= uint32_t(1) << 18; // Enable XSAVE and x{get, set}bv
 		asm volatile ("mov %0, %%cr4" : : "r" (cr4));
 
-		uint64_t xcr0 = 0;
-		xcr0 |= (uint64_t(1) << 0); // Enable saving of x87 feature set
-		xcr0 |= (uint64_t(1) << 1); // Enable saving of SSE feature set
+		common::x86::wrxcr(0, getGlobalCpuFeatures()->xcr0Mask);
 
-		if(getGlobalCpuFeatures()->haveAvx)
-			xcr0 |= (uint64_t(1) << 2); // Enable saving of AVX feature set and enable it
-
-		if(getGlobalCpuFeatures()->haveZmm) {
-			xcr0 |= (uint64_t(1) << 5); // Enable AVX-512
-			xcr0 |= (uint64_t(1) << 6); // Enable management of ZMM{0 -> 15}
-			xcr0 |= (uint64_t(1) << 7); // Enable management of ZMM{16 -> 31}
-		}
-
-		common::x86::wrxcr(0, xcr0);
+		// Validate that the pre-computed XSAVE size matches the CPU-reported XSAVE size.
+		// This must happen *after* the xcr0 write.
+		assert(common::x86::cpuid(0xD)[1] == getGlobalCpuFeatures()->xsaveRegionSize);
 	}
 
 	// Enable the SMAP extension.
