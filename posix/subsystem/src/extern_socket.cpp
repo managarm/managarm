@@ -56,8 +56,8 @@ struct Socket : File {
 			helix_ng::offer(
 				helix_ng::sendBragiHeadOnly(req, frg::stl_allocator{}),
 				helix_ng::recvInline(),
-				helix_ng::pullDescriptor(),
-				helix_ng::pullDescriptor()
+				helix_ng::pullDescriptor(kHelRightNull),
+				helix_ng::pullDescriptor(kHelRightNull)
 			)
 		);
 		HEL_CHECK(offer.error());
@@ -109,8 +109,8 @@ async::result<smarter::shared_ptr<File, FileHandle>> createSocket(helix::Borrowe
 		helix_ng::offer(
 			helix_ng::sendBragiHeadOnly(req, frg::stl_allocator{}),
 			helix_ng::recvInline(),
-			helix_ng::pullDescriptor(),
-			helix_ng::pullDescriptor()
+			helix_ng::pullDescriptor(kHelRightNull),
+			helix_ng::pullDescriptor(kHelRightNull)
 		)
 	);
 	HEL_CHECK(offer.error());

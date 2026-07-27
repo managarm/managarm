@@ -284,7 +284,7 @@ async::result<helix::UniqueDescriptor> File::accessMemory() {
 			helix_ng::offer(
 				helix_ng::sendBuffer(ser.data(), ser.size()),
 				helix_ng::recvBuffer(buffer, 128),
-				helix_ng::pullDescriptor()
+				helix_ng::pullDescriptor(kHelRightNull)
 			)
 		);
 
@@ -313,7 +313,7 @@ async::result<frg::expected<Error, File>> File::createSocket(helix::BorrowedLane
 		helix_ng::offer(
 			helix_ng::sendBragiHeadOnly(req, frg::stl_allocator{}),
 			helix_ng::recvInline(),
-			helix_ng::pullDescriptor()
+			helix_ng::pullDescriptor(kHelRightNull)
 		)
 	);
 	HEL_CHECK(offer.error());

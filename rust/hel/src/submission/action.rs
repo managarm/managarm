@@ -9,9 +9,9 @@ const fn default_hel_action() -> hel_sys::HelAction {
     hel_sys::HelAction {
         type_: hel_sys::kHelActionNone as std::ffi::c_int,
         flags: 0,
-        buffer: std::ptr::null_mut(),
-        length: 0,
-        handle: hel_sys::kHelNullHandle as hel_sys::HelHandle,
+        __bindgen_anon_1: hel_sys::HelAction__bindgen_ty_1 { word0: 0 },
+        __bindgen_anon_2: hel_sys::HelAction__bindgen_ty_2 { word1: 0 },
+        __bindgen_anon_3: hel_sys::HelAction__bindgen_ty_3 { word2: 0 },
     }
 }
 
@@ -178,8 +178,8 @@ impl Action for SendBuffer<'_> {
         let mut action = default_hel_action();
 
         action.type_ = hel_sys::kHelActionSendFromBuffer as _;
-        action.buffer = self.data.as_ptr() as *mut _;
-        action.length = self.data.len();
+        action.__bindgen_anon_1.buffer = self.data.as_ptr() as *mut _;
+        action.__bindgen_anon_2.length = self.data.len();
 
         if has_next {
             action.flags = hel_sys::kHelItemChain;
@@ -208,8 +208,8 @@ impl Action for ReceiveBuffer<'_> {
         let mut action = default_hel_action();
 
         action.type_ = hel_sys::kHelActionRecvToBuffer as _;
-        action.buffer = self.data.as_ptr() as *mut _;
-        action.length = self.data.len();
+        action.__bindgen_anon_1.buffer = self.data.as_ptr() as *mut _;
+        action.__bindgen_anon_2.length = self.data.len();
 
         if has_next {
             action.flags = hel_sys::kHelItemChain;
@@ -279,7 +279,15 @@ impl Action for Dismiss {
     }
 }
 
-pub struct PullDescriptor;
+pub struct PullDescriptor {
+    required_rights: u32,
+}
+
+impl PullDescriptor {
+    pub fn new(required_rights: u32) -> Self {
+        Self { required_rights }
+    }
+}
 
 impl Action for PullDescriptor {
     const ACTION_COUNT: usize = 1;
@@ -290,6 +298,7 @@ impl Action for PullDescriptor {
         let mut action = default_hel_action();
 
         action.type_ = hel_sys::kHelActionPullDescriptor as _;
+        action.__bindgen_anon_2.rights = self.required_rights;
 
         if has_next {
             action.flags = hel_sys::kHelItemChain;
@@ -301,11 +310,15 @@ impl Action for PullDescriptor {
 
 pub struct PushDescriptor<'a> {
     handle: &'a Handle,
+    exposed_rights: u32,
 }
 
 impl<'a> PushDescriptor<'a> {
-    pub fn new(handle: &'a Handle) -> Self {
-        Self { handle }
+    pub fn new(handle: &'a Handle, exposed_rights: u32) -> Self {
+        Self {
+            handle,
+            exposed_rights,
+        }
     }
 }
 
@@ -318,7 +331,8 @@ impl Action for PushDescriptor<'_> {
         let mut action = default_hel_action();
 
         action.type_ = hel_sys::kHelActionPushDescriptor as _;
-        action.handle = self.handle.handle();
+        action.__bindgen_anon_2.rights = self.exposed_rights;
+        action.__bindgen_anon_3.handle = self.handle.handle();
 
         if has_next {
             action.flags = hel_sys::kHelItemChain;

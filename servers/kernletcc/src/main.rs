@@ -50,7 +50,7 @@ async fn upload(
             hel::SendBuffer::new(&tail),
             hel::SendBuffer::new(elf_bytes),
             hel::ReceiveInline,
-            hel::PullDescriptor,
+            hel::PullDescriptor::new(hel_sys::kHelRightNull),
         )),
     )
     .await?;
@@ -102,7 +102,7 @@ async fn handle_request(lane: &Handle, ctl: &Handle) -> Result<bool> {
         &conversation,
         (
             hel::SendBuffer::new(&resp_head),
-            hel::PushDescriptor::new(&kernlet),
+            hel::PushDescriptor::new(&kernlet, hel_sys::kHelRightsMax),
         ),
     )
     .await?;

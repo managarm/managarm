@@ -169,7 +169,7 @@ struct HandleDevice {
 			auto ser = resp.SerializeAsString();
 			auto [send_resp, push_node] = co_await helix_ng::exchangeMsgs(conversation,
 				helix_ng::sendBuffer(ser.data(), ser.size()),
-				helix_ng::pushDescriptor(remote_lane)
+				helix_ng::pushDescriptor(remote_lane, kHelRightsMax)
 			);
 			HEL_CHECK(send_resp.error());
 			HEL_CHECK(push_node.error());

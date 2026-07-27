@@ -106,7 +106,7 @@ Instance::createEntity(std::string_view name, const Properties &properties) {
 			helix_ng::offer(
 				helix_ng::sendBragiHeadTail(req, frg::stl_allocator{}),
 				helix_ng::recvInline(),
-				helix_ng::pullDescriptor()
+				helix_ng::pullDescriptor(kHelRightNull)
 			)
 		);
 
@@ -194,7 +194,7 @@ async::result<Result<helix::UniqueLane>> Entity::getRemoteLane() const {
 			helix_ng::offer(
 				helix_ng::sendBragiHeadOnly(req, frg::stl_allocator{}),
 				helix_ng::recvInline(),
-				helix_ng::pullDescriptor()
+				helix_ng::pullDescriptor(kHelRightNull)
 			)
 		);
 
@@ -229,7 +229,7 @@ async::result<Result<void>> EntityManager::serveRemoteLane(helix::UniqueLane lan
 			mgmtLane_,
 			helix_ng::offer(
 				helix_ng::sendBragiHeadOnly(req, frg::stl_allocator{}),
-				helix_ng::pushDescriptor(lane),
+				helix_ng::pushDescriptor(lane, kHelRightsMax),
 				helix_ng::recvInline()
 			)
 		);

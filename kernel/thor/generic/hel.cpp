@@ -2869,6 +2869,8 @@ HelError doSubmitExchangeMsgs(HelHandle laneHandle, smarter::shared_ptr<IpcQueue
 					return kHelErrNoDescriptor;
 				operand = std::move(*wrapper);
 
+				operand.exposeRights(recipe->rights);
+
 				node->_tag = kTagPushDescriptor;
 				node->_inDescriptor = std::move(operand);
 				ipcSize += ipcSourceSize(sizeof(HelSimpleResult));
@@ -3248,15 +3250,23 @@ HelError doSubmitExchangeMsgs(HelHandle laneHandle, smarter::shared_ptr<IpcQueue
 				link(&item->mainSource);
 			}else if(recipe->type == kHelActionPullDescriptor) {
 				// TODO: This condition should be replaced. Just test if lane is valid.
+				Error e = Error::success;
 				HelHandle handle = kHelNullHandle;
-				if(node->error() == Error::success) {
-					auto universe = weakUniverse.lock();
-					assert(universe);
+				if(node->error() != Error::success) {
+					e = node->error();
+				} else {
+					auto descriptor = node->descriptor();
+					if (!checkRights(descriptor.rights(), recipe->rights)) {
+						e = Error::badRights;
+					} else {
+						auto universe = weakUniverse.lock();
+						assert(universe);
 
-					handle = universe->attachDescriptor(node->descriptor());
+						handle = universe->attachDescriptor(std::move(descriptor));
+					}
 				}
 
-				item->helHandleResult = {translateError(node->error()), 0, handle};
+				item->helHandleResult = {translateError(e), 0, handle};
 				item->mainSource.setup(&item->helHandleResult, sizeof(HelHandleResult));
 				link(&item->mainSource);
 			}else{

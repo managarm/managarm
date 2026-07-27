@@ -164,7 +164,7 @@ async::result<frg::expected<UsbError, Configuration>> DeviceState::useConfigurat
 		helix_ng::offer(
 			helix_ng::sendBragiHeadOnly(req, frg::stl_allocator{}),
 			helix_ng::recvInline(),
-			helix_ng::pullDescriptor()
+			helix_ng::pullDescriptor(kHelRightNull)
 		)
 	);
 
@@ -260,7 +260,7 @@ ConfigurationState::useInterface(int number, int alternative) {
 		helix_ng::offer(
 			helix_ng::sendBragiHeadOnly(req, frg::stl_allocator{}),
 			helix_ng::recvInline(),
-			helix_ng::pullDescriptor()
+			helix_ng::pullDescriptor(kHelRightNull)
 		)
 	);
 
@@ -291,7 +291,7 @@ InterfaceState::getEndpoint(PipeType type, int number) {
 		helix_ng::offer(
 			helix_ng::sendBragiHeadOnly(req, frg::stl_allocator{}),
 			helix_ng::recvInline(),
-			helix_ng::pullDescriptor()
+			helix_ng::pullDescriptor(kHelRightNull)
 		)
 	);
 

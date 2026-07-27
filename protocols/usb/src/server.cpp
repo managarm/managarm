@@ -153,7 +153,7 @@ struct HandleGetEndpoint {
 		auto [sendResp, sendLane] = co_await helix_ng::exchangeMsgs(
 			conversation,
 			helix_ng::sendBragiHeadOnly(resp, frg::stl_allocator{}),
-			helix_ng::pushDescriptor(remoteLane)
+			helix_ng::pushDescriptor(remoteLane, kHelRightsMax)
 		);
 
 		HEL_CHECK(sendResp.error());
@@ -189,7 +189,7 @@ struct HandleUseInterface {
 		auto [sendResp, sendLane] = co_await helix_ng::exchangeMsgs(
 			conversation,
 			helix_ng::sendBragiHeadOnly(resp, frg::stl_allocator{}),
-			helix_ng::pushDescriptor(remoteLane)
+			helix_ng::pushDescriptor(remoteLane, kHelRightsMax)
 		);
 
 		HEL_CHECK(sendResp.error());
@@ -346,7 +346,7 @@ struct HandleServe {
 		auto [sendResp, sendLane] = co_await helix_ng::exchangeMsgs(
 			conversation,
 			helix_ng::sendBragiHeadOnly(resp, frg::stl_allocator{}),
-			helix_ng::pushDescriptor(remoteLane)
+			helix_ng::pushDescriptor(remoteLane, kHelRightsMax)
 		);
 
 		HEL_CHECK(sendResp.error());

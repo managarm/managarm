@@ -1141,8 +1141,8 @@ async::detached serveDevice(sound::Device *device,
 			auto [send_resp, push_pt, push_page] = co_await helix_ng::exchangeMsgs(
 				conversation,
 				helix_ng::sendBragiHeadOnly(resp, frg::stl_allocator{}),
-				helix_ng::pushDescriptor(remote_lane),
-				helix_ng::pushDescriptor(file->statusPage.getMemory())
+				helix_ng::pushDescriptor(remote_lane, kHelRightsMax),
+				helix_ng::pushDescriptor(file->statusPage.getMemory(), kHelRightsMax)
 			);
 			HEL_CHECK(send_resp.error());
 			HEL_CHECK(push_pt.error());

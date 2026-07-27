@@ -56,7 +56,7 @@ impl Device {
             &conversation_lane,
             (
                 hel::ReceiveBuffer::new(&mut tail_buffer),
-                hel::PullDescriptor,
+                hel::PullDescriptor::new(hel_sys::kHelRightNull),
             ),
         )
         .await?;
@@ -87,7 +87,7 @@ impl Device {
             &conversation_lane,
             (
                 hel::ReceiveBuffer::new(&mut tail_buffer),
-                hel::PullDescriptor,
+                hel::PullDescriptor::new(hel_sys::kHelRightNull),
             ),
         )
         .await?;

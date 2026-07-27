@@ -408,10 +408,24 @@ struct HelSgItem {
 struct HelAction {
 	int type;
 	uint32_t flags;
-	// TODO: the following fields could be put into unions
-	void *buffer;
-	size_t length;
-	HelHandle handle;
+	// TODO: It may be worth to restructure this to a union of structs
+	//       (e.g., a HelActionDataBufferSize, HelActionDataDescriptorRights, ...),
+	//       but that requires simultaneous mlibc and Managarm changes.
+	union {
+		uintptr_t word0;
+		void *buffer;
+	};
+	union {
+		uintptr_t word1;
+		size_t length;
+		// For kHelPushDescriptor, kHelPullDescriptor.
+		uint32_t rights;
+	};
+	union {
+		uintptr_t word2;
+		// For kHelActionImbueCredentials, kHelPushDescriptor, kHelPullDescriptor.
+		HelHandle handle;
+	};
 };
 
 struct HelDescriptorInfo {

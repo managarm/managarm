@@ -17,7 +17,7 @@ impl Entity {
             hel::Offer::new((
                 hel::SendBuffer::new(&head),
                 hel::ReceiveInline,
-                hel::PullDescriptor,
+                hel::PullDescriptor::new(hel_sys::kHelRightNull),
             )),
         )
         .await?;

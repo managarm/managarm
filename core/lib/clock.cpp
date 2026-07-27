@@ -24,7 +24,7 @@ async::result<void> fetchTrackerPage() {
 		helix_ng::offer(
 			helix_ng::sendBragiHeadOnly(req, frg::stl_allocator{}),
 			helix_ng::recvInline(),
-			helix_ng::pullDescriptor()
+			helix_ng::pullDescriptor(kHelRightNull)
 		)
 	);
 	HEL_CHECK(offer.error());
