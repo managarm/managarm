@@ -123,11 +123,7 @@ impl FromQueueElement for CredentialsResult {
         // SAFETY: The data is guaranteed to contain enough bytes
         // to read a [`hel_sys::HelCredentialsResult`]` and that it is
         // correctly aligned.
-        let result = unsafe {
-            data.as_ptr()
-                .cast::<hel_sys::HelCredentialsResult>()
-                .read()
-        };
+        let result = unsafe { data.as_ptr().cast::<hel_sys::HelCredentialsResult>().read() };
 
         element.advance(size_of::<hel_sys::HelCredentialsResult>());
 
