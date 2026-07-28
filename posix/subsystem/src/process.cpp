@@ -364,8 +364,8 @@ std::shared_ptr<FileContext> FileContext::create() {
 	    posixMbusClient,
 		context->_universe.getHandle(),
 		kHelTransferDescriptorOut,
-		kHelRightsMax,
-		kHelRightNull,
+		kHelRightInvoke,
+		kHelRightInvoke,
 		&context->_clientMbusLane
 	));
 
@@ -396,8 +396,8 @@ std::shared_ptr<FileContext> FileContext::clone(std::shared_ptr<FileContext> ori
 	    posixMbusClient,
 		context->_universe.getHandle(),
 		kHelTransferDescriptorOut,
-		kHelRightsMax,
-		kHelRightNull,
+		kHelRightInvoke,
+		kHelRightInvoke,
 		&context->_clientMbusLane
 	));
 
@@ -416,8 +416,8 @@ std::expected<int, Error> FileContext::attachFile(smarter::shared_ptr<File, File
 	    file->getPassthroughLane().getHandle(),
 		_universe.getHandle(),
 		kHelTransferDescriptorOut,
-		kHelRightsMax,
-		kHelRightNull,
+		kHelRightInvoke,
+		kHelRightInvoke,
 		&handle
 	));
 
@@ -447,8 +447,8 @@ std::expected<void, Error> FileContext::attachFile(int fd, smarter::shared_ptr<F
 	    file->getPassthroughLane().getHandle(),
 		_universe.getHandle(),
 		kHelTransferDescriptorOut,
-		kHelRightsMax,
-		kHelRightNull,
+		kHelRightInvoke,
+		kHelRightInvoke,
 		&handle
 	));
 
@@ -1323,8 +1323,8 @@ async::result<std::shared_ptr<ThreadGroup>> Process::init(std::string path) {
 	    client_lane.getHandle(),
 	    process->_fileContext->getUniverse().getHandle(),
 	    kHelTransferDescriptorOut,
-		kHelRightsMax,
-		kHelRightNull,
+		kHelRightInvoke,
+		kHelRightInvoke,
 	    &process->_clientPosixLane
 	));
 	client_lane.release();
@@ -1403,8 +1403,8 @@ async::result<std::shared_ptr<Process>> Process::fork(std::shared_ptr<Process> o
 	    client_lane.getHandle(),
 	    process->_fileContext->getUniverse().getHandle(),
 	    kHelTransferDescriptorOut,
-		kHelRightsMax,
-		kHelRightNull,
+		kHelRightInvoke,
+		kHelRightInvoke,
 	    &process->_clientPosixLane
 	));
 	client_lane.release();
@@ -1537,8 +1537,8 @@ Process::clone(std::shared_ptr<Process> original, void *ip, void *sp, posix::sup
 	    client_lane.getHandle(),
 	    process->_fileContext->getUniverse().getHandle(),
 	    kHelTransferDescriptorOut,
-		kHelRightsMax,
-		kHelRightNull,
+		kHelRightInvoke,
+		kHelRightInvoke,
 	    &process->_clientPosixLane
 	));
 	client_lane.release();
@@ -1605,8 +1605,8 @@ async::result<Error> Process::exec(std::shared_ptr<Process> process,
 	    client_lane.getHandle(),
 	    process->_fileContext->getUniverse().getHandle(),
 	    kHelTransferDescriptorOut,
-		kHelRightsMax,
-		kHelRightNull,
+		kHelRightInvoke,
+		kHelRightInvoke,
 	    &exec_posix_lane
 	));
 	client_lane.release();
