@@ -19,8 +19,8 @@ void alertRemoteQueue(Process *self) {
 	    self->accessThreadPage()->queueHandle,
 	    self->fileContext()->getUniverse().getHandle(),
 	    kHelTransferDescriptorIn,
-		kHelRightsMax,
-		kHelRightNull,
+		kHelRightSignal,
+		kHelRightSignal,
 	    &handle
 	);
 
