@@ -713,10 +713,10 @@ HelError helCreateSliceView(HelHandle memoryHandle,
 	auto this_thread = getCurrentThread();
 	auto this_universe = this_thread->getUniverse();
 
-	auto viewOutcome = this_universe->resolveObject<DescriptorType::memoryView>(memoryHandle, kHelRightAssign);
+	auto viewOutcome = this_universe->resolveCapability<DescriptorType::memoryView>(memoryHandle, kHelRightAssign);
 	if(!viewOutcome)
 		return translateError(viewOutcome.error());
-	auto view = std::move(*viewOutcome);
+	auto [view, rights] = std::move(*viewOutcome);
 
 	CachingFlags cachingFlags = 0;
 	if(flags & kHelSliceCacheWriteCombine)
@@ -725,10 +725,9 @@ HelError helCreateSliceView(HelHandle memoryHandle,
 	auto sliceOutcome = MemorySlice::create(std::move(view), offset, size, cachingFlags);
 	if(!sliceOutcome)
 		return translateError(sliceOutcome.error());
-	// TODO: We should inherit the proper rights here instead of unconditionally gaining RWX.
 	*handle = this_universe->attachDescriptor(
 		AnyDescriptor::make<DescriptorType::memorySlice>(
-			std::move(*sliceOutcome), kHelRightRead | kHelRightWrite | kHelRightExecute | kHelRightAssign
+			std::move(*sliceOutcome), rights & (kHelRightRead | kHelRightWrite | kHelRightExecute | kHelRightAssign)
 		)
 	);
 
@@ -740,16 +739,16 @@ HelError doSubmitForkMemory(HelHandle handle, smarter::shared_ptr<IpcQueue> queu
 	auto this_thread = getCurrentThread();
 	auto this_universe = this_thread->getUniverse();
 
-	auto viewOutcome = this_universe->resolveObject<DescriptorType::memoryView>(handle, kHelRightDerive);
+	auto viewOutcome = this_universe->resolveCapability<DescriptorType::memoryView>(handle, kHelRightDerive);
 	if(!viewOutcome)
 		return translateError(viewOutcome.error());
-	auto view = std::move(*viewOutcome);
+	auto [view, rights] = std::move(*viewOutcome);
 
 	if(!queue->validSize(ipcSourceSize(sizeof(HelHandleResult))))
 		return kHelErrQueueTooSmall;
 
 	[](smarter::weak_ptr<Universe> weakUniverse,
-			smarter::shared_ptr<MemoryView> view,
+			smarter::shared_ptr<MemoryView> view, uint32_t rights,
 			smarter::shared_ptr<IpcQueue> queue, uintptr_t context,
 			enable_detached_coroutine) -> void {
 		auto outcome = co_await onExceptionalWq(view->fork());
@@ -769,18 +768,17 @@ HelError doSubmitForkMemory(HelHandle handle, smarter::shared_ptr<IpcQueue> queu
 			co_return;
 		}
 
-		// TODO: We should inherit the proper rights here instead of unconditionally gaining RWX.
 		HelHandle forkedHandle = universe->attachDescriptor(
 			AnyDescriptor::make<DescriptorType::memoryView>(
 				outcome.value(),
-				kHelRightRead | kHelRightWrite | kHelRightExecute | kHelRightAssign | kHelRightDerive | kHelRightProvision | kHelRightPin | kHelRightFence | kHelRightManage
+				rights & (kHelRightRead | kHelRightWrite | kHelRightExecute | kHelRightAssign | kHelRightDerive | kHelRightProvision | kHelRightPin | kHelRightFence | kHelRightManage)
 			)
 		);
 
 		HelHandleResult helResult{.error = kHelErrNone, .handle = forkedHandle};
 		QueueSource ipcSource{&helResult, sizeof(HelHandleResult), nullptr};
 		co_await queue->submit(&ipcSource, context);
-	}(this_universe.lock(), std::move(view), std::move(queue), context,
+	}(this_universe.lock(), std::move(view), rights, std::move(queue), context,
 		enable_detached_coroutine{getCurrentThread()->mainWorkQueue().lock()});
 
 	return kHelErrNone;
