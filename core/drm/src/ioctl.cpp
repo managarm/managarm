@@ -1264,7 +1264,7 @@ struct drm_core::File::HandleIoctl {
 				self->_device->_posixLane,
 				helix_ng::offer(
 					helix_ng::sendBuffer(fd_ser.data(), fd_ser.size()),
-					helix_ng::pushDescriptor(helix::BorrowedDescriptor(remote_lane), kHelRightsMax),
+					helix_ng::pushDescriptor(helix::BorrowedDescriptor(remote_lane), kHelRightInvoke | kHelRightManage),
 					helix_ng::recvInline())
 			);
 			HEL_CHECK(offer.error());

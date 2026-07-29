@@ -335,7 +335,7 @@ async::result<void> serveServerLane(helix::UniqueDescriptor lane) {
 
 			auto [recv_handle] = co_await helix_ng::exchangeMsgs(
 				conversation,
-				helix_ng::pullDescriptor(kHelRightNull)
+				helix_ng::pullDescriptor(kHelRightInvoke | kHelRightManage)
 			);
 			HEL_CHECK(recv_handle.error());
 
