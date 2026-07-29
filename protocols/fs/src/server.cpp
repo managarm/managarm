@@ -287,7 +287,7 @@ struct HandleFileRequest {
 			auto [send_resp, push_memory] = co_await helix_ng::exchangeMsgs(
 				conversation,
 				helix_ng::sendBuffer(ser.data(), ser.size()),
-				helix_ng::pushDescriptor(memory, kHelRightsMax)
+				helix_ng::pushDescriptor(memory, kHelRightRead | kHelRightWrite | kHelRightExecute | kHelRightAssign | kHelRightProvision | kHelRightPin | kHelRightFence)
 			);
 			HEL_CHECK(send_resp.error());
 			HEL_CHECK(push_memory.error());

@@ -284,7 +284,9 @@ async::result<helix::UniqueDescriptor> File::accessMemory() {
 			helix_ng::offer(
 				helix_ng::sendBuffer(ser.data(), ser.size()),
 				helix_ng::recvBuffer(buffer, 128),
-				helix_ng::pullDescriptor(kHelRightNull)
+				// We do not require any RWX bits at the protocol level.
+				// The caller needs to know or determine the RWX bits (e.g., before mapping the memory view).
+				helix_ng::pullDescriptor(kHelRightAssign)
 			)
 		);
 
