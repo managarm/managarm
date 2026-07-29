@@ -1144,8 +1144,8 @@ struct HandleFileRequest {
 			auto [sendResp, pushCtrl, pushPt] = co_await helix_ng::exchangeMsgs(
 				conversation,
 				helix_ng::sendBuffer(ser.data(), ser.size()),
-				helix_ng::pushDescriptor(ctrlLane, kHelRightsMax),
-				helix_ng::pushDescriptor(ptLane, kHelRightsMax)
+				helix_ng::pushDescriptor(ctrlLane, kHelRightInvoke | kHelRightManage),
+				helix_ng::pushDescriptor(ptLane, kHelRightInvoke | kHelRightManage)
 			);
 			HEL_CHECK(sendResp.error());
 			HEL_CHECK(pushCtrl.error());

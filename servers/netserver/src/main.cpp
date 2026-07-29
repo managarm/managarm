@@ -677,8 +677,8 @@ struct HandleRequest {
 					conversation,
 					helix_ng::sendBuffer(
 						ser.data(), ser.size()),
-					helix_ng::pushDescriptor(remoteCtrl, kHelRightsMax),
-					helix_ng::pushDescriptor(remotePt, kHelRightsMax)
+					helix_ng::pushDescriptor(remoteCtrl, kHelRightInvoke | kHelRightManage),
+					helix_ng::pushDescriptor(remotePt, kHelRightInvoke | kHelRightManage)
 				);
 			HEL_CHECK(sendResp.error());
 			HEL_CHECK(pushCtrl.error());
