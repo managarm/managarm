@@ -341,8 +341,8 @@ private:
 			helix_ng::offer(
 				helix_ng::sendBragiHeadOnly(req, frg::stl_allocator{}),
 				helix_ng::recvInline(),
-				helix_ng::pullDescriptor(kHelRightNull),
-				helix_ng::pullDescriptor(kHelRightNull)
+				helix_ng::pullDescriptor(kHelRightInvoke | kHelRightManage),
+				helix_ng::pullDescriptor(kHelRightInvoke | kHelRightManage)
 			)
 		);
 		HEL_CHECK(offer.error());
@@ -528,7 +528,7 @@ private:
 			helix_ng::offer(
 				helix_ng::sendBragiHeadTail(req, frg::stl_allocator{}),
 				helix_ng::recvInline(),
-				helix_ng::pullDescriptor(kHelRightNull)
+				helix_ng::pullDescriptor(kHelRightInvoke | kHelRightManage)
 			)
 		);
 		HEL_CHECK(offer.error());
@@ -591,7 +591,8 @@ private:
 		auto [recv_tail, pull_desc] = co_await helix_ng::exchangeMsgs(
 			conversation,
 			helix_ng::recvBuffer(tail.data(), tail.size()),
-			helix_ng::pullDescriptor(kHelRightNull)
+			// TODO: We can just use the conversation lane instead.
+			helix_ng::pullDescriptor(kHelRightInvoke | kHelRightManage)
 		);
 		HEL_CHECK(recv_tail.error());
 
@@ -611,7 +612,7 @@ private:
 		for (size_t i = 0; i < resp.ids().size(); i++) {
 			auto [pull_node] = co_await helix_ng::exchangeMsgs(
 				pull_lane,
-				helix_ng::pullDescriptor(kHelRightNull)
+				helix_ng::pullDescriptor(kHelRightInvoke | kHelRightManage)
 			);
 
 			HEL_CHECK(pull_node.error());
@@ -649,7 +650,7 @@ private:
 			helix_ng::offer(
 				helix_ng::sendBragiHeadTail(req, frg::stl_allocator{}),
 				helix_ng::recvInline(),
-				helix_ng::pullDescriptor(kHelRightNull)
+				helix_ng::pullDescriptor(kHelRightInvoke | kHelRightManage)
 			)
 		);
 		HEL_CHECK(offer.error());
@@ -686,7 +687,7 @@ private:
 				helix_ng::sendBuffer(name.data(), name.size()),
 				helix_ng::sendBuffer(path.data(), path.size()),
 				helix_ng::recvInline(),
-				helix_ng::pullDescriptor(kHelRightNull)
+				helix_ng::pullDescriptor(kHelRightInvoke | kHelRightManage)
 			)
 		);
 		HEL_CHECK(offer.error());
@@ -727,7 +728,7 @@ private:
 			helix_ng::offer(
 				helix_ng::sendBragiHeadTail(req, frg::stl_allocator{}),
 				helix_ng::recvInline(),
-				helix_ng::pullDescriptor(kHelRightNull)
+				helix_ng::pullDescriptor(kHelRightInvoke | kHelRightManage)
 			)
 		);
 		HEL_CHECK(offer.error());
@@ -766,7 +767,7 @@ private:
 			helix_ng::offer(
 				helix_ng::sendBragiHeadTail(req, frg::stl_allocator{}),
 				helix_ng::recvInline(),
-				helix_ng::pullDescriptor(kHelRightNull)
+				helix_ng::pullDescriptor(kHelRightInvoke | kHelRightManage)
 			)
 		);
 		HEL_CHECK(offer.error());
@@ -869,8 +870,8 @@ private:
 			helix_ng::offer(
 				helix_ng::sendBragiHeadOnly(req, frg::stl_allocator{}),
 				helix_ng::recvInline(),
-				helix_ng::pullDescriptor(kHelRightNull),
-				helix_ng::pullDescriptor(kHelRightNull)
+				helix_ng::pullDescriptor(kHelRightInvoke | kHelRightManage),
+				helix_ng::pullDescriptor(kHelRightInvoke | kHelRightManage)
 			)
 		);
 		HEL_CHECK(offer.error());
@@ -924,7 +925,7 @@ FutureMaybe<std::shared_ptr<FsNode>> Superblock::createRegular(Process *process)
 		helix_ng::offer(
 			helix_ng::sendBragiHeadOnly(req, frg::stl_allocator{}),
 			helix_ng::recvInline(),
-			helix_ng::pullDescriptor(kHelRightNull)
+			helix_ng::pullDescriptor(kHelRightInvoke | kHelRightManage)
 		)
 	);
 	HEL_CHECK(offer.error());

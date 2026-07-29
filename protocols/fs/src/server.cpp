@@ -1632,7 +1632,7 @@ struct HandleNodeRequest {
 				auto [sendResp, pushNode] = co_await helix_ng::exchangeMsgs(
 					conversation,
 					helix_ng::sendBuffer(ser.data(), ser.size()),
-					helix_ng::pushDescriptor(remote_lane, kHelRightsMax)
+					helix_ng::pushDescriptor(remote_lane, kHelRightInvoke | kHelRightManage)
 				);
 				HEL_CHECK(sendResp.error());
 				HEL_CHECK(pushNode.error());
@@ -1773,7 +1773,7 @@ struct HandleNodeRequest {
 			auto [send_resp, push_node] = co_await helix_ng::exchangeMsgs(
 				conversation,
 				helix_ng::sendBuffer(ser.data(), ser.size()),
-				helix_ng::pushDescriptor(remote_lane, kHelRightsMax)
+				helix_ng::pushDescriptor(remote_lane, kHelRightInvoke | kHelRightManage)
 			);
 			HEL_CHECK(send_resp.error());
 			HEL_CHECK(push_node.error());
@@ -1844,6 +1844,7 @@ struct HandleNodeRequest {
 			throw std::runtime_error("Unexpected file type");
 		}
 
+		// TODO: We can just use the conversation lane instead.
 		// TODO: this is a workaround for not being able to get the offer lane on the offer side
 		helix::UniqueLane local_push, remote_push;
 		std::tie(local_push, remote_push) = helix::createStream();
@@ -1855,7 +1856,7 @@ struct HandleNodeRequest {
 		auto [send_resp, send_tail, push_desc] = co_await helix_ng::exchangeMsgs(
 			conversation,
 			helix_ng::sendBragiHeadTail(resp, frg::stl_allocator{}),
-			helix_ng::pushDescriptor(remote_push, kHelRightsMax)
+			helix_ng::pushDescriptor(remote_push, kHelRightInvoke | kHelRightManage)
 		);
 
 		HEL_CHECK(send_resp.error());
@@ -1870,7 +1871,7 @@ struct HandleNodeRequest {
 
 			auto [push_node] = co_await helix_ng::exchangeMsgs(
 				local_push,
-				helix_ng::pushDescriptor(remote_lane, kHelRightsMax)
+				helix_ng::pushDescriptor(remote_lane, kHelRightInvoke | kHelRightManage)
 			);
 
 			HEL_CHECK(push_node.error());
@@ -1904,7 +1905,7 @@ struct HandleNodeRequest {
 			auto [send_resp, push_node] = co_await helix_ng::exchangeMsgs(
 				conversation,
 				helix_ng::sendBuffer(ser.data(), ser.size()),
-				helix_ng::pushDescriptor(remote_lane, kHelRightsMax)
+				helix_ng::pushDescriptor(remote_lane, kHelRightInvoke | kHelRightManage)
 			);
 			HEL_CHECK(send_resp.error());
 			HEL_CHECK(push_node.error());
@@ -1962,7 +1963,7 @@ struct HandleNodeRequest {
 			auto [send_resp, push_node] = co_await helix_ng::exchangeMsgs(
 				conversation,
 				helix_ng::sendBuffer(ser.data(), ser.size()),
-				helix_ng::pushDescriptor(remote_lane, kHelRightsMax)
+				helix_ng::pushDescriptor(remote_lane, kHelRightInvoke | kHelRightManage)
 			);
 			HEL_CHECK(send_resp.error());
 			HEL_CHECK(push_node.error());
@@ -2071,8 +2072,8 @@ struct HandleNodeRequest {
 		auto [send_resp, push_file, push_pt] = co_await helix_ng::exchangeMsgs(
 			conversation,
 			helix_ng::sendBuffer(ser.data(), ser.size()),
-			helix_ng::pushDescriptor(std::get<0>(result), kHelRightsMax),
-			helix_ng::pushDescriptor(std::get<1>(result), kHelRightsMax)
+			helix_ng::pushDescriptor(std::get<0>(result), kHelRightInvoke | kHelRightManage),
+			helix_ng::pushDescriptor(std::get<1>(result), kHelRightInvoke | kHelRightManage)
 		);
 		HEL_CHECK(send_resp.error());
 		HEL_CHECK(push_file.error());
@@ -2171,7 +2172,7 @@ struct HandleNodeRequest {
 			auto [send_resp, send_node] = co_await helix_ng::exchangeMsgs(
 				conversation,
 				helix_ng::sendBragiHeadOnly(resp, frg::stl_allocator{}),
-				helix_ng::pushDescriptor(remote_lane, kHelRightsMax)
+				helix_ng::pushDescriptor(remote_lane, kHelRightInvoke | kHelRightManage)
 			);
 			HEL_CHECK(send_resp.error());
 			HEL_CHECK(send_node.error());
