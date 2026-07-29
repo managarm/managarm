@@ -24,7 +24,7 @@ async::result<void> fetchTrackerPage() {
 		helix_ng::offer(
 			helix_ng::sendBragiHeadOnly(req, frg::stl_allocator{}),
 			helix_ng::recvInline(),
-			helix_ng::pullDescriptor(kHelRightNull)
+			helix_ng::pullDescriptor(kHelRightRead | kHelRightAssign)
 		)
 	);
 	HEL_CHECK(offer.error());
@@ -39,7 +39,7 @@ async::result<void> fetchTrackerPage() {
 
 	globalTrackerPageMemory = pullMemory.descriptor();
 
-	trackerPageMapping = helix::Mapping{globalTrackerPageMemory, 0, 0x1000};
+	trackerPageMapping = helix::Mapping{globalTrackerPageMemory, 0, 0x1000, kHelMapProtRead};
 }
 
 } // anonymous namespace

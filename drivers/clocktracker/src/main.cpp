@@ -76,7 +76,7 @@ struct HandleRequest {
 		auto [sendResp, sendMemory] = co_await helix_ng::exchangeMsgs(
 			conversation,
 			helix_ng::sendBragiHeadOnly(resp, frg::stl_allocator{}),
-			helix_ng::pushDescriptor(trackerPageMemory, kHelRightsMax)
+			helix_ng::pushDescriptor(trackerPageMemory, kHelRightRead | kHelRightAssign)
 		);
 		HEL_CHECK(sendResp.error());
 		HEL_CHECK(sendMemory.error());
