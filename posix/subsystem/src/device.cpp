@@ -380,7 +380,7 @@ FutureMaybe<std::shared_ptr<FsLink>> mountExternalDevice(helix::BorrowedLane lan
 		helix_ng::offer(
 			helix_ng::sendBragiHeadTail(req, frg::stl_allocator{}),
 			helix_ng::recvInline(),
-			helix_ng::pullDescriptor(kHelRightNull))
+			helix_ng::pullDescriptor(kHelRightInvoke | kHelRightManage))
 	);
 	HEL_CHECK(offer.error());
 	HEL_CHECK(send_head.error());
