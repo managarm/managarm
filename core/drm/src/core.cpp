@@ -312,8 +312,8 @@ struct ServeDeviceVisitor {
 
 			auto [send_resp, push_pt, push_page] = co_await helix_ng::exchangeMsgs(conversation,
 				helix_ng::sendBragiHeadOnly(resp, frg::stl_allocator{}),
-				helix_ng::pushDescriptor(remote_lane, kHelRightsMax),
-				helix_ng::pushDescriptor(file->statusPageMemory(), kHelRightsMax)
+				helix_ng::pushDescriptor(remote_lane, kHelRightInvoke | kHelRightManage),
+				helix_ng::pushDescriptor(file->statusPageMemory(), kHelRightRead | kHelRightAssign)
 			);
 			HEL_CHECK(send_resp.error());
 			HEL_CHECK(push_pt.error());
@@ -321,7 +321,7 @@ struct ServeDeviceVisitor {
 		}else if(req.req_type() == managarm::fs::CntReqType::OPEN_FD_LANE) {
 			auto [fd_lane] = co_await helix_ng::exchangeMsgs(
 				conversation,
-				helix_ng::pullDescriptor(kHelRightNull)
+				helix_ng::pullDescriptor(kHelRightInvoke | kHelRightManage)
 			);
 			HEL_CHECK(fd_lane.error());
 
