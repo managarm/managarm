@@ -188,7 +188,9 @@ struct MbusNode final : private KernelBusObject {
 				panicLogger() << "thor: Failed to create hardware memory" << frg::endlog;
 			auto memory = std::move(*memoryOutcome);
 
-			auto descriptor = AnyDescriptor::make<DescriptorType::memoryView>(memory);
+			auto descriptor = AnyDescriptor::make<DescriptorType::memoryView>(
+				memory, kHelRightRead | kHelRightWrite | kHelRightAssign | kHelRightProvision | kHelRightPin
+			);
 
 			managarm::hw::SvrResponse<KernelAlloc> resp{*kernelAlloc};
 			resp.set_error(managarm::hw::Errors::SUCCESS);
@@ -221,7 +223,7 @@ struct MbusNode final : private KernelBusObject {
 
 			FRG_CO_TRY(co_await sendResponse(conversation, std::move(resp)));
 
-			auto descError = co_await pushDescriptor(conversation, AnyDescriptor::make<DescriptorType::irq>(object));
+			auto descError = co_await pushDescriptor(conversation, AnyDescriptor::make<DescriptorType::irq>(object, kHelRightWait | kHelRightSignal));
 
 			if(descError != Error::success)
 				co_return descError;

@@ -247,7 +247,10 @@ namespace initrd {
 					assert(respError == Error::success);
 
 					auto memoryError = co_await pushDescriptor(conversation,
-							AnyDescriptor::make<DescriptorType::memoryView>(file->module->getMemory()));
+						AnyDescriptor::make<DescriptorType::memoryView>(
+							file->module->getMemory(), kHelRightRead | kHelRightAssign | kHelRightProvision | kHelRightPin | kHelRightFence
+						)
+					);
 					// TODO: improve error handling here.
 					assert(memoryError == Error::success);
 				}else{
@@ -473,7 +476,7 @@ namespace posix {
 				panicLogger() << "thor: Failed to create stream" << frg::endlog;
 			auto posixStream = std::move(*posixStreamOutcome);
 			Handle posixHandle = thread->getUniverse()->attachDescriptor(
-					AnyDescriptor::make<DescriptorType::lane>(std::move(posixStream.get<1>())));
+					AnyDescriptor::make<DescriptorType::lane>(std::move(posixStream.get<1>()), kHelRightInvoke));
 
 			ThreadInfo info {
 				.thread = thread,
@@ -491,17 +494,17 @@ namespace posix {
 
 		void attachControl(smarter::shared_ptr<Thread, ActiveHandle> thread, smarter::shared_ptr<Stream, LanePolicy> lane) {
 			controlHandle = thread->getUniverse()->attachDescriptor(
-					AnyDescriptor::make<DescriptorType::lane>(lane));
+					AnyDescriptor::make<DescriptorType::lane>(lane, kHelRightInvoke));
 		}
 
 		void attachMbus(smarter::shared_ptr<Thread, ActiveHandle> thread) {
 			mbusHandle = thread->getUniverse()->attachDescriptor(
-					AnyDescriptor::make<DescriptorType::lane>(*mbusClient));
+					AnyDescriptor::make<DescriptorType::lane>(*mbusClient, kHelRightInvoke));
 		}
 
 		coroutine<int> attachFile(smarter::shared_ptr<Thread, ActiveHandle> thread, OpenFile *file) {
 			Handle handle = thread->getUniverse()->attachDescriptor(
-					AnyDescriptor::make<DescriptorType::lane>(file->clientLane));
+					AnyDescriptor::make<DescriptorType::lane>(file->clientLane, kHelRightInvoke));
 
 			for(int fd = 0; fd < (int)openFiles.size(); ++fd) {
 				if(openFiles[fd])

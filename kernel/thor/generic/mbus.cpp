@@ -59,7 +59,7 @@ coroutine<frg::expected<Error, size_t>> KernelBusObject::createObject(frg::strin
 	if (resp->error() != managarm::mbus::Error::SUCCESS)
 		co_return Error::illegalState;
 
-	auto laneOutcome = descriptor.resolveObject<DescriptorType::lane>();
+	auto laneOutcome = descriptor.resolveObject<DescriptorType::lane>(kHelRightInvoke | kHelRightManage);
 	if (!laneOutcome)
 		co_return laneOutcome.error();
 
@@ -146,8 +146,10 @@ coroutine<frg::expected<Error>> KernelBusObject::handleServeRemoteLane_() {
 
 	auto lane = initiateClient();
 
-	auto descError = co_await pushDescriptor(conversation,
-		AnyDescriptor::make<DescriptorType::lane>(lane));
+	auto descError = co_await pushDescriptor(
+		conversation,
+		AnyDescriptor::make<DescriptorType::lane>(lane, kHelRightInvoke | kHelRightManage)
+	);
 
 	if (descError != Error::success)
 		co_return descError;

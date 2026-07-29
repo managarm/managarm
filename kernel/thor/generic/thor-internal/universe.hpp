@@ -233,18 +233,19 @@ struct AnyDescriptor {
 		using std::swap;
 		swap(x.type_, y.type_);
 		swap(x.extra_, y.extra_);
+		swap(x.rights_, y.rights_);
 		swap(x.object_, y.object_);
 		swap(x.ctr_, y.ctr_);
 	}
 
 	// Constructs a descriptor of type K that takes over the given pointer's reference.
 	template<DescriptorType K>
-	static AnyDescriptor make(DescriptorPointer<K> ptr);
+	static AnyDescriptor make(DescriptorPointer<K> ptr, uint32_t rights);
 
 	AnyDescriptor() = default;
 
 	AnyDescriptor(const AnyDescriptor &other)
-	: type_{other.type_}, extra_{other.extra_}, object_{other.object_}, ctr_{other.ctr_} {
+	: type_{other.type_}, extra_{other.extra_}, rights_{other.rights_}, object_{other.object_}, ctr_{other.ctr_} {
 		if(ctr_)
 			ctr_->increment();
 	}
@@ -268,6 +269,10 @@ struct AnyDescriptor {
 		return type_;
 	}
 
+	uint32_t rights() const {
+		return rights_;
+	}
+
 	template<DescriptorType K>
 	bool is() const {
 		return type_ == K;
@@ -275,16 +280,40 @@ struct AnyDescriptor {
 
 	// Resolves the descriptor to the object it holds (takes a new reference).
 	// Fails with badDescriptor unless the descriptor is of type K.
+	// Fails with badRights until the descriptor has all required rights.
 	template<DescriptorType K>
-	std::expected<DescriptorPointer<K>, Error> resolveObject() const;
+	std::expected<DescriptorPointer<K>, Error> resolveObject(uint32_t requiredRights) const {
+		if (!is<K>())
+			return std::unexpected{Error::badDescriptor};
+		if ((rights_ & requiredRights) != requiredRights)
+			return std::unexpected{Error::badRights};
+		return resolve_<K>();
+	}
+
+	// Returns both the object (see resolveObject()) and rights.
+	template<DescriptorType K>
+	std::expected<std::tuple<DescriptorPointer<K>, uint32_t>, Error>
+	resolveCapability(uint32_t requiredRights) const {
+		if (!is<K>())
+			return std::unexpected{Error::badDescriptor};
+		if ((rights_ & requiredRights) != requiredRights)
+			return std::unexpected{Error::badRights};
+		auto object = FRG_TRY(resolve_<K>());
+		return std::tuple{std::move(object), rights_};
+	}
 
 private:
+	template<DescriptorType K>
+	std::expected<DescriptorPointer<K>, Error> resolve_() const;
+
 	void releaseOnZero_();
 
 	DescriptorType type_ = DescriptorType::none;
 	// Extra per-descriptor data for some descriptor types.
 	// - For lane descriptors: the lane index.
 	uint8_t extra_ = 0;
+	// Rights associated with the descriptor.
+	uint32_t rights_ = 0;
 	// Invariant: object_ is non-null if type_ != DescriptorType::none.
 	void *object_ = nullptr;
 	// Invariant: ctr_ is non-null if type_ != DescriptorType::none.
@@ -292,12 +321,13 @@ private:
 };
 
 template<DescriptorType K>
-AnyDescriptor AnyDescriptor::make(DescriptorPointer<K> ptr) {
+AnyDescriptor AnyDescriptor::make(DescriptorPointer<K> ptr, uint32_t rights) {
 	static_assert(std::same_as<typename DescriptorTraits<K>::Policy, smarter::default_rc_policy>);
 	assert(ptr);
 
 	AnyDescriptor descriptor;
 	descriptor.type_ = K;
+	descriptor.rights_ = rights;
 	descriptor.object_ = ptr.get();
 	descriptor.ctr_ = &ptr.policy().base()->ctr();
 	ptr.release();
@@ -306,23 +336,23 @@ AnyDescriptor AnyDescriptor::make(DescriptorPointer<K> ptr) {
 
 template<>
 AnyDescriptor AnyDescriptor::make<DescriptorType::thread>(
-		smarter::shared_ptr<Thread, ActiveHandle> ptr);
+		smarter::shared_ptr<Thread, ActiveHandle> ptr, uint32_t rights);
 
 template<>
 AnyDescriptor AnyDescriptor::make<DescriptorType::addressSpace>(
-		smarter::shared_ptr<AddressSpace, BindableHandle> ptr);
+		smarter::shared_ptr<AddressSpace, BindableHandle> ptr, uint32_t rights);
 
 template<>
 AnyDescriptor AnyDescriptor::make<DescriptorType::lane>(
-		smarter::shared_ptr<Stream, LanePolicy> ptr);
+		smarter::shared_ptr<Stream, LanePolicy> ptr, uint32_t rights);
 
 template<DescriptorType K>
-std::expected<DescriptorPointer<K>, Error> AnyDescriptor::resolveObject() const {
+std::expected<DescriptorPointer<K>, Error> AnyDescriptor::resolve_() const {
 	static_assert(std::same_as<typename DescriptorTraits<K>::Policy, smarter::default_rc_policy>);
 	using ObjectType = typename DescriptorTraits<K>::Object;
 
-	if(type_ != K)
-		return std::unexpected{Error::badDescriptor};
+	assert(type_ == K);
+
 	ctr_->increment();
 	return smarter::shared_ptr<ObjectType>{
 		smarter::adopt_rc,
@@ -333,9 +363,9 @@ std::expected<DescriptorPointer<K>, Error> AnyDescriptor::resolveObject() const 
 
 template<>
 inline std::expected<smarter::shared_ptr<Thread, ActiveHandle>, Error>
-AnyDescriptor::resolveObject<DescriptorType::thread>() const {
-	if(type_ != DescriptorType::thread)
-		return std::unexpected{Error::badDescriptor};
+AnyDescriptor::resolve_<DescriptorType::thread>() const {
+	assert(type_ == DescriptorType::thread);
+
 	auto thread = static_cast<Thread *>(object_);
 	ctr_->increment();
 	return smarter::shared_ptr<Thread, ActiveHandle>{
@@ -345,9 +375,9 @@ AnyDescriptor::resolveObject<DescriptorType::thread>() const {
 
 template<>
 inline std::expected<smarter::shared_ptr<AddressSpace, BindableHandle>, Error>
-AnyDescriptor::resolveObject<DescriptorType::addressSpace>() const {
-	if(type_ != DescriptorType::addressSpace)
-		return std::unexpected{Error::badDescriptor};
+AnyDescriptor::resolve_<DescriptorType::addressSpace>() const {
+	assert(type_ == DescriptorType::addressSpace);
+
 	auto space = static_cast<AddressSpace *>(object_);
 	ctr_->increment();
 	return smarter::shared_ptr<AddressSpace, BindableHandle>{
@@ -357,7 +387,7 @@ AnyDescriptor::resolveObject<DescriptorType::addressSpace>() const {
 
 template<>
 std::expected<smarter::shared_ptr<Stream, LanePolicy>, Error>
-AnyDescriptor::resolveObject<DescriptorType::lane>() const;
+AnyDescriptor::resolve_<DescriptorType::lane>() const;
 
 // --------------------------------------------------------
 // Universe.
@@ -397,12 +427,20 @@ public:
 		return std::forward<Fn>(fn)(*desc);
 	}
 
-	// Looks up a handle and resolves it to the object held by its descriptor.
-	// Fails with badDescriptor unless the descriptor is of type K.
+	// Convenience wrapper for getDescriptor() -> resolveObject().
 	template<DescriptorType K>
-	std::expected<DescriptorPointer<K>, Error> resolveObject(Handle handle) {
-		return inspectDescriptor(handle, [](AnyDescriptor &desc) {
-			return desc.resolveObject<K>();
+	std::expected<DescriptorPointer<K>, Error> resolveObject(Handle handle, uint32_t rights) {
+		return inspectDescriptor(handle, [&](AnyDescriptor &desc) {
+			return desc.resolveObject<K>(rights);
+		});
+	}
+
+	// Convenience wrapper for getDescriptor() -> resolveCapability().
+	template<DescriptorType K>
+	std::expected<std::tuple<DescriptorPointer<K>, uint32_t>, Error>
+	resolveCapability(Handle handle, uint32_t rights) {
+		return inspectDescriptor(handle, [&](AnyDescriptor &desc) {
+			return desc.resolveCapability<K>(rights);
 		});
 	}
 
