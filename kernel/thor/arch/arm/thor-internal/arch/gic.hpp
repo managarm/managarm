@@ -28,12 +28,12 @@ struct Gic : dt::IrqController {
 
 		virtual bool setMode(TriggerMode trigger, Polarity polarity) = 0;
 
-		virtual IrqStrategy program(TriggerMode mode, Polarity polarity) override = 0;
+		IrqStrategy program(TriggerMode mode, Polarity polarity) override = 0;
 
-		virtual void mask() override = 0;
-		virtual void unmask() override = 0;
+		void mask() override = 0;
+		void unmask() override = 0;
 
-		virtual void endOfInterrupt() override = 0;
+		void endOfInterrupt() override = 0;
 	};
 
 	virtual Pin *setupIrq(uint32_t irq, TriggerMode trigger) = 0;
