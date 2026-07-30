@@ -50,3 +50,4 @@ link_args += [ '-z', 'max-page-size=0x1000' ]
 args += [ '-mgeneral-regs-only', '-mno-red-zone' ]
 
 want_dtb = true
+want_acpi = true

@@ -1,11 +1,13 @@
 #include <eir-internal/acpi/acpi.hpp>
 #include <eir-internal/main.hpp>
+#include <uacpi/context.h>
 #include <uacpi/uacpi.h>
 
 namespace eir::acpi {
 
 namespace {
 
+[[gnu::aligned(alignof(uintptr_t))]]
 constinit std::array<uint8_t, 4096> earlyTableBuffer{};
 constinit bool haveTablesFlag{false};
 

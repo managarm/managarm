@@ -2,7 +2,6 @@
 
 #include <stddef.h>
 #include <stdint.h>
-#include <utility>
 
 #include <frg/tuple.hpp>
 #include <frg/vector.hpp>
@@ -308,5 +307,7 @@ initgraph::Stage *getBootProcessorReadyStage();
 
 struct CpuData;
 void prepareCpuDataFor(CpuData *context, int cpu);
+
+uint32_t affinityFromMpidr(uint64_t mpidr);
 
 } // namespace thor

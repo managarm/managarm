@@ -146,8 +146,6 @@ extern "C" void eirLimineMain(void) {
 	if (dtb_request.response) {
 		eir::infoLogger() << "DTB accessible at " << dtb_request.response->dtb_ptr << frg::endlog;
 		eirDtbPtr = virtToPhys(dtb_request.response->dtb_ptr);
-	} else {
-		eir::infoLogger() << "Limine did not pass a DTB" << frg::endlog;
 	}
 
 	assert(executable_file_request.response);
@@ -161,7 +159,7 @@ extern "C" void eirLimineMain(void) {
 	kernel_physical = executable_address_request.response->physical_base;
 
 	// Enter a stack that is part of Eir's image.
-	// This ensures that we can still access the stack when paging in enabled.
+	// This ensures that we can still access the stack when paging is enabled.
 	runOnStack([] { eirMain(); }, eirStackTop);
 }
 

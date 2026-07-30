@@ -4,6 +4,7 @@
 #include <eir-internal/generic.hpp>
 #include <eir-internal/main.hpp>
 #include <frg/cmdline.hpp>
+#include <frg/scope_exit.hpp>
 #include <uacpi/acpi.h>
 #include <uacpi/tables.h>
 
@@ -30,6 +31,7 @@ initgraph::Task detectCpusFromMadt{
 		    infoLogger() << "eir: No MADT found" << frg::endlog;
 		    return;
 	    }
+	    frg::scope_exit finish{[&] { uacpi_table_unref(&madtTbl); }};
 	    auto *madt = madtTbl.hdr;
 
 	    size_t cpuCount = 0;
@@ -51,6 +53,14 @@ initgraph::Task detectCpusFromMadt{
 				    acpi_madt_x2apic entry;
 				    memcpy(&entry, genericPtr, sizeof(entry));
 				    if (entry.flags & ACPI_PIC_ENABLED)
+					    ++cpuCount;
+			    } break;
+#endif
+#ifdef __aarch64__
+			    case ACPI_MADT_ENTRY_TYPE_GICC: {
+				    acpi_madt_gicc entry;
+				    memcpy(&entry, genericPtr, sizeof(entry));
+				    if (entry.flags & ACPI_GICC_ENABLED)
 					    ++cpuCount;
 			    } break;
 #endif

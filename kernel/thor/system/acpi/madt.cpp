@@ -19,6 +19,7 @@
 #endif
 
 #include <uacpi/acpi.h>
+#include <uacpi/context.h>
 #include <uacpi/event.h>
 #include <uacpi/sleep.h>
 #include <uacpi/tables.h>
@@ -297,6 +298,40 @@ void dumpMadt() {
 				infoLogger() << "    PLIC " << entry.id << ", GSI Base at "
 				             << frg::hex_fmt{entry.gsi_base} << frg::endlog;
 			} break;
+			case ACPI_MADT_ENTRY_TYPE_GICC: {
+				acpi_madt_gicc entry;
+				memcpy(&entry, genericPtr, sizeof(entry));
+				infoLogger() << "    GICC " << entry.interface_number << ", MPIDR "
+				             << frg::hex_fmt{entry.mpidr}
+				             << ((entry.flags & ACPI_GICC_ENABLED) ? "" : " (disabled)")
+				             << frg::endlog;
+			} break;
+			case ACPI_MADT_ENTRY_TYPE_GICD: {
+				acpi_madt_gicd entry;
+				memcpy(&entry, genericPtr, sizeof(entry));
+				infoLogger() << "    GICD " << entry.id << ", address "
+				             << frg::hex_fmt{entry.address} << ", version "
+				             << static_cast<int>(entry.gic_version) << frg::endlog;
+			} break;
+			case ACPI_MADT_ENTRY_TYPE_GICR: {
+				acpi_madt_gicr entry;
+				memcpy(&entry, genericPtr, sizeof(entry));
+				infoLogger() << "    GICR address " << frg::hex_fmt{entry.address} << ", length "
+				             << entry.length << frg::endlog;
+			} break;
+			case ACPI_MADT_ENTRY_TYPE_GIC_MSI_FRAME: {
+				acpi_madt_gic_msi_frame entry;
+				memcpy(&entry, genericPtr, sizeof(entry));
+				infoLogger() << "    GIC MSI frame " << entry.id << ", address "
+				             << frg::hex_fmt{entry.address} << ", SPIs " << entry.spi_base << ".."
+				             << entry.spi_base + entry.spi_count << frg::endlog;
+			} break;
+			case ACPI_MADT_ENTRY_TYPE_GIC_ITS: {
+				acpi_madt_gic_its entry;
+				memcpy(&entry, genericPtr, sizeof(entry));
+				infoLogger() << "    GIC ITS " << entry.id << ", address "
+				             << frg::hex_fmt{entry.address} << frg::endlog;
+			} break;
 			default: {
 				infoLogger() << "    Unexpected MADT entry of type " << generic.type << frg::endlog;
 			}
@@ -457,7 +492,13 @@ static initgraph::Task loadAcpiNamespaceTask{
 	    ret = uacpi_namespace_load();
 	    assert(ret == UACPI_STATUS_OK);
 
+#if defined(__aarch64__)
+	    ret = uacpi_set_interrupt_model(UACPI_INTERRUPT_MODEL_GIC);
+#elif defined(__riscv)
+	    ret = uacpi_set_interrupt_model(UACPI_INTERRUPT_MODEL_RINTC);
+#else
 	    ret = uacpi_set_interrupt_model(UACPI_INTERRUPT_MODEL_IOAPIC);
+#endif
 	    assert(ret == UACPI_STATUS_OK);
 
 	    initEc();

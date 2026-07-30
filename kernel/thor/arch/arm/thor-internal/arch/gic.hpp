@@ -1,10 +1,10 @@
 #pragma once
 
+#include <arch/mem_space.hpp>
 #include <initgraph.hpp>
 #include <thor-internal/arch-generic/cpu.hpp>
 #include <thor-internal/dtb/irq.hpp>
 #include <thor-internal/irq.hpp>
-#include <arch/mem_space.hpp>
 
 namespace thor {
 
@@ -23,10 +23,9 @@ struct Gic : dt::IrqController {
 	struct Pin : public IrqPin {
 		virtual ~Pin() = default;
 
-		Pin(frg::string<KernelAlloc> name)
-		: IrqPin{std::move(name)} {}
+		Pin(frg::string<KernelAlloc> name) : IrqPin{std::move(name)} {}
 
-		virtual bool setMode(TriggerMode trigger, Polarity polarity) = 0;
+		virtual bool setMode(TriggerMode trigger) = 0;
 
 		IrqStrategy program(TriggerMode mode, Polarity polarity) override = 0;
 
@@ -38,6 +37,7 @@ struct Gic : dt::IrqController {
 
 	virtual Pin *setupIrq(uint32_t irq, TriggerMode trigger) = 0;
 	virtual Pin *getPin(uint32_t irq) = 0;
+	virtual uint32_t irqCount() = 0;
 
 	IrqPin *resolveDtIrq(dtb::Cells irqSpecifier) override {
 		if (irqSpecifier.numCells() != 3 && irqSpecifier.numCells() != 4)
@@ -80,10 +80,8 @@ struct Gic : dt::IrqController {
 				trigger = TriggerMode::level;
 				break;
 			default:
-				infoLogger()
-					<< "thor: Illegal IRQ flags " << (flags & 0xF)
-					<< " found when parsing GIC interrupt"
-					<< frg::endlog;
+				infoLogger() << "thor: Illegal IRQ flags " << (flags & 0xF)
+				             << " found when parsing GIC interrupt" << frg::endlog;
 				polarity = Polarity::null;
 				trigger = TriggerMode::null;
 		}
@@ -101,4 +99,4 @@ struct Gic : dt::IrqController {
 
 void initGicOnThisCpu();
 
-}
+} // namespace thor
