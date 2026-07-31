@@ -97,17 +97,17 @@ async fn handle_request(lane: &Handle, ctl: &Handle) -> Result<bool> {
     recv_tail?;
     let code = recv_code?;
 
-    if fafnir::target_triple().is_none() {
+    let Some(arch) = fafnir::Arch::host() else {
         reject(&conversation, kernlet::Error::ArchitectureNotSupported).await?;
         return Ok(true);
-    }
+    };
 
     let req: kernlet::CompileRequest = bragi::head_tail_from_bytes(&head, &tail)?;
     let proto: Vec<kernlet::ParameterType> = req.bind_types().to_vec();
     let bind_types: Vec<BindType> = proto.iter().map(|&p| bind_type_of(p)).collect();
 
     // Compilation fails on malformed bytecode, i.e. due to the request and not due to us.
-    let elf_bytes = match fafnir::compile(&code, &bind_types)
+    let elf_bytes = match fafnir::compile(arch, &code, &bind_types)
         .and_then(|compiled| elf::build_dso(&compiled))
     {
         Ok(elf_bytes) => elf_bytes,

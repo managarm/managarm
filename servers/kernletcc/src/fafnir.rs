@@ -15,6 +15,7 @@ use cranelift_codegen::{Context, FinalizedRelocTarget};
 use cranelift_control::ControlPlane;
 use cranelift_frontend::{FunctionBuilder, FunctionBuilderContext, Variable};
 use indexmap::IndexSet;
+use std::collections::HashMap;
 
 // Fafnir opcodes, in the order defined by fafnir/language.h.
 const FNR_OP_NULL: u8 = 0;
@@ -86,15 +87,71 @@ struct TypedValue {
     ty: FnrType,
 }
 
-/// A relocation referencing an external (kernel-provided) symbol.
+/// The architecture that kernlets are compiled for.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Arch {
+    X86_64,
+    Aarch64,
+    Riscv64,
+}
+
+impl Arch {
+    /// The architecture that kernletcc runs on, or `None` if we cannot compile Fafnir for it.
+    /// Drivers are told about the latter via ARCHITECTURE_NOT_SUPPORTED.
+    pub fn host() -> Option<Arch> {
+        if cfg!(target_arch = "x86_64") {
+            Some(Arch::X86_64)
+        } else if cfg!(target_arch = "aarch64") {
+            Some(Arch::Aarch64)
+        } else if cfg!(target_arch = "riscv64") {
+            Some(Arch::Riscv64)
+        } else {
+            None
+        }
+    }
+
+    fn triple(self) -> &'static str {
+        match self {
+            Arch::X86_64 => "x86_64-unknown-none-elf",
+            Arch::Aarch64 => "aarch64-unknown-none",
+            Arch::Riscv64 => "riscv64-unknown-none-elf",
+        }
+    }
+
+    /// Whether the architecture has port I/O, i.e. whether thor provides the `__pio_*` intrinsics.
+    fn has_pio(self) -> bool {
+        self == Arch::X86_64
+    }
+}
+
+/// The instruction field that a GOT reference is encoded in.
+#[derive(Debug, Clone, Copy)]
+pub enum GotRelocKind {
+    /// x86-64: the 4-byte RIP-relative displacement of a `movq sym@GOTPCREL(%rip), %reg`.
+    X86Pcrel32,
+    /// aarch64: the 21-bit page offset of an `adrp`.
+    Aarch64AdrpPage,
+    /// aarch64: the scaled 12-bit offset of the `ldr` that follows the `adrp`.
+    Aarch64LdrLo12,
+    /// riscv64: the high 20 bits of a PC-relative offset, held by an `auipc`.
+    RiscvAuipcHi20,
+    /// riscv64: the low 12 bits of the offset, held by the `ld` that follows the `auipc`.
+    RiscvLoadLo12,
+}
+
+/// A reference from the code to the GOT slot of an external (kernel-provided) symbol.
 #[derive(Debug, Clone)]
-pub struct ExternReloc {
-    /// Offset of the 4-byte PC-relative field within the code buffer.
+pub struct GotReloc {
+    /// Offset of the instruction field within the code buffer.
     pub offset: u32,
+    /// Code offset that the displacement is computed against. This is the field itself, except
+    /// for riscv64 low-12 relocations, which are relative to their `auipc`.
+    pub pc_offset: u32,
     /// Addend supplied by Cranelift.
     pub addend: i64,
     /// Index into `Compiled::externs`.
     pub symbol: u32,
+    pub kind: GotRelocKind,
 }
 
 /// A symbol exported (defined) by the kernlet, located at `offset` within `code`.
@@ -108,12 +165,13 @@ pub struct Export {
 /// The result of compiling a kernlet: machine code, the symbols it exports
 /// and its external relocations.
 pub struct Compiled {
+    pub arch: Arch,
     pub code: Vec<u8>,
     /// Exported symbols.
     pub exports: Vec<Export>,
-    /// External symbols. `ExternReloc::symbol` indexes into this vector.
+    /// External symbols. `GotReloc::symbol` indexes into this vector.
     pub externs: Vec<String>,
-    pub relocs: Vec<ExternReloc>,
+    pub relocs: Vec<GotReloc>,
 }
 
 struct Reader<'a> {
@@ -195,6 +253,11 @@ enum BlockKind {
         merge_block: cranelift_codegen::ir::Block,
         merge_vars: Vec<(Variable, FnrType)>,
     },
+}
+
+/// Whether an intrinsic requires port I/O, i.e. whether thor only provides it on x86.
+fn intrinsic_needs_pio(name: &str) -> bool {
+    matches!(name, "__pio_read16" | "__pio_write16")
 }
 
 /// Signatures of the kernel intrinsics from `resolveExternal` (kernel/thor/generic/kernlet.cpp):
@@ -289,31 +352,19 @@ impl Compiler {
     }
 }
 
-/// The Cranelift target triple for the architecture kernletcc runs on, or `None` if we cannot
-/// compile Fafnir for it. Drivers are told about the latter via ARCHITECTURE_NOT_SUPPORTED.
-pub fn target_triple() -> Option<&'static str> {
-    if cfg!(target_arch = "x86_64") {
-        Some("x86_64-unknown-none-elf")
-    } else {
-        None
-    }
-}
-
-/// Compiles Fafnir bytecode into machine code for the architecture kernletcc runs on.
-pub fn compile(code: &[u8], bind_types: &[BindType]) -> Result<Compiled> {
-    // Generate PIC code: Cranelift emits X86GOTPCRel4 relocations for external symbols
-    // (GOT-relative loads) that we later resolve to GOT slots the kernel fills via JUMP_SLOT.
+/// Compiles Fafnir bytecode into machine code for the given architecture.
+pub fn compile(arch: Arch, code: &[u8], bind_types: &[BindType]) -> Result<Compiled> {
+    // Generate PIC code: Cranelift references external symbols through the GOT, which we later
+    // resolve to GOT slots that the kernel fills in via JUMP_SLOT relocations.
     let mut flags = settings::builder();
     flags.set("opt_level", "speed").unwrap();
     flags.set("is_pic", "true").unwrap();
-    let Some(triple) = target_triple() else {
-        bail!("compiling Fafnir is not supported on this architecture");
-    };
-    let triple: target_lexicon::Triple = triple.parse().unwrap();
+    let triple: target_lexicon::Triple = arch.triple().parse().unwrap();
+    let call_conv = CallConv::triple_default(&triple);
     let isa = cranelift_codegen::isa::lookup(triple)?.finish(settings::Flags::new(flags))?;
 
     // Signature of the entry point: automate_irq(const void *instance) -> int
-    let mut sig = Signature::new(CallConv::SystemV);
+    let mut sig = Signature::new(call_conv);
     sig.params.push(AbiParam::new(types::I64));
     sig.returns.push(AbiParam::new(types::I32));
     let mut func = Function::with_name_signature(UserFuncName::user(0, 0), sig);
@@ -504,6 +555,10 @@ pub fn compile(code: &[u8], bind_types: &[BindType]) -> Result<Compiled> {
                 let (param_types, result_types) = intrinsic_signature(&name)
                     .ok_or_else(|| anyhow::anyhow!("unknown intrinsic: {name}"))?;
                 ensure!(
+                    arch.has_pio() || !intrinsic_needs_pio(&name),
+                    "intrinsic {name} requires port I/O, which this architecture lacks"
+                );
+                ensure!(
                     nargs == param_types.len(),
                     "wrong number of arguments for intrinsic {name}"
                 );
@@ -523,12 +578,9 @@ pub fn compile(code: &[u8], bind_types: &[BindType]) -> Result<Compiled> {
                 args.reverse();
 
                 // Check operand types against the kernel-side signature.
-                let mut csig = Signature::new(CallConv::SystemV);
+                let mut csig = Signature::new(call_conv);
                 for (&a, &ty) in args.iter().zip(param_types) {
-                    ensure!(
-                        a.ty == ty,
-                        "operand of wrong type for intrinsic {name}"
-                    );
+                    ensure!(a.ty == ty, "operand of wrong type for intrinsic {name}");
                     csig.params.push(AbiParam::new(ty.clif()));
                 }
                 for &ty in result_types {
@@ -589,10 +641,7 @@ pub fn compile(code: &[u8], bind_types: &[BindType]) -> Result<Compiled> {
     }
 
     let ret = compiler.return_value()?;
-    ensure!(
-        ret.ty == FnrType::I32,
-        "kernlet must return a 32-bit value"
-    );
+    ensure!(ret.ty == FnrType::I32, "kernlet must return a 32-bit value");
     builder.ins().return_(&[ret.val]);
 
     builder.seal_all_blocks();
@@ -617,29 +666,58 @@ pub fn compile(code: &[u8], bind_types: &[BindType]) -> Result<Compiled> {
         (code, raw)
     };
 
-    let mut relocs = Vec::new();
-    for (offset, addend, kind, target) in raw_relocs {
-        // We only emit calls to imported intrinsics, which in PIC mode become GOT-relative
-        // loads of the symbol address against external user symbols.
-        ensure!(
-            matches!(kind, Reloc::X86GOTPCRel4),
-            "unexpected relocation kind: {kind:?}"
-        );
-        let symbol = match target {
+    // We only emit calls to imported intrinsics, which in PIC mode become GOT-relative loads of
+    // the symbol address against external user symbols.
+    let symbol_of = |target: &FinalizedRelocTarget| -> Result<u32> {
+        match target {
             FinalizedRelocTarget::ExternalName(ExternalName::User(name_ref)) => {
-                let uen = &ctx.func.params.user_named_funcs()[name_ref];
+                let uen = &ctx.func.params.user_named_funcs()[*name_ref];
                 ensure!(
                     (uen.index as usize) < externs.len(),
                     "relocation references unknown intrinsic"
                 );
-                uen.index
+                Ok(uen.index)
             }
             other => bail!("unexpected relocation target: {other:?}"),
+        }
+    };
+
+    // riscv64 attaches the low-12 relocation to the label of its `auipc` rather than to the
+    // symbol, hence we remember which GOT slot each `auipc` refers to.
+    let mut auipc_symbols: HashMap<u32, u32> = HashMap::new();
+
+    let mut relocs = Vec::new();
+    for (offset, addend, kind, target) in raw_relocs {
+        let (symbol, kind, pc_offset) = match kind {
+            Reloc::X86GOTPCRel4 => (symbol_of(&target)?, GotRelocKind::X86Pcrel32, offset),
+            Reloc::Aarch64AdrGotPage21 => {
+                (symbol_of(&target)?, GotRelocKind::Aarch64AdrpPage, offset)
+            }
+            Reloc::Aarch64Ld64GotLo12Nc => {
+                (symbol_of(&target)?, GotRelocKind::Aarch64LdrLo12, offset)
+            }
+            Reloc::RiscvGotHi20 => {
+                let symbol = symbol_of(&target)?;
+                auipc_symbols.insert(offset, symbol);
+                (symbol, GotRelocKind::RiscvAuipcHi20, offset)
+            }
+            Reloc::RiscvPCRelLo12I => {
+                let FinalizedRelocTarget::Func(auipc) = target else {
+                    bail!("unexpected relocation target: {target:?}");
+                };
+                let symbol = *auipc_symbols
+                    .get(&auipc)
+                    .ok_or_else(|| anyhow::anyhow!("low-12 relocation without a GOT auipc"))?;
+                (symbol, GotRelocKind::RiscvLoadLo12, auipc)
+            }
+            other => bail!("unexpected relocation kind: {other:?}"),
         };
-        relocs.push(ExternReloc {
+        relocs.push(GotReloc {
             offset,
+            pc_offset,
             addend,
             symbol,
+            kind,
         });
     }
 
@@ -647,6 +725,7 @@ pub fn compile(code: &[u8], bind_types: &[BindType]) -> Result<Compiled> {
     // resolves by name (kernel/thor/generic/kernlet.cpp).
     let code_size = code_bytes.len() as u32;
     let compiled = Compiled {
+        arch,
         code: code_bytes,
         exports: vec![Export {
             name: "automate_irq".to_string(),
