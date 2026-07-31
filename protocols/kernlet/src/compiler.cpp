@@ -36,7 +36,7 @@ async::result<void> connectKernletCompiler() {
 	}
 }
 
-async::result<helix::UniqueDescriptor> compile(void *code, size_t size,
+async::result<std::expected<helix::UniqueDescriptor, CompileError>> compile(void *code, size_t size,
 		std::vector<BindType> bind_types) {
 	// Compile the kernlet object.
 	managarm::kernlet::CompileRequest req;
@@ -68,13 +68,19 @@ async::result<helix::UniqueDescriptor> compile(void *code, size_t size,
 	HEL_CHECK(sendTail.error());
 	HEL_CHECK(sendCode.error());
 	HEL_CHECK(recvResp.error());
-	HEL_CHECK(pullKernlet.error());
 
 	auto resp = *bragi::parse_head_only<managarm::kernlet::SvrResponse>(recvResp);
 
 	recvResp.reset();
-	assert(resp.error() == managarm::kernlet::Error::SUCCESS);
 
+	// On failure the compiler does not push a descriptor, hence pullKernlet is only valid
+	// once we know that the compilation succeeded.
+	if(resp.error() == managarm::kernlet::Error::ARCHITECTURE_NOT_SUPPORTED)
+		co_return std::unexpected{CompileError::architectureNotSupported};
+	if(resp.error() != managarm::kernlet::Error::SUCCESS)
+		co_return std::unexpected{CompileError::illegalRequest};
+
+	HEL_CHECK(pullKernlet.error());
 	co_return pullKernlet.descriptor();
 }
 

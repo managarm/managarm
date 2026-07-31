@@ -289,14 +289,27 @@ impl Compiler {
     }
 }
 
-/// Compiles Fafnir bytecode into x86-64 machine code.
+/// The Cranelift target triple for the architecture kernletcc runs on, or `None` if we cannot
+/// compile Fafnir for it. Drivers are told about the latter via ARCHITECTURE_NOT_SUPPORTED.
+pub fn target_triple() -> Option<&'static str> {
+    if cfg!(target_arch = "x86_64") {
+        Some("x86_64-unknown-none-elf")
+    } else {
+        None
+    }
+}
+
+/// Compiles Fafnir bytecode into machine code for the architecture kernletcc runs on.
 pub fn compile(code: &[u8], bind_types: &[BindType]) -> Result<Compiled> {
     // Generate PIC code: Cranelift emits X86GOTPCRel4 relocations for external symbols
     // (GOT-relative loads) that we later resolve to GOT slots the kernel fills via JUMP_SLOT.
     let mut flags = settings::builder();
     flags.set("opt_level", "speed").unwrap();
     flags.set("is_pic", "true").unwrap();
-    let triple: target_lexicon::Triple = "x86_64-unknown-none-elf".parse().unwrap();
+    let Some(triple) = target_triple() else {
+        bail!("compiling Fafnir is not supported on this architecture");
+    };
+    let triple: target_lexicon::Triple = triple.parse().unwrap();
     let isa = cranelift_codegen::isa::lookup(triple)?.finish(settings::Flags::new(flags))?;
 
     // Signature of the entry point: automate_irq(const void *instance) -> int

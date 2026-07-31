@@ -1,6 +1,7 @@
 #pragma once
 
 #include <async/result.hpp>
+#include <expected>
 #include <fafnir/dsl.hpp>
 #include <helix/ipc.hpp>
 #include <vector>
@@ -10,6 +11,11 @@ enum class BindType {
 	offset,
 	memoryView,
 	bitsetEvent
+};
+
+enum class CompileError {
+	illegalRequest,
+	architectureNotSupported
 };
 
 // Fafnir value types for the kernlet bindings, mirroring BindType.
@@ -56,5 +62,5 @@ namespace kernlet_intrin {
 }
 
 async::result<void> connectKernletCompiler();
-async::result<helix::UniqueDescriptor> compile(void *code, size_t size,
+async::result<std::expected<helix::UniqueDescriptor, CompileError>> compile(void *code, size_t size,
 		std::vector<BindType> bind_types);
