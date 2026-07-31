@@ -8,6 +8,7 @@
 #include <frg/string.hpp>
 #include <elf.h>
 #include <thor-internal/universe.hpp>
+#include <thor-internal/arch-generic/paging.hpp>
 #include <thor-internal/coroutine.hpp>
 #include <thor-internal/fiber.hpp>
 #include <thor-internal/kernlet.hpp>
@@ -24,6 +25,20 @@ namespace thor {
 namespace {
 	constexpr bool logBinding = false;
 	constexpr bool logIo = false;
+
+	// ELF constants of the architecture that we load kernlets for.
+#if defined(__x86_64__)
+	constexpr Elf64_Half kernletMachine = EM_X86_64;
+	constexpr Elf64_Xword kernletJumpSlot = R_X86_64_JUMP_SLOT;
+#elif defined(__aarch64__)
+	constexpr Elf64_Half kernletMachine = EM_AARCH64;
+	constexpr Elf64_Xword kernletJumpSlot = R_AARCH64_JUMP_SLOT;
+#elif defined(__riscv) && __riscv_xlen == 64
+	constexpr Elf64_Half kernletMachine = EM_RISCV;
+	constexpr Elf64_Xword kernletJumpSlot = R_RISCV_JUMP_SLOT;
+#else
+#error Unknown architecture
+#endif
 }
 
 // ------------------------------------------------------------------------
@@ -135,9 +150,12 @@ smarter::shared_ptr<KernletObject> processElfDso(const char *buffer,
 			&& ehdr.e_ident[1] == 'E'
 			&& ehdr.e_ident[2] == 'L'
 			&& ehdr.e_ident[3] == 'F');
+	assert(ehdr.e_machine == kernletMachine);
 
 	// Load all PHDRs.
 	Elf64_Dyn *dynamic = nullptr;
+	char *execBase = nullptr;
+	size_t execSize = 0;
 
 	for(int i = 0; i < ehdr.e_phnum; i++) {
 		Elf64_Phdr phdr;
@@ -165,6 +183,12 @@ smarter::shared_ptr<KernletObject> processElfDso(const char *buffer,
 			// Fill the segment.
 			memset(base + phdr.p_vaddr, 0, phdr.p_memsz);
 			memcpy(base + phdr.p_vaddr, buffer + phdr.p_offset, phdr.p_filesz);
+
+			if(phdr.p_flags & PF_X) {
+				assert(!execBase);
+				execBase = base + phdr.p_vaddr;
+				execSize = phdr.p_memsz;
+			}
 		}else if(phdr.p_type == PT_DYNAMIC) {
 			dynamic = reinterpret_cast<Elf64_Dyn *>(base + phdr.p_vaddr);
 		}else if(phdr.p_type == PT_NOTE
@@ -313,13 +337,17 @@ smarter::shared_ptr<KernletObject> processElfDso(const char *buffer,
 
 	for(size_t off = 0; off < plt_rel_sectionsize; off += sizeof(Elf64_Rela)) {
 		auto reloc = reinterpret_cast<const Elf64_Rela *>(plt_rels + off);
-		assert(ELF64_R_TYPE(reloc->r_info) == R_X86_64_JUMP_SLOT);
+		assert(ELF64_R_TYPE(reloc->r_info) == kernletJumpSlot);
 
 		auto rp = reinterpret_cast<uint64_t *>(base + reloc->r_offset);
 		auto symbol = sym_tab + ELF64_R_SYM(reloc->r_info);
 		auto sym_name = frg::string_view{str_tab + symbol->st_name};
 		*rp = reinterpret_cast<uint64_t>(resolveExternal(sym_name));
 	}
+
+	// Only relocation can still modify the code, hence we sync the I-cache afterwards.
+	assert(execBase);
+	syncInstructionCache(execBase, execSize);
 
 	// Look up symbols.
 	auto elf64Hash = [] (frg::string_view string) -> uint32_t {

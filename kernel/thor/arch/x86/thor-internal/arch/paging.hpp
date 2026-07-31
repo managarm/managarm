@@ -32,6 +32,9 @@ inline int getLowerHalfBits() {
 	return 47;
 }
 
+// x86 keeps the instruction cache coherent with the data cache.
+inline void syncInstructionCache(void *, size_t) { }
+
 template <bool Kernel>
 struct X86CursorPolicy {
 	static inline constexpr size_t maxLevels = 4;

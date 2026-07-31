@@ -59,6 +59,26 @@ inline size_t isICachePIPT() {
 	return ((ctr >> 14) & 0b11) == 0b11;
 }
 
+inline void syncInstructionCache(void *pointer, size_t size) {
+	auto dsz = dcacheLineSize(), isz = icacheLineSize();
+	auto va = reinterpret_cast<uintptr_t>(pointer);
+
+	for (auto addr = va & ~(dsz - 1); addr < va + size; addr += dsz) {
+		asm volatile ("dc cvau, %0" :: "r"(addr) : "memory");
+	}
+	asm volatile ("dsb ish");
+
+	// ic ivau broadcasts to the inner shareable domain, hence no IPI is required.
+	if (isICachePIPT()) {
+		for (auto addr = va & ~(isz - 1); addr < va + size; addr += isz) {
+			asm volatile ("ic ivau, %0" :: "r"(addr) : "memory");
+		}
+	} else {
+		asm volatile ("ic ialluis" ::: "memory");
+	}
+	asm volatile ("dsb ish; isb");
+}
+
 
 template <bool Kernel>
 struct ARMCursorPolicy {

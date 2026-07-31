@@ -34,6 +34,12 @@ enum {
 };
 
 enum {
+	EM_X86_64 = 62,
+	EM_AARCH64 = 183,
+	EM_RISCV = 243
+};
+
+enum {
 	SHN_UNDEF = 0,
 	SHN_ABS = 0xFFF1
 };
@@ -77,11 +83,13 @@ enum {
 };
 
 enum {
+	R_AARCH64_JUMP_SLOT = 1026,
 	R_AARCH64_RELATIVE = 1027
 };
 
 enum {
-	R_RISCV_RELATIVE = 3
+	R_RISCV_RELATIVE = 3,
+	R_RISCV_JUMP_SLOT = 5
 };
 
 struct Elf64_Rela {
