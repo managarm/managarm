@@ -116,7 +116,7 @@ async::result<helix::UniqueDescriptor> Device::accessBar(int index) {
 	auto [recv_tail, pull_bar] = co_await helix_ng::exchangeMsgs(
 			offer.descriptor(),
 			helix_ng::recvBuffer(tailBuffer.data(), tailBuffer.size()),
-			helix_ng::pullDescriptor(kHelRightNull)
+			helix_ng::pullDescriptor(kHelRightRead | kHelRightWrite | kHelRightAssign)
 		);
 
 	HEL_CHECK(recv_tail.error());
@@ -154,7 +154,7 @@ async::result<helix::UniqueDescriptor> Device::accessExpansionRom() {
 	auto [recv_tail, pull_bar] = co_await helix_ng::exchangeMsgs(
 			offer.descriptor(),
 			helix_ng::recvBuffer(tailBuffer.data(), tailBuffer.size()),
-			helix_ng::pullDescriptor(kHelRightNull)
+			helix_ng::pullDescriptor(kHelRightRead | kHelRightAssign)
 		);
 
 	HEL_CHECK(recv_tail.error());
@@ -193,7 +193,7 @@ async::result<helix::UniqueDescriptor> Device::accessIrq(size_t index) {
 	auto [recv_tail, pull_irq] = co_await helix_ng::exchangeMsgs(
 			offer.descriptor(),
 			helix_ng::recvBuffer(tailBuffer.data(), tailBuffer.size()),
-			helix_ng::pullDescriptor(kHelRightNull)
+			helix_ng::pullDescriptor(kHelRightWait | kHelRightSignal)
 		);
 
 	HEL_CHECK(recv_tail.error());
@@ -231,7 +231,7 @@ async::result<helix::UniqueDescriptor> Device::installMsi(int index) {
 	auto [recv_tail, pull_msi] = co_await helix_ng::exchangeMsgs(
 			offer.descriptor(),
 			helix_ng::recvBuffer(tailBuffer.data(), tailBuffer.size()),
-			helix_ng::pullDescriptor(kHelRightNull)
+			helix_ng::pullDescriptor(kHelRightWait | kHelRightSignal)
 		);
 
 	HEL_CHECK(recv_tail.error());
@@ -554,7 +554,7 @@ async::result<helix::UniqueDescriptor> Device::accessFbMemory() {
 	auto [recv_tail, pull_bar] = co_await helix_ng::exchangeMsgs(
 			offer.descriptor(),
 			helix_ng::recvBuffer(tailBuffer.data(), tailBuffer.size()),
-			helix_ng::pullDescriptor(kHelRightNull)
+			helix_ng::pullDescriptor(kHelRightRead | kHelRightWrite | kHelRightAssign)
 		);
 
 	HEL_CHECK(recv_tail.error());
@@ -846,7 +846,7 @@ async::result<helix::UniqueDescriptor> Device::accessDtRegister(uint32_t index) 
 	auto [recv_tail, pull_reg] = co_await helix_ng::exchangeMsgs(
 			offer.descriptor(),
 			helix_ng::recvBuffer(tailBuffer.data(), tailBuffer.size()),
-			helix_ng::pullDescriptor(kHelRightNull)
+			helix_ng::pullDescriptor(kHelRightRead | kHelRightWrite | kHelRightAssign)
 		);
 
 	HEL_CHECK(recv_tail.error());
@@ -885,7 +885,7 @@ async::result<helix::UniqueDescriptor> Device::installDtIrq(uint32_t index) {
 	auto [recv_tail, pull_irq] = co_await helix_ng::exchangeMsgs(
 			offer.descriptor(),
 			helix_ng::recvBuffer(tailBuffer.data(), tailBuffer.size()),
-			helix_ng::pullDescriptor(kHelRightNull)
+			helix_ng::pullDescriptor(kHelRightWait | kHelRightSignal)
 		);
 
 	HEL_CHECK(recv_tail.error());
@@ -1011,7 +1011,7 @@ async::result<std::pair<helix::UniqueDescriptor, uint32_t>> Device::getVbt() {
 	auto [recv_tail, pull_desc] = co_await helix_ng::exchangeMsgs(
 			offer.descriptor(),
 			helix_ng::recvBuffer(tailBuffer.data(), tailBuffer.size()),
-			helix_ng::pullDescriptor(kHelRightNull)
+			helix_ng::pullDescriptor(kHelRightRead | kHelRightAssign)
 		);
 
 	HEL_CHECK(recv_tail.error());
@@ -1034,7 +1034,7 @@ async::result<std::pair<bool, helix::UniqueDescriptor>> Device::getDmaSpace() {
 			helix_ng::offer(
 				helix_ng::sendBragiHeadOnly(req, frg::stl_allocator{}),
 				helix_ng::recvInline(),
-				helix_ng::pullDescriptor(kHelRightNull)
+				helix_ng::pullDescriptor(kHelRightGrant | kHelRightProvision)
 			)
 		);
 
