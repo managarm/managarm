@@ -12,6 +12,10 @@ namespace thor {
 extern "C" void saveFpSimdRegisters(FpRegisters *frame);
 extern "C" void restoreFpSimdRegisters(FpRegisters *frame);
 
+uint32_t affinityFromMpidr(uint64_t mpidr) {
+	return (mpidr & 0xFFFFFF) | ((mpidr >> 32) & 0xFF) << 24;
+}
+
 bool FaultImageAccessor::allowUserPages() {
 	return true;
 }
@@ -251,7 +255,7 @@ void initializeThisProcessor() {
 
 	uint64_t mpidr;
 	asm volatile("mrs %0, mpidr_el1" : "=r"(mpidr));
-	cpu_data->affinity = (mpidr & 0xFFFFFF) | (mpidr >> 32 & 0xFF) << 24;
+	cpu_data->affinity = affinityFromMpidr(mpidr);
 
 	cpu_data->detachedStack = UniqueKernelStack::make();
 	cpu_data->idleStack = UniqueKernelStack::make();

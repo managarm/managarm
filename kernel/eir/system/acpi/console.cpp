@@ -56,7 +56,10 @@ initgraph::Task parseSpcrDbg2{
 
 		    if (!std::holds_alternative<std::monostate>(acpiUart)) {
 			    acpiUartLogHandler.initialize(&acpiUart);
-			    enableLogHandler(acpiUartLogHandler.get());
+
+			    // If we can't access physical memory directly, we need to skip the logger.
+			    if (!physOffset)
+				    enableLogHandler(acpiUartLogHandler.get());
 			    uart::setBootUart(&acpiUart);
 			    return;
 		    }

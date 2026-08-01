@@ -154,8 +154,12 @@ auto GicDistributorV2::setupIrq(uint32_t irq, TriggerMode trigger) -> Pin * {
 	return pin;
 }
 
-IrqStrategy GicDistributorV2::Pin::program(TriggerMode mode, Polarity polarity) {
-	bool success = setMode(mode, polarity);
+uint32_t GicDistributorV2::irqCount() const {
+	return irqPins_.size();
+}
+
+IrqStrategy GicDistributorV2::Pin::program(TriggerMode mode, Polarity) {
+	bool success = setMode(mode);
 	assert(success);
 
 	if (irq_ >= 32)
@@ -217,14 +221,11 @@ void GicDistributorV2::Pin::setPriority_(uint8_t prio) {
 			dist_reg::irqPriorityBase + regOff, v);
 }
 
-bool GicDistributorV2::Pin::setMode(TriggerMode trigger, Polarity polarity) {
+bool GicDistributorV2::Pin::setMode(TriggerMode trigger) {
 	uintptr_t i = irq_ / 16;
 	uintptr_t j = (irq_ % 16) * 2;
 
 	if (irq_ < 16)
-		return false;
-
-	if (polarity == Polarity::low)
 		return false;
 
 	auto v = arch::scalar_load_relaxed<uint32_t>(parent_->space_,
@@ -376,8 +377,12 @@ static uintptr_t cpuInterfaceAddr;
 static uintptr_t cpuInterfaceSize;
 
 bool initGicV2() {
+	auto root = getDeviceTreeRoot();
+	if (!root)
+		return false;
+
 	DeviceTreeNode *gicNode = nullptr;
-	getDeviceTreeRoot()->forEach([&](DeviceTreeNode *node) -> bool {
+	root->forEach([&](DeviceTreeNode *node) -> bool {
 		if (node->isCompatible(dtGicV2Compatible)) {
 			gicNode = node;
 			return true;
@@ -405,6 +410,21 @@ bool initGicV2() {
 	return true;
 }
 
+bool initGicV2FromAcpi(uintptr_t distributor, uintptr_t cpuInterface, size_t interfaceSize) {
+	infoLogger() << "thor: found ACPI GICv2 distributor at " << frg::hex_fmt{distributor}
+	             << frg::endlog;
+
+	dist.initialize(distributor);
+	dist->init();
+
+	cpuInterfaceAddr = cpuInterface;
+	cpuInterfaceSize = interfaceSize;
+
+	externalIrq = &gicV2;
+
+	return true;
+}
+
 void initGicOnThisCpuV2() {
 	auto cpuData = getCpuData();
 
@@ -420,6 +440,10 @@ void initGicOnThisCpuV2() {
 
 void GicV2::sendIpi(int cpuId, uint8_t id) {
 	dist->sendIpi(getCpuData(cpuId)->gicCpuInterfaceV2->interfaceNumber(), id);
+}
+
+void GicV2::sendIpiToInterface(uint8_t ifaceNo, uint8_t id) {
+	dist->sendIpi(ifaceNo, id);
 }
 
 void GicV2::sendIpiToOthers(uint8_t id) {
@@ -450,5 +474,8 @@ Gic::Pin *GicV2::getPin(uint32_t irq) {
 	return dist->getPin(irq);
 }
 
+uint32_t GicV2::irqCount() {
+	return dist->irqCount();
+}
 
 } // namespace thor

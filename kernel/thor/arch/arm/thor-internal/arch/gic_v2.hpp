@@ -37,7 +37,7 @@ struct GicDistributorV2 {
 		void activate();
 		void deactivate();
 
-		bool setMode(TriggerMode trigger, Polarity polarity) override;
+		bool setMode(TriggerMode trigger) override;
 
 	private:
 		void setAffinity_(uint8_t ifaceNo);
@@ -49,6 +49,7 @@ struct GicDistributorV2 {
 
 	Pin *setupIrq(uint32_t irq, TriggerMode mode);
 	Pin *getPin(uint32_t irq);
+	uint32_t irqCount() const;
 
 private:
 	uint8_t getCurrentCpuIfaceNo_();
@@ -89,14 +90,19 @@ struct GicV2 : public Gic {
 	void sendIpi(int cpuId, uint8_t id) override;
 	void sendIpiToOthers(uint8_t id) override;
 
+	// Sends an IPI to a CPU that did not set up its CPU interface yet.
+	void sendIpiToInterface(uint8_t ifaceNo, uint8_t id);
+
 	CpuIrq getIrq() override;
 	void eoi(uint32_t cpuId, uint32_t id) override;
 
 	Pin *setupIrq(uint32_t irq, TriggerMode trigger) override;
 	Pin *getPin(uint32_t irq) override;
+	uint32_t irqCount() override;
 };
 
 bool initGicV2();
+bool initGicV2FromAcpi(uintptr_t distributor, uintptr_t cpuInterface, size_t cpuInterfaceSize);
 void initGicOnThisCpuV2();
 
 }
