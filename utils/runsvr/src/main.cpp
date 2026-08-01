@@ -103,7 +103,7 @@ async::result<helix::UniqueLane> runServer(const char *name) {
 		helix_ng::offer(
 			helix_ng::sendBragiHeadOnly(req, frg::stl_allocator{}),
 			helix_ng::recvInline(),
-			helix_ng::pullDescriptor(kHelRightNull))
+			helix_ng::pullDescriptor(kHelRightInvoke))
 	);
 	HEL_CHECK(offer.error());
 	HEL_CHECK(send_req.error());
