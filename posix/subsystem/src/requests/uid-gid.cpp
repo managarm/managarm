@@ -97,6 +97,33 @@ HandleRequest::operator()(managarm::posix::GetResuidRequest &&req,
 }
 
 async::result<std::expected<void, DispatchError>>
+HandleRequest::operator()(managarm::posix::GetResgidRequest &&req,
+		helix::BorrowedDescriptor conversation, bragi::preamble preamble,
+		std::shared_ptr<Process> self, std::shared_ptr<Generation>) {
+	id = preamble.id();
+	logBragiRequest(req);
+
+	const auto gid = self->threadGroup()->gid();
+	const auto egid = self->threadGroup()->egid();
+	const auto sgid = self->threadGroup()->sgid();
+	logRequest(logRequests, self, "GET_RESGID", "rgid={} egid={} sgid={}", gid, egid, sgid);
+
+	managarm::posix::GetResgidResponse resp;
+	resp.set_error(managarm::posix::Errors::SUCCESS);
+	resp.set_rgid(gid);
+	resp.set_egid(egid);
+	resp.set_sgid(sgid);
+
+	auto [send_resp] = co_await helix_ng::exchangeMsgs(
+		conversation,
+		helix_ng::sendBragiHeadOnly(resp, frg::stl_allocator{})
+	);
+	HEL_CHECK(send_resp.error());
+	logBragiReply(resp);
+	co_return {};
+}
+
+async::result<std::expected<void, DispatchError>>
 HandleRequest::operator()(managarm::posix::SetUidRequest &&req,
 		helix::BorrowedDescriptor conversation, bragi::preamble preamble,
 		std::shared_ptr<Process> self, std::shared_ptr<Generation>) {

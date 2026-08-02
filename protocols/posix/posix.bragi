@@ -1308,3 +1308,15 @@ head(128):
 	int64 euid;
 	int64 suid;
 }
+
+message GetResgidRequest 243 {
+head(128):
+}
+
+message GetResgidResponse 244 {
+head(128):
+	Errors error;
+	int64 rgid;
+	int64 egid;
+	int64 sgid;
+}
