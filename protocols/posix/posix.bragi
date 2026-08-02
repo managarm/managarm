@@ -1296,3 +1296,15 @@ message SetRegidResponse 240 {
 head(128):
 	Errors error;
 }
+
+message GetResuidRequest 241 {
+head(128):
+}
+
+message GetResuidResponse 242 {
+head(128):
+	Errors error;
+	int64 ruid;
+	int64 euid;
+	int64 suid;
+}
