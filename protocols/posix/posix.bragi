@@ -1262,3 +1262,15 @@ message SetResuidResponse 234 {
 head(128):
 	Errors error;
 }
+
+message SetResgidRequest 235 {
+head(128):
+	uint64 rgid;
+	uint64 egid;
+	uint64 sgid;
+}
+
+message SetResgidResponse 236 {
+head(128):
+	Errors error;
+}

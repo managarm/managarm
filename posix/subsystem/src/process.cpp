@@ -22,6 +22,28 @@ async::result<void> serve(std::shared_ptr<Process> self, std::shared_ptr<Generat
 
 std::shared_ptr<ThreadGroup> initThreadGroup = nullptr;
 
+namespace {
+
+template<typename Id>
+bool isNoChangeSetIdRequest(uint64_t requested) {
+	return requested == static_cast<uint64_t>(-1)
+		|| requested == static_cast<uint64_t>(std::numeric_limits<Id>::max());
+}
+
+template<typename Id>
+Error resolveSetIdRequest(uint64_t requested, Id current, Id &result) {
+	if(isNoChangeSetIdRequest<Id>(requested)) {
+		result = current;
+		return Error::success;
+	}
+	if(requested > static_cast<uint64_t>(std::numeric_limits<Id>::max()))
+		return Error::illegalArguments;
+	result = static_cast<Id>(requested);
+	return Error::success;
+}
+
+} // namespace
+
 // ----------------------------------------------------------------------------
 // VmContext.
 // ----------------------------------------------------------------------------
@@ -1820,43 +1842,63 @@ Error ThreadGroup::setResuid(uint64_t ruid, uint64_t euid, uint64_t suid) {
 	const auto oldUid = _uid;
 	const auto oldEuid = _euid;
 	const auto oldSuid = _suid;
-	const auto maxUid = static_cast<uint64_t>(std::numeric_limits<uid_t>::max());
-	const auto noChange = static_cast<uint64_t>(-1);
 
 	uid_t newUid = oldUid;
 	uid_t newEuid = oldEuid;
 	uid_t newSuid = oldSuid;
-	auto resolve = [&](uint64_t requested, uid_t current, uid_t &result) {
-		if(requested == noChange || requested == maxUid) {
-			result = current;
-			return Error::success;
-		}
-		if(requested > maxUid)
-			return Error::illegalArguments;
-		result = static_cast<uid_t>(requested);
-		return Error::success;
-	};
 
-	if(auto error = resolve(ruid, oldUid, newUid); error != Error::success)
+	if(auto error = resolveSetIdRequest(ruid, oldUid, newUid); error != Error::success)
 		return error;
-	if(auto error = resolve(euid, oldEuid, newEuid); error != Error::success)
+	if(auto error = resolveSetIdRequest(euid, oldEuid, newEuid); error != Error::success)
 		return error;
-	if(auto error = resolve(suid, oldSuid, newSuid); error != Error::success)
+	if(auto error = resolveSetIdRequest(suid, oldSuid, newSuid); error != Error::success)
 		return error;
 
 	if(!isRoot()) {
 		auto permitted = [&](uid_t id) {
 			return id == oldUid || id == oldEuid || id == oldSuid;
 		};
-		if((ruid != noChange && ruid != maxUid && !permitted(newUid))
-				|| (euid != noChange && euid != maxUid && !permitted(newEuid))
-				|| (suid != noChange && suid != maxUid && !permitted(newSuid)))
+		if((!isNoChangeSetIdRequest<uid_t>(ruid) && !permitted(newUid))
+				|| (!isNoChangeSetIdRequest<uid_t>(euid) && !permitted(newEuid))
+				|| (!isNoChangeSetIdRequest<uid_t>(suid) && !permitted(newSuid)))
 			return Error::insufficientPermissions;
 	}
 
 	_uid = newUid;
 	_euid = newEuid;
 	_suid = newSuid;
+	return Error::success;
+}
+
+Error ThreadGroup::setResgid(uint64_t rgid, uint64_t egid, uint64_t sgid) {
+	const auto oldGid = _gid;
+	const auto oldEgid = _egid;
+	const auto oldSgid = _sgid;
+
+	gid_t newGid = oldGid;
+	gid_t newEgid = oldEgid;
+	gid_t newSgid = oldSgid;
+
+	if(auto error = resolveSetIdRequest(rgid, oldGid, newGid); error != Error::success)
+		return error;
+	if(auto error = resolveSetIdRequest(egid, oldEgid, newEgid); error != Error::success)
+		return error;
+	if(auto error = resolveSetIdRequest(sgid, oldSgid, newSgid); error != Error::success)
+		return error;
+
+	if(!isRoot()) {
+		auto permitted = [&](gid_t id) {
+			return id == oldGid || id == oldEgid || id == oldSgid;
+		};
+		if((!isNoChangeSetIdRequest<gid_t>(rgid) && !permitted(newGid))
+				|| (!isNoChangeSetIdRequest<gid_t>(egid) && !permitted(newEgid))
+				|| (!isNoChangeSetIdRequest<gid_t>(sgid) && !permitted(newSgid)))
+			return Error::insufficientPermissions;
+	}
+
+	_gid = newGid;
+	_egid = newEgid;
+	_sgid = newSgid;
 	return Error::success;
 }
 
