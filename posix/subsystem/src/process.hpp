@@ -1,5 +1,6 @@
 #pragma once
 
+#include <limits>
 #include <map>
 #include <memory>
 #include <sys/signalfd.h>
@@ -806,6 +807,50 @@ struct ThreadGroup : std::enable_shared_from_this<ThreadGroup> {
 			return Error::success;
 		}
 		return Error::accessDenied;
+	}
+
+	Error setResuid(uint64_t ruid, uint64_t euid, uint64_t suid) {
+		const auto oldUid = _uid;
+		const auto oldEuid = _euid;
+		const auto oldSuid = _suid;
+		const auto maxUid = static_cast<uint64_t>(std::numeric_limits<uid_t>::max());
+		const auto noChange = static_cast<uint64_t>(-1);
+
+		uid_t newUid = oldUid;
+		uid_t newEuid = oldEuid;
+		uid_t newSuid = oldSuid;
+		auto resolve = [&](uint64_t requested, uid_t current, uid_t &result) {
+			if(requested == noChange || requested == maxUid) {
+				result = current;
+				return Error::success;
+			}
+			if(requested > maxUid)
+				return Error::illegalArguments;
+			result = static_cast<uid_t>(requested);
+			return Error::success;
+		};
+
+		if(auto error = resolve(ruid, oldUid, newUid); error != Error::success)
+			return error;
+		if(auto error = resolve(euid, oldEuid, newEuid); error != Error::success)
+			return error;
+		if(auto error = resolve(suid, oldSuid, newSuid); error != Error::success)
+			return error;
+
+		if(!isRoot()) {
+			auto permitted = [&](uid_t id) {
+				return id == oldUid || id == oldEuid || id == oldSuid;
+			};
+			if((ruid != noChange && ruid != maxUid && !permitted(newUid))
+					|| (euid != noChange && euid != maxUid && !permitted(newEuid))
+					|| (suid != noChange && suid != maxUid && !permitted(newSuid)))
+				return Error::insufficientPermissions;
+		}
+
+		_uid = newUid;
+		_euid = newEuid;
+		_suid = newSuid;
+		return Error::success;
 	}
 
 	uid_t uid() {

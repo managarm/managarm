@@ -1250,3 +1250,15 @@ message SetSuidResponse 230 {
 head(128):
 	Errors error;
 }
+
+message SetResuidRequest 233 {
+head(128):
+	uint64 ruid;
+	uint64 euid;
+	uint64 suid;
+}
+
+message SetResuidResponse 234 {
+head(128):
+	Errors error;
+}
