@@ -978,17 +978,6 @@ struct ThreadGroup : std::enable_shared_from_this<ThreadGroup> {
 		return _euid;
 	}
 
-	Error setSuid(uid_t suid) {
-		if(suid < 0) {
-			return Error::illegalArguments;
-		}
-		if(isRoot() || suid == _uid || suid == _euid) {
-			_suid = suid;
-			return Error::success;
-		}
-		return Error::accessDenied;
-	}
-
 	uid_t suid() {
 		return _suid;
 	}
@@ -1025,17 +1014,6 @@ struct ThreadGroup : std::enable_shared_from_this<ThreadGroup> {
 
 	gid_t egid() {
 		return _egid;
-	}
-
-	Error setSgid(gid_t sgid) {
-		if(sgid < 0) {
-			return Error::illegalArguments;
-		}
-		if(isRoot() || _gid == sgid || _egid == sgid) {
-			_sgid = sgid;
-			return Error::success;
-		}
-		return Error::accessDenied;
 	}
 
 	gid_t sgid() {
