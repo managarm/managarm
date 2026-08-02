@@ -811,6 +811,8 @@ struct ThreadGroup : std::enable_shared_from_this<ThreadGroup> {
 	Error setResuid(uint64_t ruid, uint64_t euid, uint64_t suid);
 	Error setResgid(uint64_t rgid, uint64_t egid, uint64_t sgid);
 
+	Error setReuid(uint64_t ruid, uint64_t euid);
+
 	uid_t uid() {
 		return _uid;
 	}

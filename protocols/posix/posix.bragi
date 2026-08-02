@@ -1274,3 +1274,14 @@ message SetResgidResponse 236 {
 head(128):
 	Errors error;
 }
+
+message SetReuidRequest 237 {
+head(128):
+	uint64 ruid;
+	uint64 euid;
+}
+
+message SetReuidResponse 238 {
+head(128):
+	Errors error;
+}

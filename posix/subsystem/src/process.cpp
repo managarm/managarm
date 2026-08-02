@@ -1902,6 +1902,40 @@ Error ThreadGroup::setResgid(uint64_t rgid, uint64_t egid, uint64_t sgid) {
 	return Error::success;
 }
 
+Error ThreadGroup::setReuid(uint64_t ruid, uint64_t euid) {
+	const auto oldUid = _uid;
+	const auto oldEuid = _euid;
+	const auto oldSuid = _suid;
+	const bool changeUid = !isNoChangeSetIdRequest<uid_t>(ruid);
+	const bool changeEuid = !isNoChangeSetIdRequest<uid_t>(euid);
+
+	uid_t newUid = oldUid;
+	uid_t newEuid = oldEuid;
+	if(auto error = resolveSetIdRequest(ruid, oldUid, newUid); error != Error::success)
+		return error;
+	if(auto error = resolveSetIdRequest(euid, oldEuid, newEuid); error != Error::success)
+		return error;
+
+	if(!isRoot()) {
+		// Linux permits an unprivileged real-ID change to the old real or
+		// effective ID; POSIX leaves this case unspecified.
+		if(changeUid && newUid != oldUid && newUid != oldEuid)
+			return Error::insufficientPermissions;
+		if(changeEuid && newEuid != oldUid && newEuid != oldEuid
+				&& newEuid != oldSuid)
+			return Error::insufficientPermissions;
+	}
+
+	uid_t newSuid = oldSuid;
+	if(changeUid || (changeEuid && newEuid != oldUid))
+		newSuid = newEuid;
+
+	_uid = newUid;
+	_euid = newEuid;
+	_suid = newSuid;
+	return Error::success;
+}
+
 async::result<void> ThreadGroup::terminateGroup(TerminationState state) {
 	// Only the first terminate() call goes through.
 	if (!std::holds_alternative<std::monostate>(_state))

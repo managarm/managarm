@@ -120,6 +120,20 @@ HandleRequest::operator()(managarm::posix::SetResgidRequest &&req,
 }
 
 async::result<std::expected<void, DispatchError>>
+HandleRequest::operator()(managarm::posix::SetReuidRequest &&req,
+		helix::BorrowedDescriptor conversation, bragi::preamble preamble,
+		std::shared_ptr<Process> self, std::shared_ptr<Generation>) {
+	id = preamble.id();
+	logBragiRequest(req);
+
+	logRequest(logRequests, self, "SET_REUID", "ruid={} euid={}", req.ruid(), req.euid());
+
+	Error err = self->threadGroup()->setReuid(req.ruid(), req.euid());
+	co_await sendErrorResponse<managarm::posix::SetReuidResponse>(conversation, err | toPosixProtoError);
+	co_return {};
+}
+
+async::result<std::expected<void, DispatchError>>
 HandleRequest::operator()(managarm::posix::SetSuidRequest &&req,
 		helix::BorrowedDescriptor conversation, bragi::preamble preamble,
 		std::shared_ptr<Process> self, std::shared_ptr<Generation>) {
