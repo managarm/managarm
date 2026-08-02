@@ -925,6 +925,40 @@ struct ThreadGroup : std::enable_shared_from_this<ThreadGroup> {
 		return Error::success;
 	}
 
+	Error setRegid(uint64_t rgid, uint64_t egid) {
+		const auto oldGid = _gid;
+		const auto oldEgid = _egid;
+		const auto oldSgid = _sgid;
+		const bool changeGid = !isNoChangeId<gid_t>(rgid);
+		const bool changeEgid = !isNoChangeId<gid_t>(egid);
+
+		gid_t newGid = oldGid;
+		gid_t newEgid = oldEgid;
+		if(auto error = resolveId(rgid, oldGid, newGid); error != Error::success)
+			return error;
+		if(auto error = resolveId(egid, oldEgid, newEgid); error != Error::success)
+			return error;
+
+		if(!isRoot()) {
+			// Linux permits the same real-ID choices as setreuid; POSIX leaves
+			// this real-ID case unspecified.
+			if(changeGid && newGid != oldGid && newGid != oldEgid)
+				return Error::insufficientPermissions;
+			if(changeEgid && newEgid != oldGid && newEgid != oldEgid
+					&& newEgid != oldSgid)
+				return Error::insufficientPermissions;
+		}
+
+		gid_t newSgid = oldSgid;
+		if(changeGid || (changeEgid && newEgid != oldGid))
+			newSgid = newEgid;
+
+		_gid = newGid;
+		_egid = newEgid;
+		_sgid = newSgid;
+		return Error::success;
+	}
+
 	uid_t uid() {
 		return _uid;
 	}
