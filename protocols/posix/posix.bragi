@@ -1285,3 +1285,14 @@ message SetReuidResponse 238 {
 head(128):
 	Errors error;
 }
+
+message SetRegidRequest 239 {
+head(128):
+	uint64 rgid;
+	uint64 egid;
+}
+
+message SetRegidResponse 240 {
+head(128):
+	Errors error;
+}
