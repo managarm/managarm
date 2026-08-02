@@ -808,6 +808,8 @@ struct ThreadGroup : std::enable_shared_from_this<ThreadGroup> {
 		return Error::accessDenied;
 	}
 
+	Error setResuid(uint64_t ruid, uint64_t euid, uint64_t suid);
+
 	uid_t uid() {
 		return _uid;
 	}
