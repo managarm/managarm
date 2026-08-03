@@ -223,6 +223,12 @@ void LoadBalancer::balanceBetween_(LbNode *srcNode, LbNode *dstNode, uint64_t &n
 		}
 	}
 
+	// Notify the threads such that they eventually move to their assigned CPUs.
+	for (auto *cb : stolenTasks) {
+		if (auto thread = cb->thread_.lock())
+			Thread::migrateOther(thread);
+	}
+
 	// Add tasks from temporary list to dstNode.
 	{
 		auto irqLock = frg::guard(&irqMutex());

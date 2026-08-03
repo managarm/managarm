@@ -18,15 +18,16 @@ namespace thor {
 using Condition = uint32_t;
 
 // Conditions are dequeued in descending order (i.e., high condition bits take priority).
-// TODO: Integrate CPU migration into Condition.
 namespace condition {
+// The load balancer assigned the thread to a different CPU.
+inline constexpr Condition cpuMigration = Condition{1} << 0;
 // One of the WQs is non-empty.
-inline constexpr Condition passiveWq = Condition{1} << 0;
-inline constexpr Condition exceptionalWq = Condition{1} << 1;
+inline constexpr Condition passiveWq = Condition{1} << 1;
+inline constexpr Condition exceptionalWq = Condition{1} << 2;
 // Request kIntrRequested to be raised.
-inline constexpr Condition interrupt = Condition{1} << 2;
+inline constexpr Condition interrupt = Condition{1} << 3;
 // Request transition to kRunTerminated.
-inline constexpr Condition terminate = Condition{1} << 3;
+inline constexpr Condition terminate = Condition{1} << 4;
 } // namespace condition
 
 // Conditions that cancel blocking operations.
@@ -280,13 +281,13 @@ public:
 	static void handleConditions(SyscallImageAccessor image);
 	static void handleConditions(FaultImageAccessor image);
 	static void handleConditions(IrqImageAccessor image);
-	static void raiseSignals(SyscallImageAccessor image);
 
 	// State transitions that apply to arbitrary threads.
 	// TODO: interruptOther() needs an Interrupt argument.
 	static void unblockOther(smarter::borrowed_ptr<Thread> thread);
 	static void killOther(smarter::borrowed_ptr<Thread> thread);
 	static void interruptOther(smarter::borrowed_ptr<Thread> thread);
+	static void migrateOther(smarter::borrowed_ptr<Thread> thread);
 	static Error resumeOther(smarter::borrowed_ptr<Thread> thread);
 
 	enum Flags : uint32_t {
@@ -405,6 +406,9 @@ private:
 
 	template<typename ImageAccessor>
 	static void genericHandleConditions(ImageAccessor image);
+
+	template<typename ImageAccessor>
+	static void migrateCurrentToAssignedCpu(ImageAccessor image);
 
 	template<typename ImageAccessor>
 	void genericHandlePreemption(ImageAccessor image);
