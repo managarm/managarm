@@ -166,6 +166,7 @@ static const HelRights kHelRightTake = UINT32_C(1) << 1;
 // - IPC queue: required to map readable.
 // - Memory view: required to read.
 // - Memory view: required to map readable.
+// - Memory view: required to create copy-on-write view.
 // - Memory slice: required to map readable.
 // - Address space: required to read from it.
 // - Address space: required to create thread.

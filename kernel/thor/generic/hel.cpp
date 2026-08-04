@@ -611,7 +611,7 @@ HelError helCopyOnWrite(HelHandle memoryHandle,
 			return kHelErrBadDescriptor;
 		view = getSpecialMemoryView(memoryHandle);
 	} else {
-		auto viewOutcome = this_universe->resolveObject<DescriptorType::memoryView>(memoryHandle, kHelRightAssign);
+		auto viewOutcome = this_universe->resolveObject<DescriptorType::memoryView>(memoryHandle, kHelRightRead | kHelRightAssign);
 		if(!viewOutcome)
 			return translateError(viewOutcome.error());
 		view = std::move(*viewOutcome);
@@ -753,7 +753,7 @@ HelError doSubmitForkMemory(HelHandle handle, smarter::shared_ptr<IpcQueue> queu
 	auto this_thread = getCurrentThread();
 	auto this_universe = this_thread->getUniverse();
 
-	auto viewOutcome = this_universe->resolveCapability<DescriptorType::memoryView>(handle, kHelRightDerive);
+	auto viewOutcome = this_universe->resolveCapability<DescriptorType::memoryView>(handle, kHelRightRead | kHelRightDerive);
 	if(!viewOutcome)
 		return translateError(viewOutcome.error());
 	auto [view, rights] = std::move(*viewOutcome);
