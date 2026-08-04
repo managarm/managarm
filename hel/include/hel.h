@@ -170,6 +170,7 @@ static const HelRights kHelRightTake = UINT32_C(1) << 1;
 // - Address space: required to read from it.
 // - Address space: required to create thread.
 // - Virtualized space: required to read from it.
+// - I/O objects: required to enable userspace I/O.
 // - Thread: required to read registers.
 // - Thread: required to read memory in its address space.
 // - Thread: required to get the affinity.
@@ -183,6 +184,7 @@ static const HelRights kHelRightRead = UINT32_C(1) << 2;
 // - Address space: required to write to it.
 // - Address space: required to create thread.
 // - Virtualized space: required to write to it.
+// - I/O objects: required to enable userspace I/O.
 // - Thread: required to write registers.
 // - Thread: required to write memory in its address space.
 // - Thread: required to set the affinity.
@@ -254,6 +256,8 @@ static const HelRights kHelRightSignal = UINT32_C(1) << 12;
 // - Thread: required to resume.
 // - Thread: required to kill.
 static const HelRights kHelRightManage = UINT32_C(1) << 13;
+// All rights (even unspecified ones). Easier to recognize in code than a literal.
+static const HelRights kHelRightsMax = ~UINT32_C(0);
 
 struct HelX86SegmentRegister {
 	uint64_t base;
@@ -395,10 +399,8 @@ enum {
 	kHelItemWantLane = (1 << 16),
 };
 
-enum HelTransferDescriptorFlags {
-	kHelTransferDescriptorOut,
-	kHelTransferDescriptorIn,
-};
+static const uint32_t kHelTransferDescriptorOut = UINT32_C(1) << 0;
+static const uint32_t kHelTransferDescriptorIn = UINT32_C(1) << 1;
 
 struct HelSgItem {
 	void *buffer;
@@ -408,10 +410,24 @@ struct HelSgItem {
 struct HelAction {
 	int type;
 	uint32_t flags;
-	// TODO: the following fields could be put into unions
-	void *buffer;
-	size_t length;
-	HelHandle handle;
+	// TODO: It may be worth to restructure this to a union of structs
+	//       (e.g., a HelActionDataBufferSize, HelActionDataDescriptorRights, ...),
+	//       but that requires simultaneous mlibc and Managarm changes.
+	union {
+		uintptr_t word0;
+		void *buffer;
+	};
+	union {
+		uintptr_t word1;
+		size_t length;
+		// For kHelPushDescriptor, kHelPullDescriptor.
+		uint32_t rights;
+	};
+	union {
+		uintptr_t word2;
+		// For kHelActionImbueCredentials, kHelPushDescriptor, kHelPullDescriptor.
+		HelHandle handle;
+	};
 };
 
 struct HelDescriptorInfo {
@@ -1073,7 +1089,7 @@ HEL_C_LINKAGE HelError helCreateUniverse(HelHandle *handle);
 //!    	Handle to the copied descriptor (valid in the universe specified by @p universeHandle).
 HEL_C_LINKAGE HelError
 helTransferDescriptor(HelHandle handle, HelHandle universeHandle,
-		enum HelTransferDescriptorFlags direction, HelHandle *outHandle);
+		uint32_t flags, uint32_t exposedRights, uint32_t requiredRights, HelHandle *outHandle);
 
 HEL_C_LINKAGE HelError helDescriptorInfo(HelHandle handle, struct HelDescriptorInfo *info);
 

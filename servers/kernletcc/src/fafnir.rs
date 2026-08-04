@@ -512,10 +512,7 @@ pub fn compile(code: &[u8], bind_types: &[BindType]) -> Result<Compiled> {
                 // Check operand types against the kernel-side signature.
                 let mut csig = Signature::new(CallConv::SystemV);
                 for (&a, &ty) in args.iter().zip(param_types) {
-                    ensure!(
-                        a.ty == ty,
-                        "operand of wrong type for intrinsic {name}"
-                    );
+                    ensure!(a.ty == ty, "operand of wrong type for intrinsic {name}");
                     csig.params.push(AbiParam::new(ty.clif()));
                 }
                 for &ty in result_types {
@@ -576,10 +573,7 @@ pub fn compile(code: &[u8], bind_types: &[BindType]) -> Result<Compiled> {
     }
 
     let ret = compiler.return_value()?;
-    ensure!(
-        ret.ty == FnrType::I32,
-        "kernlet must return a 32-bit value"
-    );
+    ensure!(ret.ty == FnrType::I32, "kernlet must return a 32-bit value");
     builder.ins().return_(&[ret.val]);
 
     builder.seal_all_blocks();

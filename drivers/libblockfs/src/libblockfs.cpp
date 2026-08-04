@@ -61,7 +61,7 @@ struct HandlePartition {
 			auto [send_resp, push_node] = co_await helix_ng::exchangeMsgs(
 				conversation,
 				helix_ng::sendBuffer(ser.data(), ser.size()),
-				helix_ng::pushDescriptor(remote_lane)
+				helix_ng::pushDescriptor(remote_lane, kHelRightInvoke | kHelRightManage)
 			);
 			HEL_CHECK(send_resp.error());
 			HEL_CHECK(push_node.error());
@@ -80,7 +80,7 @@ struct HandlePartition {
 			auto [send_resp, push_node] = co_await helix_ng::exchangeMsgs(
 				conversation,
 				helix_ng::sendBuffer(ser.data(), ser.size()),
-				helix_ng::pushDescriptor(remote_lane)
+				helix_ng::pushDescriptor(remote_lane, kHelRightInvoke | kHelRightManage)
 			);
 			HEL_CHECK(send_resp.error());
 			HEL_CHECK(push_node.error());
@@ -117,13 +117,11 @@ struct HandlePartition {
 			resp.set_error(managarm::fs::Errors::NO_BACKING_DEVICE);
 
 			auto ser = resp.SerializeAsString();
-			auto [send_resp, push_node] = co_await helix_ng::exchangeMsgs(
+			auto [send_resp] = co_await helix_ng::exchangeMsgs(
 				conversation,
-				helix_ng::sendBuffer(ser.data(), ser.size()),
-				helix_ng::pushDescriptor({})
+				helix_ng::sendBuffer(ser.data(), ser.size())
 			);
 			HEL_CHECK(send_resp.error());
-			HEL_CHECK(push_node.error());
 			co_return {};
 		}
 
@@ -139,7 +137,7 @@ struct HandlePartition {
 		auto [send_resp, push_node] = co_await helix_ng::exchangeMsgs(
 			conversation,
 			helix_ng::sendBuffer(ser.data(), ser.size()),
-			helix_ng::pushDescriptor(remote_lane)
+			helix_ng::pushDescriptor(remote_lane, kHelRightInvoke | kHelRightManage)
 		);
 		HEL_CHECK(send_resp.error());
 		HEL_CHECK(push_node.error());
@@ -542,7 +540,7 @@ struct HandleDevice {
 			auto [send_resp, push_node] = co_await helix_ng::exchangeMsgs(
 				conversation,
 				helix_ng::sendBuffer(ser.data(), ser.size()),
-				helix_ng::pushDescriptor(remote_lane)
+				helix_ng::pushDescriptor(remote_lane, kHelRightInvoke | kHelRightManage)
 			);
 			HEL_CHECK(send_resp.error());
 			HEL_CHECK(push_node.error());
@@ -565,13 +563,11 @@ struct HandleDevice {
 		resp.set_error(managarm::fs::Errors::ILLEGAL_OPERATION_TARGET);
 
 		auto ser = resp.SerializeAsString();
-		auto [send_resp, push_node] = co_await helix_ng::exchangeMsgs(
+		auto [send_resp] = co_await helix_ng::exchangeMsgs(
 			conversation,
-			helix_ng::sendBuffer(ser.data(), ser.size()),
-			helix_ng::pushDescriptor({})
+			helix_ng::sendBuffer(ser.data(), ser.size())
 		);
 		HEL_CHECK(send_resp.error());
-		HEL_CHECK(push_node.error());
 		co_return {};
 	}
 

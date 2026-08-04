@@ -278,7 +278,17 @@ HelError helCreateUniverse(HelHandle *handle) {
 }
 
 HelError
-helTransferDescriptor(HelHandle handle, HelHandle universeHandle, HelTransferDescriptorFlags direction, HelHandle *outHandle) {
+helTransferDescriptor(
+	HelHandle handle,
+	HelHandle universeHandle,
+	uint32_t flags,
+	uint32_t exposedRights,
+	uint32_t requiredRights,
+	HelHandle *outHandle
+) {
+	if(flags & ~(kHelTransferDescriptorOut | kHelTransferDescriptorIn))
+		return kHelErrIllegalArgs;
+	uint32_t direction = flags & (kHelTransferDescriptorOut | kHelTransferDescriptorIn);
 	if(direction != kHelTransferDescriptorOut && direction != kHelTransferDescriptorIn)
 		return kHelErrIllegalArgs;
 
@@ -316,10 +326,14 @@ helTransferDescriptor(HelHandle handle, HelHandle universeHandle, HelTransferDes
 	auto maybeDescriptor = srcUniverse->getDescriptor(handle);
 	if (!maybeDescriptor)
 		return kHelErrNoDescriptor;
+	auto descriptor = std::move(*maybeDescriptor);
 
-	// TODO: make sure the descriptor is copyable.
+	descriptor.exposeRights(exposedRights);
 
-	*outHandle = dstUniverse->attachDescriptor(std::move(*maybeDescriptor));
+	if (!checkRights(descriptor.rights(), requiredRights))
+		return kHelErrBadRights;
+
+	*outHandle = dstUniverse->attachDescriptor(std::move(descriptor));
 	return kHelErrNone;
 }
 
@@ -2855,6 +2869,8 @@ HelError doSubmitExchangeMsgs(HelHandle laneHandle, smarter::shared_ptr<IpcQueue
 					return kHelErrNoDescriptor;
 				operand = std::move(*wrapper);
 
+				operand.exposeRights(recipe->rights);
+
 				node->_tag = kTagPushDescriptor;
 				node->_inDescriptor = std::move(operand);
 				ipcSize += ipcSourceSize(sizeof(HelSimpleResult));
@@ -3234,15 +3250,23 @@ HelError doSubmitExchangeMsgs(HelHandle laneHandle, smarter::shared_ptr<IpcQueue
 				link(&item->mainSource);
 			}else if(recipe->type == kHelActionPullDescriptor) {
 				// TODO: This condition should be replaced. Just test if lane is valid.
+				Error e = Error::success;
 				HelHandle handle = kHelNullHandle;
-				if(node->error() == Error::success) {
-					auto universe = weakUniverse.lock();
-					assert(universe);
+				if(node->error() != Error::success) {
+					e = node->error();
+				} else {
+					auto descriptor = node->descriptor();
+					if (!checkRights(descriptor.rights(), recipe->rights)) {
+						e = Error::badRights;
+					} else {
+						auto universe = weakUniverse.lock();
+						assert(universe);
 
-					handle = universe->attachDescriptor(node->descriptor());
+						handle = universe->attachDescriptor(std::move(descriptor));
+					}
 				}
 
-				item->helHandleResult = {translateError(node->error()), 0, handle};
+				item->helHandleResult = {translateError(e), 0, handle};
 				item->mainSource.setup(&item->helHandleResult, sizeof(HelHandleResult));
 				link(&item->mainSource);
 			}else{
@@ -3575,7 +3599,7 @@ HelError helAccessIo(uintptr_t *port_array, size_t num_ports,
 	}
 
 	*handle = this_universe->attachDescriptor(
-			AnyDescriptor::make<DescriptorType::io>(std::move(io_space), kHelRightAssign));
+			AnyDescriptor::make<DescriptorType::io>(std::move(io_space), kHelRightRead | kHelRightWrite | kHelRightAssign));
 
 	return kHelErrNone;
 }
@@ -3585,7 +3609,7 @@ HelError helEnableIo(HelHandle handle) {
 	auto this_thread = getCurrentThread();
 	auto this_universe = this_thread->getUniverse();
 
-	auto ioOutcome = this_universe->resolveObject<DescriptorType::io>(handle, kHelRightAssign);
+	auto ioOutcome = this_universe->resolveObject<DescriptorType::io>(handle, kHelRightRead | kHelRightWrite | kHelRightAssign);
 	if(!ioOutcome)
 		return translateError(ioOutcome.error());
 	auto io_space = std::move(*ioOutcome);

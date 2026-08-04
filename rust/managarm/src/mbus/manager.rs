@@ -22,7 +22,10 @@ impl EntityManager {
             &self.mgmt_lane,
             hel::Offer::new((
                 hel::SendBuffer::new(&head),
-                hel::PushDescriptor::new(&lane),
+                hel::PushDescriptor::new(
+                    &lane,
+                    hel_sys::kHelRightInvoke | hel_sys::kHelRightManage,
+                ),
                 hel::ReceiveInline,
             )),
         )
@@ -56,7 +59,7 @@ pub async fn create_entity(name: &str, properties: &Properties) -> Result<Entity
             hel::SendBuffer::new(&head),
             hel::SendBuffer::new(&tail),
             hel::ReceiveInline,
-            hel::PullDescriptor,
+            hel::PullDescriptor::new(hel_sys::kHelRightInvoke | hel_sys::kHelRightManage),
         )),
     )
     .await?;

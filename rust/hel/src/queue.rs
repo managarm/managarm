@@ -364,7 +364,13 @@ impl Queue {
                     .get_chunk(self.retrieve_chunk)
                     .progress_futex()
                     .load(Ordering::Acquire);
-                assert!(progress & !(hel_sys::kHelProgressMask | hel_sys::kHelProgressFull | hel_sys::kHelProgressDone) == 0);
+                assert!(
+                    progress
+                        & !(hel_sys::kHelProgressMask
+                            | hel_sys::kHelProgressFull
+                            | hel_sys::kHelProgressDone)
+                        == 0
+                );
                 if progress & hel_sys::kHelProgressFull != 0 {
                     assert!(self.retrieve_chunk != self.tail_chunk);
                 }
@@ -385,7 +391,11 @@ impl Queue {
                 assert!(self.pending_notify & !masked_notify == 0);
 
                 let res = hel_check(unsafe {
-                    hel_sys::helDriveQueue(self.handle.handle(), hel_sys::kHelDriveWait, masked_notify as u32)
+                    hel_sys::helDriveQueue(
+                        self.handle.handle(),
+                        hel_sys::kHelDriveWait,
+                        masked_notify as u32,
+                    )
                 });
                 match res {
                     Err(crate::Error::Cancelled) => {}
@@ -396,7 +406,9 @@ impl Queue {
             } else {
                 // Note that we will check all cleared notifications again in the next iteration.
                 // This RMW happens before the next progressFutex wait due to the load-acquire here.
-                notify = self.user_notify().fetch_and(!notify_to_clear, Ordering::Acquire);
+                notify = self
+                    .user_notify()
+                    .fetch_and(!notify_to_clear, Ordering::Acquire);
             }
         }
     }
@@ -512,9 +524,7 @@ impl Queue {
                 }
                 let notify = self.user_notify().load(Ordering::Relaxed);
                 if (notify & hel_sys::kHelUserNotifySupplySqChunks) == 0 {
-                    hel_check(unsafe {
-                        hel_sys::helDriveQueue(self.handle.handle(), 0, 0)
-                    })?;
+                    hel_check(unsafe { hel_sys::helDriveQueue(self.handle.handle(), 0, 0) })?;
                 } else {
                     self.user_notify()
                         .fetch_and(!hel_sys::kHelUserNotifySupplySqChunks, Ordering::Acquire);

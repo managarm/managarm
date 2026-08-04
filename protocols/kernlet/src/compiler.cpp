@@ -60,7 +60,7 @@ async::result<helix::UniqueDescriptor> compile(void *code, size_t size,
 			helix_ng::sendBragiHeadTail(req, frg::stl_allocator{}),
 			helix_ng::sendBuffer(code, size),
 			helix_ng::recvInline(),
-			helix_ng::pullDescriptor()
+			helix_ng::pullDescriptor(kHelRightAssign)
 		)
 	);
 	HEL_CHECK(offer.error());

@@ -337,7 +337,7 @@ async::detached doGetRemoteLane(helix::UniqueLane conversation, std::shared_ptr<
 		co_await helix_ng::exchangeMsgs(
 			conversation,
 			helix_ng::sendBragiHeadOnly(resp, frg::stl_allocator{}),
-			helix_ng::pushDescriptor(remoteLane)
+			helix_ng::pushDescriptor(remoteLane, kHelRightInvoke | kHelRightManage)
 		);
 	HEL_CHECK(sendResp.error());
 	HEL_CHECK(pushLane.error());
@@ -348,7 +348,7 @@ struct HandleMgmtRequest {
 		auto [pullLane] =
 			co_await helix_ng::exchangeMsgs(
 				conversation,
-				helix_ng::pullDescriptor()
+				helix_ng::pullDescriptor(kHelRightInvoke | kHelRightManage)
 			);
 		HEL_CHECK(pullLane.error());
 
@@ -498,7 +498,7 @@ struct HandleRequest {
 			co_await helix_ng::exchangeMsgs(
 				conversation,
 				helix_ng::sendBragiHeadOnly(resp, frg::stl_allocator{}),
-				helix_ng::pushDescriptor(remoteLane)
+				helix_ng::pushDescriptor(remoteLane, kHelRightInvoke | kHelRightManage)
 			);
 		HEL_CHECK(sendResp.error());
 		HEL_CHECK(pushLane.error());

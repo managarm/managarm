@@ -61,7 +61,14 @@ struct UniqueDescriptor {
 		if(!_handle)
 			return {};
 		HelHandle newHandle;
-		HEL_CHECK(helTransferDescriptor(getHandle(), kHelThisUniverse, kHelTransferDescriptorOut, &newHandle));
+		HEL_CHECK(helTransferDescriptor(
+			getHandle(),
+			kHelThisUniverse,
+			kHelTransferDescriptorOut,
+			kHelRightsMax,
+			kHelRightNull,
+			&newHandle
+		));
 		return UniqueDescriptor(newHandle);
 	}
 
@@ -92,7 +99,14 @@ struct BorrowedDescriptor {
 
 	UniqueDescriptor dup() const {
 		HelHandle new_handle;
-		HEL_CHECK(helTransferDescriptor(getHandle(), kHelThisUniverse, kHelTransferDescriptorOut, &new_handle));
+		HEL_CHECK(helTransferDescriptor(
+			getHandle(),
+			kHelThisUniverse,
+			kHelTransferDescriptorOut,
+			kHelRightsMax,
+			kHelRightNull,
+			&new_handle
+		));
 		return UniqueDescriptor(new_handle);
 	}
 
@@ -481,9 +495,12 @@ struct RecvInline { };
 
 struct PushDescriptor {
 	HelHandle handle;
+	uint32_t exposedRights;
 };
 
-struct PullDescriptor { };
+struct PullDescriptor {
+	uint32_t requiredRights;
+};
 
 template <typename Allocator>
 struct SendBragiHeadTail {
@@ -572,12 +589,17 @@ inline auto recvInline() {
 	return RecvInline{};
 }
 
-inline auto pushDescriptor(BorrowedDescriptor desc) {
-	return PushDescriptor{desc.getHandle()};
+inline auto pushDescriptor(BorrowedDescriptor desc, uint32_t exposedRights) {
+	return PushDescriptor{
+		.handle = desc.getHandle(),
+		.exposedRights = exposedRights
+	};
 }
 
-inline auto pullDescriptor() {
-	return PullDescriptor{};
+inline auto pullDescriptor(uint32_t requiredRights) {
+	return PullDescriptor{
+		.requiredRights = requiredRights
+	};
 }
 
 template <typename Message, typename Allocator>
@@ -720,14 +742,16 @@ inline auto createActionsArrayFor(bool chain, const PushDescriptor &item) {
 	action.type = kHelActionPushDescriptor;
 	action.flags = chain ? kHelItemChain : 0;
 	action.handle = item.handle;
+	action.rights = item.exposedRights;
 
 	return frg::array<HelAction, 1>{action};
 }
 
-inline auto createActionsArrayFor(bool chain, const PullDescriptor &) {
+inline auto createActionsArrayFor(bool chain, const PullDescriptor &item) {
 	HelAction action{};
 	action.type = kHelActionPullDescriptor;
 	action.flags = chain ? kHelItemChain : 0;
+	action.rights = item.requiredRights;
 
 	return frg::array<HelAction, 1>{action};
 }

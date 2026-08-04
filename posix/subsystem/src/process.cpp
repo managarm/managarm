@@ -361,7 +361,12 @@ std::shared_ptr<FileContext> FileContext::create() {
 	context->fileTableWindow_ = helix::Mapping{context->_fileTableMemory, 0, 0x1000};
 
 	HEL_CHECK(helTransferDescriptor(
-	    posixMbusClient, context->_universe.getHandle(), kHelTransferDescriptorOut, &context->_clientMbusLane
+	    posixMbusClient,
+		context->_universe.getHandle(),
+		kHelTransferDescriptorOut,
+		kHelRightInvoke,
+		kHelRightInvoke,
+		&context->_clientMbusLane
 	));
 
 	return context;
@@ -388,7 +393,12 @@ std::shared_ptr<FileContext> FileContext::clone(std::shared_ptr<FileContext> ori
 	}
 
 	HEL_CHECK(helTransferDescriptor(
-	    posixMbusClient, context->_universe.getHandle(), kHelTransferDescriptorOut, &context->_clientMbusLane
+	    posixMbusClient,
+		context->_universe.getHandle(),
+		kHelTransferDescriptorOut,
+		kHelRightInvoke,
+		kHelRightInvoke,
+		&context->_clientMbusLane
 	));
 
 	return context;
@@ -403,7 +413,12 @@ std::expected<int, Error> FileContext::attachFile(smarter::shared_ptr<File, File
 		bool closeOnExec, int startAt) {
 	HelHandle handle;
 	HEL_CHECK(helTransferDescriptor(
-	    file->getPassthroughLane().getHandle(), _universe.getHandle(), kHelTransferDescriptorOut, &handle
+	    file->getPassthroughLane().getHandle(),
+		_universe.getHandle(),
+		kHelTransferDescriptorOut,
+		kHelRightInvoke,
+		kHelRightInvoke,
+		&handle
 	));
 
 	for(int fd = startAt; ; fd++) {
@@ -429,7 +444,12 @@ std::expected<void, Error> FileContext::attachFile(int fd, smarter::shared_ptr<F
 
 	HelHandle handle;
 	HEL_CHECK(helTransferDescriptor(
-	    file->getPassthroughLane().getHandle(), _universe.getHandle(), kHelTransferDescriptorOut, &handle
+	    file->getPassthroughLane().getHandle(),
+		_universe.getHandle(),
+		kHelTransferDescriptorOut,
+		kHelRightInvoke,
+		kHelRightInvoke,
+		&handle
 	));
 
 	if(logFileAttach)
@@ -1303,6 +1323,8 @@ async::result<std::shared_ptr<ThreadGroup>> Process::init(std::string path) {
 	    client_lane.getHandle(),
 	    process->_fileContext->getUniverse().getHandle(),
 	    kHelTransferDescriptorOut,
+		kHelRightInvoke,
+		kHelRightInvoke,
 	    &process->_clientPosixLane
 	));
 	client_lane.release();
@@ -1381,6 +1403,8 @@ async::result<std::shared_ptr<Process>> Process::fork(std::shared_ptr<Process> o
 	    client_lane.getHandle(),
 	    process->_fileContext->getUniverse().getHandle(),
 	    kHelTransferDescriptorOut,
+		kHelRightInvoke,
+		kHelRightInvoke,
 	    &process->_clientPosixLane
 	));
 	client_lane.release();
@@ -1513,6 +1537,8 @@ Process::clone(std::shared_ptr<Process> original, void *ip, void *sp, posix::sup
 	    client_lane.getHandle(),
 	    process->_fileContext->getUniverse().getHandle(),
 	    kHelTransferDescriptorOut,
+		kHelRightInvoke,
+		kHelRightInvoke,
 	    &process->_clientPosixLane
 	));
 	client_lane.release();
@@ -1579,6 +1605,8 @@ async::result<Error> Process::exec(std::shared_ptr<Process> process,
 	    client_lane.getHandle(),
 	    process->_fileContext->getUniverse().getHandle(),
 	    kHelTransferDescriptorOut,
+		kHelRightInvoke,
+		kHelRightInvoke,
 	    &exec_posix_lane
 	));
 	client_lane.release();

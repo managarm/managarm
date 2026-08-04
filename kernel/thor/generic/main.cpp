@@ -610,9 +610,13 @@ void handleSyscall(SyscallImageAccessor image) {
 	} break;
 	case kHelCallTransferDescriptor: {
 		HelHandle out_handle;
-		*image.error() =
-			helTransferDescriptor((HelHandle)arg0, (HelHandle)arg1,
-				(HelTransferDescriptorFlags) arg2, &out_handle);
+		*image.error() = helTransferDescriptor(
+			(HelHandle)arg0,
+			(HelHandle)arg1,
+			(uint32_t)arg2,
+			(uint32_t)arg3,
+			(uint32_t)arg4,
+			&out_handle);
 		*image.out0() = out_handle;
 	} break;
 	case kHelCallDescriptorInfo: {

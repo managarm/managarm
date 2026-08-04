@@ -44,7 +44,12 @@ impl ExecutorInner {
     }
 
     /// Pushes an element to the submission queue using a gather list.
-    pub fn push_sq(&self, opcode: u32, context: usize, segments: &[&[u8]]) -> crate::result::Result<()> {
+    pub fn push_sq(
+        &self,
+        opcode: u32,
+        context: usize,
+        segments: &[&[u8]],
+    ) -> crate::result::Result<()> {
         self.queue.borrow_mut().push_sq(opcode, context, segments)
     }
 }

@@ -284,7 +284,9 @@ async::result<helix::UniqueDescriptor> File::accessMemory() {
 			helix_ng::offer(
 				helix_ng::sendBuffer(ser.data(), ser.size()),
 				helix_ng::recvBuffer(buffer, 128),
-				helix_ng::pullDescriptor()
+				// We do not require any RWX bits at the protocol level.
+				// The caller needs to know or determine the RWX bits (e.g., before mapping the memory view).
+				helix_ng::pullDescriptor(kHelRightAssign)
 			)
 		);
 
@@ -313,7 +315,7 @@ async::result<frg::expected<Error, File>> File::createSocket(helix::BorrowedLane
 		helix_ng::offer(
 			helix_ng::sendBragiHeadOnly(req, frg::stl_allocator{}),
 			helix_ng::recvInline(),
-			helix_ng::pullDescriptor()
+			helix_ng::pullDescriptor(kHelRightInvoke | kHelRightManage)
 		)
 	);
 	HEL_CHECK(offer.error());

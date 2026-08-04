@@ -252,8 +252,8 @@ openExternalDevice(helix::BorrowedLane lane,
 		helix_ng::offer(
 			helix_ng::sendBuffer(ser.data(), ser.size()),
 			helix_ng::recvInline(),
-			helix_ng::pullDescriptor(),
-			helix_ng::pullDescriptor())
+			helix_ng::pullDescriptor(kHelRightInvoke | kHelRightManage),
+			helix_ng::pullDescriptor(kHelRightRead | kHelRightAssign))
 	);
 	HEL_CHECK(offer.error());
 	HEL_CHECK(send_req.error());
@@ -268,7 +268,7 @@ openExternalDevice(helix::BorrowedLane lane,
 	helix::Mapping status_mapping;
 	if(resp.caps() & managarm::fs::FileCaps::FC_STATUS_PAGE) {
 		assert(!pull_page.error());
-		status_mapping = helix::Mapping{pull_page.descriptor(), 0, 0x1000};
+		status_mapping = helix::Mapping{pull_page.descriptor(), 0, 0x1000, kHelMapProtRead};
 	}
 
 	auto file = smarter::make_shared<DeviceFile>(helix::UniqueLane{},
@@ -287,7 +287,7 @@ openExternalDevice(helix::BorrowedLane lane,
 		auto [fd_offer, fd_send_req, fd_lane] = co_await helix_ng::exchangeMsgs(lane,
 			helix_ng::offer(
 				helix_ng::sendBuffer(fd_ser.data(), fd_ser.size()),
-				helix_ng::pushDescriptor(remote_lane)
+				helix_ng::pushDescriptor(remote_lane, kHelRightInvoke | kHelRightManage)
 			)
 		);
 		HEL_CHECK(fd_offer.error());
@@ -335,7 +335,7 @@ async::result<void> serveServerLane(helix::UniqueDescriptor lane) {
 
 			auto [recv_handle] = co_await helix_ng::exchangeMsgs(
 				conversation,
-				helix_ng::pullDescriptor()
+				helix_ng::pullDescriptor(kHelRightInvoke | kHelRightManage)
 			);
 			HEL_CHECK(recv_handle.error());
 
@@ -380,7 +380,7 @@ FutureMaybe<std::shared_ptr<FsLink>> mountExternalDevice(helix::BorrowedLane lan
 		helix_ng::offer(
 			helix_ng::sendBragiHeadTail(req, frg::stl_allocator{}),
 			helix_ng::recvInline(),
-			helix_ng::pullDescriptor())
+			helix_ng::pullDescriptor(kHelRightInvoke | kHelRightManage))
 	);
 	HEL_CHECK(offer.error());
 	HEL_CHECK(send_head.error());

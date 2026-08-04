@@ -227,7 +227,7 @@ async::detached serveCard(sound::Card *card,
 			auto [send_resp, push_pt] = co_await helix_ng::exchangeMsgs(
 				conversation,
 				helix_ng::sendBuffer(ser.data(), ser.size()),
-				helix_ng::pushDescriptor(remote_lane)
+				helix_ng::pushDescriptor(remote_lane, kHelRightInvoke | kHelRightManage)
 			);
 			HEL_CHECK(send_resp.error());
 			HEL_CHECK(push_pt.error());
