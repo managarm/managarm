@@ -44,6 +44,17 @@ HandleRequest::operator()(managarm::posix::Dup2Request &&req,
 				co_return {};
 		}
 	}
+	if(!req.fcntl_mode() && !req.flags() && req.fd() == req.newfd()) {
+		resp.set_error(managarm::posix::Errors::SUCCESS);
+		resp.set_fd(req.newfd());
+		auto [send_resp] = co_await helix_ng::exchangeMsgs(
+			conversation,
+			helix_ng::sendBragiHeadOnly(resp, frg::stl_allocator{})
+		);
+		HEL_CHECK(send_resp.error());
+		logBragiReply(resp);
+		co_return {};
+	}
 	bool closeOnExec = (req.flags() & O_CLOEXEC);
 
 	std::expected<int, Error> result = req.newfd();

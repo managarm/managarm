@@ -6,6 +6,7 @@ src = [
 	'src/inotify.cpp',
 	'src/parent-dead-signal.cpp',
 	'src/pipes.cpp',
+	'src/dup2-pipe.cpp',
 	'src/processgroups.cpp',
 	'src/signal.cpp',
 	'src/signalfd.cpp',
