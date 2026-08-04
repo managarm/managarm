@@ -13,6 +13,7 @@
 #include <helix/ipc.hpp>
 #include "fifo.hpp"
 #include "fs.bragi.hpp"
+#include "process.hpp"
 
 #include <sys/ioctl.h>
 
@@ -55,7 +56,8 @@ public:
 		helix::UniqueLane lane;
 		std::tie(lane, file->_passthrough) = helix::createStream();
 		async::detach(protocols::fs::servePassthrough(std::move(lane),
-				smarter::shared_ptr<File>{file}, &File::fileOperations));
+				smarter::shared_ptr<File>{file}, &File::fileOperations,
+				file->_cancelServe));
 	}
 
 	OpenFile(std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link,
@@ -86,6 +88,8 @@ public:
 			}
 		}
 		_channel = nullptr;
+		_cancelServe.cancel();
+		_passthrough = {};
 	}
 
 	async::result<std::expected<size_t, Error>>
@@ -109,7 +113,10 @@ public:
 				co_return std::unexpected{Error::wouldBlock};
 
 			if (!(co_await _channel->statusBell.async_wait_if([&]() {
-				return !_channel->ring.size();
+				// A writer may close while we are waiting for data.  The
+				// close raises statusBell, so include writerCount here or the
+				// reader would go back to sleep forever on an empty pipe.
+				return !_channel->ring.size() && _channel->writerCount;
 			}, ce)))
 				co_return std::unexpected{Error::interrupted};
 		}
@@ -120,16 +127,26 @@ public:
 	}
 
 	async::result<frg::expected<Error, size_t>>
-	writeAll(Process *, const void *data, size_t maxLength) override {
+	writeAll(Process *process, const void *data, size_t maxLength) override {
 		if (!isWriter_)
 			co_return Error::insufficientPermissions;
-		if (!_channel->readerCount)
-			co_return Error::brokenPipe; // TODO: SIGPIPE
+		if (!_channel->readerCount) {
+			process->issueThreadSignal(SIGPIPE, {});
+			co_return Error::brokenPipe;
+		}
 		if (!maxLength)
 			co_return 0;
 
 		size_t chunk = 0;
 		while (true) {
+			// A reader may have closed while we were waiting for space in
+			// the ring buffer.  In that case handleClose() wakes us up, but
+			// there will never be another reader to make progress possible.
+			if (!_channel->readerCount) {
+				process->issueThreadSignal(SIGPIPE, {});
+				co_return Error::brokenPipe;
+			}
+
 			chunk = _channel->ring.enqueue({static_cast<const uint8_t *>(data), maxLength});
 			if (chunk)
 				break;
@@ -138,7 +155,7 @@ public:
 				co_return Error::wouldBlock;
 
 			co_await _channel->statusBell.async_wait_if([&]() {
-				return !_channel->ring.available_space();
+				return !_channel->ring.available_space() && _channel->readerCount;
 			}); // TODO: EINTR
 		}
 
@@ -208,6 +225,9 @@ public:
 	}
 
 	async::result<void> setFileFlags(int flags) override {
+		// F_GETFL includes the access mode, while F_SETFL is only allowed to
+		// change the status flags.  Ignore the former when updating the FIFO.
+		flags &= ~(O_RDWR | O_WRONLY | O_RDONLY);
 		if(flags & ~O_NONBLOCK) {
 			std::println("posix: setFileFlags on FIFO \e[1;34m{}\e[0m called with unknown flags {:#x}",
 				structName(), flags & ~O_NONBLOCK);
@@ -286,6 +306,7 @@ public:
 
 private:
 	helix::UniqueLane _passthrough;
+	async::cancellation_event _cancelServe;
 
 	std::shared_ptr<Channel> _channel;
 
@@ -377,4 +398,3 @@ std::array<smarter::shared_ptr<File, FileHandle>, 2> createPair(bool nonBlock) {
 }
 
 } // namespace fifo
-

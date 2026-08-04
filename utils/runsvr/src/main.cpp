@@ -1,5 +1,6 @@
 #include <fcntl.h>
 #include <format>
+#include <signal.h>
 #include <stdarg.h>
 #include <sys/stat.h>
 #include <unistd.h>
@@ -260,6 +261,13 @@ async::result<int> asyncMain(action act, std::string path) {
 }
 
 int main(int argc, const char **argv) {
+	// This utility is frequently launched by udev using --fork. In that case
+	// stdout/stderr can be a pipe whose udev worker has already closed its read
+	// end. Keep writing to /dev/helout, but do not let a failed mirror to the
+	// inherited stream abort the driver launch with SIGPIPE.
+	if(signal(SIGPIPE, SIG_IGN) == SIG_ERR)
+		return 1;
+
 	heloutFd = open("/dev/helout", O_RDWR);
 
 	bool do_fork = false;

@@ -633,6 +633,11 @@ void ThreadGroup::issueThreadGroupSignal(int sn, SignalInfo info) {
 
 void Process::issueThreadSignal(int sn, SignalInfo info) {
 	signalQueue.issueSignal(sn, info, ++threadGroup()->currentSignalSeq_);
+	// A synchronous syscall that generates a thread-directed signal (notably
+	// write() generating SIGPIPE) must not let userspace handle its error
+	// return before the signal is considered for delivery. serveSignals() also
+	// interrupts threads, but only after it is scheduled from signalBell_.
+	HEL_CHECK(helInterruptThread(_threadDescriptor.getHandle()));
 }
 
 async::result<PollSignalResult>
