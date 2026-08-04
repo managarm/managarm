@@ -690,6 +690,19 @@ public:
 	bool forceTermination = false;
 
 	SignalQueue signalQueue;
+
+	// A signal that was accepted for delivery while the thread was inside a SignalGuard.
+	// Signals acceptance must still be evaluated within SignalGuard since non-ignored signals cause
+	// in-flight operations to be cancelled with EINTR (even when a SignalGuard is active --
+	// SignalGuard regions are libc-internal and unobservable to applications).
+	//
+	// Conceptually the signal is *delivered* at acceptance time and also the disposition and handling is fixed.
+	// Thus, delayedSignal is exempt from SIG_IGN discarding and nothing may drop it
+	// (otherwise, we would cause spurious EINTRs).
+	//
+	// Storing one delayedSignal suffices:
+	// only the signal that triggered an EINTR in the current SignalGuard region needs to be buffered.
+	// All later signals are queued normally and are drained by the delivery loop at SignalGuard exit.
 	SignalItem *delayedSignal = nullptr;
 	std::optional<SignalContext::SignalHandling> delayedSignalHandling = std::nullopt;
 

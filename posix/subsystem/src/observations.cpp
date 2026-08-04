@@ -41,6 +41,8 @@ void alertRemoteQueue(Process *self) {
 	}
 }
 
+// Accept pending signals. Either handle them or park the accepted signal in delayedSignal.
+// See the delayedSignal's comment in the Process class for the rationale.
 async::result<bool> handlePendingSignalsFromObservation(Process *self) {
 	if constexpr (logSignals)
 		std::println("posix: checking if we should raise pending signals; delayedSignal={}", bool(self->delayedSignal));
