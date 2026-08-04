@@ -784,6 +784,7 @@ struct ThreadGroup : std::enable_shared_from_this<ThreadGroup> {
 
 	SignalContext *signalContext() { return _signalContext.get(); }
 	SignalQueue &signalQueue() { return signalQueue_; }
+	const std::vector<std::shared_ptr<Process>> &threads() { return threads_; }
 
 	static std::shared_ptr<ThreadGroup> findThreadGroup(ProcessId pid);
 	std::shared_ptr<Process> findThread(pid_t tid);
