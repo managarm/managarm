@@ -629,6 +629,9 @@ HandleRequest::operator()(managarm::posix::RenameAtRequest &&req,
 		co_return std::unexpected(tailRes.error());
 	logBragiRequest(req);
 
+	if(req.flags())
+		std::cout << "posix: RENAMEAT flags are ignored" << std::endl;
+
 	ViewPath relative_to;
 	smarter::shared_ptr<File, FileHandle> file;
 
