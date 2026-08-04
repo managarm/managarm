@@ -170,6 +170,7 @@ static const HelRights kHelRightTake = UINT32_C(1) << 1;
 // - Address space: required to read from it.
 // - Address space: required to create thread.
 // - Virtualized space: required to read from it.
+// - I/O objects: required to enable userspace I/O.
 // - Thread: required to read registers.
 // - Thread: required to read memory in its address space.
 // - Thread: required to get the affinity.
@@ -183,6 +184,7 @@ static const HelRights kHelRightRead = UINT32_C(1) << 2;
 // - Address space: required to write to it.
 // - Address space: required to create thread.
 // - Virtualized space: required to write to it.
+// - I/O objects: required to enable userspace I/O.
 // - Thread: required to write registers.
 // - Thread: required to write memory in its address space.
 // - Thread: required to set the affinity.

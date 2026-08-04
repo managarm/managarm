@@ -3599,7 +3599,7 @@ HelError helAccessIo(uintptr_t *port_array, size_t num_ports,
 	}
 
 	*handle = this_universe->attachDescriptor(
-			AnyDescriptor::make<DescriptorType::io>(std::move(io_space), kHelRightAssign));
+			AnyDescriptor::make<DescriptorType::io>(std::move(io_space), kHelRightRead | kHelRightWrite | kHelRightAssign));
 
 	return kHelErrNone;
 }
@@ -3609,7 +3609,7 @@ HelError helEnableIo(HelHandle handle) {
 	auto this_thread = getCurrentThread();
 	auto this_universe = this_thread->getUniverse();
 
-	auto ioOutcome = this_universe->resolveObject<DescriptorType::io>(handle, kHelRightAssign);
+	auto ioOutcome = this_universe->resolveObject<DescriptorType::io>(handle, kHelRightRead | kHelRightWrite | kHelRightAssign);
 	if(!ioOutcome)
 		return translateError(ioOutcome.error());
 	auto io_space = std::move(*ioOutcome);

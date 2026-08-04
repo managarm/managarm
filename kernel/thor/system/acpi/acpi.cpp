@@ -230,7 +230,10 @@ AcpiObject::handleRequest(smarter::shared_ptr<Stream, LanePolicy> lane) {
 		FRG_CO_TRY(co_await sendResponse(conversation, std::move(resp)));
 
 		auto ioError = co_await pushDescriptor(
-		    conversation, AnyDescriptor::make<DescriptorType::io>(space, kHelRightAssign)
+		    conversation,
+		    AnyDescriptor::make<DescriptorType::io>(
+		        space, kHelRightRead | kHelRightWrite | kHelRightAssign
+		    )
 		);
 		if (ioError != Error::success)
 			co_return ioError;
