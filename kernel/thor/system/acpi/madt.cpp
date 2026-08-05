@@ -362,7 +362,7 @@ void setGlobalSystemIrq(size_t n, IrqPin *pin) { globalSystemIrqs->insert(n, pin
 
 namespace {
 
-constinit std::array<char, 4096> earlyTableBuffer{};
+alignas(alignof(uintptr_t)) constinit std::array<char, 4096> earlyTableBuffer{};
 
 } // namespace
 
