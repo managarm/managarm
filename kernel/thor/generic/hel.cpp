@@ -611,7 +611,7 @@ HelError helCopyOnWrite(HelHandle memoryHandle,
 			return kHelErrBadDescriptor;
 		view = getSpecialMemoryView(memoryHandle);
 	} else {
-		auto viewOutcome = this_universe->resolveObject<DescriptorType::memoryView>(memoryHandle, kHelRightAssign);
+		auto viewOutcome = this_universe->resolveObject<DescriptorType::memoryView>(memoryHandle, kHelRightRead | kHelRightAssign);
 		if(!viewOutcome)
 			return translateError(viewOutcome.error());
 		view = std::move(*viewOutcome);
@@ -662,7 +662,9 @@ HelError helCreateIndirectMemory(size_t numSlots, HelHandle *handle) {
 	*handle = this_universe->attachDescriptor(
 		AnyDescriptor::make<DescriptorType::memoryView>(
 			std::move(*memoryOutcome),
-			kHelRightRead | kHelRightWrite | kHelRightExecute | kHelRightAssign | kHelRightProvision | kHelRightFence | kHelRightManage
+			// No kHelRightExecute: we only require kHelRightRead | kHelRightWrite in helAlterMemoryIndirection(),
+			// so allowing kHelRightExecute would allow users to launder rights.
+			kHelRightRead | kHelRightWrite | kHelRightAssign | kHelRightProvision | kHelRightFence | kHelRightManage
 		)
 	);
 
@@ -684,12 +686,12 @@ HelError helAlterMemoryIndirection(HelHandle indirectHandle, size_t slot,
 	auto memoryOutcome = thisUniverse->inspectDescriptor(memoryHandle,
 			[&](AnyDescriptor &desc) -> std::expected<void, Error> {
 		if(desc.is<DescriptorType::memoryView>()) {
-			auto viewOutcome = desc.resolveObject<DescriptorType::memoryView>(kHelRightAssign);
+			auto viewOutcome = desc.resolveObject<DescriptorType::memoryView>(kHelRightRead | kHelRightWrite | kHelRightAssign);
 			if(!viewOutcome)
 				return std::unexpected{viewOutcome.error()};
 			memoryView = std::move(*viewOutcome);
 		} else if(desc.is<DescriptorType::memorySlice>()) {
-			auto sliceOutcome = desc.resolveObject<DescriptorType::memorySlice>(kHelRightAssign);
+			auto sliceOutcome = desc.resolveObject<DescriptorType::memorySlice>(kHelRightRead | kHelRightWrite | kHelRightAssign);
 			if(!sliceOutcome)
 				return std::unexpected{sliceOutcome.error()};
 			memoryView = (*sliceOutcome)->getView();
@@ -753,7 +755,7 @@ HelError doSubmitForkMemory(HelHandle handle, smarter::shared_ptr<IpcQueue> queu
 	auto this_thread = getCurrentThread();
 	auto this_universe = this_thread->getUniverse();
 
-	auto viewOutcome = this_universe->resolveCapability<DescriptorType::memoryView>(handle, kHelRightDerive);
+	auto viewOutcome = this_universe->resolveCapability<DescriptorType::memoryView>(handle, kHelRightRead | kHelRightDerive);
 	if(!viewOutcome)
 		return translateError(viewOutcome.error());
 	auto [view, rights] = std::move(*viewOutcome);

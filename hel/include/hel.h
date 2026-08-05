@@ -166,7 +166,10 @@ static const HelRights kHelRightTake = UINT32_C(1) << 1;
 // - IPC queue: required to map readable.
 // - Memory view: required to read.
 // - Memory view: required to map readable.
+// - Memory view: required to create copy-on-write view.
+// - Memory view: required to map into indirect memory.
 // - Memory slice: required to map readable.
+// - Memory slice: required to map into indirect memory.
 // - Address space: required to read from it.
 // - Address space: required to create thread.
 // - Virtualized space: required to read from it.
@@ -180,7 +183,9 @@ static const HelRights kHelRightRead = UINT32_C(1) << 2;
 // - IPC queue: required to map writeable.
 // - Memory view: required to write.
 // - Memory view: required to map writeable.
+// - Memory view: required to map into indirect memory.
 // - Memory slice: required to map writeable.
+// - Memory slice: required to map into indirect memory.
 // - Address space: required to write to it.
 // - Address space: required to create thread.
 // - Virtualized space: required to write to it.
