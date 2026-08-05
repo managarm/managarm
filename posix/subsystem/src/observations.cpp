@@ -689,9 +689,8 @@ async::result<void> observeThread(std::shared_ptr<Process> self,
 			HEL_CHECK(helLoadRegisters(thread.getHandle(), kHelRegsGeneral, &gprs));
 
 			auto cancelId = gprs[kHelRegArg0];
-			auto fd = gprs[kHelRegArg1];
 
-			co_await self->cancelEvent(cancelId, fd);
+			self->cancelPosixRequest(cancelId);
 
 			gprs[kHelRegError] = 0;
 
