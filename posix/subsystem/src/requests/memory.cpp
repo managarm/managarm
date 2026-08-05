@@ -105,11 +105,8 @@ HandleRequest::operator()(managarm::posix::VmMapRequest &&req,
 	}
 
 	if(!result) {
-		assert(result.error() == Error::alreadyExists || result.error() == Error::noMemory);
-		if(result.error() == Error::alreadyExists)
-			co_await sendErrorResponse<managarm::posix::VmMapResponse>(conversation, managarm::posix::Errors::ALREADY_EXISTS);
-		else if(result.error() == Error::noMemory)
-			co_await sendErrorResponse<managarm::posix::VmMapResponse>(conversation, managarm::posix::Errors::NO_MEMORY);
+		co_await sendErrorResponse<managarm::posix::VmMapResponse>(conversation,
+				result.error() | toPosixProtoError);
 		co_return {};
 	}
 
