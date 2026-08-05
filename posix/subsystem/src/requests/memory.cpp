@@ -26,6 +26,11 @@ HandleRequest::operator()(managarm::posix::VmMapRequest &&req,
 		co_return {};
 	}
 
+	if((req.flags() & MAP_ANONYMOUS) && req.rel_offset()) {
+		co_await sendErrorResponse<managarm::posix::VmMapResponse>(conversation, managarm::posix::Errors::ILLEGAL_ARGUMENTS);
+		co_return {};
+	}
+
 	uint32_t nativeFlags = 0;
 
 	if(req.mode() & PROT_READ)
@@ -46,7 +51,8 @@ HandleRequest::operator()(managarm::posix::VmMapRequest &&req,
 	}else if((req.flags() & (MAP_PRIVATE | MAP_SHARED)) == MAP_SHARED) {
 		copyOnWrite = false;
 	}else{
-		throw std::runtime_error("posix: Handle illegal flags in VM_MAP");
+		co_await sendErrorResponse<managarm::posix::VmMapResponse>(conversation, managarm::posix::Errors::ILLEGAL_ARGUMENTS);
+		co_return {};
 	}
 
 	uintptr_t hint = req.address_hint();
@@ -54,9 +60,10 @@ HandleRequest::operator()(managarm::posix::VmMapRequest &&req,
 	smarter::shared_ptr<File, FileHandle> file;
 	if(!(req.flags() & MAP_ANONYMOUS)) {
 		file = self->fileContext()->getFile(req.fd());
-		assert(file && "Illegal FD for VM_MAP");
-	}else{
-		assert(!req.rel_offset());
+		if(!file) {
+			co_await sendErrorResponse<managarm::posix::VmMapResponse>(conversation, managarm::posix::Errors::NO_SUCH_FD);
+			co_return {};
+		}
 	}
 
 	// Files such as /dev/zero map like anonymous memory; their offset is ignored.
