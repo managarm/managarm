@@ -286,6 +286,10 @@ bool File::isTerminal() {
 	return _defaultOps & defaultIsTerminal;
 }
 
+bool File::mapsAnonymously() {
+	return _defaultOps & defaultMapsAnonymously;
+}
+
 async::result<frg::expected<Error>> File::readExactly(Process *process,
 		void *data, size_t length) {
 	size_t offset = 0;
