@@ -63,7 +63,7 @@ async::result<bool> handlePendingSignalsFromObservation(Process *self) {
 		if (!active)
 			co_return true;
 
-		auto handling = self->threadGroup()->signalContext()->determineHandling(active, self);
+		auto handling = self->threadGroup()->signalContext()->acceptSignal(active, self);
 		if constexpr (logSignals)
 			std::println("posix: signal={} handling={}", active->signalNumber, handling);
 
@@ -716,7 +716,7 @@ async::result<void> observeThread(std::shared_ptr<Process> self,
 				std::cout << "\e[33m" "posix: Ignoring global signal flag "
 						"during synchronous user space panic" "\e[39m" << std::endl;
 			bool killed;
-			co_await self->threadGroup()->signalContext()->determineAndRaiseContext(item, self.get(), killed);
+			co_await self->threadGroup()->signalContext()->acceptSignalAndRaiseContext(item, self.get(), killed);
 			if(killed)
 				break;
 			HEL_CHECK(helResume(thread.getHandle()));
@@ -752,7 +752,7 @@ async::result<void> observeThread(std::shared_ptr<Process> self,
 				std::cout << "\e[33m" "posix: Ignoring global signal flag "
 						"during synchronous SIGSEGV" "\e[39m" << std::endl;
 			bool killed;
-			co_await self->threadGroup()->signalContext()->determineAndRaiseContext(item, self.get(), killed);
+			co_await self->threadGroup()->signalContext()->acceptSignalAndRaiseContext(item, self.get(), killed);
 			if(killed)
 				break;
 			HEL_CHECK(helResume(thread.getHandle()));
@@ -766,7 +766,7 @@ async::result<void> observeThread(std::shared_ptr<Process> self,
 				std::cout << "\e[33m" "posix: Ignoring global signal flag "
 						"during synchronous SIGSEGV" "\e[39m" << std::endl;
 			bool killed;
-			co_await self->threadGroup()->signalContext()->determineAndRaiseContext(item, self.get(), killed);
+			co_await self->threadGroup()->signalContext()->acceptSignalAndRaiseContext(item, self.get(), killed);
 			if(killed)
 				break;
 			HEL_CHECK(helResume(thread.getHandle()));
@@ -780,7 +780,7 @@ async::result<void> observeThread(std::shared_ptr<Process> self,
 				std::cout << "\e[33m" "posix: Ignoring global signal flag "
 						"during synchronous SIGILL" "\e[39m" << std::endl;
 			bool killed;
-			co_await self->threadGroup()->signalContext()->determineAndRaiseContext(item, self.get(), killed);
+			co_await self->threadGroup()->signalContext()->acceptSignalAndRaiseContext(item, self.get(), killed);
 			if(killed) {
 				if(debugFaults) {
 					launchGdbServer(self.get());
@@ -799,7 +799,7 @@ async::result<void> observeThread(std::shared_ptr<Process> self,
 				std::cout << "\e[33m" "posix: Ignoring global signal flag "
 						"during synchronous SIGFPE" "\e[39m" << std::endl;
 			bool killed;
-			co_await self->threadGroup()->signalContext()->determineAndRaiseContext(item, self.get(), killed);
+			co_await self->threadGroup()->signalContext()->acceptSignalAndRaiseContext(item, self.get(), killed);
 			if(killed)
 				break;
 			HEL_CHECK(helResume(thread.getHandle()));
@@ -813,7 +813,7 @@ async::result<void> observeThread(std::shared_ptr<Process> self,
 				std::cout << "\e[33m" "posix: Ignoring global signal flag "
 						"during synchronous SIGILL" "\e[39m" << std::endl;
 			bool killed;
-			co_await self->threadGroup()->signalContext()->determineAndRaiseContext(item, self.get(), killed);
+			co_await self->threadGroup()->signalContext()->acceptSignalAndRaiseContext(item, self.get(), killed);
 			if(killed)
 				break;
 			HEL_CHECK(helResume(thread.getHandle()));

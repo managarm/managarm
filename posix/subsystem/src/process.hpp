@@ -420,13 +420,17 @@ struct SignalContext {
 		SignalHandler handler;
 	};
 
-	// As this function bumps the signal seq number, only call this exactly
-	// once per SignalItem!
-	SignalHandling determineHandling(SignalItem *item, Process *process);
+	// Accept a signal and determine the signal disposition.
+	// Checks whether a signal is blocked or not happen *before* this function.
+	// As this function bumps the signal seq number, only call this exactly once per SignalItem!
+	// In a SignalGuard, acceptance happens when a signal is parked in delayedSignal,
+	// while the signal handler invocation happens after exiting the SignalGuard.
+	SignalHandling acceptSignal(SignalItem *item, Process *process);
+
 	async::result<void> raiseContext(SignalItem *item, Process *process,
 			SignalHandling handling);
 
-	async::result<void> determineAndRaiseContext(SignalItem *item, Process *process,
+	async::result<void> acceptSignalAndRaiseContext(SignalItem *item, Process *process,
 			bool &killed);
 
 	async::result<void> restoreContext(helix::BorrowedDescriptor thread, Process *process);

@@ -791,7 +791,7 @@ static const auto simdStateSize = [] () -> size_t {
 	return regInfo.setSize;
 }();
 
-SignalContext::SignalHandling SignalContext::determineHandling(SignalItem *item, Process *process) {
+SignalContext::SignalHandling SignalContext::acceptSignal(SignalItem *item, Process *process) {
 	SignalHandler handler = _handlers[item->signalNumber - 1];
 
 	process->enterSignal();
@@ -987,9 +987,9 @@ async::result<void> SignalContext::raiseContext(SignalItem *item, Process *proce
 	delete item;
 }
 
-async::result<void> SignalContext::determineAndRaiseContext(SignalItem *item, Process *process,
+async::result<void> SignalContext::acceptSignalAndRaiseContext(SignalItem *item, Process *process,
 		bool &killed) {
-	auto handling = determineHandling(item, process);
+	auto handling = acceptSignal(item, process);
 	killed = handling.killed;
 	co_return co_await raiseContext(item, process, handling);
 }
