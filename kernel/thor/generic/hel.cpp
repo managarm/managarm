@@ -3583,7 +3583,7 @@ HelError helAutomateIrq(HelHandle handle, uint32_t flags, HelHandle kernlet_hand
 	return kHelErrNone;
 }
 
-HelError helAccessIo(uintptr_t *port_array, size_t num_ports,
+HelError helAccessIo(const uintptr_t *port_array, size_t num_ports,
 		HelHandle *handle) {
 	auto this_thread = getCurrentThread();
 	auto this_universe = this_thread->getUniverse();

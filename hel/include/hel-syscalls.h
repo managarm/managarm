@@ -363,7 +363,7 @@ extern inline __attribute__ (( always_inline )) HelError helAutomateIrq(HelHandl
 			(HelWord)kernlet);
 };
 
-extern inline __attribute__ (( always_inline )) HelError helAccessIo(uintptr_t *port_array,
+extern inline __attribute__ (( always_inline )) HelError helAccessIo(const uintptr_t *port_array,
 		size_t num_ports, HelHandle *handle) {
 	HelWord out_handle;
 	HelError error = helSyscall2_1(kHelCallAccessIo, (HelWord)port_array,

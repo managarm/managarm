@@ -1501,7 +1501,7 @@ HEL_C_LINKAGE HelError helAutomateIrq(HelHandle handle, uint32_t flags, HelHandl
 //! @name Input/Output
 //! @{
 
-HEL_C_LINKAGE HelError helAccessIo(uintptr_t *port_array, size_t num_ports,
+HEL_C_LINKAGE HelError helAccessIo(const uintptr_t *port_array, size_t num_ports,
 		HelHandle *handle);
 
 //! Enable userspace access to hardware I/O resources.
