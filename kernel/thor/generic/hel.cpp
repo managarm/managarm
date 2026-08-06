@@ -3625,19 +3625,6 @@ HelError helEnableIo(HelHandle handle) {
 #endif
 }
 
-HelError helEnableFullIo() {
-#ifdef THOR_ARCH_SUPPORTS_PIO
-	auto this_thread = getCurrentThread();
-
-	for(uintptr_t port = 0; port < 0x10000; port++)
-		this_thread->getContext().enableIoPort(port);
-
-	return kHelErrNone;
-#else
-	return kHelErrUnsupportedOperation;
-#endif
-}
-
 HelError helBindKernlet(HelHandle handle, const HelKernletData *data, size_t num_data,
 		HelHandle *bound_handle) {
 	auto this_thread = getCurrentThread();

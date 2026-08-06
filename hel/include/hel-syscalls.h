@@ -376,10 +376,6 @@ extern inline __attribute__ (( always_inline )) HelError helEnableIo(HelHandle h
 	return helSyscall1(kHelCallEnableIo, (HelWord)handle);
 };
 
-extern inline __attribute__ (( always_inline )) HelError helEnableFullIo() {
-	return helSyscall0(kHelCallEnableFullIo);
-};
-
 extern inline __attribute__ (( always_inline )) HelError helBindKernlet(HelHandle handle,
 		const union HelKernletData *data, size_t num_data, HelHandle *bound_handle) {
 	HelWord handle_word;
