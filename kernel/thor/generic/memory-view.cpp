@@ -1044,6 +1044,7 @@ coroutine<void> ManagedSpace::_runDrainLoop() {
 				if(!claimSwapBudget(page))
 					continue;
 				_dirtyList.erase(_dirtyList.iterator_to(cp));
+				page->transactionState = TxState::pendingWriteback;
 				pending.push_back(cp);
 			}
 
@@ -1063,7 +1064,7 @@ coroutine<void> ManagedSpace::_runDrainLoop() {
 			while(!pending.empty()) {
 				auto *cp = pending.pop_front();
 				auto *page = frg::container_of(cp, &ManagedPage::cachePage);
-				assert(page->transactionState == TxState::dirty);
+				assert(page->transactionState == TxState::pendingWriteback);
 				page->transactionState = TxState::wantWriteback;
 				page->monitor = frg::allocate_intrusive_shared<TransactionMonitor>(Allocator{});
 				_writebackList.push_back(cp);
@@ -1275,6 +1276,7 @@ void ManagedSpace::markDirty(CachePage *cachePage) {
 			page->stillDirty = true;
 		} else {
 			assert(page->transactionState == TxState::dirty
+					|| page->transactionState == TxState::pendingWriteback
 					|| page->transactionState == TxState::wantWriteback);
 		}
 	}

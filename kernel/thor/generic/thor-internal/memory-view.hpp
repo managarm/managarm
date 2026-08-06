@@ -649,10 +649,13 @@ struct ManagedSpace : CacheBundle {
 		// Page is not in a queue but waiting for updateRange() to mark it as initialized.
 		// Valid in LoadState::missing.
 		initialization,
-		// Page is in _dirtyList (or the draining coroutine's local pending list),
-		// waiting for a fenceDirty() to complete before being promoted to _writebackList.
+		// Page is in _dirtyList, waiting to claim swap budget.
 		// Valid in LoadState::present.
 		dirty,
+		// Page is on the drain coroutine's local pending list.
+		// It has claimed swap budget and awaits the fenceDirty() before it's moved to _writebackList.
+		// Valid in LoadState::present.
+		pendingWriteback,
 		// Page is in _writebackList.
 		// Valid in LoadState::present.
 		wantWriteback,
