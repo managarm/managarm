@@ -15,7 +15,7 @@ extern inline __attribute__ (( always_inline )) HelError helLog(const enum HelLo
 extern inline __attribute__ (( always_inline )) void helPanic(const char *string,
 		size_t length) {
 	helSyscall2(kHelCallPanic, (HelWord)string, length);
-	__builtin_unreachable();
+	__builtin_trap();
 };
 
 extern inline __attribute__ (( always_inline )) HelError helNop() {
