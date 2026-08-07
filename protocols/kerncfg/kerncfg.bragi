@@ -57,3 +57,13 @@ head(128):
 	Error error;
 	uint64 num_cpu;
 }
+
+message GetAcpiRsdpRequest 8 {
+head(128):
+}
+
+message GetAcpiRsdpResponse 9 {
+head(128):
+	Error error;
+	uint64 rsdp;
+}

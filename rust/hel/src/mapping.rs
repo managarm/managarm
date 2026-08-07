@@ -39,6 +39,8 @@ pub struct Mapping<T> {
     length: usize,
 }
 
+unsafe impl<T> Send for Mapping<T> {}
+
 impl<T> Mapping<T> {
     /// Creates a new memory mapping for the object described by the
     /// given handle accessible within the given address space. This

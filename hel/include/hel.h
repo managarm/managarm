@@ -18,7 +18,7 @@
 
 enum {
 	// largest system call number plus 1
-	kHelNumCalls = 108,
+	kHelNumCalls = 110,
 
 	kHelCallLog = 1,
 	kHelCallPanic = 10,
@@ -44,6 +44,8 @@ enum {
 	kHelCallCreateSliceView = 88,
 	kHelCallForkMemory = 40,
 	kHelCallCreateSpace = 27,
+	kHelCallCreateDmaSpace = 108,
+	kHelCallConfigureIrq = 109,
 	kHelCallCreateIndirectMemory = 45,
 	kHelCallAlterMemoryIndirection = 52,
 	kHelCallMapMemory = 44,
@@ -1043,6 +1045,18 @@ enum HelLogSeverity {
 	kHelLogSeverityDebug,
 };
 
+enum {
+	kHelIrqTriggerNull = 0,
+	kHelIrqTriggerEdge = 1,
+	kHelIrqTriggerLevel = 2
+};
+
+enum {
+	kHelIrqPolarityNull = 0,
+	kHelIrqPolarityHigh = 1,
+	kHelIrqPolarityLow = 2
+};
+
 //! @name Logging
 //! @{
 
@@ -1241,6 +1255,13 @@ HEL_C_LINKAGE HelError helForkMemory(HelHandle handle, HelHandle *forkedHandle);
 //! @param[out] handle
 //!     Handle to the new address space.
 HEL_C_LINKAGE HelError helCreateSpace(HelHandle *handle);
+
+//! Creates a DMA space that memory can be mapped into for device DMA.
+//! @param[in] flags
+//!     Flags for the creation of the DMA space.
+//! @param[out] handle
+//!     Handle to the new DMA space.
+HEL_C_LINKAGE HelError helCreateDmaSpace(uint32_t flags, HelHandle *handle);
 
 //! Maps memory objects into an address space.
 //! @param[in] memoryHandle
@@ -1493,6 +1514,8 @@ HEL_C_LINKAGE HelError helRaiseEvent(HelHandle handle);
 
 HEL_C_LINKAGE HelError helAccessIrq(int number, HelHandle *handle);
 
+HEL_C_LINKAGE HelError helConfigureIrq(int number, uint32_t trigger, uint32_t polarity);
+
 HEL_C_LINKAGE HelError helAcknowledgeIrq(HelHandle handle, uint32_t flags, uint64_t sequence);
 
 HEL_C_LINKAGE HelError helAutomateIrq(HelHandle handle, uint32_t flags, HelHandle kernlet);
@@ -1501,7 +1524,7 @@ HEL_C_LINKAGE HelError helAutomateIrq(HelHandle handle, uint32_t flags, HelHandl
 //! @name Input/Output
 //! @{
 
-HEL_C_LINKAGE HelError helAccessIo(uintptr_t *port_array, size_t num_ports,
+HEL_C_LINKAGE HelError helAccessIo(const uintptr_t *port_array, size_t num_ports,
 		HelHandle *handle);
 
 //! Enable userspace access to hardware I/O resources.

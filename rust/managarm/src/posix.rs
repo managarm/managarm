@@ -9,7 +9,7 @@ use hel::Handle;
 bragi::include_binding!(mod bindings = "posix.rs");
 
 #[repr(i32)]
-enum PosixSupercall {
+pub enum PosixSupercall {
     GetProcessData = 1,
     Fork = 2,
     Execve = 3,

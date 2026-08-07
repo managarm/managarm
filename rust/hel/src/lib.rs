@@ -1,6 +1,5 @@
 //! A Rust wrapper for Hel.
 #![allow(incomplete_features)]
-#![feature(maybe_uninit_slice)]
 #![feature(generic_const_exprs)]
 #![feature(local_waker)]
 
@@ -35,6 +34,73 @@ pub fn create_stream() -> Result<(Handle, Handle)> {
 
     // SAFETY: helCreateStream returns two freshly created handles in the current universe.
     Ok(unsafe { (Handle::from_raw(lane1), Handle::from_raw(lane2)) })
+}
+
+/// Creates a new, empty address space that threads can run in.
+pub fn create_space() -> Result<Handle> {
+    let mut handle = hel_sys::kHelNullHandle as hel_sys::HelHandle;
+    result::hel_check(unsafe { hel_sys::helCreateSpace(&mut handle) })?;
+    Ok(unsafe { Handle::from_raw(handle) })
+}
+
+/// Creates a new DMA space that memory can be mapped into for device DMA.
+pub fn create_dma_space() -> Result<Handle> {
+    let mut handle = hel_sys::kHelNullHandle as hel_sys::HelHandle;
+    result::hel_check(unsafe { hel_sys::helCreateDmaSpace(0, &mut handle) })?;
+    Ok(unsafe { Handle::from_raw(handle) })
+}
+
+/// Returns a memory object backing the given physical memory range.
+pub fn access_physical(physical: usize, size: usize) -> Result<Handle> {
+    let mut handle = hel_sys::kHelNullHandle as hel_sys::HelHandle;
+    result::hel_check(unsafe { hel_sys::helAccessPhysical(physical, size, &mut handle) })?;
+    Ok(unsafe { Handle::from_raw(handle) })
+}
+
+/// Enables IO access on the given IO port handle.
+pub fn enable_io(handle: Handle) -> Result<()> {
+    result::hel_check(unsafe { hel_sys::helEnableIo(handle.handle()) })
+}
+
+/// Returns an IO-space object granting access to the given set of IO ports.
+pub fn access_io(ports: &[usize]) -> Result<Handle> {
+    let mut handle = hel_sys::kHelNullHandle as hel_sys::HelHandle;
+    result::hel_check(unsafe { hel_sys::helAccessIo(ports.as_ptr(), ports.len(), &mut handle) })?;
+    Ok(unsafe { Handle::from_raw(handle) })
+}
+
+/// Returns an IRQ object for the given global system interrupt number.
+pub fn access_irq(number: i32) -> Result<Handle> {
+    let mut handle = hel_sys::kHelNullHandle as hel_sys::HelHandle;
+    result::hel_check(unsafe { hel_sys::helAccessIrq(number, &mut handle) })?;
+    Ok(unsafe { Handle::from_raw(handle) })
+}
+
+/// The trigger mode of an interrupt.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum IrqTrigger {
+    Edge,
+    Level,
+}
+
+/// The polarity of an interrupt.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum IrqPolarity {
+    High,
+    Low,
+}
+
+/// Configures the trigger mode and polarity of a global system interrupt.
+pub fn configure_irq(number: i32, trigger: IrqTrigger, polarity: IrqPolarity) -> Result<()> {
+    let trigger = match trigger {
+        IrqTrigger::Edge => hel_sys::kHelIrqTriggerEdge,
+        IrqTrigger::Level => hel_sys::kHelIrqTriggerLevel,
+    };
+    let polarity = match polarity {
+        IrqPolarity::High => hel_sys::kHelIrqPolarityHigh,
+        IrqPolarity::Low => hel_sys::kHelIrqPolarityLow,
+    };
+    result::hel_check(unsafe { hel_sys::helConfigureIrq(number, trigger as u32, polarity as u32) })
 }
 
 /// A time value in nanoseconds since boot.

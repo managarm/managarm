@@ -24,8 +24,8 @@
 #include <thor-internal/stream.hpp>
 #include <thor-internal/thread.hpp>
 #include <thor-internal/timer.hpp>
-#ifdef __x86_64__
 #include <thor-internal/acpi/acpi.hpp>
+#ifdef __x86_64__
 #include <thor-internal/arch/debug.hpp>
 #include <thor-internal/arch/ept.hpp>
 #include <thor-internal/arch/vmx.hpp>
@@ -906,6 +906,28 @@ HelError helCreateSpace(HelHandle *handle) {
 		AnyDescriptor::make<DescriptorType::addressSpace>(
 			std::move(*spaceOutcome),
 			kHelRightGrant | kHelRightRead | kHelRightWrite | kHelRightAssign | kHelRightProvision
+		)
+	);
+
+	return kHelErrNone;
+}
+
+HelError helCreateDmaSpace(uint32_t flags, HelHandle *handle) {
+	// There are no flags defined yet.
+	if (flags != 0)
+		return kHelErrIllegalArgs;
+
+	auto this_thread = getCurrentThread();
+	auto this_universe = this_thread->getUniverse();
+
+	auto space = NoopDmaSpace::create();
+	if(!space)
+		return translateError(space.error());
+
+	*handle = this_universe->attachDescriptor(
+		AnyDescriptor::make<DescriptorType::dmaSpace>(
+			std::move(*space),
+			kHelRightGrant | kHelRightProvision
 		)
 	);
 
@@ -3434,6 +3456,34 @@ HelError helAccessIrq(int number, HelHandle *handle) {
 #endif
 }
 
+HelError helConfigureIrq(int number, uint32_t trigger, uint32_t polarity) {
+	TriggerMode triggerMode;
+	switch(trigger) {
+		case kHelIrqTriggerEdge: triggerMode = TriggerMode::edge; break;
+		case kHelIrqTriggerLevel: triggerMode = TriggerMode::level; break;
+		default: return kHelErrIllegalArgs;
+	}
+
+	Polarity irqPolarity;
+	switch(polarity) {
+		case kHelIrqPolarityHigh: irqPolarity = Polarity::high; break;
+		case kHelIrqPolarityLow: irqPolarity = Polarity::low; break;
+		default: return kHelErrIllegalArgs;
+	}
+
+	// This syscall only makes sense on ACPI systems.
+	if (!acpiRsdpNote->rsdp)
+	    return kHelErrUnsupportedOperation;
+
+	auto pin = acpi::getGlobalSystemIrq(number);
+	if(!pin)
+		return kHelErrOutOfBounds;
+
+	pin->configure(IrqConfiguration{triggerMode, irqPolarity});
+
+	return kHelErrNone;
+}
+
 HelError helAcknowledgeIrq(HelHandle handle, uint32_t flags, uint64_t sequence) {
 	if(flags & ~(kHelAckAcknowledge | kHelAckNack | kHelAckKick | kHelAckClear))
 		return kHelErrIllegalArgs;
@@ -3583,7 +3633,7 @@ HelError helAutomateIrq(HelHandle handle, uint32_t flags, HelHandle kernlet_hand
 	return kHelErrNone;
 }
 
-HelError helAccessIo(uintptr_t *port_array, size_t num_ports,
+HelError helAccessIo(const uintptr_t *port_array, size_t num_ports,
 		HelHandle *handle) {
 	auto this_thread = getCurrentThread();
 	auto this_universe = this_thread->getUniverse();

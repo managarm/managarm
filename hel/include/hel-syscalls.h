@@ -148,6 +148,13 @@ extern inline __attribute__ (( always_inline )) HelError helCreateSpace(HelHandl
 	return error;
 };
 
+extern inline __attribute__ (( always_inline )) HelError helCreateDmaSpace(uint32_t flags, HelHandle *handle) {
+	HelWord handle_word;
+	HelError error = helSyscall1_1(kHelCallCreateDmaSpace, flags, &handle_word);
+	*handle = (HelHandle)handle_word;
+	return error;
+};
+
 extern inline __attribute__ (( always_inline )) HelError helCreateVirtualizedSpace(HelHandle *handle) {
 	HelWord handle_word;
 	HelError error = helSyscall0_1(kHelCallCreateVirtualizedSpace, &handle_word);
@@ -351,6 +358,12 @@ extern inline __attribute__ (( always_inline )) HelError helAccessIrq(int number
 	return error;
 };
 
+extern inline __attribute__ (( always_inline )) HelError helConfigureIrq(int number,
+		uint32_t trigger, uint32_t polarity) {
+	return helSyscall3(kHelCallConfigureIrq, (HelWord)number, (HelWord)trigger,
+			(HelWord)polarity);
+};
+
 extern inline __attribute__ (( always_inline )) HelError helAcknowledgeIrq(HelHandle handle,
 		uint32_t flags, uint64_t sequence) {
 	return helSyscall3(kHelCallAcknowledgeIrq, (HelWord)handle, (HelWord)flags,
@@ -363,7 +376,7 @@ extern inline __attribute__ (( always_inline )) HelError helAutomateIrq(HelHandl
 			(HelWord)kernlet);
 };
 
-extern inline __attribute__ (( always_inline )) HelError helAccessIo(uintptr_t *port_array,
+extern inline __attribute__ (( always_inline )) HelError helAccessIo(const uintptr_t *port_array,
 		size_t num_ports, HelHandle *handle) {
 	HelWord out_handle;
 	HelError error = helSyscall2_1(kHelCallAccessIo, (HelWord)port_array,
