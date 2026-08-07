@@ -19,6 +19,18 @@
 
 namespace thor {
 
+struct CpuFeatures {
+	char isa[1024];
+	char mmu[8];
+	char uarch[256];
+};
+
+extern CpuFeatures globalCpuFeatures;
+
+[[gnu::const]] inline CpuFeatures *getGlobalCpuFeatures() {
+	return &globalCpuFeatures;
+}
+
 enum class Domain : uint64_t { irq = 0, fault, fiber, user, idle };
 
 struct Frame {

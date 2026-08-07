@@ -268,6 +268,13 @@ struct UptimeNode final : RegularNode {
 	async::result<void> store(std::string) override;
 };
 
+struct CpuInfoNode final : RegularNode {
+	CpuInfoNode() {}
+
+	async::result<std::expected<std::string, Error>> show(Process *) override;
+	async::result<void> store(std::string) override;
+};
+
 struct OstypeNode final : RegularNode {
 	OstypeNode() {}
 

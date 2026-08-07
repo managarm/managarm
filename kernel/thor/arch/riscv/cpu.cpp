@@ -2,18 +2,120 @@
 #include <generic/thor-internal/cpu-data.hpp>
 #include <riscv/sbi.hpp>
 #include <thor-internal/arch-generic/cpu.hpp>
+#include <thor-internal/arch/cpu.hpp>
 #include <thor-internal/arch/fp-state.hpp>
 #include <thor-internal/arch/hypervisor.hpp>
 #include <thor-internal/arch/system.hpp>
 #include <thor-internal/arch/trap.hpp>
 #include <thor-internal/arch/unimplemented.hpp>
 #include <thor-internal/debug.hpp>
+#include <thor-internal/dtb/dtb.hpp>
 #include <thor-internal/fiber.hpp>
 #include <thor-internal/ipl.hpp>
 #include <thor-internal/kasan.hpp>
 #include <thor-internal/main.hpp>
 
 namespace thor {
+
+constinit CpuFeatures globalCpuFeatures{};
+
+namespace {
+
+void appendCpuInfoString(char *buffer, size_t capacity, size_t &length, const char *string) {
+	while (*string && length + 1 < capacity)
+		buffer[length++] = *string++;
+	buffer[length] = '\0';
+}
+
+void appendCpuInfoString(char *buffer, size_t capacity, size_t &length, frg::string_view string) {
+	for (size_t i = 0; i < string.size() && length + 1 < capacity; ++i)
+		buffer[length++] = string[i];
+	buffer[length] = '\0';
+}
+
+void appendCpuInfoCharacter(char *buffer, size_t capacity, size_t &length, char character) {
+	if (length + 1 < capacity)
+		buffer[length++] = character;
+	buffer[length] = '\0';
+}
+
+void initializeCpuFeatures() {
+	size_t isaLength = 0;
+	appendCpuInfoString(globalCpuFeatures.isa, sizeof(globalCpuFeatures.isa), isaLength, "rv64");
+
+	// RISC-V single-letter extensions use a canonical order in the ISA string.
+	constexpr RiscvExtension singleLetterExtensions[] = {
+	    RiscvExtension::i, RiscvExtension::m, RiscvExtension::a,
+	    RiscvExtension::f, RiscvExtension::d, RiscvExtension::c,
+	    RiscvExtension::h,
+	};
+	constexpr char singleLetterNames[] = "imafdch";
+	for (size_t i = 0; i < sizeof(singleLetterExtensions) / sizeof(singleLetterExtensions[0]); ++i) {
+		if (riscvHartCapsNote->hasExtension(singleLetterExtensions[i]))
+			appendCpuInfoCharacter(globalCpuFeatures.isa, sizeof(globalCpuFeatures.isa), isaLength,
+			                       singleLetterNames[i]);
+	}
+
+	for (size_t i = static_cast<size_t>(RiscvExtension::ssdbltrp);
+	     i < static_cast<size_t>(RiscvExtension::numExtensions); ++i) {
+		auto extension = static_cast<RiscvExtension>(i);
+		if (!riscvHartCapsNote->hasExtension(extension))
+			continue;
+		appendCpuInfoString(globalCpuFeatures.isa, sizeof(globalCpuFeatures.isa), isaLength, "_");
+		appendCpuInfoString(globalCpuFeatures.isa, sizeof(globalCpuFeatures.isa), isaLength,
+		                    stringifyRiscvExtension(extension));
+	}
+
+	size_t mmuLength = 0;
+	const char *mmu = nullptr;
+	switch (riscvConfigNote->numPtLevels) {
+		case 3: mmu = "sv39"; break;
+		case 4: mmu = "sv48"; break;
+		case 5: mmu = "sv57"; break;
+		default: mmu = "unknown"; break;
+	}
+	appendCpuInfoString(globalCpuFeatures.mmu, sizeof(globalCpuFeatures.mmu), mmuLength, mmu);
+}
+
+initgraph::Task initializeCpuUarch{
+    &globalInitEngine,
+    "riscv.initialize-cpu-uarch",
+    initgraph::Requires{getDeviceTreeParsedStage()},
+    initgraph::Entails{getTaskingAvailableStage()},
+    [] {
+	    auto *cpus = getDeviceTreeNodeByPath("/cpus");
+	    if (!cpus)
+		    return;
+
+	    frg::string_view selectedUarch = "";
+	    bool haveGenericUarch = false;
+	    for (auto [_, cpu] : cpus->children()) {
+		    if (!cpu->name().starts_with("cpu@") || cpu->compatible().empty())
+			    continue;
+
+		    for (auto compatible : cpu->compatible()) {
+			    if (compatible == "riscv") {
+				    if (!haveGenericUarch) {
+					    selectedUarch = compatible;
+					    haveGenericUarch = true;
+				    }
+			    } else {
+				    selectedUarch = compatible;
+				    haveGenericUarch = true;
+				    break;
+			    }
+		    }
+		    if (selectedUarch != "riscv")
+			    break;
+	    }
+
+	    size_t uarchLength = 0;
+	    appendCpuInfoString(globalCpuFeatures.uarch, sizeof(globalCpuFeatures.uarch),
+		                    uarchLength, selectedUarch);
+    }
+};
+
+} // namespace
 
 void enableUserAccess() { riscv::setCsrBits<riscv::Csr::sstatus>(riscv::sstatus::sumBit); }
 void disableUserAccess() { riscv::clearCsrBits<riscv::Csr::sstatus>(riscv::sstatus::sumBit); }
@@ -239,6 +341,7 @@ void setupBootCpuContext() {
 	writeToTp(context);
 
 	context->hartId = riscvConfigNote->bspHartId;
+	initializeCpuFeatures();
 }
 
 static initgraph::Task probeSbiFeatures{

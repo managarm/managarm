@@ -445,6 +445,25 @@ struct CpuFeatures {
 	static constexpr uint32_t profileIntelSupported = 1;
 	static constexpr uint32_t profileAmdSupported = 2;
 
+	char vendorId[13];
+	char modelName[49];
+	char flags[1024];
+	char bugs[256];
+	uint32_t family;
+	uint32_t model;
+	uint32_t stepping;
+	uint32_t microcodeRevision;
+	uint32_t cpuidLevel;
+	uint32_t physicalAddressBits;
+	uint32_t virtualAddressBits;
+	uint64_t frequencyHz;
+	// BogoMIPS, in hundredths.
+	uint64_t bogoMips;
+	uint32_t clflushSize;
+	uint32_t cacheAlignment;
+	uint32_t fpu;
+	uint32_t fpuException;
+	uint32_t writeProtect;
 	bool haveFred;
 	bool haveXsave;
 	bool haveAvx;

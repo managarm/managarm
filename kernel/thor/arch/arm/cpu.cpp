@@ -1,13 +1,105 @@
 #include <thor-internal/arch/system.hpp>
 #include <thor-internal/arch-generic/cpu.hpp>
+#include <thor-internal/arch-generic/timer.hpp>
 #include <thor-internal/cpu-data.hpp>
 #include <thor-internal/ipl.hpp>
 #include <frg/manual_box.hpp>
 #include <thor-internal/main.hpp>
 #include <thor-internal/kasan.hpp>
 #include <thor-internal/fiber.hpp>
+#include <string.h>
 
 namespace thor {
+
+namespace {
+
+uint64_t readCounterFrequency() {
+	uint64_t frequency;
+	asm volatile("mrs %0, cntfrq_el0" : "=r"(frequency));
+	return frequency;
+}
+
+void appendCpuInfoToken(char *buffer, size_t capacity, const char *token) {
+	size_t length = 0;
+	while(length < capacity && buffer[length])
+		++length;
+
+	size_t tokenLength = 0;
+	while(token[tokenLength])
+		++tokenLength;
+
+	for(size_t begin = 0; begin < length;) {
+		size_t end = begin;
+		while(end < length && buffer[end] != ' ')
+			++end;
+		if(end - begin == tokenLength
+				&& !memcmp(buffer + begin, token, tokenLength))
+			return;
+		begin = end + 1;
+	}
+
+	size_t separatorLength = length ? 1 : 0;
+	if(length + separatorLength + tokenLength + 1 > capacity)
+		return;
+
+	if(separatorLength)
+		buffer[length++] = ' ';
+	memcpy(buffer + length, token, tokenLength);
+	buffer[length + tokenLength] = 0;
+}
+
+uint64_t field(uint64_t value, unsigned int shift) {
+	return (value >> shift) & 0xF;
+}
+
+void addFeature(bool condition, const char *name) {
+	if(condition)
+		appendCpuInfoToken(globalCpuFeatures.features,
+				sizeof(globalCpuFeatures.features), name);
+}
+
+} // namespace
+
+constinit CpuFeatures globalCpuFeatures{};
+
+void initializeCpuFeatures() {
+	asm volatile("mrs %0, midr_el1" : "=r"(globalCpuFeatures.midr));
+	asm volatile("mrs %0, id_aa64pfr0_el1" : "=r"(globalCpuFeatures.idAa64pfr0));
+	asm volatile("mrs %0, id_aa64pfr1_el1" : "=r"(globalCpuFeatures.idAa64pfr1));
+	asm volatile("mrs %0, id_aa64isar0_el1" : "=r"(globalCpuFeatures.idAa64isar0));
+	asm volatile("mrs %0, id_aa64isar1_el1" : "=r"(globalCpuFeatures.idAa64isar1));
+	globalCpuFeatures.frequencyHz = readCounterFrequency();
+	globalCpuFeatures.bogoMips = calibrateBogoMips(globalCpuFeatures.frequencyHz);
+
+	// These are the feature names used by the AArch64 Linux cpuinfo ABI.
+	addFeature(field(globalCpuFeatures.idAa64pfr0, 16) != 0xF, "fp");
+	addFeature(field(globalCpuFeatures.idAa64pfr0, 20) != 0xF, "asimd");
+	// The generic timer is available on every supported AArch64 platform.
+	addFeature(true, "evtstrm");
+	addFeature(field(globalCpuFeatures.idAa64isar0, 0) >= 1, "aes");
+	addFeature(field(globalCpuFeatures.idAa64isar0, 0) >= 2, "pmull");
+	addFeature(field(globalCpuFeatures.idAa64isar0, 4) >= 1, "sha1");
+	addFeature(field(globalCpuFeatures.idAa64isar0, 8) >= 1, "sha2");
+	addFeature(field(globalCpuFeatures.idAa64isar0, 8) >= 2, "sha512");
+	addFeature(field(globalCpuFeatures.idAa64isar0, 12) >= 1, "crc32");
+	addFeature(field(globalCpuFeatures.idAa64isar0, 16) >= 1, "atomics");
+	addFeature(field(globalCpuFeatures.idAa64isar0, 20) >= 1, "asimdrdm");
+	addFeature(field(globalCpuFeatures.idAa64isar0, 24) >= 1, "sha3");
+	addFeature(field(globalCpuFeatures.idAa64isar0, 28) >= 1, "sm3");
+	addFeature(field(globalCpuFeatures.idAa64isar0, 32) >= 1, "sm4");
+	addFeature(field(globalCpuFeatures.idAa64isar0, 36) >= 1, "dcpop");
+	addFeature(field(globalCpuFeatures.idAa64isar0, 60) >= 1, "rng");
+	addFeature(field(globalCpuFeatures.idAa64pfr0, 32) >= 1, "sve");
+	addFeature(field(globalCpuFeatures.idAa64pfr0, 48) >= 1, "dit");
+	addFeature(field(globalCpuFeatures.idAa64pfr1, 0) >= 1, "bti");
+	addFeature(field(globalCpuFeatures.idAa64pfr1, 4) >= 1, "ssbs");
+	addFeature(field(globalCpuFeatures.idAa64pfr1, 8) >= 1, "mte");
+	addFeature(field(globalCpuFeatures.idAa64isar1, 12) >= 1, "jscvt");
+	addFeature(field(globalCpuFeatures.idAa64isar1, 16) >= 1, "fcma");
+	addFeature(field(globalCpuFeatures.idAa64isar1, 20) >= 1, "lrcpc");
+	addFeature(field(globalCpuFeatures.idAa64isar1, 44) >= 1, "bf16");
+	addFeature(field(globalCpuFeatures.idAa64isar1, 52) >= 1, "i8mm");
+}
 
 extern "C" void saveFpSimdRegisters(FpRegisters *frame);
 extern "C" void restoreFpSimdRegisters(FpRegisters *frame);

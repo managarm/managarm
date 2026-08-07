@@ -12,6 +12,11 @@
 #include <thor-internal/mbus.hpp>
 #include <thor-internal/physical.hpp>
 
+#if defined(__x86_64__) || defined(__aarch64__) || defined(__riscv)
+#include <thor-internal/arch/cpu.hpp>
+#include <thor-internal/cpu-data.hpp>
+#endif
+
 #include <bragi/helpers-frigg.hpp>
 #include <bragi/helpers-all.hpp>
 #include "kerncfg.frigg_bragi.hpp"
@@ -107,6 +112,72 @@ private:
 			if(respError != Error::success) {
 				co_return respError;
 			}
+#if defined(__x86_64__) || defined(__aarch64__) || defined(__riscv)
+		}else if(preamble.id() == bragi::message_id<managarm::kerncfg::GetCpuInfoRequest>) {
+			auto req = bragi::parse_head_only<managarm::kerncfg::GetCpuInfoRequest>(reqBuffer, *kernelAlloc);
+
+			if(!req)
+				co_return Error::protocolViolation;
+
+			auto cpuFeatures = getGlobalCpuFeatures();
+			managarm::kerncfg::GetCpuInfoResponse<KernelAlloc> resp(*kernelAlloc);
+			resp.set_error(managarm::kerncfg::Error::SUCCESS);
+		#if defined(__x86_64__)
+			resp.set_cpu_family(cpuFeatures->family);
+			resp.set_model(cpuFeatures->model);
+			resp.set_stepping(cpuFeatures->stepping);
+			resp.set_microcode_revision(cpuFeatures->microcodeRevision);
+			resp.set_cpuid_level(cpuFeatures->cpuidLevel);
+			resp.set_physical_address_bits(cpuFeatures->physicalAddressBits);
+			resp.set_virtual_address_bits(cpuFeatures->virtualAddressBits);
+			resp.set_frequency_hz(cpuFeatures->frequencyHz);
+			resp.set_bogo_mips(cpuFeatures->bogoMips);
+			resp.set_vendor_id(frg::string<KernelAlloc>{*kernelAlloc, cpuFeatures->vendorId});
+			resp.set_model_name(frg::string<KernelAlloc>{*kernelAlloc, cpuFeatures->modelName});
+			resp.set_flags(frg::string<KernelAlloc>{*kernelAlloc, cpuFeatures->flags});
+			resp.set_bugs(frg::string<KernelAlloc>{*kernelAlloc, cpuFeatures->bugs});
+			resp.set_clflush_size(cpuFeatures->clflushSize);
+			resp.set_cache_alignment(cpuFeatures->cacheAlignment);
+			resp.set_fpu(cpuFeatures->fpu);
+			resp.set_fpu_exception(cpuFeatures->fpuException);
+			resp.set_write_protect(cpuFeatures->writeProtect);
+			if (req->cpu() >= getCpuCount()) {
+				resp.set_error(managarm::kerncfg::Error::ILLEGAL_REQUEST);
+			} else {
+				resp.set_apic_id(getCpuData(req->cpu())->localApicId);
+			}
+		#elif defined(__aarch64__)
+			resp.set_cpu_implementer((cpuFeatures->midr >> 24) & 0xFF);
+			resp.set_cpu_architecture(8);
+			resp.set_cpu_variant((cpuFeatures->midr >> 20) & 0xF);
+			resp.set_cpu_part((cpuFeatures->midr >> 4) & 0xFFF);
+			resp.set_cpu_revision(cpuFeatures->midr & 0xF);
+			resp.set_frequency_hz(cpuFeatures->frequencyHz);
+			resp.set_bogo_mips(cpuFeatures->bogoMips);
+			resp.set_features(frg::string<KernelAlloc>{*kernelAlloc, cpuFeatures->features});
+		#elif defined(__riscv)
+			if (req->cpu() >= getCpuCount()) {
+				resp.set_error(managarm::kerncfg::Error::ILLEGAL_REQUEST);
+			} else {
+				resp.set_hart_id(getCpuData(req->cpu())->hartId);
+				resp.set_isa(frg::string<KernelAlloc>{*kernelAlloc, cpuFeatures->isa});
+				resp.set_mmu(frg::string<KernelAlloc>{*kernelAlloc, cpuFeatures->mmu});
+				resp.set_uarch(frg::string<KernelAlloc>{*kernelAlloc, cpuFeatures->uarch});
+			}
+		#endif
+
+			frg::unique_memory<KernelAlloc> respHeadBuffer{*kernelAlloc, resp.size_of_head()};
+			frg::unique_memory<KernelAlloc> respTailBuffer{*kernelAlloc, resp.size_of_tail()};
+			bragi::write_head_tail(resp, respHeadBuffer, respTailBuffer);
+
+			auto respHeadError = co_await sendBuffer(lane, std::move(respHeadBuffer));
+			if(respHeadError != Error::success)
+				co_return respHeadError;
+
+			auto respTailError = co_await sendBuffer(lane, std::move(respTailBuffer));
+			if(respTailError != Error::success)
+				co_return respTailError;
+#endif
 		}else{
 			managarm::kerncfg::SvrResponse<KernelAlloc> resp(*kernelAlloc);
 			resp.set_error(managarm::kerncfg::Error::ILLEGAL_REQUEST);

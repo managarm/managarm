@@ -12,11 +12,41 @@
 #include <thor-internal/ipl.hpp>
 #include <thor-internal/arch/pic.hpp>
 #include <x86/machine.hpp>
+#include <string.h>
 
 namespace thor {
 
 namespace {
 	constexpr bool disableSmp = false;
+
+	void appendCpuInfoToken(char *buffer, size_t capacity, const char *token) {
+		size_t length = 0;
+		while(length < capacity && buffer[length])
+			++length;
+
+		size_t tokenLength = 0;
+		while(token[tokenLength])
+			++tokenLength;
+		for(size_t begin = 0; begin < length;) {
+			size_t end = begin;
+			while(end < length && buffer[end] != ' ')
+				++end;
+			if(end - begin == tokenLength
+					&& !memcmp(buffer + begin, token, tokenLength))
+				return;
+			begin = end + 1;
+		}
+
+		size_t separatorLength = length ? 1 : 0;
+		if(length + separatorLength + tokenLength + 1 > capacity)
+			return;
+
+		if(separatorLength)
+			buffer[length++] = ' ';
+		for(size_t i = 0; i < tokenLength; ++i)
+			buffer[length++] = token[i];
+		buffer[length] = 0;
+	}
 }
 
 namespace {
@@ -376,6 +406,458 @@ initgraph::Stage *getCpuFeaturesKnownStage() {
 static initgraph::Task enumerateCpuFeaturesTask{&globalInitEngine, "x86.enumerate-cpu-features",
 	initgraph::Entails{getCpuFeaturesKnownStage()},
 	[] {
+		auto vendor = common::x86::cpuid(0);
+		memcpy(&globalCpuFeatures.vendorId[0], &vendor[1], 4);
+		memcpy(&globalCpuFeatures.vendorId[4], &vendor[3], 4);
+		memcpy(&globalCpuFeatures.vendorId[8], &vendor[2], 4);
+		globalCpuFeatures.vendorId[12] = 0;
+		globalCpuFeatures.cpuidLevel = vendor[0];
+		auto basicFeatures = common::x86::cpuid(common::x86::kCpuIndexFeatures);
+		globalCpuFeatures.clflushSize = ((basicFeatures[1] >> 8) & 0xFF) * 8;
+		globalCpuFeatures.cacheAlignment = globalCpuFeatures.clflushSize;
+		globalCpuFeatures.fpu = basicFeatures[3] & (1u << 0);
+		// x87 floating-point exception reporting is part of the architectural FPU.
+		globalCpuFeatures.fpuException = globalCpuFeatures.fpu;
+		uint64_t cr0;
+		asm volatile ("mov %%cr0, %0" : "=r"(cr0));
+		globalCpuFeatures.writeProtect = cr0 & (uint64_t(1) << 16);
+		auto extendedLevel = common::x86::cpuid(0x8000'0000)[0];
+		frg::array<uint32_t, 4> structuredFeatures{};
+		frg::array<uint32_t, 4> structuredFeaturesSubleaf1{};
+		frg::array<uint32_t, 4> thermalFeatures{};
+		if(vendor[0] >= common::x86::kCpuIndexStructuredExtendedFeaturesEnum) {
+			structuredFeatures = common::x86::cpuid(
+				common::x86::kCpuIndexStructuredExtendedFeaturesEnum);
+			if(structuredFeatures[0] >= 1)
+				structuredFeaturesSubleaf1 = common::x86::cpuid(
+					common::x86::kCpuIndexStructuredExtendedFeaturesEnum, 1);
+		}
+		if(vendor[0] >= 0x06)
+			thermalFeatures = common::x86::cpuid(0x06);
+		frg::array<uint32_t, 4> extendedFeatures{};
+		frg::array<uint32_t, 4> extendedFeatures7{};
+		if(extendedLevel >= 0x8000'0001)
+			extendedFeatures = common::x86::cpuid(0x8000'0001);
+		if(extendedLevel >= 0x8000'0007)
+			extendedFeatures7 = common::x86::cpuid(0x8000'0007);
+
+		if(vendor[0] >= 0x16) {
+			auto frequency = common::x86::cpuid(0x16)[0];
+			globalCpuFeatures.frequencyHz = static_cast<uint64_t>(frequency) * 1'000'000;
+		}
+
+		auto highestExtendedLeaf = common::x86::cpuid(0x8000'0000)[0];
+		globalCpuFeatures.physicalAddressBits = 36;
+		globalCpuFeatures.virtualAddressBits = 48;
+		if(highestExtendedLeaf >= 0x8000'0008) {
+			auto addressSizes = common::x86::cpuid(0x8000'0008)[0];
+			if(addressSizes & 0xFF)
+				globalCpuFeatures.physicalAddressBits = addressSizes & 0xFF;
+			if((addressSizes >> 8) & 0xFF)
+				globalCpuFeatures.virtualAddressBits = (addressSizes >> 8) & 0xFF;
+		}
+
+		if(highestExtendedLeaf >= 0x8000'0004) {
+			for(uint32_t leaf = 0; leaf < 3; ++leaf) {
+				auto brand = common::x86::cpuid(0x8000'0002 + leaf);
+				for(size_t reg = 0; reg < 4; ++reg)
+					memcpy(&globalCpuFeatures.modelName[leaf * 16 + reg * 4], &brand[reg], 4);
+			}
+
+			size_t begin = 0;
+			while(begin < 48 && globalCpuFeatures.modelName[begin] == ' ')
+				++begin;
+
+			size_t end = 48;
+			while(end > begin && (globalCpuFeatures.modelName[end - 1] == ' '
+					|| globalCpuFeatures.modelName[end - 1] == '\0'))
+				--end;
+
+			for(size_t i = begin; i < end; ++i)
+				globalCpuFeatures.modelName[i - begin] = globalCpuFeatures.modelName[i];
+			globalCpuFeatures.modelName[end - begin] = '\0';
+		}
+
+		if(!globalCpuFeatures.modelName[0]) {
+			constexpr char fallback[] = "Unknown x86 processor";
+			memcpy(globalCpuFeatures.modelName, fallback, sizeof(fallback));
+		}
+
+		auto signature = basicFeatures[0];
+		auto baseFamily = (signature >> 8) & 0xF;
+		auto baseModel = (signature >> 4) & 0xF;
+		auto extendedFamily = (signature >> 20) & 0xFF;
+		auto extendedModel = (signature >> 16) & 0xF;
+		globalCpuFeatures.stepping = signature & 0xF;
+
+		globalCpuFeatures.family = baseFamily;
+		if(baseFamily == 0xF)
+			globalCpuFeatures.family += extendedFamily;
+
+		globalCpuFeatures.model = baseModel;
+		if(baseFamily == 0x6 || baseFamily == 0xF)
+			globalCpuFeatures.model |= extendedModel << 4;
+
+		bool isIntel = vendor[1] == 0x756E6547 && vendor[3] == 0x49656E69
+				&& vendor[2] == 0x6C65746E;
+		bool isAmd = vendor[1] == 0x68747541 && vendor[3] == 0x69746E65
+				&& vendor[2] == 0x444D4163;
+		auto perfmonFeatures = vendor[0] >= 0x0A
+				? common::x86::cpuid(0x0A) : frg::array<uint32_t, 4>{};
+		auto artFeatures = vendor[0] >= 0x15
+				? common::x86::cpuid(0x15) : frg::array<uint32_t, 4>{};
+		uint64_t miscEnable = 0;
+		if(isIntel && globalCpuFeatures.family >= 6)
+			miscEnable = common::x86::rdmsr(common::x86::kMsrMiscEnable);
+
+		auto addFlag = [](bool present, const char *name) {
+			if(present)
+				appendCpuInfoToken(globalCpuFeatures.flags,
+						sizeof(globalCpuFeatures.flags), name);
+		};
+		auto addBug = [](bool present, const char *name) {
+			if(present)
+				appendCpuInfoToken(globalCpuFeatures.bugs,
+						sizeof(globalCpuFeatures.bugs), name);
+		};
+		auto basicEdx = basicFeatures[3];
+		auto basicEcx = basicFeatures[2];
+		auto extendedEdx = extendedFeatures[3];
+		auto extendedEcx = extendedFeatures[2];
+		auto structuredEbx = structuredFeatures[1];
+		auto structuredEcx = structuredFeatures[2];
+		auto structuredEdx = structuredFeatures[3];
+		auto structuredSubleaf1Eax = structuredFeaturesSubleaf1[0];
+		bool isHypervisor = basicEcx & (1u << 31);
+		bool vmxAvailable = false;
+		if(isIntel && (basicEcx & (1u << 5))) {
+			auto featureControl = common::x86::rdmsr(common::x86::kMsrFeatureControl);
+			// An unlocked IA32_FEATURE_CONTROL will be enabled by vmxon(),
+			// while a locked MSR must explicitly allow VMX outside SMX.
+			vmxAvailable = !(featureControl & 1)
+					|| (featureControl & (uint64_t(1) << 2));
+		}
+		bool svmAvailable = false;
+		if(isAmd && (extendedEcx & (1u << 2))) {
+			auto vmCr = common::x86::rdmsr(common::x86::kMsrIndexVmCr);
+			svmAvailable = !(vmCr & (uint64_t(1) << 4));
+		}
+
+		// Keep this list in the same spelling used by Linux's x86
+		// /proc/cpuinfo. It includes architectural capabilities and the
+		// synthetic capabilities that Thor actually enables or can use.
+		addFlag(basicEdx & (1u << 0), "fpu");
+		addFlag(basicEdx & (1u << 1), "vme");
+		addFlag(basicEdx & (1u << 2), "de");
+		addFlag(basicEdx & (1u << 3), "pse");
+		addFlag(basicEdx & (1u << 4), "tsc");
+		addFlag(basicEdx & (1u << 5), "msr");
+		addFlag(basicEdx & (1u << 6), "pae");
+		addFlag(basicEdx & (1u << 7), "mce");
+		addFlag(basicEdx & (1u << 8), "cx8");
+		addFlag(basicEdx & (1u << 9), "apic");
+		addFlag(basicEdx & (1u << 11), "sep");
+		addFlag(basicEdx & (1u << 12), "mtrr");
+		addFlag(basicEdx & (1u << 13), "pge");
+		addFlag(basicEdx & (1u << 14), "mca");
+		addFlag(basicEdx & (1u << 15), "cmov");
+		addFlag(basicEdx & (1u << 16), "pat");
+		addFlag(basicEdx & (1u << 17), "pse36");
+		addFlag(basicEdx & (1u << 19), "clflush");
+		addFlag(basicEdx & (1u << 21), "dts");
+		addFlag(basicEdx & (1u << 22), "acpi");
+		addFlag(basicEdx & (1u << 23), "mmx");
+		addFlag(basicEdx & (1u << 24), "fxsr");
+		addFlag(basicEdx & (1u << 25), "sse");
+		addFlag(basicEdx & (1u << 26), "sse2");
+		addFlag(basicEdx & (1u << 27), "ss");
+		addFlag(basicEdx & (1u << 28), "ht");
+		addFlag(basicEdx & (1u << 29), "tm");
+		addFlag(basicEdx & (1u << 31), "pbe");
+
+		addFlag(extendedEdx & (1u << 11), "syscall");
+		addFlag(extendedEdx & (1u << 20), "nx");
+		addFlag(extendedEdx & (1u << 22), "mmxext");
+		addFlag(extendedEdx & (1u << 25), "fxsr_opt");
+		addFlag(extendedEdx & (1u << 26), "pdpe1gb");
+		addFlag(extendedEdx & (1u << 27), "rdtscp");
+		addFlag(extendedEdx & (1u << 29), "lm");
+		addFlag(extendedEdx & (1u << 30), "3dnowext");
+		addFlag(extendedEdx & (1u << 31), "3dnow");
+
+		addFlag(basicEcx & (1u << 0), "pni");
+		addFlag(basicEcx & (1u << 1), "pclmulqdq");
+		addFlag(basicEcx & (1u << 2), "dtes64");
+		addFlag(basicEcx & (1u << 3), "monitor");
+		addFlag(basicEcx & (1u << 4), "ds_cpl");
+		// Linux reports these as finalized CPU capabilities. Their CR4/EFER
+		// enablement is performed separately and does not change /proc flags.
+		addFlag(vmxAvailable, "vmx");
+		addFlag(basicEcx & (1u << 6), "smx");
+		addFlag(basicEcx & (1u << 7), "est");
+		addFlag(basicEcx & (1u << 8), "tm2");
+		addFlag(basicEcx & (1u << 9), "ssse3");
+		addFlag(basicEcx & (1u << 10), "cid");
+		addFlag(basicEcx & (1u << 11), "sdbg");
+		addFlag(basicEcx & (1u << 12), "fma");
+		addFlag(basicEcx & (1u << 13), "cx16");
+		addFlag(basicEcx & (1u << 14), "xtpr");
+		addFlag(basicEcx & (1u << 15), "pdcm");
+		addFlag(basicEcx & (1u << 17), "pcid");
+		addFlag(basicEcx & (1u << 18), "dca");
+		addFlag(basicEcx & (1u << 19), "sse4_1");
+		addFlag(basicEcx & (1u << 20), "sse4_2");
+		addFlag(basicEcx & (1u << 21), "x2apic");
+		addFlag(basicEcx & (1u << 22), "movbe");
+		addFlag(basicEcx & (1u << 23), "popcnt");
+		addFlag(basicEcx & (1u << 24), "tsc_deadline_timer");
+		addFlag(basicEcx & (1u << 25), "aes");
+		addFlag(basicEcx & (1u << 26), "xsave");
+		addFlag(basicEcx & (1u << 28), "avx");
+		addFlag(basicEcx & (1u << 29), "f16c");
+		addFlag(basicEcx & (1u << 30), "rdrand");
+		addFlag(basicEcx & (1u << 31), "hypervisor");
+
+		addFlag(extendedEcx & (1u << 0), "lahf_lm");
+		addFlag(extendedEcx & (1u << 5), "abm");
+		addFlag(extendedEcx & (1u << 6), "sse4a");
+		addFlag(extendedEcx & (1u << 8), "3dnowprefetch");
+		addFlag(extendedEcx & (1u << 11), "xop");
+		addFlag(extendedEcx & (1u << 16), "fma4");
+		addFlag(extendedEcx & (1u << 21), "tbm");
+		addFlag(extendedEcx & (1u << 22), "topoext");
+
+		addFlag(extendedLevel >= 0x8000'0007 && (extendedFeatures7[3] & (1u << 8)), "constant_tsc");
+		addFlag(extendedLevel >= 0x8000'0007 && (extendedFeatures7[3] & (1u << 8)), "nonstop_tsc");
+		addFlag(true, "cpuid");
+		addFlag(svmAvailable, "svm");
+		addFlag(vendor[0] >= 0xB && common::x86::cpuid(0xB)[1], "xtopology");
+		// These are Linux-defined flags whose state depends on CPUID and/or
+		// model-specific registers rather than a single architectural bit.
+		addFlag(isIntel && vendor[0] >= 0x0A && (perfmonFeatures[0] & 0xFF)
+				&& (((perfmonFeatures[0] >> 8) & 0xFF) > 1), "arch_perfmon");
+		addFlag(isIntel && (basicEdx & (1u << 21))
+				&& !(miscEnable & (uint64_t(1) << 12)), "pebs");
+		addFlag(isIntel && (globalCpuFeatures.family > 6
+				|| (globalCpuFeatures.family == 6 && globalCpuFeatures.model >= 0xD))
+				&& (miscEnable & (uint64_t(1) << 0)), "rep_good");
+		addFlag(isIntel && (basicEdx & (1u << 21))
+				&& !(miscEnable & (uint64_t(1) << 11)), "bts");
+		// NOPL is unconditionally enabled by Linux on x86-64. Thor is an
+		// x86-64 kernel as well, so this is an OS capability, not a CPUID bit.
+		addFlag(true, "nopl");
+		addFlag(isIntel && !isHypervisor
+				&& extendedLevel >= 0x8000'0007
+				&& (extendedFeatures7[3] & (1u << 8))
+				&& (structuredEbx & (1u << 1))
+				&& artFeatures[0] >= 1, "art");
+		// cpuid_fault requires a safe probe of the optional
+		// MSR_PLATFORM_INFO bit, which Thor does not currently provide.
+		// pti is Linux's software KPTI capability and is not a CPUID feature.
+		addFlag(vendor[0] >= 0xD && (basicEcx & (1u << 26))
+				&& (common::x86::cpuid(0xD, 1)[0] & (1u << 0)), "xsaveopt");
+		addFlag(vendor[0] >= 0xD && (basicEcx & (1u << 26))
+				&& (common::x86::cpuid(0xD, 1)[0] & (1u << 1)), "xsavec");
+		addFlag(vendor[0] >= 0xD && (basicEcx & (1u << 26))
+				&& (common::x86::cpuid(0xD, 1)[0] & (1u << 2)), "xgetbv1");
+		addFlag(vendor[0] >= 0xD && (basicEcx & (1u << 26))
+				&& (common::x86::cpuid(0xD, 1)[0] & (1u << 3)), "xsaves");
+
+		addFlag(structuredEbx & (1u << 0), "fsgsbase");
+		addFlag(structuredEbx & (1u << 1), "tsc_adjust");
+		addFlag(structuredEbx & (1u << 2), "sgx");
+		addFlag(structuredEbx & (1u << 3), "bmi1");
+		addFlag(structuredEbx & (1u << 4), "hle");
+		addFlag(structuredEbx & (1u << 5), "avx2");
+		addFlag(structuredEbx & (1u << 7), "smep");
+		addFlag(structuredEbx & (1u << 8), "bmi2");
+		addFlag(structuredEbx & (1u << 9), "erms");
+		addFlag(structuredEbx & (1u << 10), "invpcid");
+		addFlag(structuredEbx & (1u << 11), "rtm");
+		addFlag(structuredEbx & (1u << 14), "mpx");
+		addFlag(structuredEbx & (1u << 16), "avx512f");
+		addFlag(structuredEbx & (1u << 17), "avx512dq");
+		addFlag(structuredEbx & (1u << 18), "rdseed");
+		addFlag(structuredEbx & (1u << 19), "adx");
+		addFlag(structuredEbx & (1u << 20), "smap");
+		addFlag(structuredEbx & (1u << 21), "avx512ifma");
+		addFlag(structuredEbx & (1u << 23), "clflushopt");
+		addFlag(structuredEbx & (1u << 24), "clwb");
+		addFlag(structuredEbx & (1u << 25), "intel_pt");
+		addFlag(structuredEbx & (1u << 29), "sha_ni");
+		addFlag(structuredEbx & (1u << 30), "avx512bw");
+		addFlag(structuredEbx & (1u << 31), "avx512vl");
+
+		addFlag(structuredEcx & (1u << 1), "avx512_vbmi");
+		addFlag(structuredEcx & (1u << 2), "umip");
+		addFlag(structuredEcx & (1u << 3), "pku");
+		addFlag(structuredEcx & (1u << 4), "ospke");
+		addFlag(structuredEcx & (1u << 5), "waitpkg");
+		addFlag(structuredEcx & (1u << 6), "avx512_vbmi2");
+		addFlag(structuredEcx & (1u << 7), "shstk");
+		addFlag(structuredEcx & (1u << 8), "gfni");
+		addFlag(structuredEcx & (1u << 9), "vaes");
+		addFlag(structuredEcx & (1u << 10), "vpclmulqdq");
+		addFlag(structuredEcx & (1u << 11), "avx512_vnni");
+		addFlag(structuredEcx & (1u << 22), "rdpid");
+		addFlag(structuredEcx & (1u << 24), "bus_lock_detect");
+		addFlag(structuredEcx & (1u << 25), "cldemote");
+		addFlag(structuredEcx & (1u << 27), "movdiri");
+		addFlag(structuredEcx & (1u << 28), "movdir64b");
+
+		addFlag(structuredEdx & (1u << 4), "fsrm");
+		addFlag(structuredEdx & (1u << 10), "md_clear");
+		addFlag(structuredEdx & (1u << 14), "serialize");
+		addFlag(structuredEdx & (1u << 16), "tsxldtrk");
+		addFlag(structuredEdx & (1u << 20), "ibt");
+		addFlag(structuredEdx & (1u << 22), "amx_bf16");
+		addFlag(structuredEdx & (1u << 24), "amx_tile");
+		addFlag(structuredEdx & (1u << 25), "amx_int8");
+		addFlag(structuredEdx & (1u << 26), "ibrs");
+		addFlag(structuredEdx & (1u << 26), "ibpb");
+		addFlag(structuredEdx & (1u << 27), "stibp");
+		addFlag(structuredEdx & (1u << 28), "flush_l1d");
+		addFlag(structuredEdx & (1u << 29), "arch_capabilities");
+		addFlag(structuredEdx & (1u << 31), "ssbd");
+		addFlag(structuredSubleaf1Eax & (1u << 4), "avx_vnni");
+		addFlag(structuredSubleaf1Eax & (1u << 5), "avx512_bf16");
+
+		addFlag(thermalFeatures[0] & (1u << 0), "dtherm");
+		addFlag(thermalFeatures[0] & (1u << 1), "ida");
+		addFlag(thermalFeatures[0] & (1u << 2), "arat");
+		addFlag(thermalFeatures[0] & (1u << 4), "pln");
+		addFlag(thermalFeatures[0] & (1u << 6), "pts");
+		addFlag(thermalFeatures[0] & (1u << 7), "hwp");
+		addFlag(thermalFeatures[0] & (1u << 8), "hwp_notify");
+		addFlag(thermalFeatures[0] & (1u << 9), "hwp_act_window");
+		addFlag(thermalFeatures[0] & (1u << 10), "hwp_epp");
+		addFlag(thermalFeatures[2] & (1u << 0), "aperfmperf");
+		addFlag(thermalFeatures[2] & (1u << 3), "epb");
+
+		// Linux derives these names from Intel VMX capability MSRs. The high
+		// halves of the control MSRs enumerate controls that may be enabled.
+		if(vmxAvailable) {
+			auto vmxPinbasedCtls = common::x86::rdmsr(common::x86::kMsrVmxPinbasedCtls);
+			auto vmxProcbasedCtls = common::x86::rdmsr(common::x86::kMsrVmxProcbasedCtls);
+			auto vmxProcbasedCtls2 = common::x86::rdmsr(common::x86::kMsrVmxProcbasedCtls2);
+			auto vmxEptVpidCap = common::x86::rdmsr(common::x86::kMsrVmxEptVpidCap);
+			bool virtualTpr = vmxProcbasedCtls & (uint64_t(1) << (32 + 21));
+			bool virtApicAccesses = vmxProcbasedCtls2 & (uint64_t(1) << (32 + 0));
+			addFlag(vmxPinbasedCtls & (uint64_t(1) << (32 + 5)), "vnmi");
+			addFlag(virtualTpr, "tpr_shadow");
+			addFlag(virtualTpr && virtApicAccesses, "flexpriority");
+			addFlag(vmxProcbasedCtls2 & (uint64_t(1) << (32 + 1)), "ept");
+			addFlag(vmxEptVpidCap & (uint64_t(1) << 32), "vpid");
+			addFlag(vmxEptVpidCap & (uint64_t(1) << 21), "ept_ad");
+		}
+
+		// These are the Intel client parts derived from Skylake that share the
+		// relevant speculation errata. Keep this list deliberately explicit:
+		// model numbers are not a reliable indication of a vulnerability across
+		// vendors or CPU generations.
+		bool isIntelSkylakeClient = isIntel && globalCpuFeatures.family == 6
+				&& (globalCpuFeatures.model == 0x4E
+					|| globalCpuFeatures.model == 0x5E
+					|| globalCpuFeatures.model == 0x8E
+					|| globalCpuFeatures.model == 0x9E);
+		bool isIntelSrbdsModel = isIntelSkylakeClient
+				|| (isIntel && globalCpuFeatures.family == 6
+					&& (globalCpuFeatures.model == 0xA5
+						|| globalCpuFeatures.model == 0xA6));
+		bool isIntelCascadeLake = isIntel && globalCpuFeatures.family == 6
+				&& globalCpuFeatures.model == 0x55;
+		bool isIntelMmioModel = isIntelSrbdsModel
+				|| isIntelCascadeLake;
+		bool isIntelRetbleedModel = isIntelSkylakeClient;
+		bool isIntelGdsModel = isIntel && globalCpuFeatures.family == 6
+				&& (globalCpuFeatures.model == 0x55
+					|| globalCpuFeatures.model == 0x4E
+					|| globalCpuFeatures.model == 0x5E
+					|| globalCpuFeatures.model == 0x7E
+					|| globalCpuFeatures.model == 0x6A
+					|| globalCpuFeatures.model == 0x6C
+					|| globalCpuFeatures.model == 0x8C
+					|| globalCpuFeatures.model == 0x8D
+					|| globalCpuFeatures.model == 0x8E
+					|| globalCpuFeatures.model == 0x9E
+					|| globalCpuFeatures.model == 0xA5
+					|| globalCpuFeatures.model == 0xA6
+					|| globalCpuFeatures.model == 0xA7);
+		bool isAmdRetbleedFamily = isAmd && globalCpuFeatures.family == 0x17;
+		// RFDS affects only these Intel Atom-derived models. RFDS_NO can
+		// subsequently clear the vulnerability after a microcode update.
+		bool isIntelRfdsModel = isIntel && globalCpuFeatures.family == 6
+				&& (globalCpuFeatures.model == 0x5C
+					|| globalCpuFeatures.model == 0x5F
+					|| globalCpuFeatures.model == 0x7A
+					|| globalCpuFeatures.model == 0x86
+					|| globalCpuFeatures.model == 0x96
+					|| globalCpuFeatures.model == 0x97
+					|| globalCpuFeatures.model == 0x9A
+					|| globalCpuFeatures.model == 0x9C
+					|| globalCpuFeatures.model == 0xB7
+					|| globalCpuFeatures.model == 0xBA
+					|| globalCpuFeatures.model == 0xBE
+					|| globalCpuFeatures.model == 0xBF);
+
+		// CPUID does not provide a complete vulnerability database. Report the
+		// common architectural exposures that can be identified from CPUID,
+		// IA32_ARCH_CAPABILITIES, and the model tables above. As in Linux,
+		// host-only vulnerability classifications are not exposed to guests.
+		uint64_t archCapabilities = 0;
+		if(isIntel && (structuredEdx & (1u << 29)))
+			archCapabilities = common::x86::rdmsr(common::x86::kMsrArchCapabilities);
+		constexpr uint64_t kArchCapRdclNo = uint64_t(1) << 0;
+		constexpr uint64_t kArchCapIbrsAll = uint64_t(1) << 1;
+		constexpr uint64_t kArchCapSsbNo = uint64_t(1) << 4;
+		constexpr uint64_t kArchCapMdsNo = uint64_t(1) << 5;
+		constexpr uint64_t kArchCapPsChangeMcNo = uint64_t(1) << 6;
+		constexpr uint64_t kArchCapTaaNo = uint64_t(1) << 8;
+		constexpr uint64_t kArchCapFbsdpNo = uint64_t(1) << 14;
+		constexpr uint64_t kArchCapPsdpNo = uint64_t(1) << 15;
+		constexpr uint64_t kArchCapGdsNo = uint64_t(1) << 26;
+		constexpr uint64_t kArchCapRfdsNo = uint64_t(1) << 27;
+		constexpr uint64_t kArchCapItsNo = uint64_t(1) << 62;
+		addBug(isIntel && !(archCapabilities & kArchCapRdclNo), "cpu_meltdown");
+		addBug(isIntel || isAmd, "spectre_v1");
+		addBug(isIntel || isAmd, "spectre_v2");
+		addBug((isIntel || isAmd) && !(archCapabilities & kArchCapSsbNo),
+				"spec_store_bypass");
+		addBug(isIntel && !(archCapabilities & kArchCapRdclNo), "l1tf");
+		addBug(isIntel && !(archCapabilities & kArchCapMdsNo), "mds");
+		// Linux reports these vulnerabilities for guests as well. VMSCAPE is the
+		// exception: it is explicitly host-only because nested hypervisors are
+		// expected to isolate guests:
+		// https://www.kernel.org/doc/html/latest/admin-guide/hw-vuln/vmscape.html
+		// https://github.com/torvalds/linux/blob/a508cec6e5215a3fbc7e73ae86a5c5602187934d/arch/x86/kernel/cpu/common.c#L1559-L1562
+		addBug(isIntelSkylakeClient, "swapgs");
+		addBug(!(archCapabilities & kArchCapPsChangeMcNo), "itlb_multihit");
+		addBug(isIntelSrbdsModel, "srbds");
+		addBug(isIntelMmioModel
+				&& !(archCapabilities & kArchCapFbsdpNo)
+				&& !(archCapabilities & kArchCapPsdpNo), "mmio_stale_data");
+		addBug(isIntelRetbleedModel || isAmdRetbleedFamily,
+				"retbleed");
+		addBug(isIntelGdsModel && (basicEcx & (1u << 28))
+				&& !(archCapabilities & kArchCapGdsNo), "gds");
+		addBug(isIntelRfdsModel && !(archCapabilities & kArchCapRfdsNo), "rfds");
+		addBug(isIntel || isAmd, "spectre_v2_user");
+		addBug(((isIntelSkylakeClient && !(archCapabilities & kArchCapIbrsAll))
+				|| (isIntelCascadeLake && !(archCapabilities & kArchCapItsNo))
+				|| (isAmd && globalCpuFeatures.family >= 0x17
+					&& globalCpuFeatures.family <= 0x1A)) && !isHypervisor, "vmscape");
+		addBug(isIntel && (structuredEbx & ((1u << 4) | (1u << 11)))
+				&& !(archCapabilities & kArchCapTaaNo), "taa");
+		if(isIntel) {
+			common::x86::wrmsr(common::x86::kMsrPatchLevel, 0);
+			common::x86::cpuid(common::x86::kCpuIndexFeatures);
+			globalCpuFeatures.microcodeRevision =
+					common::x86::rdmsr(common::x86::kMsrPatchLevel) >> 32;
+		}else if(isAmd) {
+			globalCpuFeatures.microcodeRevision =
+					common::x86::rdmsr(common::x86::kMsrPatchLevel);
+		}
+
 		if(common::x86::cpuid(common::x86::kCpuIndexStructuredExtendedFeaturesEnum,1)[0] & common::x86::kCpuFred) {
 			debugLogger() << "thor: CPUs support FRED" << frg::endlog;
 			globalCpuFeatures.haveFred = true;
@@ -442,6 +924,11 @@ static initgraph::Task enumerateCpuFeaturesTask{&globalInitEngine, "x86.enumerat
 		bool vmxSupported = [] () -> bool {
 			// Test for VMX.
 			if(!(common::x86::cpuid(0x1)[2] & (1 << 5)))
+				return false;
+			// Match Linux: a locked IA32_FEATURE_CONTROL MSR must allow
+			// VMX outside SMX. An unlocked MSR can be enabled by vmxon().
+			auto featureControl = common::x86::rdmsr(common::x86::kMsrFeatureControl);
+			if((featureControl & 1) && !(featureControl & (uint64_t(1) << 2)))
 				return false;
 			// Test for secondary processor-based controls.
 			auto procBased = common::x86::rdmsr(0x482);
