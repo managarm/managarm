@@ -1,19 +1,30 @@
-use anyhow::Result;
+use anyhow::{Result, bail};
+
+mod acpi;
+mod pci;
 
 fn main() -> Result<()> {
     hel::block_on(async {
-        println!("sif: Hello, world!");
-
         let cmdline = managarm::kerncfg::get_cmdline().await?;
-        println!("sif: kernel command line is {cmdline:?}");
-
-        let enabled = cmdline.split_ascii_whitespace().any(|opt| opt == "sif");
-        if enabled {
-            println!("sif: enabled on the kernel command line");
-        } else {
+        if !cmdline.split_ascii_whitespace().any(|opt| opt == "sif") {
             println!("sif: disabled on the kernel command line");
+            return Ok(());
         }
+        println!("sif: enabled");
 
-        Ok(())
+        let rsdp = managarm::kerncfg::get_acpi_rsdp().await?;
+        if rsdp == 0 {
+            bail!("sif: kernel reported no ACPI RSDP");
+        }
+        acpi::set_rsdp(rsdp);
+        acpi::uacpi_init()?;
+
+        println!("sif: uACPI initialized");
+
+        pci::publish_devices().await?;
+
+        println!("sif: published PCI devices");
+
+        std::future::pending::<Result<()>>().await
     })?
 }

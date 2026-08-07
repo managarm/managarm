@@ -6,4 +6,8 @@ edition = "2024"
 [dependencies]
 anyhow = "1.0"
 hel.workspace = true
+hel-sys.workspace = true
+lock_api = "0.4"
 managarm.workspace = true
+parking_lot = "0.12"
+uacpi-sys.workspace = true
