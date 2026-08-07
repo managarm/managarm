@@ -176,9 +176,14 @@ void RxQueue::handleRxOk() {
 
 		auto size = _flags & flags::rx::frame_length;
 
-		if(size == 0) {
+		if(size < 4) {
 			break;
 		}
+
+		// The NIC always includes the FCS in the resulting buffer, while netserver expacts
+		// the frames to not include it. If a maximal length frame arrives, we'd overflow
+		// the receive buffer by 4 bytes.
+		size -= 4;
 
 		memcpy(req->frame.data(), _descriptor_buffers[i].data(), size);
 		req->frame = req->frame.subview(0, size);
