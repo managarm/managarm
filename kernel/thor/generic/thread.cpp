@@ -783,7 +783,7 @@ void Thread::AssociatedWorkQueue::wakeup() {
 	}
 }
 
-void Thread::updateLoad() {
+void Thread::updateLoad(bool applyDecay, uint64_t decayFactor, int decayScale) {
 	auto irqLock = frg::guard(&irqMutex());
 	auto lock = frg::guard(&_mutex);
 
@@ -794,17 +794,14 @@ void Thread::updateLoad() {
 	if (_loadRunnable)
 		factor = (_loadRunnable << loadShift) / (_loadRunnable + _loadNotRunnable);
 	_loadLevel.store(factor, std::memory_order_relaxed);
-}
-
-void Thread::decayLoad(uint64_t decayFactor, int decayScale) {
-	auto irqLock = frg::guard(&irqMutex());
-	auto lock = frg::guard(&_mutex);
 
 	// Apply a decay factor. Since this affects both numerator and denominator of the load level,
 	// the load level is not immediately affected by this decay.
-	auto decayTime = [&] (uint64_t t) -> uint64_t { return (t * decayFactor) >> decayScale; };
-	_loadRunnable = decayTime(_loadRunnable);
-	_loadNotRunnable = decayTime(_loadNotRunnable);
+	if(applyDecay) {
+		auto decayTime = [&] (uint64_t t) -> uint64_t { return (t * decayFactor) >> decayScale; };
+		_loadRunnable = decayTime(_loadRunnable);
+		_loadNotRunnable = decayTime(_loadNotRunnable);
+	}
 }
 
 } // namespace thor

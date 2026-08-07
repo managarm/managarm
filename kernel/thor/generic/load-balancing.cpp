@@ -108,9 +108,7 @@ coroutine<void> LoadBalancer::run_(CpuData *cpu) {
 					continue;
 				}
 
-				thread->updateLoad();
-				if (applyDecay)
-					thread->decayLoad(lbDecay, 8);
+				thread->updateLoad(applyDecay, lbDecay, 8);
 				cb->load_ = thread->loadLevel();
 				load += cb->load_;
 			}
