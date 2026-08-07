@@ -1,18 +1,24 @@
 use std::collections::HashMap;
 use std::ffi::c_void;
+use std::sync::OnceLock;
 
 use hel::{IrqPolarity, IrqTrigger};
 
 use uacpi_sys::{uacpi_iteration_decision, uacpi_namespace_node, uacpi_u32, uacpi_u64};
 
+use super::discover::add_root_bus;
+use super::{IrqIndex, PciBus, config};
+
 #[derive(Clone, Copy)]
-pub struct RootBus {
-    pub seg: u16,
-    pub bus: u8,
+struct RootBus {
+    seg: u16,
+    bus: u8,
     node: *mut uacpi_namespace_node,
 }
 
-pub type Routes = HashMap<(u16, u8, u8), u32>;
+type Routes = HashMap<(u16, u8, u8), u32>;
+
+static ROUTES: OnceLock<Routes> = OnceLock::new();
 
 unsafe extern "C" fn root_bus_callback(
     user: *mut c_void,
@@ -34,7 +40,7 @@ unsafe extern "C" fn root_bus_callback(
     uacpi_sys::UACPI_ITERATION_DECISION_NEXT_PEER
 }
 
-pub fn find_root_buses() -> Vec<RootBus> {
+fn find_root_buses() -> Vec<RootBus> {
     let mut roots: Vec<RootBus> = Vec::new();
     let user = &mut roots as *mut _ as *mut c_void;
     unsafe {
@@ -115,7 +121,7 @@ fn polarity_of(polarity: u8) -> IrqPolarity {
     }
 }
 
-pub fn build_routes(roots: &[RootBus]) -> Routes {
+fn build_routes(roots: &[RootBus]) -> Routes {
     let mut routes = Routes::new();
     for root in roots {
         if root.node.is_null() {
@@ -152,4 +158,36 @@ pub fn build_routes(roots: &[RootBus]) -> Routes {
         unsafe { uacpi_sys::uacpi_free_pci_routing_table(table) };
     }
     routes
+}
+
+pub fn resolve_irq(seg: u16, slot: u8, index: IrqIndex) -> Option<u32> {
+    ROUTES.get()?.get(&(seg, slot, index as u8 - 1)).copied()
+}
+
+pub fn discover_root_buses() {
+    let roots = find_root_buses();
+
+    let routes = build_routes(&roots);
+    println!("sif: Resolved {} PCI interrupt routes", routes.len());
+    ROUTES
+        .set(routes)
+        .expect("sif: PCI interrupt routes were already resolved");
+
+    for root in roots {
+        let Some(io) = config::get_config_io_for(root.seg, root.bus) else {
+            println!(
+                "sif: No config space for PCI host bridge {:04x}:{:02x}",
+                root.seg, root.bus
+            );
+            continue;
+        };
+
+        println!(
+            "sif: Found PCI host bridge {:04x}:{:02x}",
+            root.seg, root.bus
+        );
+
+        let root_bus = PciBus::new(io, root.seg, root.bus);
+        add_root_bus(root_bus);
+    }
 }

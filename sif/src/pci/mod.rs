@@ -1,5 +1,6 @@
 pub mod acpi;
 pub mod config;
+pub mod discover;
 
 use std::collections::HashMap;
 use std::future::Future;
@@ -10,6 +11,50 @@ use anyhow::Result;
 use managarm::hw::pci::IoType;
 use managarm::hw::server::{BarDescriptor, CapDescriptor, PciDevice, serve_pci_device};
 use managarm::mbus::{EntityManager, Item, Properties, create_entity};
+
+use config::PciConfigIo;
+
+pub(crate) fn leak<T>(value: T) -> &'static T {
+    Box::leak(Box::new(value))
+}
+
+// The PCI tree is only locked for the duration of a single operation, none of which can panic.
+pub(crate) const EXPECT_LOCK: &str = "sif: PCI tree mutex was poisoned";
+
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum IrqIndex {
+    Null = 0,
+    IntA = 1,
+    IntB = 2,
+    IntC = 3,
+    IntD = 4,
+}
+
+impl IrqIndex {
+    pub fn from_pin(pin: u8) -> IrqIndex {
+        match pin {
+            1 => IrqIndex::IntA,
+            2 => IrqIndex::IntB,
+            3 => IrqIndex::IntC,
+            4 => IrqIndex::IntD,
+            _ => IrqIndex::Null,
+        }
+    }
+}
+
+pub struct PciBus {
+    #[allow(dead_code)]
+    pub io: &'static dyn PciConfigIo,
+
+    pub seg_id: u16,
+    pub bus_id: u8,
+}
+
+impl PciBus {
+    pub fn new(io: &'static dyn PciConfigIo, seg_id: u16, bus_id: u8) -> &'static PciBus {
+        leak(PciBus { io, seg_id, bus_id })
+    }
+}
 
 #[derive(Clone, Copy)]
 struct Address {
@@ -476,7 +521,6 @@ fn scan_bus<'a>(
     seg: u16,
     bus: u8,
     parent_id: i64,
-    routes: &'a acpi::Routes,
     out: &'a mut Vec<Publication>,
 ) -> Pin<Box<dyn Future<Output = Result<()>> + 'a>> {
     Box::pin(async move {
@@ -510,7 +554,7 @@ fn scan_bus<'a>(
                 } else {
                     "pci-device"
                 };
-                let irq = resolve_irq(addr, routes);
+                let irq = resolve_irq(addr);
                 println!(
                     "sif: pci: {seg:04x}:{bus:02x}:{slot:02x}.{func} {name} vendor: {:04x} device: {:04x} irq: {:?}",
                     addr.vendor_id(),
@@ -532,7 +576,7 @@ fn scan_bus<'a>(
                 if is_bridge {
                     let secondary = addr.secondary_bus();
                     if secondary > bus {
-                        scan_bus(seg, secondary, id, routes, out).await?;
+                        scan_bus(seg, secondary, id, out).await?;
                     }
                 }
             }
@@ -541,24 +585,22 @@ fn scan_bus<'a>(
     })
 }
 
-fn resolve_irq(addr: Address, routes: &acpi::Routes) -> Option<u32> {
-    let pin = addr.interrupt_pin();
-    if pin == 0 || pin > 4 {
+fn resolve_irq(addr: Address) -> Option<u32> {
+    let index = IrqIndex::from_pin(addr.interrupt_pin());
+    if index == IrqIndex::Null {
         return None;
     }
-    routes.get(&(addr.seg, addr.slot, pin - 1)).copied()
+    acpi::resolve_irq(addr.seg, addr.slot, index)
 }
 
 pub async fn publish_devices() -> Result<()> {
-    let roots = acpi::find_root_buses();
-    let routes = acpi::build_routes(&roots);
-    println!("sif: Resolved {} PCI interrupt routes", routes.len());
+    acpi::discover_root_buses();
 
     let mut entities: Vec<Publication> = Vec::new();
 
-    for root in &roots {
-        let seg = root.seg;
-        let bus = root.bus;
+    for root_bus in discover::all_root_buses() {
+        let seg = root_bus.seg_id;
+        let bus = root_bus.bus_id;
 
         let mut props: Properties = HashMap::new();
         props.insert("unix.subsystem".into(), string("pci"));
@@ -571,7 +613,7 @@ pub async fn publish_devices() -> Result<()> {
         let root_id = manager.id();
         entities.push((manager, None));
 
-        scan_bus(seg, bus, root_id, &routes, &mut entities).await?;
+        scan_bus(seg, bus, root_id, &mut entities).await?;
     }
 
     println!("sif: Enumerated {} PCI objects", entities.len());
