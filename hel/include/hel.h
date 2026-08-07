@@ -100,7 +100,6 @@ enum {
 
 	kHelCallAccessIo = 11,
 	kHelCallEnableIo = 12,
-	kHelCallEnableFullIo = 35,
 
 	kHelCallBindKernlet = 93,
 
@@ -1509,8 +1508,6 @@ HEL_C_LINKAGE HelError helAccessIo(uintptr_t *port_array, size_t num_ports,
 //! @param[in] handle
 //!     Handle to the hardware I/O resource.
 HEL_C_LINKAGE HelError helEnableIo(HelHandle handle);
-
-HEL_C_LINKAGE HelError helEnableFullIo();
 
 //! @}
 //! @name Kernlet Management

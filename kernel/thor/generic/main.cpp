@@ -836,9 +836,6 @@ void handleSyscall(SyscallImageAccessor image) {
 	case kHelCallEnableIo: {
 		*image.error() = helEnableIo((HelHandle)arg0);
 	} break;
-	case kHelCallEnableFullIo: {
-		*image.error() = helEnableFullIo();
-	} break;
 
 	case kHelCallBindKernlet: {
 		HelHandle bound_handle;
