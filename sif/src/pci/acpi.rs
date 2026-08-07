@@ -187,7 +187,7 @@ pub fn discover_root_buses() {
             root.seg, root.bus
         );
 
-        let root_bus = PciBus::new(io, root.seg, root.bus);
+        let root_bus = PciBus::new(None, io, root.seg, root.bus);
         add_root_bus(root_bus);
     }
 }

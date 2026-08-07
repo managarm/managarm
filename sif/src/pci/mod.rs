@@ -6,10 +6,12 @@ use std::collections::HashMap;
 use std::future::Future;
 use std::pin::Pin;
 use std::rc::Rc;
+use std::sync::atomic::AtomicU8;
+use std::sync::{Mutex, OnceLock};
 
 use anyhow::Result;
 use managarm::hw::pci::IoType;
-use managarm::hw::server::{BarDescriptor, CapDescriptor, PciDevice, serve_pci_device};
+use managarm::hw::server::{BarDescriptor, CapDescriptor, serve_pci_device};
 use managarm::mbus::{EntityManager, Item, Properties, create_entity};
 
 use config::PciConfigIo;
@@ -44,17 +46,310 @@ impl IrqIndex {
 
 pub struct PciBus {
     #[allow(dead_code)]
+    pub associated_bridge: Option<&'static PciBridge>,
     pub io: &'static dyn PciConfigIo,
+    pub child_devices: Mutex<Vec<&'static PciDevice>>,
+    pub child_bridges: Mutex<Vec<&'static PciBridge>>,
 
     pub seg_id: u16,
     pub bus_id: u8,
 }
 
+#[allow(dead_code)]
 impl PciBus {
-    pub fn new(io: &'static dyn PciConfigIo, seg_id: u16, bus_id: u8) -> &'static PciBus {
-        leak(PciBus { io, seg_id, bus_id })
+    pub fn new(
+        associated_bridge: Option<&'static PciBridge>,
+        io: &'static dyn PciConfigIo,
+        seg_id: u16,
+        bus_id: u8,
+    ) -> &'static PciBus {
+        leak(PciBus {
+            associated_bridge,
+            io,
+            child_devices: Mutex::new(Vec::new()),
+            child_bridges: Mutex::new(Vec::new()),
+            seg_id,
+            bus_id,
+        })
+    }
+
+    pub fn make_downstream_bus(
+        &'static self,
+        bridge: &'static PciBridge,
+        downstream_id: u8,
+    ) -> &'static PciBus {
+        PciBus::new(Some(bridge), self.io, self.seg_id, downstream_id)
+    }
+
+    /// # Safety
+    ///
+    /// See [`config::PciConfigIo`].
+    pub unsafe fn read_config_byte(&self, slot: u8, function: u8, offset: u16) -> u8 {
+        unsafe {
+            self.io
+                .read_config_byte(self.seg_id, self.bus_id, slot, function, offset)
+        }
+        .expect(EXPECT_ACCESS)
+    }
+
+    /// # Safety
+    ///
+    /// See [`config::PciConfigIo`].
+    pub unsafe fn read_config_half(&self, slot: u8, function: u8, offset: u16) -> u16 {
+        unsafe {
+            self.io
+                .read_config_half(self.seg_id, self.bus_id, slot, function, offset)
+        }
+        .expect(EXPECT_ACCESS)
+    }
+
+    /// # Safety
+    ///
+    /// See [`config::PciConfigIo`].
+    pub unsafe fn read_config_word(&self, slot: u8, function: u8, offset: u16) -> u32 {
+        unsafe {
+            self.io
+                .read_config_word(self.seg_id, self.bus_id, slot, function, offset)
+        }
+        .expect(EXPECT_ACCESS)
+    }
+
+    /// # Safety
+    ///
+    /// See [`config::PciConfigIo`].
+    pub unsafe fn write_config_byte(&self, slot: u8, function: u8, offset: u16, value: u8) {
+        unsafe {
+            self.io
+                .write_config_byte(self.seg_id, self.bus_id, slot, function, offset, value)
+        }
+        .expect(EXPECT_ACCESS)
+    }
+
+    /// # Safety
+    ///
+    /// See [`config::PciConfigIo`].
+    pub unsafe fn write_config_half(&self, slot: u8, function: u8, offset: u16, value: u16) {
+        unsafe {
+            self.io
+                .write_config_half(self.seg_id, self.bus_id, slot, function, offset, value)
+        }
+        .expect(EXPECT_ACCESS)
+    }
+
+    /// # Safety
+    ///
+    /// See [`config::PciConfigIo`].
+    pub unsafe fn write_config_word(&self, slot: u8, function: u8, offset: u16, value: u32) {
+        unsafe {
+            self.io
+                .write_config_word(self.seg_id, self.bus_id, slot, function, offset, value)
+        }
+        .expect(EXPECT_ACCESS)
     }
 }
+
+// Accessors for registers whose side effects are known, hence they are safe.
+impl PciBus {
+    pub fn vendor(&self, slot: u8, function: u8) -> u16 {
+        unsafe { self.read_config_half(slot, function, PCI_VENDOR) }
+    }
+
+    pub fn device_id(&self, slot: u8, function: u8) -> u16 {
+        unsafe { self.read_config_half(slot, function, PCI_DEVICE) }
+    }
+
+    pub fn status(&self, slot: u8, function: u8) -> u16 {
+        unsafe { self.read_config_half(slot, function, PCI_STATUS) }
+    }
+
+    pub fn revision(&self, slot: u8, function: u8) -> u8 {
+        unsafe { self.read_config_byte(slot, function, PCI_REVISION) }
+    }
+
+    pub fn interface(&self, slot: u8, function: u8) -> u8 {
+        unsafe { self.read_config_byte(slot, function, PCI_INTERFACE) }
+    }
+
+    pub fn sub_class(&self, slot: u8, function: u8) -> u8 {
+        unsafe { self.read_config_byte(slot, function, PCI_SUB_CLASS) }
+    }
+
+    pub fn class_code(&self, slot: u8, function: u8) -> u8 {
+        unsafe { self.read_config_byte(slot, function, PCI_CLASS_CODE) }
+    }
+
+    pub fn header_type(&self, slot: u8, function: u8) -> u8 {
+        unsafe { self.read_config_byte(slot, function, PCI_HEADER_TYPE) }
+    }
+}
+
+// Accessors for registers whose existence depends on the header type, hence they are unsafe.
+impl PciBus {
+    /// # Safety
+    ///
+    /// The function must have a PCI-to-PCI bridge header.
+    pub unsafe fn secondary_bus(&self, slot: u8, function: u8) -> u8 {
+        unsafe { self.read_config_byte(slot, function, PCI_BRIDGE_SECONDARY) }
+    }
+
+    /// # Safety
+    ///
+    /// The function must have a PCI-to-PCI bridge header.
+    pub unsafe fn subordinate_bus(&self, slot: u8, function: u8) -> u8 {
+        unsafe { self.read_config_byte(slot, function, PCI_BRIDGE_SUBORDINATE) }
+    }
+
+    /// # Safety
+    ///
+    /// The function must have a regular header.
+    pub unsafe fn subsystem_vendor(&self, slot: u8, function: u8) -> u16 {
+        unsafe { self.read_config_half(slot, function, PCI_REGULAR_SUBSYSTEM_VENDOR) }
+    }
+
+    /// # Safety
+    ///
+    /// The function must have a regular header.
+    pub unsafe fn subsystem_device(&self, slot: u8, function: u8) -> u16 {
+        unsafe { self.read_config_half(slot, function, PCI_REGULAR_SUBSYSTEM_DEVICE) }
+    }
+}
+
+// Common part of devices and bridges.
+#[allow(dead_code)]
+pub struct PciEntity {
+    pub parent_bus: &'static PciBus,
+
+    // Location of the entity on the PCI bus.
+    pub seg: u16,
+    pub bus: u8,
+    pub slot: u8,
+    pub function: u8,
+
+    // vendor-specific device information
+    pub vendor: u16,
+    pub device_id: u16,
+    pub revision: u8,
+
+    // generic device information
+    pub class_code: u8,
+    pub sub_class: u8,
+    pub interface: u8,
+}
+
+impl PciEntity {
+    #[allow(clippy::too_many_arguments)]
+    fn new(
+        parent_bus: &'static PciBus,
+        slot: u8,
+        function: u8,
+        vendor: u16,
+        device_id: u16,
+        revision: u8,
+        class_code: u8,
+        sub_class: u8,
+        interface: u8,
+    ) -> PciEntity {
+        PciEntity {
+            parent_bus,
+            seg: parent_bus.seg_id,
+            bus: parent_bus.bus_id,
+            slot,
+            function,
+            vendor,
+            device_id,
+            revision,
+            class_code,
+            sub_class,
+            interface,
+        }
+    }
+}
+
+#[allow(dead_code)]
+pub struct PciBridge {
+    pub entity: PciEntity,
+
+    pub associated_bus: OnceLock<&'static PciBus>,
+    pub downstream_id: AtomicU8,
+    pub subordinate_id: AtomicU8,
+}
+
+impl PciBridge {
+    #[allow(clippy::too_many_arguments)]
+    pub fn new(
+        parent_bus: &'static PciBus,
+        slot: u8,
+        function: u8,
+        vendor: u16,
+        device_id: u16,
+        revision: u8,
+        class_code: u8,
+        sub_class: u8,
+        interface: u8,
+    ) -> &'static PciBridge {
+        leak(PciBridge {
+            entity: PciEntity::new(
+                parent_bus, slot, function, vendor, device_id, revision, class_code, sub_class,
+                interface,
+            ),
+            associated_bus: OnceLock::new(),
+            downstream_id: AtomicU8::new(0),
+            subordinate_id: AtomicU8::new(0),
+        })
+    }
+}
+
+#[allow(dead_code)]
+pub struct PciDevice {
+    pub entity: PciEntity,
+
+    pub subsystem_vendor: u16,
+    pub subsystem_device: u16,
+}
+
+impl PciDevice {
+    #[allow(clippy::too_many_arguments)]
+    pub fn new(
+        parent_bus: &'static PciBus,
+        slot: u8,
+        function: u8,
+        vendor: u16,
+        device_id: u16,
+        revision: u8,
+        class_code: u8,
+        sub_class: u8,
+        interface: u8,
+        subsystem_vendor: u16,
+        subsystem_device: u16,
+    ) -> &'static PciDevice {
+        leak(PciDevice {
+            entity: PciEntity::new(
+                parent_bus, slot, function, vendor, device_id, revision, class_code, sub_class,
+                interface,
+            ),
+            subsystem_vendor,
+            subsystem_device,
+        })
+    }
+}
+
+// general PCI header fields
+pub const PCI_VENDOR: u16 = 0;
+pub const PCI_DEVICE: u16 = 2;
+pub const PCI_STATUS: u16 = 6;
+pub const PCI_REVISION: u16 = 0x08;
+pub const PCI_INTERFACE: u16 = 0x09;
+pub const PCI_SUB_CLASS: u16 = 0x0A;
+pub const PCI_CLASS_CODE: u16 = 0x0B;
+pub const PCI_HEADER_TYPE: u16 = 0x0E;
+
+// usual device header fields
+pub const PCI_REGULAR_SUBSYSTEM_VENDOR: u16 = 0x2C;
+pub const PCI_REGULAR_SUBSYSTEM_DEVICE: u16 = 0x2E;
+
+// PCI-to-PCI bridge header fields
+pub const PCI_BRIDGE_SECONDARY: u16 = 0x19;
+pub const PCI_BRIDGE_SUBORDINATE: u16 = 0x1A;
 
 #[derive(Clone, Copy)]
 struct Address {
@@ -367,7 +662,7 @@ struct SifPciDevice {
     config_space_size: u32,
 }
 
-impl PciDevice for SifPciDevice {
+impl managarm::hw::server::PciDevice for SifPciDevice {
     fn bars(&self) -> [BarDescriptor; 6] {
         self.bars
     }
@@ -595,6 +890,7 @@ fn resolve_irq(addr: Address) -> Option<u32> {
 
 pub async fn publish_devices() -> Result<()> {
     acpi::discover_root_buses();
+    discover::enumerate_all();
 
     let mut entities: Vec<Publication> = Vec::new();
 
