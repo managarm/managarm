@@ -684,6 +684,14 @@ void handleSyscall(SyscallImageAccessor image) {
 		*image.error() = helCreateSpace(&handle);
 		*image.out0() = handle;
 	} break;
+	case kHelCallCreateDmaSpace: {
+		HelHandle handle;
+		*image.error() = helCreateDmaSpace((uint32_t)arg0, &handle);
+		*image.out0() = handle;
+	} break;
+	case kHelCallConfigureIrq: {
+		*image.error() = helConfigureIrq((int)arg0, (uint32_t)arg1, (uint32_t)arg2);
+	} break;
 	case kHelCallMapMemory: {
 		void *actual_pointer;
 		*image.error() = helMapMemory((HelHandle)arg0, (HelHandle)arg1,
