@@ -1,3 +1,5 @@
+pub mod config;
+
 use std::collections::HashMap;
 use std::ffi::c_void;
 use std::future::Future;
@@ -12,8 +14,6 @@ use managarm::mbus::{EntityManager, Item, Properties, create_entity};
 
 use uacpi_sys::{uacpi_iteration_decision, uacpi_namespace_node, uacpi_u32, uacpi_u64};
 
-use crate::acpi::{config_read, config_write};
-
 #[derive(Clone, Copy)]
 struct Address {
     seg: u16,
@@ -22,25 +22,194 @@ struct Address {
     func: u8,
 }
 
+// Every address that we hand out belongs to a device that we enumerated, hence accesses to it
+// only fail if the caller picks a bad register.
+const EXPECT_ACCESS: &str = "sif: configuration space access to an enumerated device failed";
+
 impl Address {
-    fn read(self, offset: u16, size: u8) -> u32 {
-        config_read(self.seg, self.bus, self.slot, self.func, offset, size)
+    /// Reads a register of `size` bytes.
+    ///
+    /// # Safety
+    ///
+    /// See [`config::PciConfigIo`].
+    unsafe fn read(self, offset: u16, size: u8) -> config::Result<u32> {
+        match size {
+            1 => Ok(u32::from(unsafe { self.try_read8(offset) }?)),
+            2 => Ok(u32::from(unsafe { self.try_read16(offset) }?)),
+            4 => unsafe { self.try_read32(offset) },
+            _ => Err(config::ConfigIoError::UnsupportedSize(size)),
+        }
     }
 
-    fn read8(self, offset: u16) -> u8 {
-        self.read(offset, 1) as u8
+    /// Writes a register of `size` bytes.
+    ///
+    /// # Safety
+    ///
+    /// See [`config::PciConfigIo`].
+    unsafe fn write(self, offset: u16, size: u8, value: u32) -> config::Result<()> {
+        match size {
+            1 => unsafe { self.try_write8(offset, value as u8) },
+            2 => unsafe { self.try_write16(offset, value as u16) },
+            4 => unsafe { self.try_write32(offset, value) },
+            _ => Err(config::ConfigIoError::UnsupportedSize(size)),
+        }
     }
 
-    fn read16(self, offset: u16) -> u16 {
-        self.read(offset, 2) as u16
+    /// # Safety
+    ///
+    /// See [`config::PciConfigIo`].
+    unsafe fn try_read8(self, offset: u16) -> config::Result<u8> {
+        unsafe { config::read_config_byte(self.seg, self.bus, self.slot, self.func, offset) }
     }
 
-    fn read32(self, offset: u16) -> u32 {
-        self.read(offset, 4)
+    /// # Safety
+    ///
+    /// See [`config::PciConfigIo`].
+    unsafe fn try_read16(self, offset: u16) -> config::Result<u16> {
+        unsafe { config::read_config_half(self.seg, self.bus, self.slot, self.func, offset) }
     }
 
-    fn write32(self, offset: u16, value: u32) {
-        config_write(self.seg, self.bus, self.slot, self.func, offset, 4, value);
+    /// # Safety
+    ///
+    /// See [`config::PciConfigIo`].
+    unsafe fn try_read32(self, offset: u16) -> config::Result<u32> {
+        unsafe { config::read_config_word(self.seg, self.bus, self.slot, self.func, offset) }
+    }
+
+    /// # Safety
+    ///
+    /// See [`config::PciConfigIo`].
+    unsafe fn read8(self, offset: u16) -> u8 {
+        unsafe { self.try_read8(offset) }.expect(EXPECT_ACCESS)
+    }
+
+    /// # Safety
+    ///
+    /// See [`config::PciConfigIo`].
+    unsafe fn read16(self, offset: u16) -> u16 {
+        unsafe { self.try_read16(offset) }.expect(EXPECT_ACCESS)
+    }
+
+    /// # Safety
+    ///
+    /// See [`config::PciConfigIo`].
+    unsafe fn read32(self, offset: u16) -> u32 {
+        unsafe { self.try_read32(offset) }.expect(EXPECT_ACCESS)
+    }
+
+    /// # Safety
+    ///
+    /// See [`config::PciConfigIo`].
+    unsafe fn try_write8(self, offset: u16, value: u8) -> config::Result<()> {
+        unsafe {
+            config::write_config_byte(self.seg, self.bus, self.slot, self.func, offset, value)
+        }
+    }
+
+    /// # Safety
+    ///
+    /// See [`config::PciConfigIo`].
+    unsafe fn try_write16(self, offset: u16, value: u16) -> config::Result<()> {
+        unsafe {
+            config::write_config_half(self.seg, self.bus, self.slot, self.func, offset, value)
+        }
+    }
+
+    /// # Safety
+    ///
+    /// See [`config::PciConfigIo`].
+    unsafe fn try_write32(self, offset: u16, value: u32) -> config::Result<()> {
+        unsafe {
+            config::write_config_word(self.seg, self.bus, self.slot, self.func, offset, value)
+        }
+    }
+
+    /// # Safety
+    ///
+    /// See [`config::PciConfigIo`].
+    unsafe fn write16(self, offset: u16, value: u16) {
+        unsafe { self.try_write16(offset, value) }.expect(EXPECT_ACCESS)
+    }
+
+    /// # Safety
+    ///
+    /// See [`config::PciConfigIo`].
+    unsafe fn write32(self, offset: u16, value: u32) {
+        unsafe { self.try_write32(offset, value) }.expect(EXPECT_ACCESS)
+    }
+}
+
+// Accessors for the registers of the type 0/1 configuration space header. Their side effects
+// are known, hence they are safe.
+impl Address {
+    fn vendor_id(self) -> u16 {
+        unsafe { self.read16(0x00) }
+    }
+
+    fn device_id(self) -> u16 {
+        unsafe { self.read16(0x02) }
+    }
+
+    fn command(self) -> u16 {
+        unsafe { self.read16(0x04) }
+    }
+
+    fn set_command(self, value: u16) {
+        unsafe { self.write16(0x04, value) };
+    }
+
+    fn status(self) -> u16 {
+        unsafe { self.read16(0x06) }
+    }
+
+    fn revision(self) -> u8 {
+        unsafe { self.read8(0x08) }
+    }
+
+    fn interface(self) -> u8 {
+        unsafe { self.read8(0x09) }
+    }
+
+    fn subclass(self) -> u8 {
+        unsafe { self.read8(0x0A) }
+    }
+
+    fn class_code(self) -> u8 {
+        unsafe { self.read8(0x0B) }
+    }
+
+    fn header_type(self) -> u8 {
+        unsafe { self.read8(0x0E) }
+    }
+
+    fn bar(self, index: usize) -> u32 {
+        assert!(index < 6);
+        unsafe { self.read32(0x10 + 4 * index as u16) }
+    }
+
+    fn set_bar(self, index: usize, value: u32) {
+        assert!(index < 6);
+        unsafe { self.write32(0x10 + 4 * index as u16, value) };
+    }
+
+    fn secondary_bus(self) -> u8 {
+        unsafe { self.read8(0x19) }
+    }
+
+    fn subsystem_vendor(self) -> u16 {
+        unsafe { self.read16(0x2C) }
+    }
+
+    fn subsystem_device(self) -> u16 {
+        unsafe { self.read16(0x2E) }
+    }
+
+    fn capabilities_pointer(self) -> u8 {
+        unsafe { self.read8(0x34) }
+    }
+
+    fn interrupt_pin(self) -> u8 {
+        unsafe { self.read8(0x3D) }
     }
 }
 
@@ -64,11 +233,10 @@ fn read_bars(addr: Address, count: usize) -> [BarDescriptor; 6] {
     let mut bars = [BarDescriptor::default(); 6];
     let mut i = 0;
     while i < count {
-        let offset = 0x10 + (i as u16) * 4;
-        let original = addr.read32(offset);
-        addr.write32(offset, 0xFFFFFFFF);
-        let mask = addr.read32(offset);
-        addr.write32(offset, original);
+        let original = addr.bar(i);
+        addr.set_bar(i, 0xFFFFFFFF);
+        let mask = addr.bar(i);
+        addr.set_bar(i, original);
 
         if mask == 0 {
             i += 1;
@@ -86,11 +254,15 @@ fn read_bars(addr: Address, count: usize) -> [BarDescriptor; 6] {
             };
             i += 1;
         } else if (original >> 1) & 3 == 2 {
-            let high_offset = offset + 4;
-            let high_original = addr.read32(high_offset);
-            addr.write32(high_offset, 0xFFFFFFFF);
-            let high_mask = addr.read32(high_offset);
-            addr.write32(high_offset, high_original);
+            // The upper half of a 64-bit BAR must not extend past the last BAR of the header.
+            if i + 1 >= count {
+                break;
+            }
+
+            let high_original = addr.bar(i + 1);
+            addr.set_bar(i + 1, 0xFFFFFFFF);
+            let high_mask = addr.bar(i + 1);
+            addr.set_bar(i + 1, high_original);
 
             let base = (((high_original as u64) << 32) | (original & 0xFFFFFFF0) as u64) as u64;
             let full_mask = ((high_mask as u64) << 32) | (mask & 0xFFFFFFF0) as u64;
@@ -119,17 +291,18 @@ fn read_bars(addr: Address, count: usize) -> [BarDescriptor; 6] {
 
 fn read_capabilities(addr: Address) -> Vec<CapDescriptor> {
     let mut caps = Vec::new();
-    if addr.read16(0x06) & 0x10 == 0 {
+    if addr.status() & 0x10 == 0 {
         return caps;
     }
 
-    let mut pointer = (addr.read8(0x34) & 0xFC) as u16;
+    let mut pointer = (addr.capabilities_pointer() & 0xFC) as u16;
     let mut seen = 0;
     while pointer != 0 && seen < 64 {
-        let type_ = addr.read8(pointer);
-        let next = addr.read8(pointer + 1) & 0xFC;
+        // Capability headers sit at device-defined offsets, but reading them has no side effects.
+        let type_ = unsafe { addr.read8(pointer) };
+        let next = unsafe { addr.read8(pointer + 1) } & 0xFC;
         let length = if type_ == 0x09 {
-            addr.read8(pointer + 2) as u64
+            u64::from(unsafe { addr.read8(pointer + 2) })
         } else {
             0
         };
@@ -149,6 +322,7 @@ struct SifPciDevice {
     irq: Option<u32>,
     bars: [BarDescriptor; 6],
     caps: Vec<CapDescriptor>,
+    config_space_size: u32,
 }
 
 impl PciDevice for SifPciDevice {
@@ -161,26 +335,19 @@ impl PciDevice for SifPciDevice {
     }
 
     fn config_read(&self, offset: u32, size: u32) -> Option<u32> {
-        if offset as usize + size as usize > 0x1000 {
+        if offset as usize + size as usize > self.config_space_size as usize {
             return None;
         }
-        Some(self.addr.read(offset as u16, size as u8))
+        // The protocol hands out raw config space access; the client is responsible for it.
+        unsafe { self.addr.read(offset as u16, size as u8) }.ok()
     }
 
     fn config_write(&self, offset: u32, size: u32, word: u32) -> bool {
-        if offset as usize + size as usize > 0x1000 {
+        if offset as usize + size as usize > self.config_space_size as usize {
             return false;
         }
-        config_write(
-            self.addr.seg,
-            self.addr.bus,
-            self.addr.slot,
-            self.addr.func,
-            offset as u16,
-            size as u8,
-            word,
-        );
-        true
+        // The protocol hands out raw config space access; the client is responsible for it.
+        unsafe { self.addr.write(offset as u16, size as u8, word) }.is_ok()
     }
 
     fn capability_read(&self, index: i32, offset: u32, size: u32) -> Option<u32> {
@@ -215,29 +382,11 @@ impl PciDevice for SifPciDevice {
     }
 
     fn enable_busmaster(&self) {
-        let command = self.addr.read16(0x04);
-        config_write(
-            self.addr.seg,
-            self.addr.bus,
-            self.addr.slot,
-            self.addr.func,
-            0x04,
-            2,
-            (command | 0x4) as u32,
-        );
+        self.addr.set_command(self.addr.command() | 0x4);
     }
 
     fn enable_irq(&self) {
-        let command = self.addr.read16(0x04);
-        config_write(
-            self.addr.seg,
-            self.addr.bus,
-            self.addr.slot,
-            self.addr.func,
-            0x04,
-            2,
-            (command & !0x400) as u32,
-        );
+        self.addr.set_command(self.addr.command() & !0x400);
     }
 }
 
@@ -260,10 +409,10 @@ fn functions(seg: u16, bus: u8, slot: u8) -> Vec<u8> {
         slot,
         func: 0,
     };
-    if addr.read16(0x00) == 0xFFFF {
+    if addr.vendor_id() == 0xFFFF {
         return Vec::new();
     }
-    if addr.read8(0x0E) & 0x80 != 0 {
+    if addr.header_type() & 0x80 != 0 {
         (0..8).collect()
     } else {
         vec![0]
@@ -277,12 +426,12 @@ async fn serve_entity(manager: &'static EntityManager, device: Rc<SifPciDevice>)
         let (local, remote) = match hel::create_stream() {
             Ok(pair) => pair,
             Err(err) => {
-                eprintln!("sif: entity {id}: create_stream failed: {err}");
+                println!("sif: entity {id}: create_stream failed: {err}");
                 return;
             }
         };
         if let Err(err) = manager.serve_remote_lane(remote).await {
-            eprintln!("sif: entity {id}: serve_remote_lane failed: {err}");
+            println!("sif: entity {id}: serve_remote_lane failed: {err}");
             return;
         }
         hel::spawn(serve_pci_device(local, device.clone()));
@@ -304,20 +453,20 @@ fn device_properties(addr: Address, is_bridge: bool, parent_id: i64) -> Properti
     props.insert("pci-bus".into(), hex(addr.bus as u32, 2));
     props.insert("pci-slot".into(), hex(addr.slot as u32, 2));
     props.insert("pci-function".into(), hex(addr.func as u32, 1));
-    props.insert("pci-vendor".into(), hex(addr.read16(0x00) as u32, 4));
-    props.insert("pci-device".into(), hex(addr.read16(0x02) as u32, 4));
-    props.insert("pci-revision".into(), hex(addr.read8(0x08) as u32, 2));
-    props.insert("pci-class".into(), hex(addr.read8(0x0B) as u32, 2));
-    props.insert("pci-subclass".into(), hex(addr.read8(0x0A) as u32, 2));
-    props.insert("pci-interface".into(), hex(addr.read8(0x09) as u32, 2));
+    props.insert("pci-vendor".into(), hex(addr.vendor_id() as u32, 4));
+    props.insert("pci-device".into(), hex(addr.device_id() as u32, 4));
+    props.insert("pci-revision".into(), hex(addr.revision() as u32, 2));
+    props.insert("pci-class".into(), hex(addr.class_code() as u32, 2));
+    props.insert("pci-subclass".into(), hex(addr.subclass() as u32, 2));
+    props.insert("pci-interface".into(), hex(addr.interface() as u32, 2));
     if !is_bridge {
         props.insert(
             "pci-subsystem-vendor".into(),
-            hex(addr.read16(0x2C) as u32, 2),
+            hex(addr.subsystem_vendor() as u32, 2),
         );
         props.insert(
             "pci-subsystem-device".into(),
-            hex(addr.read16(0x2E) as u32, 2),
+            hex(addr.subsystem_device() as u32, 2),
         );
     }
     props.insert("drvcore.mbus-parent".into(), decimal(parent_id));
@@ -334,6 +483,17 @@ fn scan_bus<'a>(
     out: &'a mut Vec<Publication>,
 ) -> Pin<Box<dyn Future<Output = Result<()>> + 'a>> {
     Box::pin(async move {
+        // Bridges can lead to buses that neither MCFG nor the legacy window covers.
+        let Some(io) = config::get_config_io_for(seg, bus) else {
+            println!("sif: Skipping bus {seg:04x}:{bus:02x} without configuration space");
+            return Ok(());
+        };
+        let config_space_size = if io.supports_4k_config_space() {
+            0x1000
+        } else {
+            0x100
+        };
+
         for slot in 0..32 {
             for func in functions(seg, bus, slot) {
                 let addr = Address {
@@ -342,11 +502,11 @@ fn scan_bus<'a>(
                     slot,
                     func,
                 };
-                if addr.read16(0x00) == 0xFFFF {
+                if addr.vendor_id() == 0xFFFF {
                     continue;
                 }
 
-                let is_bridge = addr.read8(0x0E) & 0x7F == 1;
+                let is_bridge = addr.header_type() & 0x7F == 1;
                 let props = device_properties(addr, is_bridge, parent_id);
                 let name = if is_bridge {
                     "pci-bridge"
@@ -356,8 +516,8 @@ fn scan_bus<'a>(
                 let irq = resolve_irq(addr, routes);
                 println!(
                     "sif: pci: {seg:04x}:{bus:02x}:{slot:02x}.{func} {name} vendor: {:04x} device: {:04x} irq: {:?}",
-                    addr.read16(0x00),
-                    addr.read16(0x02),
+                    addr.vendor_id(),
+                    addr.device_id(),
                     irq,
                 );
                 let manager = create_entity(name, &props).await?;
@@ -368,11 +528,12 @@ fn scan_bus<'a>(
                     irq,
                     bars: read_bars(addr, if is_bridge { 2 } else { 6 }),
                     caps: read_capabilities(addr),
+                    config_space_size,
                 });
                 out.push((manager, Some(device)));
 
                 if is_bridge {
-                    let secondary = addr.read8(0x19);
+                    let secondary = addr.secondary_bus();
                     if secondary > bus {
                         scan_bus(seg, secondary, id, routes, out).await?;
                     }
@@ -521,7 +682,7 @@ fn build_routes(roots: &[RootBus]) -> Routes {
             };
 
             if let Err(err) = hel::configure_irq(gsi as i32, trigger, polarity) {
-                eprintln!("sif: Failed to configure GSI {gsi}: {err}");
+                println!("sif: Failed to configure GSI {gsi}: {err}");
                 continue;
             }
             routes.insert((root.seg, slot, entry.pin), gsi);
@@ -533,7 +694,7 @@ fn build_routes(roots: &[RootBus]) -> Routes {
 }
 
 fn resolve_irq(addr: Address, routes: &Routes) -> Option<u32> {
-    let pin = addr.read8(0x3D);
+    let pin = addr.interrupt_pin();
     if pin == 0 || pin > 4 {
         return None;
     }
