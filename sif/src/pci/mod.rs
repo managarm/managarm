@@ -42,6 +42,16 @@ impl IrqIndex {
             _ => IrqIndex::Null,
         }
     }
+
+    pub fn name(self) -> &'static str {
+        match self {
+            IrqIndex::IntA => "INTA",
+            IrqIndex::IntB => "INTB",
+            IrqIndex::IntC => "INTC",
+            IrqIndex::IntD => "INTD",
+            IrqIndex::Null => panic!("Illegal PCI interrupt pin"),
+        }
+    }
 }
 
 pub fn name_of_capability(type_: u32) -> Option<&'static str> {
@@ -203,6 +213,10 @@ impl PciBus {
     pub fn capabilities_pointer(&self, slot: u8, function: u8) -> u8 {
         unsafe { self.read_config_byte(slot, function, PCI_REGULAR_CAPABILITIES) }
     }
+
+    pub fn interrupt_pin(&self, slot: u8, function: u8) -> u8 {
+        unsafe { self.read_config_byte(slot, function, PCI_REGULAR_INTERRUPT_PIN) }
+    }
 }
 
 // Accessors for registers whose existence depends on the header type, hence they are unsafe.
@@ -234,6 +248,49 @@ impl PciBus {
     pub unsafe fn subsystem_device(&self, slot: u8, function: u8) -> u16 {
         unsafe { self.read_config_half(slot, function, PCI_REGULAR_SUBSYSTEM_DEVICE) }
     }
+
+    // Only the first two BARs exist in both header types.
+    fn check_bar(offset: u16) {
+        assert!(offset >= PCI_REGULAR_BAR0 && offset < PCI_REGULAR_BAR0 + 24);
+        assert!(offset % 4 == 0);
+    }
+
+    /// # Safety
+    ///
+    /// The offset must address a BAR of the header type of the function.
+    pub unsafe fn bar(&self, slot: u8, function: u8, offset: u16) -> u32 {
+        Self::check_bar(offset);
+        unsafe { self.read_config_word(slot, function, offset) }
+    }
+
+    /// # Safety
+    ///
+    /// The offset must address a BAR of the header type of the function.
+    pub unsafe fn set_bar(&self, slot: u8, function: u8, offset: u16, value: u32) {
+        Self::check_bar(offset);
+        unsafe { self.write_config_word(slot, function, offset, value) };
+    }
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, Default, Debug)]
+pub enum BarType {
+    #[default]
+    None,
+    Io,
+    Memory,
+}
+
+#[allow(dead_code)]
+#[derive(Clone, Copy, Default)]
+pub struct PciBar {
+    pub type_: BarType,
+    pub address: u64,
+    pub length: u64,
+    pub prefetchable: bool,
+
+    pub host_type: BarType,
+    pub host_address: u64,
+    pub offset: u32,
 }
 
 #[allow(dead_code)]
@@ -265,6 +322,8 @@ pub struct PciEntity {
     pub interface: u8,
 
     pub caps: Mutex<Vec<Capability>>,
+
+    pub bars: Mutex<Vec<PciBar>>,
 }
 
 impl PciEntity {
@@ -279,6 +338,7 @@ impl PciEntity {
         class_code: u8,
         sub_class: u8,
         interface: u8,
+        n_bars: usize,
     ) -> PciEntity {
         PciEntity {
             parent_bus,
@@ -293,6 +353,7 @@ impl PciEntity {
             sub_class,
             interface,
             caps: Mutex::new(Vec::new()),
+            bars: Mutex::new(vec![PciBar::default(); n_bars]),
         }
     }
 }
@@ -322,7 +383,7 @@ impl PciBridge {
         leak(PciBridge {
             entity: PciEntity::new(
                 parent_bus, slot, function, vendor, device_id, revision, class_code, sub_class,
-                interface,
+                interface, 2,
             ),
             associated_bus: OnceLock::new(),
             downstream_id: AtomicU8::new(0),
@@ -337,6 +398,8 @@ pub struct PciDevice {
 
     pub subsystem_vendor: u16,
     pub subsystem_device: u16,
+
+    pub interrupt: OnceLock<u32>,
 }
 
 impl PciDevice {
@@ -357,10 +420,11 @@ impl PciDevice {
         leak(PciDevice {
             entity: PciEntity::new(
                 parent_bus, slot, function, vendor, device_id, revision, class_code, sub_class,
-                interface,
+                interface, 6,
             ),
             subsystem_vendor,
             subsystem_device,
+            interrupt: OnceLock::new(),
         })
     }
 }
@@ -376,9 +440,11 @@ pub const PCI_CLASS_CODE: u16 = 0x0B;
 pub const PCI_HEADER_TYPE: u16 = 0x0E;
 
 // usual device header fields
+pub const PCI_REGULAR_BAR0: u16 = 0x10;
 pub const PCI_REGULAR_SUBSYSTEM_VENDOR: u16 = 0x2C;
 pub const PCI_REGULAR_SUBSYSTEM_DEVICE: u16 = 0x2E;
 pub const PCI_REGULAR_CAPABILITIES: u16 = 0x34;
+pub const PCI_REGULAR_INTERRUPT_PIN: u16 = 0x3D;
 
 // PCI-to-PCI bridge header fields
 pub const PCI_BRIDGE_SECONDARY: u16 = 0x19;

@@ -1,7 +1,12 @@
 use std::sync::Mutex;
 use std::sync::atomic::Ordering;
 
-use super::{Capability, EXPECT_LOCK, PciBridge, PciBus, PciDevice, PciEntity, name_of_capability};
+use super::{
+    BarType, Capability, EXPECT_LOCK, IrqIndex, PCI_REGULAR_BAR0, PciBridge, PciBus, PciDevice,
+    PciEntity, name_of_capability,
+};
+
+use crate::acpi::PAGE_MASK;
 
 static ALL_DEVICES: Mutex<Vec<&'static PciDevice>> = Mutex::new(Vec::new());
 static ALL_ROOT_BUSES: Mutex<Vec<&'static PciBus>> = Mutex::new(Vec::new());
@@ -12,6 +17,150 @@ pub fn all_root_buses() -> Vec<&'static PciBus> {
 
 pub fn add_root_bus(bus: &'static PciBus) {
     ALL_ROOT_BUSES.lock().expect(EXPECT_LOCK).push(bus);
+}
+
+fn compute_bar_length(mask: u64) -> u64 {
+    assert!(mask != 0);
+    1u64 << mask.trailing_zeros()
+}
+
+fn read_entity_bars(entity: &PciEntity, n_bars: usize) {
+    let bus = entity.parent_bus;
+    let slot = entity.slot;
+    let function = entity.function;
+
+    let mut bars = entity.bars.lock().expect(EXPECT_LOCK);
+
+    // The caller passes the number of BARs of the header type of the entity, hence all
+    // offsets that we compute below address BARs.
+    let size_bar = |offset: u16, restore: u32| -> u32 {
+        unsafe {
+            bus.set_bar(slot, function, offset, 0xFFFFFFFF);
+            let mask = bus.bar(slot, function, offset);
+            bus.set_bar(slot, function, offset, restore);
+
+            mask
+        }
+    };
+
+    let mut i = 0;
+    while i < n_bars {
+        let offset = PCI_REGULAR_BAR0 + (i as u16) * 4;
+        let bar = unsafe { bus.bar(slot, function, offset) };
+
+        if bar & 1 != 0 {
+            let address = (bar & 0xFFFFFFFC) as u64;
+            let mask = size_bar(offset, bar) & 0xFFFFFFFC;
+
+            // The device does not decode any address bits from this BAR.
+            if mask == 0 {
+                i += 1;
+                continue;
+            }
+
+            let length = compute_bar_length(mask as u64);
+
+            bars[i].type_ = BarType::Io;
+            bars[i].address = address;
+            bars[i].length = length;
+
+            if address == 0 {
+                println!("sif:     unallocated I/O space BAR #{i}, length: {length} ports");
+            } else {
+                bars[i].host_type = BarType::Io;
+                bars[i].host_address = address;
+                bars[i].offset = 0;
+
+                println!("sif:     I/O space BAR #{i} at {address:#x}, length: {length} ports");
+            }
+
+            i += 1;
+        } else if (bar >> 1) & 3 == 0 {
+            let address = (bar & 0xFFFFFFF0) as u64;
+            let mask = size_bar(offset, bar) & 0xFFFFFFF0;
+
+            // The device does not decode any address bits from this BAR.
+            if mask == 0 {
+                i += 1;
+                continue;
+            }
+
+            let length = compute_bar_length(mask as u64);
+            let prefetchable = bar & (1 << 3) != 0;
+
+            bars[i].type_ = BarType::Memory;
+            bars[i].address = address;
+            bars[i].length = length;
+            bars[i].prefetchable = prefetchable;
+
+            if address == 0 {
+                println!(
+                    "sif:     unallocated 32-bit memory BAR #{i}, length: {length} bytes{}",
+                    if prefetchable { " (prefetchable)" } else { "" }
+                );
+            } else {
+                bars[i].host_type = BarType::Memory;
+                bars[i].host_address = address;
+                bars[i].offset = (address as usize & PAGE_MASK) as u32;
+
+                println!(
+                    "sif:     32-bit memory BAR #{i} at {address:#x}, length: {length} bytes{}",
+                    if prefetchable { " (prefetchable)" } else { "" }
+                );
+            }
+
+            i += 1;
+        } else if (bar >> 1) & 3 == 2 {
+            assert!(i < n_bars - 1); // Otherwise there is no next BAR.
+            let high = unsafe { bus.bar(slot, function, offset + 4) };
+            let address = ((high as u64) << 32) | (bar & 0xFFFFFFF0) as u64;
+
+            let mask = unsafe {
+                bus.set_bar(slot, function, offset, 0xFFFFFFFF);
+                bus.set_bar(slot, function, offset + 4, 0xFFFFFFFF);
+                let mask = ((bus.bar(slot, function, offset + 4) as u64) << 32)
+                    | (bus.bar(slot, function, offset) & 0xFFFFFFF0) as u64;
+                bus.set_bar(slot, function, offset, bar);
+                bus.set_bar(slot, function, offset + 4, high);
+
+                mask
+            };
+
+            // The device does not decode any address bits from this BAR.
+            if mask == 0 {
+                i += 2;
+                continue;
+            }
+
+            let length = compute_bar_length(mask);
+            let prefetchable = bar & (1 << 3) != 0;
+
+            bars[i].type_ = BarType::Memory;
+            bars[i].address = address;
+            bars[i].length = length;
+            bars[i].prefetchable = prefetchable;
+
+            if address == 0 {
+                println!(
+                    "sif:     unallocated 64-bit memory BAR #{i}, length: {length} bytes{}",
+                    if prefetchable { " (prefetchable)" } else { "" }
+                );
+            } else {
+                bars[i].host_type = BarType::Memory;
+                bars[i].host_address = address;
+                bars[i].offset = (address as usize & PAGE_MASK) as u32;
+
+                println!(
+                    "sif:     64-bit memory BAR #{i} at {address:#x}, length: {length} bytes{}",
+                    if prefetchable { " (prefetchable)" } else { "" }
+                );
+            }
+
+            i += 2;
+        } else {
+            panic!("Unexpected BAR type");
+        }
+    }
 }
 
 fn find_pci_caps(entity: &PciEntity) {
@@ -119,6 +268,24 @@ fn check_pci_function(
 
         find_pci_caps(&device.entity);
 
+        read_entity_bars(&device.entity, 6);
+
+        let irq_index = IrqIndex::from_pin(bus.interrupt_pin(slot, function));
+        if irq_index != IrqIndex::Null {
+            if let Some(gsi) = super::acpi::resolve_irq(bus.seg_id, slot, irq_index) {
+                println!(
+                    "sif:     Interrupt: {} (routed to GSI {gsi})",
+                    irq_index.name()
+                );
+                device
+                    .interrupt
+                    .set(gsi)
+                    .expect("sif: PCI device was already enumerated");
+            } else {
+                println!("sif:     Interrupt routing not available!");
+            }
+        }
+
         ALL_DEVICES.lock().expect(EXPECT_LOCK).push(device);
         bus.child_devices.lock().expect(EXPECT_LOCK).push(device);
     } else if header_type & 0x7F == 1 {
@@ -128,6 +295,8 @@ fn check_pci_function(
         bus.child_bridges.lock().expect(EXPECT_LOCK).push(bridge);
 
         find_pci_caps(&bridge.entity);
+
+        read_entity_bars(&bridge.entity, 2);
 
         let downstream_id = unsafe { bus.secondary_bus(slot, function) };
 
