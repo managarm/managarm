@@ -11,6 +11,10 @@ use crate::acpi::PAGE_MASK;
 static ALL_DEVICES: Mutex<Vec<&'static PciDevice>> = Mutex::new(Vec::new());
 static ALL_ROOT_BUSES: Mutex<Vec<&'static PciBus>> = Mutex::new(Vec::new());
 
+pub fn all_devices() -> Vec<&'static PciDevice> {
+    ALL_DEVICES.lock().expect(EXPECT_LOCK).clone()
+}
+
 pub fn all_root_buses() -> Vec<&'static PciBus> {
     ALL_ROOT_BUSES.lock().expect(EXPECT_LOCK).clone()
 }
