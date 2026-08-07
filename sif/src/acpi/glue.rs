@@ -13,7 +13,8 @@ use uacpi_sys::{
     uacpi_work_handler, uacpi_work_type,
 };
 
-use super::{PAGE_MASK, RSDP, config_read, config_write, io};
+use super::{PAGE_MASK, RSDP, config_read, config_write};
+use crate::io;
 
 const UACPI_MAP_FAILED: *mut c_void = (-1isize) as *mut c_void;
 

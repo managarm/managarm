@@ -1,5 +1,4 @@
 pub mod glue;
-pub mod io;
 
 use std::collections::BTreeMap;
 use std::ptr::addr_of;
@@ -9,6 +8,8 @@ use anyhow::{Result, anyhow};
 use parking_lot::Mutex;
 
 use uacpi_sys::uacpi_status;
+
+use crate::io;
 
 pub(crate) const PAGE_SIZE: usize = 0x1000;
 pub(crate) const PAGE_MASK: usize = PAGE_SIZE - 1;

@@ -1,6 +1,7 @@
 use anyhow::{Result, bail};
 
 mod acpi;
+mod io;
 mod pci;
 
 fn main() -> Result<()> {
