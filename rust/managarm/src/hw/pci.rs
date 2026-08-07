@@ -8,8 +8,8 @@ pub enum IoType {
     Memory,
 }
 
-impl IoType {
-    fn decode(io_type: bindings::IoType) -> Self {
+impl From<bindings::IoType> for IoType {
+    fn from(io_type: bindings::IoType) -> Self {
         match io_type {
             bindings::IoType::NoBar => IoType::None,
             bindings::IoType::Port => IoType::Port,
@@ -27,17 +27,19 @@ pub struct BarInfo {
     offset: u32,
 }
 
-impl BarInfo {
-    fn decode(bar: &bindings::PciBar) -> Self {
+impl From<&bindings::PciBar> for BarInfo {
+    fn from(bar: &bindings::PciBar) -> Self {
         Self {
-            io_type: IoType::decode(bar.io_type()),
-            host_type: IoType::decode(bar.host_type()),
+            io_type: bar.io_type().into(),
+            host_type: bar.host_type().into(),
             address: bar.address() as usize,
             length: bar.length() as usize,
             offset: bar.offset(),
         }
     }
+}
 
+impl BarInfo {
     pub fn io_type(&self) -> IoType {
         self.io_type
     }
@@ -65,14 +67,16 @@ pub struct ExpansionRomInfo {
     length: usize,
 }
 
-impl ExpansionRomInfo {
-    fn decode(rom: &bindings::PciExpansionRom) -> Self {
+impl From<&bindings::PciExpansionRom> for ExpansionRomInfo {
+    fn from(rom: &bindings::PciExpansionRom) -> Self {
         Self {
             address: rom.address() as usize,
             length: rom.length() as usize,
         }
     }
+}
 
+impl ExpansionRomInfo {
     pub fn address(&self) -> usize {
         self.address
     }
@@ -87,11 +91,13 @@ pub struct Capability {
     type_: u32,
 }
 
-impl Capability {
-    fn decode(cap: &bindings::PciCapability) -> Self {
+impl From<&bindings::PciCapability> for Capability {
+    fn from(cap: &bindings::PciCapability) -> Self {
         Self { type_: cap.type_() }
     }
+}
 
+impl Capability {
     pub fn type_(&self) -> u32 {
         self.type_
     }
@@ -106,26 +112,26 @@ pub struct PciInfo {
     msi_x: bool,
 }
 
-impl PciInfo {
-    pub(crate) fn decode(pci_info: &bindings::SvrResponse) -> Self {
+impl From<&bindings::SvrResponse> for PciInfo {
+    fn from(pci_info: &bindings::SvrResponse) -> Self {
         let pci_bars = pci_info.bars().unwrap_or_default();
         let caps = pci_info
             .capabilities()
             .unwrap_or_default()
             .iter()
-            .map(Capability::decode)
+            .map(Capability::from)
             .collect();
 
         let mut bar_info = [BarInfo::default(); 6];
 
         for (i, pci_bar) in pci_bars.iter().enumerate() {
-            bar_info[i] = BarInfo::decode(pci_bar);
+            bar_info[i] = BarInfo::from(pci_bar);
         }
 
         Self {
             expansion_rom_info: pci_info
                 .expansion_rom()
-                .map(ExpansionRomInfo::decode)
+                .map(ExpansionRomInfo::from)
                 .unwrap_or_default(),
             num_msis: pci_info.num_msis().unwrap_or_default(),
             msi_x: pci_info.msi_x().unwrap_or_default() == 1,
@@ -133,7 +139,9 @@ impl PciInfo {
             caps,
         }
     }
+}
 
+impl PciInfo {
     pub fn bar_info(&self) -> &[BarInfo; 6] {
         &self.bar_info
     }

@@ -2,6 +2,7 @@ pub mod device;
 pub mod error;
 pub mod pci;
 pub mod result;
+pub mod server;
 
 pub use device::Device;
 pub use error::Error;

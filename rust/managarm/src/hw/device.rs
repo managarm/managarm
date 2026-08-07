@@ -34,7 +34,7 @@ impl Device {
             bragi::head_tail_from_bytes(&recv_data, &tail_buffer)?;
 
         if response.error() == bindings::Errors::Success {
-            Ok(PciInfo::decode(&response))
+            Ok(PciInfo::from(&response))
         } else {
             Err(Error::from(response.error()))
         }
