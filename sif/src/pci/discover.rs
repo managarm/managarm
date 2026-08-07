@@ -1,7 +1,7 @@
 use std::sync::Mutex;
 use std::sync::atomic::Ordering;
 
-use super::{EXPECT_LOCK, PciBridge, PciBus, PciDevice};
+use super::{Capability, EXPECT_LOCK, PciBridge, PciBus, PciDevice, PciEntity, name_of_capability};
 
 static ALL_DEVICES: Mutex<Vec<&'static PciDevice>> = Mutex::new(Vec::new());
 static ALL_ROOT_BUSES: Mutex<Vec<&'static PciBus>> = Mutex::new(Vec::new());
@@ -12,6 +12,46 @@ pub fn all_root_buses() -> Vec<&'static PciBus> {
 
 pub fn add_root_bus(bus: &'static PciBus) {
     ALL_ROOT_BUSES.lock().expect(EXPECT_LOCK).push(bus);
+}
+
+fn find_pci_caps(entity: &PciEntity) {
+    let bus = entity.parent_bus;
+    let slot = entity.slot;
+    let function = entity.function;
+
+    let status = bus.status(slot, function);
+
+    // Find all capabilities.
+    if status & 0x10 != 0 {
+        // The bottom two bits of each capability offset must be masked!
+        let mut offset = (bus.capabilities_pointer(slot, function) & 0xFC) as u16;
+        while offset != 0 {
+            // Capability headers sit at device-defined offsets, hence we cannot use a
+            // safe accessor to read them.
+            let ent = unsafe { bus.read_config_half(slot, function, offset) };
+            let type_ = (ent & 0xFF) as u32;
+
+            if let Some(name) = name_of_capability(type_) {
+                println!("sif:     {name} capability");
+            } else {
+                println!("sif:     Capability of type {type_:#04x}");
+            }
+
+            let length = if type_ == 0x09 {
+                Some(unsafe { bus.read_config_byte(slot, function, offset + 2) } as u64)
+            } else {
+                None
+            };
+
+            entity.caps.lock().expect(EXPECT_LOCK).push(Capability {
+                type_,
+                offset,
+                length,
+            });
+
+            offset = ((ent >> 8) & 0xFC) as u16;
+        }
+    }
 }
 
 fn check_pci_function(
@@ -77,6 +117,8 @@ fn check_pci_function(
             subsystem_device,
         );
 
+        find_pci_caps(&device.entity);
+
         ALL_DEVICES.lock().expect(EXPECT_LOCK).push(device);
         bus.child_devices.lock().expect(EXPECT_LOCK).push(device);
     } else if header_type & 0x7F == 1 {
@@ -84,6 +126,8 @@ fn check_pci_function(
             bus, slot, function, vendor, device_id, revision, class_code, sub_class, interface,
         );
         bus.child_bridges.lock().expect(EXPECT_LOCK).push(bridge);
+
+        find_pci_caps(&bridge.entity);
 
         let downstream_id = unsafe { bus.secondary_bus(slot, function) };
 

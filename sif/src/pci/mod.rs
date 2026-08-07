@@ -44,6 +44,24 @@ impl IrqIndex {
     }
 }
 
+pub fn name_of_capability(type_: u32) -> Option<&'static str> {
+    match type_ {
+        0x01 => Some("PCI Power Management Interface"),
+        0x02 => Some("AGP"),
+        0x03 => Some("VPD"),
+        0x04 => Some("Slot-identification"),
+        0x05 => Some("MSI"),
+        0x09 => Some("Vendor-specific"),
+        0x0A => Some("Debug-port"),
+        0x0C => Some("PCI Hot Plug"),
+        0x0D => Some("PCI Bridge Subsystem ID"),
+        0x10 => Some("PCIe"),
+        0x11 => Some("MSI-X"),
+        0x12 => Some("Serial ATA DATA/Index Configuration"),
+        _ => None,
+    }
+}
+
 pub struct PciBus {
     #[allow(dead_code)]
     pub associated_bridge: Option<&'static PciBridge>,
@@ -181,6 +199,10 @@ impl PciBus {
     pub fn header_type(&self, slot: u8, function: u8) -> u8 {
         unsafe { self.read_config_byte(slot, function, PCI_HEADER_TYPE) }
     }
+
+    pub fn capabilities_pointer(&self, slot: u8, function: u8) -> u8 {
+        unsafe { self.read_config_byte(slot, function, PCI_REGULAR_CAPABILITIES) }
+    }
 }
 
 // Accessors for registers whose existence depends on the header type, hence they are unsafe.
@@ -214,6 +236,13 @@ impl PciBus {
     }
 }
 
+#[allow(dead_code)]
+pub struct Capability {
+    pub type_: u32,
+    pub offset: u16,
+    pub length: Option<u64>,
+}
+
 // Common part of devices and bridges.
 #[allow(dead_code)]
 pub struct PciEntity {
@@ -234,6 +263,8 @@ pub struct PciEntity {
     pub class_code: u8,
     pub sub_class: u8,
     pub interface: u8,
+
+    pub caps: Mutex<Vec<Capability>>,
 }
 
 impl PciEntity {
@@ -261,6 +292,7 @@ impl PciEntity {
             class_code,
             sub_class,
             interface,
+            caps: Mutex::new(Vec::new()),
         }
     }
 }
@@ -346,6 +378,7 @@ pub const PCI_HEADER_TYPE: u16 = 0x0E;
 // usual device header fields
 pub const PCI_REGULAR_SUBSYSTEM_VENDOR: u16 = 0x2C;
 pub const PCI_REGULAR_SUBSYSTEM_DEVICE: u16 = 0x2E;
+pub const PCI_REGULAR_CAPABILITIES: u16 = 0x34;
 
 // PCI-to-PCI bridge header fields
 pub const PCI_BRIDGE_SECONDARY: u16 = 0x19;
