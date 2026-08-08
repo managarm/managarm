@@ -661,7 +661,7 @@ void handleSyscall(SyscallImageAccessor image) {
 	} break;
 	case kHelCallAccessPhysical: {
 		HelHandle handle;
-		*image.error() = helAccessPhysical((uintptr_t)arg0, (size_t)arg1, &handle);
+		*image.error() = helAccessPhysical((uintptr_t)arg0, (size_t)arg1, (uint32_t)arg2, &handle);
 		*image.out0() = handle;
 	} break;
 	case kHelCallCreateIndirectMemory: {

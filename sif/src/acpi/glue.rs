@@ -13,7 +13,9 @@ use uacpi_sys::{
     uacpi_work_handler, uacpi_work_type,
 };
 
-use super::{PAGE_MASK, RSDP, config_read, config_write, io};
+use super::{PAGE_MASK, RSDP};
+use crate::io;
+use crate::pci::config;
 
 const UACPI_MAP_FAILED: *mut c_void = (-1isize) as *mut c_void;
 
@@ -64,7 +66,7 @@ pub unsafe extern "C" fn uacpi_kernel_map(addr: uacpi_phys_addr, len: uacpi_size
     let aligned = (addr as usize) & !PAGE_MASK;
     let span = (len + page_off + PAGE_MASK) & !PAGE_MASK;
 
-    let handle = match hel::access_physical(aligned, span) {
+    let handle = match hel::access_physical(aligned, span, hel::CachingMode::Default) {
         Ok(handle) => handle,
         Err(_) => return UACPI_MAP_FAILED,
     };
@@ -166,6 +168,48 @@ pub unsafe extern "C" fn uacpi_kernel_pci_device_open(
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn uacpi_kernel_pci_device_close(_handle: uacpi_handle) {}
 
+/// AML addresses devices and registers that need not be there at all.
+fn is_absent(error: &config::ConfigIoError) -> bool {
+    matches!(
+        error,
+        config::ConfigIoError::NoConfigSpace { .. } | config::ConfigIoError::OutOfRange { .. }
+    )
+}
+
+/// Completes a configuration space read, substituting all-ones for absent registers.
+///
+/// # Safety
+///
+/// `value` has to be valid for writes.
+unsafe fn complete_read<T>(result: config::Result<T>, value: *mut T, absent: T) -> uacpi_status {
+    match result {
+        Ok(read) => {
+            unsafe { *value = read };
+            uacpi_sys::UACPI_STATUS_OK
+        }
+        Err(error) if is_absent(&error) => {
+            unsafe { *value = absent };
+            uacpi_sys::UACPI_STATUS_OK
+        }
+        Err(error) => {
+            println!("sif: uacpi: Configuration space read failed: {error}");
+            uacpi_sys::UACPI_STATUS_INTERNAL_ERROR
+        }
+    }
+}
+
+/// Completes a configuration space write, discarding writes to absent registers.
+fn complete_write(result: config::Result<()>) -> uacpi_status {
+    match result {
+        Ok(()) => uacpi_sys::UACPI_STATUS_OK,
+        Err(error) if is_absent(&error) => uacpi_sys::UACPI_STATUS_OK,
+        Err(error) => {
+            println!("sif: uacpi: Configuration space write failed: {error}");
+            uacpi_sys::UACPI_STATUS_INTERNAL_ERROR
+        }
+    }
+}
+
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn uacpi_kernel_pci_read8(
     device: uacpi_handle,
@@ -173,10 +217,9 @@ pub unsafe extern "C" fn uacpi_kernel_pci_read8(
     value: *mut uacpi_u8,
 ) -> uacpi_status {
     let a = unsafe { unpack_address(device) };
-    unsafe {
-        *value = config_read(a.segment, a.bus, a.device, a.function, offset as u16, 1) as uacpi_u8
-    };
-    uacpi_sys::UACPI_STATUS_OK
+    let read =
+        unsafe { config::read_config_byte(a.segment, a.bus, a.device, a.function, offset as u16) };
+    unsafe { complete_read(read, value, 0xFF) }
 }
 
 #[unsafe(no_mangle)]
@@ -186,10 +229,9 @@ pub unsafe extern "C" fn uacpi_kernel_pci_read16(
     value: *mut uacpi_u16,
 ) -> uacpi_status {
     let a = unsafe { unpack_address(device) };
-    unsafe {
-        *value = config_read(a.segment, a.bus, a.device, a.function, offset as u16, 2) as uacpi_u16
-    };
-    uacpi_sys::UACPI_STATUS_OK
+    let read =
+        unsafe { config::read_config_half(a.segment, a.bus, a.device, a.function, offset as u16) };
+    unsafe { complete_read(read, value, 0xFFFF) }
 }
 
 #[unsafe(no_mangle)]
@@ -199,8 +241,9 @@ pub unsafe extern "C" fn uacpi_kernel_pci_read32(
     value: *mut uacpi_u32,
 ) -> uacpi_status {
     let a = unsafe { unpack_address(device) };
-    unsafe { *value = config_read(a.segment, a.bus, a.device, a.function, offset as u16, 4) };
-    uacpi_sys::UACPI_STATUS_OK
+    let read =
+        unsafe { config::read_config_word(a.segment, a.bus, a.device, a.function, offset as u16) };
+    unsafe { complete_read(read, value, 0xFFFFFFFF) }
 }
 
 #[unsafe(no_mangle)]
@@ -210,16 +253,9 @@ pub unsafe extern "C" fn uacpi_kernel_pci_write8(
     value: uacpi_u8,
 ) -> uacpi_status {
     let a = unsafe { unpack_address(device) };
-    config_write(
-        a.segment,
-        a.bus,
-        a.device,
-        a.function,
-        offset as u16,
-        1,
-        value as u32,
-    );
-    uacpi_sys::UACPI_STATUS_OK
+    complete_write(unsafe {
+        config::write_config_byte(a.segment, a.bus, a.device, a.function, offset as u16, value)
+    })
 }
 
 #[unsafe(no_mangle)]
@@ -229,16 +265,9 @@ pub unsafe extern "C" fn uacpi_kernel_pci_write16(
     value: uacpi_u16,
 ) -> uacpi_status {
     let a = unsafe { unpack_address(device) };
-    config_write(
-        a.segment,
-        a.bus,
-        a.device,
-        a.function,
-        offset as u16,
-        2,
-        value as u32,
-    );
-    uacpi_sys::UACPI_STATUS_OK
+    complete_write(unsafe {
+        config::write_config_half(a.segment, a.bus, a.device, a.function, offset as u16, value)
+    })
 }
 
 #[unsafe(no_mangle)]
@@ -248,16 +277,9 @@ pub unsafe extern "C" fn uacpi_kernel_pci_write32(
     value: uacpi_u32,
 ) -> uacpi_status {
     let a = unsafe { unpack_address(device) };
-    config_write(
-        a.segment,
-        a.bus,
-        a.device,
-        a.function,
-        offset as u16,
-        4,
-        value,
-    );
-    uacpi_sys::UACPI_STATUS_OK
+    complete_write(unsafe {
+        config::write_config_word(a.segment, a.bus, a.device, a.function, offset as u16, value)
+    })
 }
 
 #[unsafe(no_mangle)]
@@ -558,7 +580,7 @@ pub unsafe extern "C" fn uacpi_kernel_uninstall_interrupt_handler(
 pub unsafe extern "C" fn uacpi_kernel_handle_firmware_request(
     _request: *mut uacpi_firmware_request,
 ) -> uacpi_status {
-    eprintln!("sif: ignoring ACPI firmware request");
+    println!("sif: ignoring ACPI firmware request");
     // TODO
     uacpi_sys::UACPI_STATUS_OK
 }

@@ -630,16 +630,30 @@ HelError helCopyOnWrite(HelHandle memoryHandle,
 	return kHelErrNone;
 }
 
-HelError helAccessPhysical(uintptr_t physical, size_t size, HelHandle *handle) {
+HelError helAccessPhysical(uintptr_t physical, size_t size, uint32_t cachingMode,
+		HelHandle *handle) {
 	if (physical & (kPageSize - 1))
 		return kHelErrIllegalArgs;
 	if (size & (kPageSize - 1))
 		return kHelErrIllegalArgs;
 
+	CachingMode caching;
+	switch(cachingMode) {
+	case kHelCachingDefault: caching = CachingMode::null; break;
+	case kHelCachingUncached: caching = CachingMode::uncached; break;
+	case kHelCachingWriteCombine: caching = CachingMode::writeCombine; break;
+	case kHelCachingWriteThrough: caching = CachingMode::writeThrough; break;
+	case kHelCachingWriteBack: caching = CachingMode::writeBack; break;
+	case kHelCachingMmio: caching = CachingMode::mmio; break;
+	case kHelCachingMmioNonPosted: caching = CachingMode::mmioNonPosted; break;
+	default:
+		return kHelErrIllegalArgs;
+	}
+
 	auto this_thread = getCurrentThread();
 	auto this_universe = this_thread->getUniverse();
 
-	auto memoryOutcome = HardwareMemory::create(physical, size, CachingMode::null);
+	auto memoryOutcome = HardwareMemory::create(physical, size, caching);
 	if(!memoryOutcome)
 		return translateError(memoryOutcome.error());
 	*handle = this_universe->attachDescriptor(

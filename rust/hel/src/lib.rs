@@ -50,10 +50,39 @@ pub fn create_dma_space() -> Result<Handle> {
     Ok(unsafe { Handle::from_raw(handle) })
 }
 
+/// The caching mode that a memory object is mapped with.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CachingMode {
+    /// Let the kernel pick a caching mode.
+    Default,
+    Uncached,
+    WriteCombine,
+    WriteThrough,
+    WriteBack,
+    Mmio,
+    MmioNonPosted,
+}
+
+impl CachingMode {
+    fn to_raw(self) -> u32 {
+        match self {
+            Self::Default => hel_sys::kHelCachingDefault,
+            Self::Uncached => hel_sys::kHelCachingUncached,
+            Self::WriteCombine => hel_sys::kHelCachingWriteCombine,
+            Self::WriteThrough => hel_sys::kHelCachingWriteThrough,
+            Self::WriteBack => hel_sys::kHelCachingWriteBack,
+            Self::Mmio => hel_sys::kHelCachingMmio,
+            Self::MmioNonPosted => hel_sys::kHelCachingMmioNonPosted,
+        }
+    }
+}
+
 /// Returns a memory object backing the given physical memory range.
-pub fn access_physical(physical: usize, size: usize) -> Result<Handle> {
+pub fn access_physical(physical: usize, size: usize, caching: CachingMode) -> Result<Handle> {
     let mut handle = hel_sys::kHelNullHandle as hel_sys::HelHandle;
-    result::hel_check(unsafe { hel_sys::helAccessPhysical(physical, size, &mut handle) })?;
+    result::hel_check(unsafe {
+        hel_sys::helAccessPhysical(physical, size, caching.to_raw(), &mut handle)
+    })?;
     Ok(unsafe { Handle::from_raw(handle) })
 }
 
