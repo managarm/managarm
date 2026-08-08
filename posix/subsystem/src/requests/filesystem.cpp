@@ -4,8 +4,24 @@
 #include <fcntl.h>
 #include <linux/limits.h>
 #include <iostream>
+#include <optional>
 
 namespace requests {
+
+std::optional<managarm::posix::Errors> mapOpenResolveError(protocols::fs::Error error) {
+	switch(error) {
+		case protocols::fs::Error::isDirectory:
+			return managarm::posix::Errors::IS_DIRECTORY;
+		case protocols::fs::Error::fileNotFound:
+			return managarm::posix::Errors::FILE_NOT_FOUND;
+		case protocols::fs::Error::notDirectory:
+			return managarm::posix::Errors::NOT_A_DIRECTORY;
+		case protocols::fs::Error::nameTooLong:
+			return managarm::posix::Errors::NAME_TOO_LONG;
+		default:
+			return std::nullopt;
+	}
+}
 
 async::result<std::expected<void, DispatchError>>
 HandleRequest::operator()(managarm::posix::ChrootRequest &&req,
@@ -1399,6 +1415,7 @@ HandleRequest::operator()(managarm::posix::OpenAtRequest &&req,
 		relative_to = {file->associatedMount(), file->associatedLink()};
 	}
 
+	std::shared_ptr<MountView> target_mount;
 	PathResolver resolver;
 	resolver.setup(self->fsContext()->getRoot(),
 			relative_to, req.path(), self.get());
@@ -1406,23 +1423,12 @@ HandleRequest::operator()(managarm::posix::OpenAtRequest &&req,
 		auto resolveResult = co_await resolver.resolve(
 				resolvePrefix | resolveNoTrailingSlash);
 		if(!resolveResult) {
-			if(resolveResult.error() == protocols::fs::Error::isDirectory) {
-				// TODO: Verify additional constraints for sending EISDIR.
-				co_await sendErrorResponse<managarm::posix::OpenAtResponse>(conversation, managarm::posix::Errors::IS_DIRECTORY);
-				co_return {};
-			} else if(resolveResult.error() == protocols::fs::Error::fileNotFound) {
-				co_await sendErrorResponse<managarm::posix::OpenAtResponse>(conversation, managarm::posix::Errors::FILE_NOT_FOUND);
-				co_return {};
-			} else if(resolveResult.error() == protocols::fs::Error::notDirectory) {
-				co_await sendErrorResponse<managarm::posix::OpenAtResponse>(conversation, managarm::posix::Errors::NOT_A_DIRECTORY);
-				co_return {};
-			} else if(resolveResult.error() == protocols::fs::Error::nameTooLong) {
-				co_await sendErrorResponse<managarm::posix::OpenAtResponse>(conversation, managarm::posix::Errors::NAME_TOO_LONG);
-				co_return {};
+			if(auto error = mapOpenResolveError(resolveResult.error()); error) {
+				co_await sendErrorResponse<managarm::posix::OpenAtResponse>(conversation, *error);
 			} else {
 				std::cout << "posix: Unexpected failure from resolve()" << std::endl;
-				co_return {};
 			}
+			co_return {};
 		}
 
 		logRequest(logRequests || logPaths, self, "OPENAT", "create '{}'",
@@ -1445,20 +1451,50 @@ HandleRequest::operator()(managarm::posix::OpenAtRequest &&req,
 			co_await sendErrorResponse<managarm::posix::OpenAtResponse>(conversation, linkResult.error() | toPosixProtoError);
 			co_return {};
 		}
-		auto link = linkResult.value();
-		assert(link);
-		auto node = link->getTarget();
-		if (node->getType() == VfsType::directory) {
-			co_await sendErrorResponse<managarm::posix::OpenAtResponse>(conversation, managarm::posix::Errors::IS_DIRECTORY);
-			co_return {};
-		}
+		target_mount = resolver.currentView();
+		target_link = linkResult.value();
+		assert(target_link);
 
-		auto fileResult = co_await node->open(self.get(), resolver.currentView(), std::move(link),
-							semantic_flags);
-		assert(fileResult);
-		file = fileResult.value();
-		assert(file);
-	}else{
+		// getLinkOrCreate() returns an existing final symlink instead of
+		// resolving it. Follow that symlink here unless the caller explicitly
+		// requested O_NOFOLLOW. O_PATH handles the latter case below.
+		if(target_link->getTarget()->getType() == VfsType::symlink
+				&& !(req.flags() & managarm::posix::OpenFlags::OF_NOFOLLOW)) {
+			auto symlinkResult = co_await target_link->getTarget()->readSymlink(
+					target_link.get(), self.get());
+			if(auto error = std::get_if<Error>(&symlinkResult); error) {
+				co_await sendErrorResponse<managarm::posix::OpenAtResponse>(conversation,
+						managarm::posix::Errors::FILE_NOT_FOUND);
+				co_return {};
+			}
+
+			auto symlinkPath = std::get<std::string>(symlinkResult);
+			if(symlinkPath.empty()) {
+				co_await sendErrorResponse<managarm::posix::OpenAtResponse>(conversation,
+						managarm::posix::Errors::FILE_NOT_FOUND);
+				co_return {};
+			}
+
+			auto owner = target_link->getOwner();
+			assert(owner);
+			PathResolver symlinkResolver;
+			symlinkResolver.setup(self->fsContext()->getRoot(),
+					ViewPath{target_mount, owner->treeLink()},
+					std::move(symlinkPath), self.get());
+			auto followResult = co_await symlinkResolver.resolve();
+			if(!followResult) {
+				if(auto error = mapOpenResolveError(followResult.error()); error) {
+					co_await sendErrorResponse<managarm::posix::OpenAtResponse>(conversation, *error);
+				} else {
+					std::cout << "posix: Unexpected failure from resolve()" << std::endl;
+				}
+				co_return {};
+			}
+
+			target_mount = symlinkResolver.currentView();
+			target_link = symlinkResolver.currentLink();
+		}
+	} else {
 		ResolveFlags resolveFlags = 0;
 
 		if(req.flags() & managarm::posix::OpenFlags::OF_NOFOLLOW)
@@ -1466,67 +1502,64 @@ HandleRequest::operator()(managarm::posix::OpenAtRequest &&req,
 
 		auto resolveResult = co_await resolver.resolve(resolveFlags);
 		if(!resolveResult) {
-			if(resolveResult.error() == protocols::fs::Error::isDirectory) {
-				// TODO: Verify additional constraints for sending EISDIR.
-				co_await sendErrorResponse<managarm::posix::OpenAtResponse>(conversation, managarm::posix::Errors::IS_DIRECTORY);
-				co_return {};
-			} else if(resolveResult.error() == protocols::fs::Error::fileNotFound) {
-				co_await sendErrorResponse<managarm::posix::OpenAtResponse>(conversation, managarm::posix::Errors::FILE_NOT_FOUND);
-				co_return {};
-			} else if(resolveResult.error() == protocols::fs::Error::notDirectory) {
-				co_await sendErrorResponse<managarm::posix::OpenAtResponse>(conversation, managarm::posix::Errors::NOT_A_DIRECTORY);
-				co_return {};
+			if(auto error = mapOpenResolveError(resolveResult.error()); error) {
+				co_await sendErrorResponse<managarm::posix::OpenAtResponse>(conversation, *error);
 			} else {
 				std::cout << "posix: Unexpected failure from resolve()" << std::endl;
-				co_return {};
 			}
+			co_return {};
 		}
 
 		logRequest(logRequests || logPaths, self, "OPENAT", "open '{}'",
 			ViewPath{resolver.currentView(), resolver.currentLink()}
 			.getPath(self->fsContext()->getRoot()));
 
-		auto target = resolver.currentLink()->getTarget();
-		if (target->getType() == VfsType::directory && (semantic_flags & semanticWrite)) {
-			co_await sendErrorResponse<managarm::posix::OpenAtResponse>(conversation, managarm::posix::Errors::IS_DIRECTORY);
+		target_mount = resolver.currentView();
+		target_link = resolver.currentLink();
+	}
+
+	assert(target_mount);
+	assert(target_link);
+	auto target = target_link->getTarget();
+	if (target->getType() == VfsType::directory && (semantic_flags & semanticWrite)) {
+		co_await sendErrorResponse<managarm::posix::OpenAtResponse>(conversation, managarm::posix::Errors::IS_DIRECTORY);
+		co_return {};
+	}
+
+	if(req.flags() & managarm::posix::OpenFlags::OF_DIRECTORY) {
+		if(target->getType() != VfsType::directory) {
+			co_await sendErrorResponse<managarm::posix::OpenAtResponse>(conversation, managarm::posix::Errors::NOT_A_DIRECTORY);
+			co_return {};
+		}
+	}
+
+	if(req.flags() & managarm::posix::OpenFlags::OF_PATH) {
+		auto dummyFile = smarter::make_shared<DummyFile>(target_mount, target_link);
+		dummyFile->setupWeakFile(dummyFile);
+		DummyFile::serve(dummyFile);
+		file = File::constructHandle(std::move(dummyFile));
+	} else {
+		// This can only be a symlink if O_NOFOLLOW has been passed.
+		if(target->getType() == VfsType::symlink) {
+			co_await sendErrorResponse<managarm::posix::OpenAtResponse>(conversation, managarm::posix::Errors::SYMBOLIC_LINK_LOOP);
 			co_return {};
 		}
 
-		if(req.flags() & managarm::posix::OpenFlags::OF_DIRECTORY) {
-			if(target->getType() != VfsType::directory) {
-				co_await sendErrorResponse<managarm::posix::OpenAtResponse>(conversation, managarm::posix::Errors::NOT_A_DIRECTORY);
+		auto fileResult = co_await target->open(self.get(), target_mount, target_link, semantic_flags);
+		if(!fileResult) {
+			if(fileResult.error() == Error::noBackingDevice) {
+				co_await sendErrorResponse<managarm::posix::OpenAtResponse>(conversation, managarm::posix::Errors::NO_BACKING_DEVICE);
+				co_return {};
+			} else if(fileResult.error() == Error::illegalArguments) {
+				co_await sendErrorResponse<managarm::posix::OpenAtResponse>(conversation, managarm::posix::Errors::ILLEGAL_ARGUMENTS);
+				co_return {};
+			} else {
+				std::cout << "posix: Unexpected failure from open()" << std::endl;
 				co_return {};
 			}
 		}
-
-		if(req.flags() & managarm::posix::OpenFlags::OF_PATH) {
-			auto dummyFile = smarter::make_shared<DummyFile>(resolver.currentView(), resolver.currentLink());
-			dummyFile->setupWeakFile(dummyFile);
-			DummyFile::serve(dummyFile);
-			file = File::constructHandle(std::move(dummyFile));
-		} else {
-			// this can only be a symlink if O_NOFOLLOW has been passed
-			if(target->getType() == VfsType::symlink) {
-				co_await sendErrorResponse<managarm::posix::OpenAtResponse>(conversation, managarm::posix::Errors::SYMBOLIC_LINK_LOOP);
-				co_return {};
-			}
-
-			auto fileResult = co_await target->open(self.get(), resolver.currentView(), resolver.currentLink(), semantic_flags);
-			if(!fileResult) {
-				if(fileResult.error() == Error::noBackingDevice) {
-					co_await sendErrorResponse<managarm::posix::OpenAtResponse>(conversation, managarm::posix::Errors::NO_BACKING_DEVICE);
-					co_return {};
-				} else if(fileResult.error() == Error::illegalArguments) {
-					co_await sendErrorResponse<managarm::posix::OpenAtResponse>(conversation, managarm::posix::Errors::ILLEGAL_ARGUMENTS);
-					co_return {};
-				} else {
-					std::cout << "posix: Unexpected failure from open()" << std::endl;
-					co_return {};
-				}
-			}
-			assert(fileResult);
-			file = fileResult.value();
-		}
+		assert(fileResult);
+		file = fileResult.value();
 	}
 
 	if(!file) {

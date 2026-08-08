@@ -5,6 +5,8 @@
 #include <sys/stat.h>
 #include <unistd.h>
 #include <poll.h>
+#include <signal.h>
+#include <sys/wait.h>
 
 #include "testsuite.hpp"
 
@@ -38,6 +40,96 @@ DEFINE_TEST(pipe_close_reader, ([] {
 	assert(!(pfd.revents & POLLOUT));
 	assert(pfd.revents & POLLERR);
 	assert(!(pfd.revents & POLLHUP));
+}))
+
+DEFINE_TEST(pipe_blocked_writer_reader_close, ([] {
+	int fds[2];
+	int synchronize[2];
+	assert(pipe(fds) == 0);
+	assert(pipe(synchronize) == 0);
+
+	pid_t child = fork();
+	assert(child >= 0);
+	if (!child) {
+		close(fds[1]);
+		close(synchronize[1]);
+		char byte;
+		assert(read(synchronize[0], &byte, 1) == 1);
+		close(fds[0]);
+		_exit(0);
+	}
+
+	close(fds[0]);
+	close(synchronize[0]);
+	void (*old_sigpipe)(int) = signal(SIGPIPE, SIG_IGN);
+	assert(old_sigpipe != SIG_ERR);
+
+	assert(fcntl(fds[1], F_SETFL, O_NONBLOCK) == 0);
+	int nonBlockFlags = fcntl(fds[1], F_GETFL, 0);
+	assert(nonBlockFlags >= 0);
+	assert(nonBlockFlags & O_NONBLOCK);
+
+	// Fill the pipe without relying on its implementation-specific capacity.
+	char buffer[4096] = {};
+	while (true) {
+		ssize_t ret = write(fds[1], buffer, sizeof(buffer));
+		if (ret < 0) {
+			assert(errno == EAGAIN || errno == EWOULDBLOCK);
+			break;
+		}
+		assert(ret == sizeof(buffer));
+	}
+
+	assert(fcntl(fds[1], F_SETFL, 0) == 0);
+	int blockingFlags = fcntl(fds[1], F_GETFL, 0);
+	assert(blockingFlags >= 0);
+	assert(!(blockingFlags & O_NONBLOCK));
+	char byte = 0;
+	assert(write(synchronize[1], &byte, 1) == 1);
+	close(synchronize[1]);
+
+	// The pipe is full, so this write blocks until the child closes its reader.
+	ssize_t ret = write(fds[1], &byte, 1);
+	assert(ret == -1);
+	assert(errno == EPIPE);
+
+	signal(SIGPIPE, old_sigpipe);
+	close(fds[1]);
+	int status;
+	assert(waitpid(child, &status, 0) == child);
+	assert(WIFEXITED(status));
+	assert(WEXITSTATUS(status) == 0);
+}))
+
+DEFINE_TEST(pipe_default_sigpipe, ([] {
+	int fds[2];
+	int synchronize[2];
+	assert(pipe(fds) == 0);
+	assert(pipe(synchronize) == 0);
+
+	pid_t child = fork();
+	assert(child >= 0);
+	if (!child) {
+		assert(signal(SIGPIPE, SIG_DFL) != SIG_ERR);
+		close(fds[0]);
+		close(synchronize[1]);
+		char byte;
+		assert(read(synchronize[0], &byte, 1) == 1);
+		write(fds[1], &byte, 1);
+		_exit(1);
+	}
+
+	close(fds[0]);
+	close(fds[1]);
+	close(synchronize[0]);
+	char byte = 0;
+	assert(write(synchronize[1], &byte, 1) == 1);
+	close(synchronize[1]);
+
+	int status;
+	assert(waitpid(child, &status, 0) == child);
+	assert(WIFSIGNALED(status));
+	assert(WTERMSIG(status) == SIGPIPE);
 }))
 
 DEFINE_TEST(fifo_rw, ([] {

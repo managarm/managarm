@@ -457,6 +457,11 @@ std::expected<void, Error> FileContext::attachFile(int fd, smarter::shared_ptr<F
 
 	auto it = _fileTable.find(fd);
 	if(it != _fileTable.end()) {
+		// dup2() closes the old open-file description. In particular, keeping a
+		// replaced pipe writer alive prevents readers from observing EOF.
+		// This also matches glibc's behavior.
+		HEL_CHECK(helCloseDescriptor(_universe.getHandle(), fileTableWindow()[fd]));
+		fileTableWindow()[fd] = 0;
 		it->second = {std::move(file), close_on_exec};
 	}else{
 		_fileTable.insert({fd, {std::move(file), close_on_exec}});
@@ -648,6 +653,11 @@ void ThreadGroup::issueThreadGroupSignal(int sn, SignalInfo info) {
 
 void Process::issueThreadSignal(int sn, SignalInfo info) {
 	signalQueue.issueSignal(sn, info, ++threadGroup()->currentSignalSeq_);
+	// A synchronous syscall that generates a thread-directed signal (notably
+	// write() generating SIGPIPE) must not let userspace handle its error
+	// return before the signal is considered for delivery. serveSignals() also
+	// interrupts threads, but only after it is scheduled from signalBell_.
+	HEL_CHECK(helInterruptThread(_threadDescriptor.getHandle()));
 }
 
 async::result<PollSignalResult>
