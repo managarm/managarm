@@ -57,7 +57,7 @@ impl EcamPcieConfigIo {
         let handle = hel::access_physical(
             (self.mmio_base + offset) as usize,
             SIZE,
-            hel::CachingMode::Default,
+            hel::CachingMode::Mmio,
         )
         .map_err(|source| ConfigIoError::MappingFailed {
             seg: self.seg,

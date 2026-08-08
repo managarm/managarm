@@ -362,7 +362,7 @@ impl PciDevice for SifPciDevice {
                 let aligned = (bar.address as usize) & !0xFFF;
                 let page_off = (bar.address as usize) & 0xFFF;
                 let span = ((bar.length as usize) + page_off + 0xFFF) & !0xFFF;
-                hel::access_physical(aligned, span.max(0x1000), hel::CachingMode::Default)
+                hel::access_physical(aligned, span.max(0x1000), hel::CachingMode::Mmio)
             }
             IoType::Port => {
                 let ports: Vec<usize> = (bar.address..bar.address + bar.length)
