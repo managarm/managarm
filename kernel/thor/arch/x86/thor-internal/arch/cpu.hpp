@@ -454,6 +454,9 @@ struct CpuFeatures {
 	bool haveVmx;
 	bool haveSvm;
 	uint32_t profileFlags;
+	// Set of XSAVE components that we enable in XCR0.
+	uint64_t xcr0Mask;
+	// Size of the XSAVE region required for the components in xcr0Mask.
 	size_t xsaveRegionSize;
 };
 
