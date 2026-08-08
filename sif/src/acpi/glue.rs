@@ -66,7 +66,7 @@ pub unsafe extern "C" fn uacpi_kernel_map(addr: uacpi_phys_addr, len: uacpi_size
     let aligned = (addr as usize) & !PAGE_MASK;
     let span = (len + page_off + PAGE_MASK) & !PAGE_MASK;
 
-    let handle = match hel::access_physical(aligned, span) {
+    let handle = match hel::access_physical(aligned, span, hel::CachingMode::Default) {
         Ok(handle) => handle,
         Err(_) => return UACPI_MAP_FAILED,
     };

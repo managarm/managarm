@@ -107,9 +107,10 @@ extern inline __attribute__ (( always_inline )) HelError helCopyOnWrite(HelHandl
 };
 
 extern inline __attribute__ (( always_inline )) HelError helAccessPhysical(uintptr_t physical,
-		size_t size, HelHandle *handle) {
+		size_t size, uint32_t cachingMode, HelHandle *handle) {
 	HelWord hel_handle;
-	HelError error = helSyscall2_1(kHelCallAccessPhysical, (HelWord)physical, (HelWord)size, &hel_handle);
+	HelError error = helSyscall3_1(kHelCallAccessPhysical, (HelWord)physical, (HelWord)size,
+			(HelWord)cachingMode, &hel_handle);
 	*handle = (HelHandle)hel_handle;
 	return error;
 };

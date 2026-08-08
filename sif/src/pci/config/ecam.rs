@@ -54,14 +54,16 @@ impl EcamPcieConfigIo {
         const SIZE: usize = 1 << 20;
         let offset = ((bus - self.bus_start) as u64) << 20;
 
-        let handle =
-            hel::access_physical((self.mmio_base + offset) as usize, SIZE).map_err(|source| {
-                ConfigIoError::MappingFailed {
-                    seg: self.seg,
-                    bus,
-                    source,
-                }
-            })?;
+        let handle = hel::access_physical(
+            (self.mmio_base + offset) as usize,
+            SIZE,
+            hel::CachingMode::Default,
+        )
+        .map_err(|source| ConfigIoError::MappingFailed {
+            seg: self.seg,
+            bus,
+            source,
+        })?;
         let mapping = unsafe {
             hel::Mapping::<u8>::new(
                 &handle,

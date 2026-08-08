@@ -473,6 +473,16 @@ enum HelSliceFlags {
 	kHelSliceCacheWriteCombine = 1,
 };
 
+enum HelCachingMode {
+	kHelCachingDefault = 0,
+	kHelCachingUncached = 1,
+	kHelCachingWriteCombine = 2,
+	kHelCachingWriteThrough = 3,
+	kHelCachingWriteBack = 4,
+	kHelCachingMmio = 5,
+	kHelCachingMmioNonPosted = 6
+};
+
 enum HelThreadFlags {
 	kHelThreadStopped = 1
 };
@@ -1211,7 +1221,7 @@ HEL_C_LINKAGE HelError helCopyOnWrite(HelHandle memory,
 		uintptr_t offset, size_t size, HelHandle *handle);
 
 HEL_C_LINKAGE HelError helAccessPhysical(uintptr_t physical,
-		size_t size, HelHandle *handle);
+		size_t size, uint32_t cachingMode, HelHandle *handle);
 
 //! Creates a memory object that obtains its memory by delegating to other memory objects.
 //! @param[in] numSlots
