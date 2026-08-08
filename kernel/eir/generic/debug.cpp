@@ -1,6 +1,7 @@
 #include <eir-internal/arch.hpp>
 #include <eir-internal/debug.hpp>
 #include <eir-internal/generic.hpp>
+#include <eir-internal/log-ring.hpp>
 #include <frg/logging.hpp>
 
 namespace eir {
@@ -14,6 +15,18 @@ using HandlerList = frg::intrusive_list<
 HandlerList &accessHandlerList() {
 	static frg::eternal<HandlerList> singleton;
 	return *singleton;
+}
+
+// Handlers may read back earlier lines from the ring, hence the ring is updated first.
+void postLine(frg::string_view line) {
+	if (line.size() > maxLogLine)
+		line = line.sub_string(0, maxLogLine);
+	bootLogRing().enqueue(line.data(), line.size());
+
+	auto &handlerList = accessHandlerList();
+	for (auto *handler : handlerList) {
+		handler->emit(line);
+	}
 }
 
 } // anonymous namespace
@@ -38,10 +51,16 @@ void OutputSink::print(char c) {
 }
 
 void OutputSink::print(const char *str) {
-	auto &handlerList = accessHandlerList();
-	for (auto *handler : handlerList) {
-		handler->emit(str);
+	// Split at newlines such that a log record always holds exactly one line.
+	frg::string_view view{str};
+	while (true) {
+		auto pos = view.find_first('\n');
+		if (pos == size_t(-1))
+			break;
+		postLine(view.sub_string(0, pos));
+		view = view.sub_string(pos + 1, view.size() - pos - 1);
 	}
+	postLine(view);
 
 	while (*str)
 		print(*(str++));

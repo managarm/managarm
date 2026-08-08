@@ -7,6 +7,7 @@ eir_generic_sources = files(
 	'../common/uart/pl011.cpp',
 	'../common/uart/samsung.cpp',
 	'generic/cmdline.cpp',
+	'generic/log-ring.cpp',
 	'generic/main.cpp',
 	'generic/memory-layout.cpp',
 	'generic/debug.cpp',
