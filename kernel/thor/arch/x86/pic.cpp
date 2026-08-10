@@ -521,6 +521,10 @@ smarter::shared_ptr<MsiPin> allocateApicMsi(frg::string<KernelAlloc> name) {
 			<< " to " << pin->name() << frg::endlog;
 	globalIrqSlots[slotIndex].link(pin.get());
 
+	// Leak a reference until IrqPin teardown exists;
+	// otherwise the slot dangles once the last sink goes away.
+	pin.policy().increment();
+
 	return pin;
 }
 
