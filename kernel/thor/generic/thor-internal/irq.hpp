@@ -120,7 +120,7 @@ protected:
 		return _currentSequence;
 	}
 
-	~IrqSink() = default;
+	~IrqSink();
 
 private:
 	frg::string<KernelAlloc> _name;
@@ -167,6 +167,7 @@ private:
 
 public:
 	static void attachSink(smarter::shared_ptr<IrqPin> pin, IrqSink *sink);
+	static void detachSink(IrqSink *sink);
 	static Error ackSink(IrqSink *sink, uint64_t sequence);
 	static Error nackSink(IrqSink *sink, uint64_t sequence);
 	static Error kickSink(IrqSink *sink, bool wantClear);

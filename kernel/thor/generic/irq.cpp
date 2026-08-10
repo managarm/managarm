@@ -17,6 +17,11 @@ namespace {
 IrqSink::IrqSink(frg::string<KernelAlloc> name)
 : _name{std::move(name)}, _currentSequence{0} { }
 
+IrqSink::~IrqSink() {
+	if(_pin)
+		IrqPin::detachSink(this);
+}
+
 void IrqSink::dumpHardwareState() {
 	infoLogger() << "thor: No dump available for IRQ sink " << name() << frg::endlog;
 }
@@ -40,6 +45,22 @@ void IrqPin::attachSink(smarter::shared_ptr<IrqPin> pin, IrqSink *sink) {
 
 	pin->_sinkList.push_back(sink);
 	sink->_pin = std::move(pin);
+}
+
+void IrqPin::detachSink(IrqSink *sink) {
+	// Move the reference out of the sink such that the pin can only die once we drop the locks.
+	auto pin = std::move(sink->_pin);
+
+	auto irq_lock = frg::guard(&irqMutex());
+	auto lock = frg::guard(&pin->_mutex);
+
+	// Unlink first: _nack() can re-enter the sink list to dump the remaining sinks.
+	pin->_sinkList.erase(pin->_sinkList.iterator_to(sink));
+
+	// The sink still owes an ACK/NACK. NACK on its behalf, otherwise the pin never
+	// leaves service.
+	if(sink->_status == IrqStatus::indefinite)
+		pin->_nack();
 }
 
 Error IrqPin::ackSink(IrqSink *sink, uint64_t sequence) {
