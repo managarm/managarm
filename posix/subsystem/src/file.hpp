@@ -330,6 +330,7 @@ public:
 	using DefaultOps = uint32_t;
 	static inline constexpr DefaultOps defaultIsTerminal = 1 << 1;
 	static inline constexpr DefaultOps defaultPipeLikeSeek = 1 << 2;
+	static inline constexpr DefaultOps defaultMapsAnonymously = 1 << 3;
 
 	// ------------------------------------------------------------------------
 	// File protocol adapters.
@@ -521,6 +522,9 @@ public:
 	}
 
 	bool isTerminal();
+
+	// Whether mappings of this file are backed by anonymous memory instead of accessMemory().
+	bool mapsAnonymously();
 
 	async::result<frg::expected<Error>> readExactly(Process *process, void *data, size_t length);
 

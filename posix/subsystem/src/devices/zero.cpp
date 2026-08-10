@@ -41,7 +41,8 @@ public:
 	}
 
 	ZeroFile(std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link)
-	: FileWithDefaults{FileKind::unknown,  StructName::get("zero-file"), std::move(mount), std::move(link)} { }
+	: FileWithDefaults{FileKind::unknown,  StructName::get("zero-file"), std::move(mount), std::move(link),
+			defaultMapsAnonymously} { }
 };
 
 struct ZeroDevice final : UnixDevice {

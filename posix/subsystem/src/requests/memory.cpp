@@ -26,6 +26,11 @@ HandleRequest::operator()(managarm::posix::VmMapRequest &&req,
 		co_return {};
 	}
 
+	if((req.flags() & MAP_ANONYMOUS) && req.rel_offset()) {
+		co_await sendErrorResponse<managarm::posix::VmMapResponse>(conversation, managarm::posix::Errors::ILLEGAL_ARGUMENTS);
+		co_return {};
+	}
+
 	uint32_t nativeFlags = 0;
 
 	if(req.mode() & PROT_READ)
@@ -46,15 +51,24 @@ HandleRequest::operator()(managarm::posix::VmMapRequest &&req,
 	}else if((req.flags() & (MAP_PRIVATE | MAP_SHARED)) == MAP_SHARED) {
 		copyOnWrite = false;
 	}else{
-		throw std::runtime_error("posix: Handle illegal flags in VM_MAP");
+		co_await sendErrorResponse<managarm::posix::VmMapResponse>(conversation, managarm::posix::Errors::ILLEGAL_ARGUMENTS);
+		co_return {};
 	}
 
 	uintptr_t hint = req.address_hint();
 
-	frg::expected<Error, void *> result;
-	if(req.flags() & MAP_ANONYMOUS) {
-		assert(!req.rel_offset());
+	smarter::shared_ptr<File, FileHandle> file;
+	if(!(req.flags() & MAP_ANONYMOUS)) {
+		file = self->fileContext()->getFile(req.fd());
+		if(!file) {
+			co_await sendErrorResponse<managarm::posix::VmMapResponse>(conversation, managarm::posix::Errors::NO_SUCH_FD);
+			co_return {};
+		}
+	}
 
+	// Files such as /dev/zero map like anonymous memory; their offset is ignored.
+	frg::expected<Error, void *> result;
+	if((req.flags() & MAP_ANONYMOUS) || file->mapsAnonymously()) {
 		if(req.size() == 0) {
 			std::cout << "posix: VM_MAP with size 0 is not allowed" << std::endl;
 			co_await sendErrorResponse<managarm::posix::VmMapResponse>(conversation, managarm::posix::Errors::ILLEGAL_ARGUMENTS);
@@ -80,8 +94,6 @@ HandleRequest::operator()(managarm::posix::VmMapRequest &&req,
 					0, size, false, nativeFlags);
 		}
 	}else{
-		auto file = self->fileContext()->getFile(req.fd());
-		assert(file && "Illegal FD for VM_MAP");
 		auto memory = co_await file->accessMemory();
 		if(!memory) {
 			co_await sendErrorResponse<managarm::posix::VmMapResponse>(conversation, managarm::posix::Errors::ILLEGAL_ARGUMENTS);
@@ -93,11 +105,8 @@ HandleRequest::operator()(managarm::posix::VmMapRequest &&req,
 	}
 
 	if(!result) {
-		assert(result.error() == Error::alreadyExists || result.error() == Error::noMemory);
-		if(result.error() == Error::alreadyExists)
-			co_await sendErrorResponse<managarm::posix::VmMapResponse>(conversation, managarm::posix::Errors::ALREADY_EXISTS);
-		else if(result.error() == Error::noMemory)
-			co_await sendErrorResponse<managarm::posix::VmMapResponse>(conversation, managarm::posix::Errors::NO_MEMORY);
+		co_await sendErrorResponse<managarm::posix::VmMapResponse>(conversation,
+				result.error() | toPosixProtoError);
 		co_return {};
 	}
 
