@@ -1,5 +1,7 @@
 #pragma once
 
+#include <atomic>
+
 #include <arch/mem_space.hpp>
 #include <x86/machine.hpp>
 #include <initgraph.hpp>
@@ -24,11 +26,11 @@ struct IrqSlot {
 	void link(IrqPin *pin);
 
 	IrqPin *pin() {
-		return _pin;
+		return _pin.load(std::memory_order_acquire);
 	}
 
 private:
-	IrqPin *_pin = nullptr;
+	std::atomic<IrqPin *> _pin{nullptr};
 };
 
 extern IrqSlot globalIrqSlots[numIrqSlots];

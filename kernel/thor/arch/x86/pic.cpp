@@ -114,8 +114,8 @@ uint64_t getRawTimestampCounter() {
 constinit IrqSlot globalIrqSlots[numIrqSlots];
 
 void IrqSlot::link(IrqPin *pin) {
-	assert(!_pin);
-	_pin = pin;
+	assert(!_pin.load(std::memory_order_relaxed));
+	_pin.store(pin, std::memory_order_release);
 }
 
 // --------------------------------------------------------
