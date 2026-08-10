@@ -23,6 +23,7 @@ src = [
 	'src/procfs.cpp',
 	'src/path-resolution.cpp',
 	'src/rename.cpp',
+	'src/trailing-slash-create.cpp',
 	'src/pthread-fork-wait.cpp',
 	'src/thread.cpp',
 	'src/poll.cpp',

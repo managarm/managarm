@@ -14,10 +14,31 @@
 #include "fs.hpp"
 
 using ResolveFlags = uint32_t;
-inline constexpr ResolveFlags resolvePrefix = (1 << 4);
-// The path must not refer to a directory (no trailing slash allowed).
-inline constexpr ResolveFlags resolveNoTrailingSlash = (1 << 2);
+
 inline constexpr ResolveFlags resolveDontFollow = (1 << 1);
+
+// Resolution stops before resolving the last component, ignoring trailing slashes.
+// In particular, both for a/b/c and for a/b/c/, resolution stops before c.
+// If a trailing slash is present, the behavior depends on the mutually exclusive flags
+// resolveNoTrailingSlash, resolveOpenCreate and resolveCreatesNonDirectory (see below).
+// Without any of these flags (mkdir, rename of a directory):
+// a trailing slash after successful prefix resolution returns success.
+// Note that the trailing slash handling is modelled after Linux, not POSIX.
+inline constexpr ResolveFlags resolvePrefix = (1 << 4);
+
+// The caller operates on an existing non-directory (rename with a non-directory source).
+// Requires resolvePrefix.
+// A trailing slash after successful prefix resolution fails with ENOTDIR.
+inline constexpr ResolveFlags resolveNoTrailingSlash = (1 << 2);
+// The caller is open() with O_CREAT.
+// Requires resolvePrefix.
+// A trailing slash after successful prefix resolution fails with EISDIR.
+inline constexpr ResolveFlags resolveOpenCreate = (1 << 5);
+// The caller creates a non-directory leaf (mkfifo, mknod, link, symlink, bind).
+// Requires resolvePrefix.
+// A trailing slash after successful prefix resolution checks the last component (without resolving symlinks) and then fails.
+// If the last component does not exist, resolution fails with ENOENT. Otherwise, it fails with EEXIST.
+inline constexpr ResolveFlags resolveCreatesNonDirectory = (1 << 6);
 
 using ViewPathPair = std::pair<std::shared_ptr<MountView>, std::shared_ptr<FsLink>>;
 
