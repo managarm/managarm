@@ -75,10 +75,47 @@ Controller::Controller(
 	std::println("{} {} ports in total", this, _numPorts);
 }
 
-void Controller::_processExtendedCapabilities() {
+async::result<void> Controller::_biosHandoff(uint32_t cap) {
+	arch::bit_register<uint32_t> sts{cap + 0x00};
+	arch::bit_register<uint32_t> ctl{cap + 0x04};
+
+	auto val = _space.load(sts);
+
+	if (val & handoff_sts::hcBiosOwned) {
+		_space.store(sts, val | handoff_sts::hcOsOwned(true));
+
+		auto checkOwned = [&] { return !(_space.load(sts) & handoff_sts::hcBiosOwned); };
+		if (!co_await helix::kindaBusyWait(1'000'000'000, checkOwned)) {
+			std::println("{} BIOS handoff failed. Handoff status={:08x}", this,
+					static_cast<uint32_t>(_space.load(sts)));
+
+			_space.store(sts, val / handoff_sts::hcBiosOwned(false));
+		}
+	}
+
+	val = _space.load(ctl);
+
+	// Clear enable bits
+	val /= handoff_ctl::smiEnable(false);
+	val /= handoff_ctl::smiHseEnable(false);
+	val /= handoff_ctl::smiOsOwnerEnable(false);
+	val /= handoff_ctl::smiPciCmdEnable(false);
+	val /= handoff_ctl::smiBarEnable(false);
+
+	// Clear RW1C bits
+	val |= handoff_ctl::smiOsOwner(true);
+	val |= handoff_ctl::smiPciCmd(true);
+	val |= handoff_ctl::smiBar(true);
+
+	_space.store(ctl, val);
+
+	std::println("{} Controller ownership obtained from BIOS", this);
+}
+
+async::result<void> Controller::_processExtendedCapabilities() {
 	auto cur = (_space.load(cap_regs::hccparams1) & hccparams1::extCapPtr) * 4u;
 	if(!cur)
-		return;
+		co_return;
 
 	while(1) {
 		auto val = arch::scalar_load<uint32_t>(_space, cur);
@@ -91,13 +128,7 @@ void Controller::_processExtendedCapabilities() {
 
 		if(id == 1) {
 			std::println("{} USB Legacy Support capability at {}", this, cur);
-
-			while(arch::scalar_load<uint8_t>(_space, cur + 0x2)) {
-				arch::scalar_store<uint8_t>(_space, cur + 0x3, 1);
-				sleep(1);
-			}
-
-			std::println("{} Controller ownership obtained from BIOS", this);
+			co_await _biosHandoff(cur);
 		} else if(id == 2) {
 			SupportedProtocol proto;
 
@@ -131,7 +162,7 @@ async::detached Controller::initialize() {
 	auto opOffset = _space.load(cap_regs::caplength);
 	auto operational = _space.subspace(opOffset);
 
-	_processExtendedCapabilities();
+	co_await _processExtendedCapabilities();
 
 	std::println("{} Initializing controller", this);
 
@@ -148,9 +179,16 @@ async::detached Controller::initialize() {
 	// Reset the controller and wait for it to complete
 	operational.store(op_regs::usbcmd, usbcmd::hcReset(1));
 
+	auto checkReset = [&] { return !(operational.load(op_regs::usbcmd) & usbcmd::hcReset); };
+	if (!co_await helix::kindaBusyWait(5'000'000'000, checkReset)) {
+		std::println("{} Controller not come out of reset after 5s! USBCMD={:08x}", this,
+				static_cast<uint32_t>(operational.load(op_regs::usbcmd)));
+		co_return;
+	}
+
 	auto checkReady = [&] { return !(operational.load(op_regs::usbsts) & usbsts::controllerNotReady); };
 	if (!co_await helix::kindaBusyWait(5'000'000'000, checkReady)) {
-		std::println("{} Controller not ready after reset after 5s! USBSTS={:08x}", this,
+		std::println("{} Controller not ready after 5s! USBSTS={:08x}", this,
 				static_cast<uint32_t>(operational.load(op_regs::usbsts)));
 		co_return;
 	}
@@ -220,9 +258,6 @@ async::detached Controller::initialize() {
 				static_cast<uint32_t>(operational.load(op_regs::usbsts)));
 		co_return;
 	}
-
-	while(operational.load(op_regs::usbsts) & usbsts::hcHalted)
-		;
 
 	// Set up root hubs for each protocol
 	for (auto &p : _supportedProtocols) {
@@ -362,6 +397,15 @@ void Controller::processEvent(Event ev) {
 			break;
 
 		case transferEvent:
+			if (!_devices[ev.slotId]) {
+				std::println("{} Transfer event for unexpected slot {}", this, ev.slotId);
+				break;
+			}
+			if (ev.endpointId == 0 || ev.endpointId > 31) {
+				std::println("{} Transfer event for unexpected endpoint ID {} on slot {}", this, ev.endpointId, ev.slotId);
+				break;
+			}
+
 			if (auto ep = _devices[ev.slotId]->endpoint(ev.endpointId))
 				ep->transferRing().processEvent(ev);
 			else
@@ -369,7 +413,11 @@ void Controller::processEvent(Event ev) {
 			break;
 
 		case portStatusChangeEvent:
-			assert(ev.portId <= _ports.size());
+			if (ev.portId == 0 || ev.portId > _ports.size()) {
+				std::println("{} Port event for unexpected port {}", this, ev.portId);
+				break;
+			}
+
 			if (_ports[ev.portId - 1])
 				_ports[ev.portId - 1]->_doorbell.raise();
 			break;
@@ -585,9 +633,15 @@ void Controller::Port::transitionToLinkStatus(uint8_t status) {
 }
 
 async::detached Controller::Port::initPort() {
-	if (!isPowered()) {
-		std::println("{} Port {} is not powered on", _controller, _id);
-	}
+	std::println("{} Powering off port {}", _controller, _id);
+	_space.store(port::portsc, portsc::portPower(false));
+
+	co_await helix_ng::sleepFor(1'000'000'000);
+
+	std::println("{} Powering on port {}", _controller, _id);
+	_space.store(port::portsc, portsc::portPower(true));
+
+	co_await helix_ng::sleepFor(1'000'000'000);
 
 	// Wait for something to connect to the port
 	co_await awaitFlag(portsc::connectStatus, true);
