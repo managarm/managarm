@@ -11,6 +11,29 @@
 namespace thor {
 
 // --------------------------------------------------------
+// IRQ slots
+// --------------------------------------------------------
+
+static inline constexpr int numIrqSlots = 64;
+
+// Represents a slot in the CPU's interrupt table.
+// Slots might be global or per-CPU.
+struct IrqSlot {
+	// Links an IrqPin to this slot.
+	// From now on all IRQ raises will go to this IrqPin.
+	void link(IrqPin *pin);
+
+	IrqPin *pin() {
+		return _pin;
+	}
+
+private:
+	IrqPin *_pin = nullptr;
+};
+
+extern IrqSlot globalIrqSlots[numIrqSlots];
+
+// --------------------------------------------------------
 // Local APIC management
 // --------------------------------------------------------
 

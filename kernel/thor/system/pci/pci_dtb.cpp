@@ -5,7 +5,6 @@
 #include <thor-internal/main.hpp>
 #include <thor-internal/dtb/dtb.hpp>
 #include <thor-internal/dtb/irq.hpp>
-#include <thor-internal/arch/system.hpp>
 
 #include <thor-internal/pci/pcie_ecam.hpp>
 #include <thor-internal/pci/pcie_brcmstb.hpp>
@@ -13,12 +12,6 @@
 #ifndef __riscv
 #include <thor-internal/arch/gic.hpp>
 #endif
-
-namespace thor {
-
-extern frg::manual_box<IrqSlot> globalIrqSlots[numIrqSlots];
-
-} // namespace thor
 
 namespace thor::pci {
 

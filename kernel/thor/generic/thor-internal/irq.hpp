@@ -52,30 +52,6 @@ private:
 
 struct IrqPin;
 
-// Represents a slot in the CPU's interrupt table.
-// Slots might be global or per-CPU.
-struct IrqSlot {
-	bool isAvailable() {
-		return _pin == nullptr;
-	}
-
-	// Links an IrqPin to this slot.
-	// From now on all IRQ raises will go to this IrqPin.
-	void link(IrqPin *pin);
-
-	// The kernel calls this function when an IRQ is raised.
-	void raise();
-
-	IrqPin *pin() {
-		return _pin;
-	}
-
-private:
-	IrqPin *_pin = nullptr;
-};
-
-// ----------------------------------------------------------------------------
-
 enum class TriggerMode {
 	null,
 	edge,
@@ -209,7 +185,7 @@ public:
 
 	void configure(IrqConfiguration cfg);
 
-	// This function is called from IrqSlot::raise().
+	// This function is called from handleIrq().
 	void raise();
 
 private:

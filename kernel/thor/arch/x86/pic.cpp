@@ -108,6 +108,17 @@ uint64_t getRawTimestampCounter() {
 }
 
 // --------------------------------------------------------
+// IrqSlot
+// --------------------------------------------------------
+
+constinit IrqSlot globalIrqSlots[numIrqSlots];
+
+void IrqSlot::link(IrqPin *pin) {
+	assert(!_pin);
+	_pin = pin;
+}
+
+// --------------------------------------------------------
 // Local APIC timer
 // --------------------------------------------------------
 
@@ -442,16 +453,14 @@ void sendGlobalNmi() {
 // MSI management
 // --------------------------------------------------------
 
-extern frg::manual_box<IrqSlot> globalIrqSlots[64];
-
 namespace {
 	IrqSpinlock irqAllocationLock;
-	static bool irqSlotAllocated[64]{};
+	static bool irqSlotAllocated[numIrqSlots]{};
 
 	std::optional<int> allocateIrqSlot() {
 		auto guard = frg::guard(&irqAllocationLock);
 
-		for(int i = 0; i < 64; i++) {
+		for(int i = 0; i < numIrqSlots; i++) {
 			if(irqSlotAllocated[i])
 				continue;
 			irqSlotAllocated[i] = true;
@@ -511,7 +520,7 @@ MsiPin *allocateApicMsi(frg::string<KernelAlloc> name) {
 
 	infoLogger() << "thor: Allocating IRQ slot " << slotIndex
 			<< " to " << pin->name() << frg::endlog;
-	globalIrqSlots[slotIndex]->link(pin);
+	globalIrqSlots[slotIndex].link(pin);
 
 	return pin;
 }
@@ -664,7 +673,7 @@ namespace {
 				panicLogger() << "thor: Could not allocate interrupt vector for "
 						<< name() << frg::endlog;
 			auto slotIndex = *maybeSlotIndex;
-			globalIrqSlots[slotIndex]->link(this);
+			globalIrqSlots[slotIndex].link(this);
 			_vector = 64 + slotIndex;
 		}
 
