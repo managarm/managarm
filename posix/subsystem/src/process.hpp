@@ -420,13 +420,17 @@ struct SignalContext {
 		SignalHandler handler;
 	};
 
-	// As this function bumps the signal seq number, only call this exactly
-	// once per SignalItem!
-	SignalHandling determineHandling(SignalItem *item, Process *process);
+	// Accept a signal and determine the signal disposition.
+	// Checks whether a signal is blocked or not happen *before* this function.
+	// As this function bumps the signal seq number, only call this exactly once per SignalItem!
+	// In a SignalGuard, acceptance happens when a signal is parked in delayedSignal,
+	// while the signal handler invocation happens after exiting the SignalGuard.
+	SignalHandling acceptSignal(SignalItem *item, Process *process);
+
 	async::result<void> raiseContext(SignalItem *item, Process *process,
 			SignalHandling handling);
 
-	async::result<void> determineAndRaiseContext(SignalItem *item, Process *process,
+	async::result<void> acceptSignalAndRaiseContext(SignalItem *item, Process *process,
 			bool &killed);
 
 	async::result<void> restoreContext(helix::BorrowedDescriptor thread, Process *process);
@@ -690,6 +694,19 @@ public:
 	bool forceTermination = false;
 
 	SignalQueue signalQueue;
+
+	// A signal that was accepted for delivery while the thread was inside a SignalGuard.
+	// Signals acceptance must still be evaluated within SignalGuard since non-ignored signals cause
+	// in-flight operations to be cancelled with EINTR (even when a SignalGuard is active --
+	// SignalGuard regions are libc-internal and unobservable to applications).
+	//
+	// Conceptually the signal is *delivered* at acceptance time and also the disposition and handling is fixed.
+	// Thus, delayedSignal is exempt from SIG_IGN discarding and nothing may drop it
+	// (otherwise, we would cause spurious EINTRs).
+	//
+	// Storing one delayedSignal suffices:
+	// only the signal that triggered an EINTR in the current SignalGuard region needs to be buffered.
+	// All later signals are queued normally and are drained by the delivery loop at SignalGuard exit.
 	SignalItem *delayedSignal = nullptr;
 	std::optional<SignalContext::SignalHandling> delayedSignalHandling = std::nullopt;
 
@@ -771,6 +788,7 @@ struct ThreadGroup : std::enable_shared_from_this<ThreadGroup> {
 
 	SignalContext *signalContext() { return _signalContext.get(); }
 	SignalQueue &signalQueue() { return signalQueue_; }
+	const std::vector<std::shared_ptr<Process>> &threads() { return threads_; }
 
 	static std::shared_ptr<ThreadGroup> findThreadGroup(ProcessId pid);
 	std::shared_ptr<Process> findThread(pid_t tid);
