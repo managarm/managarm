@@ -420,7 +420,10 @@ HandleRequest::operator()(managarm::posix::LinkAtRequest &&req,
 
 	auto target = resolver.currentLink()->getTarget();
 	auto directory = new_resolver.currentLink()->getTarget();
-	assert(target->superblock() == directory->superblock()); // Hard links across mount points are not allowed, return EXDEV
+	if(target->superblock() != directory->superblock()) {
+		co_await sendErrorResponse<managarm::posix::LinkAtResponse>(conversation, managarm::posix::Errors::CROSS_DEVICE_LINK);
+		co_return {};
+	}
 	auto result = co_await directory->link(new_resolver.nextComponent(), target);
 	if(!result) {
 		co_await sendErrorResponse<managarm::posix::LinkAtResponse>(conversation, result.error() | toPosixProtoError);
