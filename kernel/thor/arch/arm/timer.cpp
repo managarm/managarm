@@ -87,10 +87,10 @@ enum class TimerIrqSource {
 static TimerIrqSource timerIrqSource = TimerIrqSource::none;
 static GlobalIrqInfo acpiTimerIrq;
 
-IrqPin *setupAcpiTimerIrq() {
+smarter::shared_ptr<IrqPin> setupAcpiTimerIrq() {
 	return std::visit(
 	    frg::overloaded{
-	        [](GicV2 *gic) -> IrqPin * {
+	        [](GicV2 *gic) -> smarter::shared_ptr<IrqPin> {
 		        auto pin = gic->getPin(acpiTimerIrq.gsi);
 		        if (!pin)
 			        panicLogger() << "thor: GTDT timer GSI " << acpiTimerIrq.gsi
@@ -98,7 +98,7 @@ IrqPin *setupAcpiTimerIrq() {
 		        pin->configure(acpiTimerIrq.configuration);
 		        return pin;
 	        },
-	        [](GicV3 *gic) -> IrqPin * {
+	        [](GicV3 *gic) -> smarter::shared_ptr<IrqPin> {
 		        auto pin = gic->getPin(acpiTimerIrq.gsi);
 		        if (!pin)
 			        panicLogger() << "thor: GTDT timer GSI " << acpiTimerIrq.gsi
@@ -106,7 +106,7 @@ IrqPin *setupAcpiTimerIrq() {
 		        pin->configure(acpiTimerIrq.configuration);
 		        return pin;
 	        },
-	        [](auto &&) -> IrqPin * {
+	        [](auto &&) -> smarter::shared_ptr<IrqPin> {
 		        panicLogger() << "thor: GTDT timer requires a GIC" << frg::endlog;
 		        __builtin_unreachable();
 	        }
@@ -201,7 +201,7 @@ bool haveTimer() {
 // Sets up the proper interrupt trigger and polarity for the PPI
 void initTimerOnThisCpu() {
 	auto sink = frg::construct<GenericTimerSink>(*kernelAlloc);
-	IrqPin *pin = nullptr;
+	smarter::shared_ptr<IrqPin> pin;
 	switch (timerIrqSource) {
 		case TimerIrqSource::dt:
 			pin = timerIrqParent->resolveDtIrq(*timerIrq);
@@ -212,7 +212,7 @@ void initTimerOnThisCpu() {
 		case TimerIrqSource::none:
 			panicLogger() << "thor: Timer IRQ was not initialized" << frg::endlog;
 	}
-	IrqPin::attachSink(pin, sink);
+	IrqPin::attachSink(std::move(pin), sink);
 }
 
 } // namespace thor

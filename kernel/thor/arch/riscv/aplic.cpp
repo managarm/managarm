@@ -44,7 +44,7 @@ struct Imsic {
 // Per-CPU IMSIC context.
 struct ImsicContext {
 	uint32_t hartIndex{~UINT32_C(0)};
-	frg::dyn_array<IrqPin *, KernelAlloc> irqs{*kernelAlloc};
+	frg::dyn_array<smarter::shared_ptr<IrqPin>, KernelAlloc> irqs{*kernelAlloc};
 };
 
 // Only written before APs are booted (no locks needed).
@@ -224,7 +224,7 @@ struct Aplic : dt::IrqController {
 					panicLogger()
 					    << "thor: Cannot identity route APLIC interrupt to IMSIC interrupt " << idx_
 					    << frg::endlog;
-				ctx->irqs[idx_] = this;
+				ctx->irqs[idx_] = selfPtr.lock();
 				aplic_->space_.store(aplicTargetRegister(idx_), (ctx->hartIndex << 18) | idx_);
 			} else {
 				// Program the source to target the BSP, set priority to 1.
@@ -290,7 +290,7 @@ struct Aplic : dt::IrqController {
 		irqs_ = {numIrqs, *kernelAlloc};
 		irqs_[0] = nullptr;
 		for (size_t i = 1; i < numIrqs; ++i)
-			irqs_[i] = frg::construct<Irq>(*kernelAlloc, this, i);
+			irqs_[i] = createIrqPin<Irq>(this, i);
 
 		// This should set BE = 0 and IE = 0.
 		space_.store(aplicDomaincfgRegister, 0);
@@ -317,13 +317,13 @@ struct Aplic : dt::IrqController {
 	Aplic(const Aplic &) = delete;
 	Aplic &operator=(const Aplic &) = delete;
 
-	IrqPin *getIrq(size_t idx) {
+	smarter::shared_ptr<IrqPin> getIrq(size_t idx) {
 		assert(idx);
 		assert(idx < irqs_.size());
 		return irqs_[idx];
 	}
 
-	IrqPin *resolveDtIrq(dtb::Cells irqSpecifier) override {
+	smarter::shared_ptr<IrqPin> resolveDtIrq(dtb::Cells irqSpecifier) override {
 		if (irqSpecifier.numCells() != 2)
 			panicLogger() << "APLIC #interrupt-cells should be 2" << frg::endlog;
 		uint32_t idx;
@@ -372,7 +372,7 @@ private:
 	PhysicalAddr base_;
 	arch::mem_space space_;
 	Imsic *imsic_{nullptr};
-	frg::dyn_array<Irq *, KernelAlloc> irqs_{*kernelAlloc};
+	frg::dyn_array<smarter::shared_ptr<Irq>, KernelAlloc> irqs_{*kernelAlloc};
 	// TODO: The current implementation routes all IRQs to the BSP.
 	//       We should allow routing of IRQs to other harts as well.
 	size_t bspIdx_; // Only relevant in direct routing mode.
@@ -506,7 +506,7 @@ IrqPin *claimImsicIrq() {
 		warningLogger() << "thor: IMSIC IRQ index " << idx << " out of bounds" << frg::endlog;
 		return nullptr;
 	}
-	return ctx->irqs[idx];
+	return ctx->irqs[idx].get();
 }
 
 IrqPin *claimAplicIrq() {
@@ -517,7 +517,7 @@ IrqPin *claimAplicIrq() {
 	auto idx = aplic->claim(ourExternalIrq->context);
 	if (!idx)
 		return nullptr;
-	return aplic->getIrq(idx);
+	return aplic->getIrq(idx).get();
 }
 
 } // namespace thor

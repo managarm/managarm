@@ -295,7 +295,7 @@ static initgraph::Task enumerateDmalog{&globalInitEngine, "pci.enumerate-dmalog"
 					IrqPin::attachSink(pin, dmalog.get());
 
 					pciDevice->enableBusmaster();
-					pciDevice->setupMsi(pin, 0);
+					pciDevice->setupMsi(pin.get(), 0);
 					pciDevice->enableMsi();
 					useMsi = true;
 				}

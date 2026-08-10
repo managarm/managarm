@@ -97,7 +97,7 @@ DtbPciIrqRouter::DtbPciIrqRouter(PciIrqRouter *parent_, PciBus *associatedBus_,
 			if (logRoutingTable)
 				infoLogger() << bus << " " << slot << " [" << index << "]: Routed to IRQ "
 						<< pin->name() << frg::endlog;
-			routingTable.push({slot, static_cast<IrqIndex>(index), pin});
+			routingTable.push({slot, static_cast<IrqIndex>(index), std::move(pin)});
 		}, node);
 		if (!success)
 			panicLogger() << "Failed to walk interrupt-map of " << node->path() << frg::endlog;

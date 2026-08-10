@@ -75,12 +75,12 @@ struct GicV3 : public Gic {
 	CpuIrq getIrq() override;
 	void eoi(uint32_t cpuId, uint32_t id) override;
 
-	Pin *setupIrq(uint32_t irq, TriggerMode trigger) override;
-	Pin *getPin(uint32_t irq) override;
+	smarter::shared_ptr<Pin> setupIrq(uint32_t irq, TriggerMode trigger) override;
+	smarter::shared_ptr<Pin> getPin(uint32_t irq) override;
 	uint32_t irqCount() override;
 
 private:
-	frg::vector<GicPinV3 *, KernelAlloc> irqPins_;
+	frg::vector<smarter::shared_ptr<GicPinV3>, KernelAlloc> irqPins_;
 };
 
 bool initGicV3();

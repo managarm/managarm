@@ -116,7 +116,7 @@ void sendGlobalNmi();
 // MSI management
 // --------------------------------------------------------
 
-MsiPin *allocateApicMsi(frg::string<KernelAlloc> name);
+smarter::shared_ptr<MsiPin> allocateApicMsi(frg::string<KernelAlloc> name);
 
 // --------------------------------------------------------
 // I/O APIC management
@@ -139,6 +139,6 @@ bool checkLegacyPicIsr(int irq);
 
 void acknowledgeIrq(int irq);
 
-IrqPin *getGlobalSystemIrq(size_t n);
+smarter::shared_ptr<IrqPin> getGlobalSystemIrq(size_t n);
 
 } // namespace thor

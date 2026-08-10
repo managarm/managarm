@@ -1,5 +1,6 @@
 #pragma once
 
+#include <concepts>
 #include <expected>
 
 #include <async/recurring-event.hpp>
@@ -7,6 +8,7 @@
 #include <frg/functional.hpp>
 #include <frg/list.hpp>
 #include <frg/string.hpp>
+#include <smarter.hpp>
 #include <thor-internal/error.hpp>
 #include <thor-internal/kernel-heap.hpp>
 #include <thor-internal/kernlet.hpp>
@@ -123,7 +125,7 @@ protected:
 private:
 	frg::string<KernelAlloc> _name;
 
-	IrqPin *_pin;
+	smarter::shared_ptr<IrqPin> _pin;
 
 	// Must be protected against IRQs.
 	frg::ticket_spinlock _mutex;
@@ -164,7 +166,7 @@ private:
 	static constexpr int maskedForNack = 4;
 
 public:
-	static void attachSink(IrqPin *pin, IrqSink *sink);
+	static void attachSink(smarter::shared_ptr<IrqPin> pin, IrqSink *sink);
 	static Error ackSink(IrqSink *sink, uint64_t sequence);
 	static Error nackSink(IrqSink *sink, uint64_t sequence);
 	static Error kickSink(IrqSink *sink, bool wantClear);
@@ -187,6 +189,9 @@ public:
 
 	// This function is called from handleIrq().
 	void raise();
+
+	// Set by createIrqPin().
+	smarter::borrowed_ptr<IrqPin> selfPtr;
 
 private:
 	void _acknowledge();
@@ -271,6 +276,15 @@ struct MsiPin : IrqPin {
 protected:
 	~MsiPin() = default;
 };
+
+// Allocates an IrqPin and sets up its self-pointer.
+template<typename Pin, typename... Args>
+requires std::derived_from<Pin, IrqPin>
+smarter::shared_ptr<Pin> createIrqPin(Args &&... args) {
+	auto pin = smarter::allocate_shared<Pin>(*kernelAlloc, std::forward<Args>(args)...);
+	pin->selfPtr = pin;
+	return pin;
+}
 
 // ----------------------------------------------------------------------------
 

@@ -107,7 +107,7 @@ enum class RoutingModel {
 struct RoutingEntry {
 	unsigned int slot;
 	IrqIndex index;
-	IrqPin *pin;
+	smarter::shared_ptr<IrqPin> pin;
 };
 
 struct PciDevice;
@@ -121,7 +121,7 @@ struct PciIrqRouter {
 
 	virtual ~PciIrqRouter() {}
 
-	IrqPin *resolveIrqRoute(uint32_t slot, IrqIndex index) {
+	smarter::shared_ptr<IrqPin> resolveIrqRoute(uint32_t slot, IrqIndex index) {
 		if (routingModel == RoutingModel::rootTable) {
 			auto entry = std::find_if(routingTable.begin(), routingTable.end(),
 					[&] (const auto &ref) { return ref.slot == slot && ref.index == index; });
@@ -146,7 +146,7 @@ struct PciIrqRouter {
 protected:
 	frg::vector<RoutingEntry, KernelAlloc> routingTable{*kernelAlloc};
 	RoutingModel routingModel;
-	IrqPin *bridgeIrqs[4] = {};
+	smarter::shared_ptr<IrqPin> bridgeIrqs[4] = {};
 };
 
 struct PciConfigIo;
@@ -409,7 +409,7 @@ struct PciDevice final : PciEntity {
 	void runDevice();
 
 	smarter::shared_ptr<IrqObject> obtainIrqObject();
-	IrqPin *getIrqPin();
+	smarter::shared_ptr<IrqPin> getIrqPin();
 
 	void enableIrq();
 
@@ -419,7 +419,7 @@ struct PciDevice final : PciEntity {
 	uint16_t subsystemVendor;
 	uint16_t subsystemDevice;
 
-	IrqPin *interrupt;
+	smarter::shared_ptr<IrqPin> interrupt;
 	Iommu *associatedIommu = nullptr;
 
 	// device configuration
@@ -549,7 +549,7 @@ protected:
 };
 
 struct PciMsiController {
-	virtual MsiPin *allocateMsiPin(frg::string<KernelAlloc> name) = 0;
+	virtual smarter::shared_ptr<MsiPin> allocateMsiPin(frg::string<KernelAlloc> name) = 0;
 
 protected:
 	~PciMsiController() = default;

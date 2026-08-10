@@ -15,21 +15,21 @@ namespace {
 // --------------------------------------------------------
 
 IrqSink::IrqSink(frg::string<KernelAlloc> name)
-: _name{std::move(name)}, _pin{nullptr}, _currentSequence{0} { }
+: _name{std::move(name)}, _currentSequence{0} { }
 
 void IrqSink::dumpHardwareState() {
 	infoLogger() << "thor: No dump available for IRQ sink " << name() << frg::endlog;
 }
 
 IrqPin *IrqSink::getPin() {
-	return _pin;
+	return _pin.get();
 }
 
 // --------------------------------------------------------
 // IRQ management functions.
 // --------------------------------------------------------
 
-void IrqPin::attachSink(IrqPin *pin, IrqSink *sink) {
+void IrqPin::attachSink(smarter::shared_ptr<IrqPin> pin, IrqSink *sink) {
 	auto irq_lock = frg::guard(&irqMutex());
 	auto lock = frg::guard(&pin->_mutex);
 	assert(!sink->_pin);
@@ -39,7 +39,7 @@ void IrqPin::attachSink(IrqPin *pin, IrqSink *sink) {
 	assert(sink->_status == IrqStatus::standBy);
 
 	pin->_sinkList.push_back(sink);
-	sink->_pin = pin;
+	sink->_pin = std::move(pin);
 }
 
 Error IrqPin::ackSink(IrqSink *sink, uint64_t sequence) {

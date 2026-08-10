@@ -92,7 +92,7 @@ struct Plic : dt::IrqController {
 		irqs_ = {numIrqs, *kernelAlloc};
 		irqs_[0] = nullptr;
 		for (size_t i = 1; i < numIrqs; ++i)
-			irqs_[i] = frg::construct<Irq>(*kernelAlloc, this, i);
+			irqs_[i] = createIrqPin<Irq>(this, i);
 
 		// Set all IRQs to the highest priority.
 		for (size_t i = 1; i < numIrqs; ++i)
@@ -105,12 +105,12 @@ struct Plic : dt::IrqController {
 	Plic(const Plic &) = delete;
 	Plic &operator=(const Plic &) = delete;
 
-	IrqPin *getIrq(size_t idx) {
+	smarter::shared_ptr<IrqPin> getIrq(size_t idx) {
 		assert(idx < irqs_.size());
 		return irqs_[idx];
 	}
 
-	IrqPin *resolveDtIrq(dtb::Cells irqSpecifier) override {
+	smarter::shared_ptr<IrqPin> resolveDtIrq(dtb::Cells irqSpecifier) override {
 		if (irqSpecifier.numCells() != 1)
 			panicLogger() << "PLIC #interrupt-cells should be 1" << frg::endlog;
 		uint32_t idx;
@@ -145,7 +145,7 @@ struct Plic : dt::IrqController {
 private:
 	PhysicalAddr base_;
 	arch::mem_space space_;
-	frg::dyn_array<Irq *, KernelAlloc> irqs_{*kernelAlloc};
+	frg::dyn_array<smarter::shared_ptr<Irq>, KernelAlloc> irqs_{*kernelAlloc};
 	// TODO: The current implementation routes all IRQs to the BSP.
 	//       We should allow routing of IRQs to other harts as well.
 	size_t bspCtx_;
@@ -325,7 +325,7 @@ IrqPin *claimPlicIrq() {
 	auto idx = plic->claim(ourExternalIrq->context);
 	if (!idx)
 		return nullptr;
-	return plic->getIrq(idx);
+	return plic->getIrq(idx).get();
 }
 
 } // namespace thor

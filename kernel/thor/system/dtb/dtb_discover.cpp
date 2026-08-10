@@ -237,7 +237,7 @@ struct MbusNode final : private KernelBusObject {
 
 			for(auto &irq : irqs) {
 				auto pin = irq->controller->resolveDtIrq(irq->irqCells);
-				IrqPin::attachSink(pin, irq.get());
+				IrqPin::attachSink(std::move(pin), irq.get());
 			}
 
 			managarm::hw::SvrResponse<KernelAlloc> resp{*kernelAlloc};

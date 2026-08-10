@@ -135,7 +135,7 @@ AcpiPciIrqRouter::AcpiPciIrqRouter(PciIrqRouter *parent_, PciBus *associatedBus_
 
 		configureIrq(GlobalIrqInfo{gsi, { triggering, polarity}});
 		auto pin = acpi::getGlobalSystemIrq(gsi);
-		routingTable.push({slot, index, pin});
+		routingTable.push({slot, index, std::move(pin)});
 	}
 
 	uacpi_free_pci_routing_table(pci_routes);
@@ -265,7 +265,8 @@ static initgraph::Task discoverAcpiRootBuses{&globalInitEngine, "pci.discover-ac
 				PciMsiController *msiController = nullptr;
 				#ifdef __x86_64__
 					struct ApicMsiController final : PciMsiController {
-						MsiPin *allocateMsiPin(frg::string<KernelAlloc> name) override {
+						smarter::shared_ptr<MsiPin> allocateMsiPin(
+								frg::string<KernelAlloc> name) override {
 							return allocateApicMsi(std::move(name));
 						}
 					};

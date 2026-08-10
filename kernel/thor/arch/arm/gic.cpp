@@ -26,7 +26,7 @@ void installAcpiGsiPins() {
 		        for (uint32_t irq = 32; irq < gic->irqCount(); ++irq) {
 			        auto pin = gic->getPin(irq);
 			        if (pin)
-				        acpi::setGlobalSystemIrq(irq, pin);
+				        acpi::setGlobalSystemIrq(irq, std::move(pin));
 		        }
 	        },
 	        [](std::monostate) {}

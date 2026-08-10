@@ -504,15 +504,14 @@ namespace {
 	};
 }
 
-MsiPin *allocateApicMsi(frg::string<KernelAlloc> name) {
+smarter::shared_ptr<MsiPin> allocateApicMsi(frg::string<KernelAlloc> name) {
 	auto maybeSlotIndex = allocateIrqSlot();
 	if (!maybeSlotIndex)
 		return nullptr;
 	auto slotIndex = *maybeSlotIndex;
 
 	// Create an IRQ pin for the MSI.
-	auto pin = frg::construct<ApicMsiPin>(*kernelAlloc,
-			std::move(name), 64 + slotIndex);
+	auto pin = createIrqPin<ApicMsiPin>(std::move(name), 64 + slotIndex);
 	pin->configure(IrqConfiguration{
 		.trigger = TriggerMode::edge,
 		.polarity = Polarity::high
@@ -520,7 +519,7 @@ MsiPin *allocateApicMsi(frg::string<KernelAlloc> name) {
 
 	infoLogger() << "thor: Allocating IRQ slot " << slotIndex
 			<< " to " << pin->name() << frg::endlog;
-	globalIrqSlots[slotIndex].link(pin);
+	globalIrqSlots[slotIndex].link(pin.get());
 
 	return pin;
 }
@@ -579,7 +578,7 @@ namespace {
 
 		size_t pinCount();
 
-		IrqPin *accessPin(size_t n);
+		smarter::shared_ptr<IrqPin> accessPin(size_t n);
 
 	private:
 		// Must only be called with _mutex taken.
@@ -598,7 +597,7 @@ namespace {
 		arch::mem_space _space;
 		size_t _numPins;
 		// TODO: Replace by dyn_array?
-		Pin **_pins;
+		smarter::shared_ptr<Pin> *_pins;
 
 		// Protects the I/O APIC MMIO registers.
 		frg::ticket_spinlock _mutex;
@@ -732,9 +731,9 @@ namespace {
 		infoLogger() << "thor: I/O APIC " << apic_id << " supports "
 				<< _numPins << " pins" << frg::endlog;
 
-		_pins = frg::construct_n<Pin *>(*kernelAlloc, _numPins);
+		_pins = frg::construct_n<smarter::shared_ptr<Pin>>(*kernelAlloc, _numPins);
 		for(size_t i = 0; i < _numPins; i++) {
-			_pins[i] = frg::construct<Pin>(*kernelAlloc, this, i);
+			_pins[i] = createIrqPin<Pin>(this, i);
 
 			// Dump interesting configurations.
 			arch::bit_value<uint32_t> current{_loadRegister(kIoApicInts + i * 2)};
@@ -751,7 +750,7 @@ namespace {
 		return _numPins;
 	}
 
-	IrqPin *IoApic::accessPin(size_t n) {
+	smarter::shared_ptr<IrqPin> IoApic::accessPin(size_t n) {
 		return _pins[n];
 	}
 }

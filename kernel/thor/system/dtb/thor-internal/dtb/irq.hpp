@@ -8,7 +8,7 @@ namespace thor::dt {
 
 struct IrqController {
 	// Resolve a DT interrupt specifier to an IRQ.
-	virtual IrqPin *resolveDtIrq(dtb::Cells irq) = 0;
+	virtual smarter::shared_ptr<IrqPin> resolveDtIrq(dtb::Cells irq) = 0;
 };
 
 } // namespace thor::dt
