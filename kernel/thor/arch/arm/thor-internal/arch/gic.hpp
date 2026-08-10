@@ -35,11 +35,11 @@ struct Gic : dt::IrqController {
 		void endOfInterrupt() override = 0;
 	};
 
-	virtual Pin *setupIrq(uint32_t irq, TriggerMode trigger) = 0;
-	virtual Pin *getPin(uint32_t irq) = 0;
+	virtual smarter::shared_ptr<Pin> setupIrq(uint32_t irq, TriggerMode trigger) = 0;
+	virtual smarter::shared_ptr<Pin> getPin(uint32_t irq) = 0;
 	virtual uint32_t irqCount() = 0;
 
-	IrqPin *resolveDtIrq(dtb::Cells irqSpecifier) override {
+	smarter::shared_ptr<IrqPin> resolveDtIrq(dtb::Cells irqSpecifier) override {
 		if (irqSpecifier.numCells() != 3 && irqSpecifier.numCells() != 4)
 			panicLogger() << "GIC #interrupt-cells should be 3 or 4" << frg::endlog;
 		uint32_t type;

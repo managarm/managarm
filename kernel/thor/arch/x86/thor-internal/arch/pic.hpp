@@ -1,5 +1,7 @@
 #pragma once
 
+#include <atomic>
+
 #include <arch/mem_space.hpp>
 #include <x86/machine.hpp>
 #include <initgraph.hpp>
@@ -9,6 +11,29 @@
 #include <thor-internal/util.hpp>
 
 namespace thor {
+
+// --------------------------------------------------------
+// IRQ slots
+// --------------------------------------------------------
+
+static inline constexpr int numIrqSlots = 64;
+
+// Represents a slot in the CPU's interrupt table.
+// Slots might be global or per-CPU.
+struct IrqSlot {
+	// Links an IrqPin to this slot.
+	// From now on all IRQ raises will go to this IrqPin.
+	void link(IrqPin *pin);
+
+	IrqPin *pin() {
+		return _pin.load(std::memory_order_acquire);
+	}
+
+private:
+	std::atomic<IrqPin *> _pin{nullptr};
+};
+
+extern IrqSlot globalIrqSlots[numIrqSlots];
 
 // --------------------------------------------------------
 // Local APIC management
@@ -93,7 +118,7 @@ void sendGlobalNmi();
 // MSI management
 // --------------------------------------------------------
 
-MsiPin *allocateApicMsi(frg::string<KernelAlloc> name);
+smarter::shared_ptr<MsiPin> allocateApicMsi(frg::string<KernelAlloc> name);
 
 // --------------------------------------------------------
 // I/O APIC management
@@ -116,6 +141,6 @@ bool checkLegacyPicIsr(int irq);
 
 void acknowledgeIrq(int irq);
 
-IrqPin *getGlobalSystemIrq(size_t n);
+smarter::shared_ptr<IrqPin> getGlobalSystemIrq(size_t n);
 
 } // namespace thor

@@ -108,6 +108,17 @@ uint64_t getRawTimestampCounter() {
 }
 
 // --------------------------------------------------------
+// IrqSlot
+// --------------------------------------------------------
+
+constinit IrqSlot globalIrqSlots[numIrqSlots];
+
+void IrqSlot::link(IrqPin *pin) {
+	assert(!_pin.load(std::memory_order_relaxed));
+	_pin.store(pin, std::memory_order_release);
+}
+
+// --------------------------------------------------------
 // Local APIC timer
 // --------------------------------------------------------
 
@@ -442,16 +453,14 @@ void sendGlobalNmi() {
 // MSI management
 // --------------------------------------------------------
 
-extern frg::manual_box<IrqSlot> globalIrqSlots[64];
-
 namespace {
 	IrqSpinlock irqAllocationLock;
-	static bool irqSlotAllocated[64]{};
+	static bool irqSlotAllocated[numIrqSlots]{};
 
 	std::optional<int> allocateIrqSlot() {
 		auto guard = frg::guard(&irqAllocationLock);
 
-		for(int i = 0; i < 64; i++) {
+		for(int i = 0; i < numIrqSlots; i++) {
 			if(irqSlotAllocated[i])
 				continue;
 			irqSlotAllocated[i] = true;
@@ -495,15 +504,14 @@ namespace {
 	};
 }
 
-MsiPin *allocateApicMsi(frg::string<KernelAlloc> name) {
+smarter::shared_ptr<MsiPin> allocateApicMsi(frg::string<KernelAlloc> name) {
 	auto maybeSlotIndex = allocateIrqSlot();
 	if (!maybeSlotIndex)
 		return nullptr;
 	auto slotIndex = *maybeSlotIndex;
 
 	// Create an IRQ pin for the MSI.
-	auto pin = frg::construct<ApicMsiPin>(*kernelAlloc,
-			std::move(name), 64 + slotIndex);
+	auto pin = createIrqPin<ApicMsiPin>(std::move(name), 64 + slotIndex);
 	pin->configure(IrqConfiguration{
 		.trigger = TriggerMode::edge,
 		.polarity = Polarity::high
@@ -511,7 +519,11 @@ MsiPin *allocateApicMsi(frg::string<KernelAlloc> name) {
 
 	infoLogger() << "thor: Allocating IRQ slot " << slotIndex
 			<< " to " << pin->name() << frg::endlog;
-	globalIrqSlots[slotIndex]->link(pin);
+	globalIrqSlots[slotIndex].link(pin.get());
+
+	// Leak a reference until IrqPin teardown exists;
+	// otherwise the slot dangles once the last sink goes away.
+	pin.policy().increment();
 
 	return pin;
 }
@@ -570,7 +582,7 @@ namespace {
 
 		size_t pinCount();
 
-		IrqPin *accessPin(size_t n);
+		smarter::shared_ptr<IrqPin> accessPin(size_t n);
 
 	private:
 		// Must only be called with _mutex taken.
@@ -589,7 +601,7 @@ namespace {
 		arch::mem_space _space;
 		size_t _numPins;
 		// TODO: Replace by dyn_array?
-		Pin **_pins;
+		smarter::shared_ptr<Pin> *_pins;
 
 		// Protects the I/O APIC MMIO registers.
 		frg::ticket_spinlock _mutex;
@@ -664,7 +676,7 @@ namespace {
 				panicLogger() << "thor: Could not allocate interrupt vector for "
 						<< name() << frg::endlog;
 			auto slotIndex = *maybeSlotIndex;
-			globalIrqSlots[slotIndex]->link(this);
+			globalIrqSlots[slotIndex].link(this);
 			_vector = 64 + slotIndex;
 		}
 
@@ -723,9 +735,9 @@ namespace {
 		infoLogger() << "thor: I/O APIC " << apic_id << " supports "
 				<< _numPins << " pins" << frg::endlog;
 
-		_pins = frg::construct_n<Pin *>(*kernelAlloc, _numPins);
+		_pins = frg::construct_n<smarter::shared_ptr<Pin>>(*kernelAlloc, _numPins);
 		for(size_t i = 0; i < _numPins; i++) {
-			_pins[i] = frg::construct<Pin>(*kernelAlloc, this, i);
+			_pins[i] = createIrqPin<Pin>(this, i);
 
 			// Dump interesting configurations.
 			arch::bit_value<uint32_t> current{_loadRegister(kIoApicInts + i * 2)};
@@ -742,7 +754,7 @@ namespace {
 		return _numPins;
 	}
 
-	IrqPin *IoApic::accessPin(size_t n) {
+	smarter::shared_ptr<IrqPin> IoApic::accessPin(size_t n) {
 		return _pins[n];
 	}
 }

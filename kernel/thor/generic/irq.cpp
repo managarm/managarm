@@ -11,39 +11,30 @@ namespace {
 }
 
 // --------------------------------------------------------
-// IrqSlot
-// --------------------------------------------------------
-
-void IrqSlot::raise() {
-	assert(_pin);
-	_pin->raise();
-}
-
-void IrqSlot::link(IrqPin *pin) {
-	assert(!_pin);
-	_pin = pin;
-}
-
-// --------------------------------------------------------
 // IrqSink
 // --------------------------------------------------------
 
 IrqSink::IrqSink(frg::string<KernelAlloc> name)
-: _name{std::move(name)}, _pin{nullptr}, _currentSequence{0} { }
+: _name{std::move(name)}, _currentSequence{0} { }
+
+IrqSink::~IrqSink() {
+	if(_pin)
+		IrqPin::detachSink(this);
+}
 
 void IrqSink::dumpHardwareState() {
 	infoLogger() << "thor: No dump available for IRQ sink " << name() << frg::endlog;
 }
 
 IrqPin *IrqSink::getPin() {
-	return _pin;
+	return _pin.get();
 }
 
 // --------------------------------------------------------
 // IRQ management functions.
 // --------------------------------------------------------
 
-void IrqPin::attachSink(IrqPin *pin, IrqSink *sink) {
+void IrqPin::attachSink(smarter::shared_ptr<IrqPin> pin, IrqSink *sink) {
 	auto irq_lock = frg::guard(&irqMutex());
 	auto lock = frg::guard(&pin->_mutex);
 	assert(!sink->_pin);
@@ -53,7 +44,23 @@ void IrqPin::attachSink(IrqPin *pin, IrqSink *sink) {
 	assert(sink->_status == IrqStatus::standBy);
 
 	pin->_sinkList.push_back(sink);
-	sink->_pin = pin;
+	sink->_pin = std::move(pin);
+}
+
+void IrqPin::detachSink(IrqSink *sink) {
+	// Move the reference out of the sink such that the pin can only die once we drop the locks.
+	auto pin = std::move(sink->_pin);
+
+	auto irq_lock = frg::guard(&irqMutex());
+	auto lock = frg::guard(&pin->_mutex);
+
+	// Unlink first: _nack() can re-enter the sink list to dump the remaining sinks.
+	pin->_sinkList.erase(pin->_sinkList.iterator_to(sink));
+
+	// The sink still owes an ACK/NACK. NACK on its behalf, otherwise the pin never
+	// leaves service.
+	if(sink->_status == IrqStatus::indefinite)
+		pin->_nack();
 }
 
 Error IrqPin::ackSink(IrqSink *sink, uint64_t sequence) {

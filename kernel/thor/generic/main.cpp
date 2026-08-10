@@ -40,8 +40,6 @@ static constexpr bool logEverySyscall = false;
 bool debugToSerial = false;
 bool debugToBochs = false;
 
-frg::manual_box<IrqSlot> globalIrqSlots[numIrqSlots];
-
 MfsDirectory *mfsRoot;
 frg::manual_box<frg::string<KernelAlloc>> kernelCommandLine;
 
@@ -183,9 +181,6 @@ extern "C" void thorMain() {
 
 	kernelCommandLine.initialize(*kernelAlloc,
 			reinterpret_cast<const char *>(commandLineNote->ptr));
-
-	for(int i = 0; i < numIrqSlots; i++)
-		globalIrqSlots[i].initialize();
 
 	// Run the initgraph tasks that we need for tasking.
 	globalInitEngine.run(getTaskingAvailableStage());

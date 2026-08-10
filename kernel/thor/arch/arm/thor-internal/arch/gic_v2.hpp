@@ -47,8 +47,8 @@ struct GicDistributorV2 {
 		uint32_t irq_;
 	};
 
-	Pin *setupIrq(uint32_t irq, TriggerMode mode);
-	Pin *getPin(uint32_t irq);
+	smarter::shared_ptr<Pin> setupIrq(uint32_t irq, TriggerMode mode);
+	smarter::shared_ptr<Pin> getPin(uint32_t irq);
 	uint32_t irqCount() const;
 
 private:
@@ -56,7 +56,7 @@ private:
 
 	uintptr_t base_;
 	arch::mem_space space_;
-	frg::vector<Pin *, KernelAlloc> irqPins_;
+	frg::vector<smarter::shared_ptr<Pin>, KernelAlloc> irqPins_;
 };
 
 struct GicCpuInterfaceV2 {
@@ -96,8 +96,8 @@ struct GicV2 : public Gic {
 	CpuIrq getIrq() override;
 	void eoi(uint32_t cpuId, uint32_t id) override;
 
-	Pin *setupIrq(uint32_t irq, TriggerMode trigger) override;
-	Pin *getPin(uint32_t irq) override;
+	smarter::shared_ptr<Pin> setupIrq(uint32_t irq, TriggerMode trigger) override;
+	smarter::shared_ptr<Pin> getPin(uint32_t irq) override;
 	uint32_t irqCount() override;
 };
 

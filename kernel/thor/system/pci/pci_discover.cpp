@@ -442,7 +442,7 @@ coroutine<frg::expected<Error>> PciEntity::handleRequest(smarter::shared_ptr<Str
 		auto object = std::move(*objectOutcome);
 		IrqPin::attachSink(interrupt, object.get());
 
-		static_cast<PciDevice *>(this)->setupMsi(interrupt, req->index());
+		static_cast<PciDevice *>(this)->setupMsi(interrupt.get(), req->index());
 
 		managarm::hw::SvrResponse<KernelAlloc> resp{*kernelAlloc};
 		resp.set_error(managarm::hw::Errors::SUCCESS);
@@ -870,7 +870,7 @@ smarter::shared_ptr<IrqObject> PciDevice::obtainIrqObject() {
 	return object;
 }
 
-IrqPin *PciDevice::getIrqPin() {
+smarter::shared_ptr<IrqPin> PciDevice::getIrqPin() {
 	return interrupt;
 }
 
@@ -1429,7 +1429,7 @@ void checkPciFunction(PciBus *bus, uint32_t slot, uint32_t function,
 				infoLogger() << "            Interrupt: "
 						<< nameOf(irq_index)
 						<< " (routed to " << irq_pin->name() << ")" << frg::endlog;
-				device->interrupt = irq_pin;
+				device->interrupt = std::move(irq_pin);
 			}else{
 				urgentLogger() << "            Interrupt routing not available!" << frg::endlog;
 			}

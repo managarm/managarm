@@ -10,7 +10,7 @@ namespace thor {
 namespace {
 
 struct LocalInterruptPins {
-	frg::array<GicPinV3 *, 32> pins{};
+	frg::array<smarter::shared_ptr<GicPinV3>, 32> pins{};
 };
 
 extern PerCpu<LocalInterruptPins> localPins;
@@ -399,7 +399,7 @@ void initGicOnThisCpuV3() {
 	auto *pins = &localPins.get();
 
 	for(int i = 0; i < 32; ++i) {
-		auto pin = frg::construct<GicPinV3>(*kernelAlloc, dist.get(), i);
+		auto pin = createIrqPin<GicPinV3>(dist.get(), i);
 		pins->pins[i] = pin;
 
 		pin->mask();
@@ -424,7 +424,7 @@ GicV3::GicV3() : irqPins_{*kernelAlloc} {
 
 	irqPins_.resize(pins);
 	for(uint32_t i = 32; i < pins; ++i) {
-		irqPins_[i] = frg::construct<GicPinV3>(*kernelAlloc, dist.get(), i);
+		irqPins_[i] = createIrqPin<GicPinV3>(dist.get(), i);
 
 		irqPins_[i]->mask();
 		irqPins_[i]->setPriority_(defaultPrio);
@@ -478,8 +478,8 @@ void GicV3::eoi(uint32_t, uint32_t id) {
 	asm volatile("msr icc_dir_el1, %0" : : "r"(uint64_t {id}));
 }
 
-Gic::Pin *GicV3::setupIrq(uint32_t irq, TriggerMode trigger) {
-	Pin *pin = getPin(irq);
+smarter::shared_ptr<Gic::Pin> GicV3::setupIrq(uint32_t irq, TriggerMode trigger) {
+	auto pin = getPin(irq);
 	if (!pin)
 		return nullptr;
 
@@ -488,7 +488,7 @@ Gic::Pin *GicV3::setupIrq(uint32_t irq, TriggerMode trigger) {
 	return pin;
 }
 
-Gic::Pin *GicV3::getPin(uint32_t irq) {
+smarter::shared_ptr<Gic::Pin> GicV3::getPin(uint32_t irq) {
 	if (irq < 32)
 		return localPins.get().pins[irq];
 	if(irq >= irqPins_.size())

@@ -1,5 +1,6 @@
 #pragma once
 
+#include <concepts>
 #include <expected>
 
 #include <async/recurring-event.hpp>
@@ -7,6 +8,7 @@
 #include <frg/functional.hpp>
 #include <frg/list.hpp>
 #include <frg/string.hpp>
+#include <smarter.hpp>
 #include <thor-internal/error.hpp>
 #include <thor-internal/kernel-heap.hpp>
 #include <thor-internal/kernlet.hpp>
@@ -51,30 +53,6 @@ private:
 // ----------------------------------------------------------------------------
 
 struct IrqPin;
-
-// Represents a slot in the CPU's interrupt table.
-// Slots might be global or per-CPU.
-struct IrqSlot {
-	bool isAvailable() {
-		return _pin == nullptr;
-	}
-
-	// Links an IrqPin to this slot.
-	// From now on all IRQ raises will go to this IrqPin.
-	void link(IrqPin *pin);
-
-	// The kernel calls this function when an IRQ is raised.
-	void raise();
-
-	IrqPin *pin() {
-		return _pin;
-	}
-
-private:
-	IrqPin *_pin = nullptr;
-};
-
-// ----------------------------------------------------------------------------
 
 enum class TriggerMode {
 	null,
@@ -142,12 +120,12 @@ protected:
 		return _currentSequence;
 	}
 
-	~IrqSink() = default;
+	~IrqSink();
 
 private:
 	frg::string<KernelAlloc> _name;
 
-	IrqPin *_pin;
+	smarter::shared_ptr<IrqPin> _pin;
 
 	// Must be protected against IRQs.
 	frg::ticket_spinlock _mutex;
@@ -188,7 +166,8 @@ private:
 	static constexpr int maskedForNack = 4;
 
 public:
-	static void attachSink(IrqPin *pin, IrqSink *sink);
+	static void attachSink(smarter::shared_ptr<IrqPin> pin, IrqSink *sink);
+	static void detachSink(IrqSink *sink);
 	static Error ackSink(IrqSink *sink, uint64_t sequence);
 	static Error nackSink(IrqSink *sink, uint64_t sequence);
 	static Error kickSink(IrqSink *sink, bool wantClear);
@@ -209,8 +188,11 @@ public:
 
 	void configure(IrqConfiguration cfg);
 
-	// This function is called from IrqSlot::raise().
+	// This function is called from handleIrq().
 	void raise();
+
+	// Set by createIrqPin().
+	smarter::borrowed_ptr<IrqPin> selfPtr;
 
 private:
 	void _acknowledge();
@@ -295,6 +277,15 @@ struct MsiPin : IrqPin {
 protected:
 	~MsiPin() = default;
 };
+
+// Allocates an IrqPin and sets up its self-pointer.
+template<typename Pin, typename... Args>
+requires std::derived_from<Pin, IrqPin>
+smarter::shared_ptr<Pin> createIrqPin(Args &&... args) {
+	auto pin = smarter::allocate_shared<Pin>(*kernelAlloc, std::forward<Args>(args)...);
+	pin->selfPtr = pin;
+	return pin;
+}
 
 // ----------------------------------------------------------------------------
 

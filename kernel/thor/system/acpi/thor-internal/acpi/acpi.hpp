@@ -30,8 +30,8 @@ void configureIrq(GlobalIrqInfo info);
 
 namespace thor::acpi {
 
-IrqPin *getGlobalSystemIrq(size_t n);
-void setGlobalSystemIrq(size_t n, IrqPin *pin);
+smarter::shared_ptr<IrqPin> getGlobalSystemIrq(size_t n);
+void setGlobalSystemIrq(size_t n, smarter::shared_ptr<IrqPin> pin);
 
 constexpr std::array<const uacpi_char *, 27> ACPI_HID_PS2_KEYBOARDS = {{
     "PNP0300", "PNP0301", "PNP0302", "PNP0303", "PNP0304", "PNP0305",  "PNP0306",

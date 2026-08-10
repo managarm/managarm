@@ -117,8 +117,6 @@ extern "C" void nmiStub();
 
 namespace thor {
 
-extern frg::manual_box<IrqSlot> globalIrqSlots[numIrqSlots];
-
 static constexpr bool logEveryFault = false;
 static constexpr bool logEveryPreemption = false;
 
@@ -447,7 +445,7 @@ extern "C" void onPlatformIrq(IrqImageAccessor image, int number) {
 	assert(!irqMutex().nesting());
 	disableUserAccess();
 
-	handleIrq(image, globalIrqSlots[number]->pin());
+	handleIrq(image, globalIrqSlots[number].pin());
 
 	if (image.inUserMode()) {
 		auto thisThread = getCurrentThread();

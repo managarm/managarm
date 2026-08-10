@@ -5,9 +5,6 @@
 
 namespace thor {
 
-// TODO: Remove IRQ slots entirely on RISC-V.
-static inline constexpr int numIrqSlots = 0;
-
 extern ManagarmElfNote<RiscvConfig> riscvConfigNote;
 extern ManagarmElfNote<RiscvHartCaps> riscvHartCapsNote;
 

@@ -350,15 +350,18 @@ initgraph::Stage *getNsAvailableStage() {
 	return &s;
 }
 
-frg::manual_box<frg::hash_map<uint32_t, IrqPin *, frg::hash<uint32_t>, KernelAlloc>>
+frg::manual_box<
+    frg::hash_map<uint32_t, smarter::shared_ptr<IrqPin>, frg::hash<uint32_t>, KernelAlloc>>
     globalSystemIrqs;
 
-IrqPin *getGlobalSystemIrq(size_t n) {
+smarter::shared_ptr<IrqPin> getGlobalSystemIrq(size_t n) {
 	auto irq = globalSystemIrqs->get(static_cast<uint32_t>(n));
 	return irq ? *irq : nullptr;
 }
 
-void setGlobalSystemIrq(size_t n, IrqPin *pin) { globalSystemIrqs->insert(n, pin); }
+void setGlobalSystemIrq(size_t n, smarter::shared_ptr<IrqPin> pin) {
+	globalSystemIrqs->insert(n, std::move(pin));
+}
 
 namespace {
 

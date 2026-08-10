@@ -25,7 +25,7 @@ static constexpr uint8_t defaultPrio = 0xA0;
 namespace {
 
 struct LocalInterruptPins {
-	frg::array<GicDistributorV2::Pin *, 32> pins{};
+	frg::array<smarter::shared_ptr<GicDistributorV2::Pin>, 32> pins{};
 };
 
 extern PerCpu<LocalInterruptPins> localPins;
@@ -95,7 +95,7 @@ void GicDistributorV2::init() {
 
 	irqPins_.resize(noLines, nullptr);
 	for (int i = 32; i < noLines; i++) {
-		auto pin = frg::construct<Pin>(*kernelAlloc, this, i);
+		auto pin = createIrqPin<Pin>(this, i);
 		irqPins_[i] = pin;
 
 		pin->mask();
@@ -110,7 +110,7 @@ void GicDistributorV2::initOnThisCpu() {
 	auto *pins = &localPins.get();
 
 	for (int i = 0; i < 32; i++) {
-		auto pin = frg::construct<Pin>(*kernelAlloc, this, i);
+		auto pin = createIrqPin<Pin>(this, i);
 		pins->pins[i] = pin;
 
 		pin->mask();
@@ -135,7 +135,7 @@ frg::string<KernelAlloc> GicDistributorV2::buildPinName(uint32_t irq) {
 			+ frg::to_allocated_string(*kernelAlloc, irq);
 }
 
-auto GicDistributorV2::getPin(uint32_t irq) -> Pin * {
+auto GicDistributorV2::getPin(uint32_t irq) -> smarter::shared_ptr<Pin> {
 	if (irq < 32)
 		return localPins.get().pins[irq];
 	if (irq >= irqPins_.size())
@@ -144,8 +144,8 @@ auto GicDistributorV2::getPin(uint32_t irq) -> Pin * {
 	return irqPins_[irq];
 }
 
-auto GicDistributorV2::setupIrq(uint32_t irq, TriggerMode trigger) -> Pin * {
-	Pin *pin = getPin(irq);
+auto GicDistributorV2::setupIrq(uint32_t irq, TriggerMode trigger) -> smarter::shared_ptr<Pin> {
+	auto pin = getPin(irq);
 	if (!pin)
 		return nullptr;
 
@@ -466,11 +466,11 @@ void GicV2::eoi(uint32_t cpuId, uint32_t id) {
 	getCpuData()->gicCpuInterfaceV2->eoi(cpuId, id);
 }
 
-Gic::Pin *GicV2::setupIrq(uint32_t irq, TriggerMode trigger) {
+smarter::shared_ptr<Gic::Pin> GicV2::setupIrq(uint32_t irq, TriggerMode trigger) {
 	return dist->setupIrq(irq, trigger);
 }
 
-Gic::Pin *GicV2::getPin(uint32_t irq) {
+smarter::shared_ptr<Gic::Pin> GicV2::getPin(uint32_t irq) {
 	return dist->getPin(irq);
 }
 

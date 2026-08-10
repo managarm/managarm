@@ -22,14 +22,14 @@ ClaimedExternalIrq claimGicV2Irq() {
 	assert(std::holds_alternative<GicV2 *>(externalIrq));
 	auto *gic = std::get<GicV2 *>(externalIrq);
 	auto [cpu, irq] = gic->getIrq();
-	return {cpu, irq, gic->getPin(irq)};
+	return {cpu, irq, gic->getPin(irq).get()};
 }
 
 ClaimedExternalIrq claimGicV3Irq() {
 	assert(std::holds_alternative<GicV3 *>(externalIrq));
 	auto *gic = std::get<GicV3 *>(externalIrq);
 	auto [cpu, irq] = gic->getIrq();
-	return {cpu, irq, gic->getPin(irq)};
+	return {cpu, irq, gic->getPin(irq).get()};
 }
 
 initgraph::Stage *getIrqControllerReadyStage() {
