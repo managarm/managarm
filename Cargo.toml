@@ -7,3 +7,4 @@ hel = { path = "rust/hel" }
 hel-sys = { path = "rust/hel-sys" }
 managarm = { path = "rust/managarm" }
 uacpi-sys = { path = "rust/uacpi-sys" }
+zerocopy = { version = "0.8", features = ["derive"] }
