@@ -21,9 +21,11 @@
 
 namespace thor {
 
-// Timer frequency and it's inverse stored in nHz and ns respectively.
-constinit FreqFraction timerFreq;
-constinit FreqFraction timerInverseFreq;
+// Timer tick duration stored in ns, and its reciprocal (= its frequency).
+constinit Pow2Fraction<Rounding::down> timerTickDuration;
+// The frequency is used to program the timer based on a deadline in ns.
+// Round up such that the timer fires after the deadline, not before.
+constinit Pow2Fraction<Rounding::up> timerTickFreq;
 
 // In EL2 with VHE, CNTP_* and CNTV_* access the EL2 timers (CNTHP_* and CNTHV_*).
 // We use the physical one of the two since firmware always describes its interrupt,
@@ -75,12 +77,12 @@ struct GenericTimerSink : IrqSink {
 };
 
 uint64_t getClockNanos() {
-	return timerInverseFreq * getRawTimestampCounter();
+	return timerTickDuration * getRawTimestampCounter();
 }
 
 void setTimerDeadline(frg::optional<uint64_t> deadline) {
 	if (deadline) {
-		uint64_t rawDeadline = timerFreq * *deadline;
+		uint64_t rawDeadline = timerTickFreq * *deadline;
 
 		setRawTimerDeadline(rawDeadline);
 		// Unmask the timer interrupt.
@@ -97,8 +99,8 @@ void initializeTimers() {
 	asm volatile ("mrs %0, cntfrq_el0" : "=r"(freqHz));
 
 	// Divide by 10^9 to convert Hz to nHz.
-	timerFreq = computeFreqFraction(freqHz, divisor);
-	timerInverseFreq = computeFreqFraction(divisor, freqHz);
+	timerTickDuration = computePow2Fraction<Rounding::down>(divisor, freqHz);
+	timerTickFreq = computeReciprocal(timerTickDuration);
 
 	// Enable and mask the timer interrupt.
 	setTimerControl(0b11);

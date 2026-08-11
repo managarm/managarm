@@ -128,6 +128,10 @@ namespace {
 	LocalApicContext *localApicContext() {
 		return &apicContext.get();
 	}
+
+	uint64_t tscTicksForDeadline(uint64_t deadline) {
+		return localApicContext()->tscTickFreq * deadline;
+	}
 }
 
 void setTimerDeadline(frg::optional<uint64_t> deadline) {
@@ -139,7 +143,7 @@ void setTimerDeadline(frg::optional<uint64_t> deadline) {
 			return;
 		}
 
-		uint64_t ticks = localApicContext()->timerFreq * *deadline;
+		uint64_t ticks = tscTicksForDeadline(*deadline);
 		common::x86::wrmsr(common::x86::kMsrIa32TscDeadline, ticks);
 		if(debugTimer)
 			infoLogger() << "thor [CPU " << getLocalApicId() << "]: Setting TSC deadline to "
@@ -161,7 +165,7 @@ void setTimerDeadline(frg::optional<uint64_t> deadline) {
 			if(debugTimer)
 				infoLogger() << "thor [CPU " << getLocalApicId() << "]: Setting timer "
 						<< ((*deadline - now) / 1000) << " us in the future" << frg::endlog;
-			ticks = localApicContext()->timerFreq * (*deadline - now);
+			ticks = localApicContext()->lapicTickFreq * (*deadline - now);
 			if(!ticks)
 				ticks = 1;
 		}
@@ -279,8 +283,8 @@ void calibrateApicTimer() {
 				- picBase.load(lApicCurCount);
 		picBase.store(lApicInitCount, 0);
 
-		localApicContext()->timerFreq
-			= computeFreqFraction(elapsed, nanos);
+		localApicContext()->lapicTickFreq
+			= computePow2Fraction<Rounding::up>(elapsed, nanos);
 
 		infoLogger() << "thor: Local APIC ticks/ms: "
 				<< (elapsed / millis)
@@ -293,21 +297,17 @@ void calibrateApicTimer() {
 		pollSleepNano(nanos);
 		auto tscElapsed = getRawTimestampCounter() - tscStart;
 
-		localApicContext()->tscInverseFreq
-			= computeFreqFraction(nanos, tscElapsed);
-		if (localApicContext()->useTscMode) {
-			localApicContext()->timerFreq
-				= computeFreqFraction(tscElapsed, nanos);
-		}
+		localApicContext()->tscTickDuration
+			= computePow2Fraction<Rounding::down>(nanos, tscElapsed);
+		localApicContext()->tscTickFreq
+			= computeReciprocal(localApicContext()->tscTickDuration);
 
 		infoLogger() << "thor: TSC ticks/ms: " << (tscElapsed / millis)
 					<< " on CPU #" << getCpuData()->cpuIndex << frg::endlog;
 	} else {
 		// Linux assumes invariant TSC to be globally synchronized.
-		localApicContext()->tscInverseFreq = apicContext.getFor(0).tscInverseFreq;
-		if (localApicContext()->useTscMode) {
-			localApicContext()->timerFreq = apicContext.getFor(0).timerFreq;
-		}
+		localApicContext()->tscTickDuration = apicContext.getFor(0).tscTickDuration;
+		localApicContext()->tscTickFreq = apicContext.getFor(0).tscTickFreq;
 	}
 
 	localApicContext()->timersAreCalibrated = true;
@@ -328,7 +328,7 @@ static initgraph::Task assessTimersTask{&globalInitEngine, "x86.assess-timers",
 uint64_t getClockNanos() {
 	assert(localApicContext()->timersAreCalibrated);
 	if(getGlobalCpuFeatures()->haveInvariantTsc) [[likely]] {
-		return localApicContext()->tscInverseFreq * getRawTimestampCounter();
+		return localApicContext()->tscTickDuration * getRawTimestampCounter();
 	} else {
 		return hpetClockSource->currentNanos();
 	}

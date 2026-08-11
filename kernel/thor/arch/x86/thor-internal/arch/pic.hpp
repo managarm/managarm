@@ -88,12 +88,16 @@ struct LocalApicContext {
 	bool useTscMode = false;
 	bool timersAreCalibrated = false;
 
-	// Inverse of the TSC frequency in ns.
+	// TSC tick duration stored in ns.
 	// Used for the timestamp -> monotonic clock time conversion.
-	FreqFraction tscInverseFreq;
-	// Frequency of the timer in nHz (1/tscInverseFreq if using
-	// TSC deadline mode, freq. of the APIC timer otherwise).
-	FreqFraction timerFreq;
+	Pow2Fraction<Rounding::down> tscTickDuration;
+	// The frequency is used to program the TSC timer based on a deadline in ns.
+	// Round up such that the TSC timer fires after the deadline, not before.
+	Pow2Fraction<Rounding::up> tscTickFreq;
+
+	// Frequency of the local APIC timer in nHz.
+	// Round up such that the APIC timer fires after the deadline, not before.
+	Pow2Fraction<Rounding::up> lapicTickFreq;
 };
 
 initgraph::Stage *getApicDiscoveryStage();
