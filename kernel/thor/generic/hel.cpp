@@ -3449,7 +3449,13 @@ HelError helRaiseEvent(HelHandle handle) {
 	return kHelErrNone;
 }
 
-HelError helAccessIrq(int number, HelHandle *handle) {
+HelError helAccessIrq(uint32_t mode, uint64_t controller, uint64_t index, HelHandle *handle) {
+	if(mode != kHelAccessIrqByGsi)
+		return kHelErrIllegalArgs;
+	// kHelAccessIrqByGsi does not take any controller argument.
+	if (controller)
+		return kHelErrIllegalArgs;
+
 	// This syscall only makes sense on ACPI systems.
 	if (!acpiRsdpNote->rsdp)
 		return kHelErrUnsupportedOperation;
@@ -3457,7 +3463,7 @@ HelError helAccessIrq(int number, HelHandle *handle) {
 	auto this_thread = getCurrentThread();
 	auto this_universe = this_thread->getUniverse();
 
-	auto pin = acpi::getGlobalSystemIrq(number);
+	auto pin = acpi::getGlobalSystemIrq(index);
 	if (!pin)
 		return kHelErrOutOfBounds;
 

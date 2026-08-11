@@ -1059,6 +1059,10 @@ enum HelLogSeverity {
 };
 
 enum {
+	kHelAccessIrqByGsi = 1,
+};
+
+enum {
 	kHelIrqTriggerNull = 0,
 	kHelIrqTriggerEdge = 1,
 	kHelIrqTriggerLevel = 2
@@ -1525,12 +1529,19 @@ HEL_C_LINKAGE HelError helCreateBitsetEvent(HelHandle *handle);
 //!     Handle to the event that will be raised.
 HEL_C_LINKAGE HelError helRaiseEvent(HelHandle handle);
 
-//! Access the IRQ pin that a global system interrupt is attached to.
-//! @param[in] number
-//!     Global system interrupt number.
+//! Access the IRQ pin that an IRQ is attached to.
+//! @param[in] mode
+//!     Determines how the IRQ is identified (e.g., ::kHelAccessIrqByGsi).
+//! @param[in] controller
+//!     Identifies the interrupt controller that the IRQ belongs to.
+//!     Unused for ::kHelAccessIrqByGsi.
+//! @param[in] index
+//!     Identifies the IRQ within the interrupt controller.
+//!     For ::kHelAccessIrqByGsi, this is the global system interrupt number.
 //! @param[out] handle
 //!     Handle to the IRQ pin.
-HEL_C_LINKAGE HelError helAccessIrq(int number, HelHandle *handle);
+HEL_C_LINKAGE HelError helAccessIrq(uint32_t mode, uint64_t controller, uint64_t index,
+		HelHandle *handle);
 
 //! Install an IRQ handler on an IRQ pin.
 //! @param[in] pinHandle

@@ -377,7 +377,7 @@ int main() {
 	std::cout << "uart: Starting driver" << std::endl;
 
 	HelHandle pin_handle;
-	HEL_CHECK(helAccessIrq(4, &pin_handle));
+	HEL_CHECK(helAccessIrq(kHelAccessIrqByGsi, 0, 4, &pin_handle));
 	helix::UniqueDescriptor pin{pin_handle};
 
 	HelHandle irq_handle;

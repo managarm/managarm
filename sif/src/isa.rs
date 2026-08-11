@@ -100,7 +100,7 @@ pub fn configure_isa_irqs() {
     println!("sif: Configuring ISA IRQs");
     for irq in PRECONFIGURED_ISA_IRQS {
         let line = overrides[usize::from(irq)].unwrap_or_else(|| IsaIrq::identity(irq));
-        let pin = match hel::access_irq(line.gsi as i32) {
+        let pin = match hel::access_irq_by_gsi(line.gsi as u64) {
             Ok(pin) => pin,
             Err(err) => {
                 println!(

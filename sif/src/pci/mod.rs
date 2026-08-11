@@ -48,7 +48,7 @@ pub fn system_irq(gsi: u32, trigger: IrqTrigger, polarity: IrqPolarity) -> Optio
         return Some(*pin);
     }
 
-    let handle = match hel::access_irq(gsi as i32) {
+    let handle = match hel::access_irq_by_gsi(gsi as u64) {
         Ok(handle) => handle,
         Err(err) => {
             println!("sif: Failed to access GSI {gsi}: {err}");

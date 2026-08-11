@@ -99,9 +99,11 @@ pub fn access_io(ports: &[usize]) -> Result<Handle> {
 }
 
 /// Returns the IRQ pin that the given global system interrupt is attached to.
-pub fn access_irq(number: i32) -> Result<Handle> {
+pub fn access_irq_by_gsi(gsi: u64) -> Result<Handle> {
     let mut handle = hel_sys::kHelNullHandle as hel_sys::HelHandle;
-    result::hel_check(unsafe { hel_sys::helAccessIrq(number, &mut handle) })?;
+    result::hel_check(unsafe {
+        hel_sys::helAccessIrq(hel_sys::kHelAccessIrqByGsi as u32, 0, gsi, &mut handle)
+    })?;
     Ok(unsafe { Handle::from_raw(handle) })
 }
 
