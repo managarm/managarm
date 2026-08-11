@@ -21,6 +21,7 @@ pub(crate) const EXPECT_LOCK: &str = "sif: PCI tree mutex was poisoned";
 
 pub struct IrqPin {
     gsi: u32,
+    handle: hel::Handle,
     trigger: IrqTrigger,
     polarity: IrqPolarity,
 }
@@ -28,6 +29,10 @@ pub struct IrqPin {
 impl IrqPin {
     pub fn gsi(&self) -> u32 {
         self.gsi
+    }
+
+    pub fn handle(&self) -> &hel::Handle {
+        &self.handle
     }
 }
 
@@ -43,13 +48,21 @@ pub fn system_irq(gsi: u32, trigger: IrqTrigger, polarity: IrqPolarity) -> Optio
         return Some(*pin);
     }
 
-    if let Err(err) = hel::configure_irq(gsi as i32, trigger, polarity) {
+    let handle = match hel::access_irq(gsi as i32) {
+        Ok(handle) => handle,
+        Err(err) => {
+            println!("sif: Failed to access GSI {gsi}: {err}");
+            return None;
+        }
+    };
+    if let Err(err) = hel::configure_irq(&handle, trigger, polarity) {
         println!("sif: Failed to configure GSI {gsi}: {err}");
         return None;
     }
 
     let pin = leak(IrqPin {
         gsi,
+        handle,
         trigger,
         polarity,
     });

@@ -367,9 +367,9 @@ extern inline __attribute__ (( always_inline )) HelError helHandleIrq(HelHandle 
 	return error;
 };
 
-extern inline __attribute__ (( always_inline )) HelError helConfigureIrq(int number,
+extern inline __attribute__ (( always_inline )) HelError helConfigureIrq(HelHandle pin_handle,
 		uint32_t trigger, uint32_t polarity) {
-	return helSyscall3(kHelCallConfigureIrq, (HelWord)number, (HelWord)trigger,
+	return helSyscall3(kHelCallConfigureIrq, (HelWord)pin_handle, (HelWord)trigger,
 			(HelWord)polarity);
 };
 

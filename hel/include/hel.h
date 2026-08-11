@@ -263,6 +263,7 @@ static const HelRights kHelRightSignal = UINT32_C(1) << 12;
 // - Thread: required to set priority.
 // - Thread: required to resume.
 // - Thread: required to kill.
+// - IRQ pin: required to configure the IRQ.
 static const HelRights kHelRightManage = UINT32_C(1) << 13;
 // All rights (even unspecified ones). Easier to recognize in code than a literal.
 static const HelRights kHelRightsMax = ~UINT32_C(0);
@@ -1538,7 +1539,14 @@ HEL_C_LINKAGE HelError helAccessIrq(int number, HelHandle *handle);
 //!     Handle to the new IRQ object.
 HEL_C_LINKAGE HelError helHandleIrq(HelHandle pinHandle, HelHandle *handle);
 
-HEL_C_LINKAGE HelError helConfigureIrq(int number, uint32_t trigger, uint32_t polarity);
+//! Configure the trigger mode and polarity of an IRQ pin.
+//! @param[in] pinHandle
+//!     Handle to the IRQ pin that is configured.
+//! @param[in] trigger
+//!     Trigger mode of the IRQ (see ::kHelIrqTriggerEdge and ::kHelIrqTriggerLevel).
+//! @param[in] polarity
+//!     Polarity of the IRQ (see ::kHelIrqPolarityHigh and ::kHelIrqPolarityLow).
+HEL_C_LINKAGE HelError helConfigureIrq(HelHandle pinHandle, uint32_t trigger, uint32_t polarity);
 
 HEL_C_LINKAGE HelError helAcknowledgeIrq(HelHandle handle, uint32_t flags, uint64_t sequence);
 

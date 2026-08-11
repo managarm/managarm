@@ -126,8 +126,8 @@ pub enum IrqPolarity {
     Low,
 }
 
-/// Configures the trigger mode and polarity of a global system interrupt.
-pub fn configure_irq(number: i32, trigger: IrqTrigger, polarity: IrqPolarity) -> Result<()> {
+/// Configures the trigger mode and polarity of an IRQ pin.
+pub fn configure_irq(pin: &Handle, trigger: IrqTrigger, polarity: IrqPolarity) -> Result<()> {
     let trigger = match trigger {
         IrqTrigger::Edge => hel_sys::kHelIrqTriggerEdge,
         IrqTrigger::Level => hel_sys::kHelIrqTriggerLevel,
@@ -136,7 +136,9 @@ pub fn configure_irq(number: i32, trigger: IrqTrigger, polarity: IrqPolarity) ->
         IrqPolarity::High => hel_sys::kHelIrqPolarityHigh,
         IrqPolarity::Low => hel_sys::kHelIrqPolarityLow,
     };
-    result::hel_check(unsafe { hel_sys::helConfigureIrq(number, trigger as u32, polarity as u32) })
+    result::hel_check(unsafe {
+        hel_sys::helConfigureIrq(pin.handle(), trigger as u32, polarity as u32)
+    })
 }
 
 /// A time value in nanoseconds since boot.

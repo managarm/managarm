@@ -3462,7 +3462,7 @@ HelError helAccessIrq(int number, HelHandle *handle) {
 		return kHelErrOutOfBounds;
 
 	*handle = this_universe->attachDescriptor(
-			AnyDescriptor::make<DescriptorType::irqPin>(std::move(pin), kHelRightAssign));
+			AnyDescriptor::make<DescriptorType::irqPin>(std::move(pin), kHelRightAssign | kHelRightManage));
 
 	return kHelErrNone;
 }
@@ -3489,7 +3489,7 @@ HelError helHandleIrq(HelHandle pinHandle, HelHandle *handle) {
 	return kHelErrNone;
 }
 
-HelError helConfigureIrq(int number, uint32_t trigger, uint32_t polarity) {
+HelError helConfigureIrq(HelHandle pinHandle, uint32_t trigger, uint32_t polarity) {
 	TriggerMode triggerMode;
 	switch(trigger) {
 		case kHelIrqTriggerEdge: triggerMode = TriggerMode::edge; break;
@@ -3504,15 +3504,15 @@ HelError helConfigureIrq(int number, uint32_t trigger, uint32_t polarity) {
 		default: return kHelErrIllegalArgs;
 	}
 
-	// This syscall only makes sense on ACPI systems.
-	if (!acpiRsdpNote->rsdp)
-	    return kHelErrUnsupportedOperation;
+	auto this_thread = getCurrentThread();
+	auto this_universe = this_thread->getUniverse();
 
-	auto pin = acpi::getGlobalSystemIrq(number);
-	if(!pin)
-		return kHelErrOutOfBounds;
+	auto pinOutcome = this_universe->resolveObject<DescriptorType::irqPin>(pinHandle,
+			kHelRightManage);
+	if(!pinOutcome)
+		return translateError(pinOutcome.error());
 
-	pin->configure(IrqConfiguration{triggerMode, irqPolarity});
+	(*pinOutcome)->configure(IrqConfiguration{triggerMode, irqPolarity});
 
 	return kHelErrNone;
 }

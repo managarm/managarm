@@ -100,7 +100,17 @@ pub fn configure_isa_irqs() {
     println!("sif: Configuring ISA IRQs");
     for irq in PRECONFIGURED_ISA_IRQS {
         let line = overrides[usize::from(irq)].unwrap_or_else(|| IsaIrq::identity(irq));
-        if let Err(err) = hel::configure_irq(line.gsi as i32, line.trigger, line.polarity) {
+        let pin = match hel::access_irq(line.gsi as i32) {
+            Ok(pin) => pin,
+            Err(err) => {
+                println!(
+                    "sif: Failed to access ISA IRQ {irq} (GSI {}): {err}",
+                    line.gsi
+                );
+                continue;
+            }
+        };
+        if let Err(err) = hel::configure_irq(&pin, line.trigger, line.polarity) {
             println!(
                 "sif: Failed to configure ISA IRQ {irq} (GSI {}): {err}",
                 line.gsi
