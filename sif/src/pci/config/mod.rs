@@ -31,9 +31,6 @@ pub enum ConfigIoError {
     #[error("register {offset:#x} is not aligned to {size} bytes")]
     Misaligned { offset: u16, size: u8 },
 
-    #[error("{0} is not a valid configuration space access size")]
-    UnsupportedSize(u8),
-
     #[error("failed to map the ECAM window of {seg:04x}:{bus:02x}")]
     MappingFailed {
         seg: u16,
