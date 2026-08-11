@@ -824,6 +824,11 @@ void handleSyscall(SyscallImageAccessor image) {
 		*image.error() = helAccessIrq((int)arg0, &handle);
 		*image.out0() = handle;
 	} break;
+	case kHelCallHandleIrq: {
+		HelHandle handle;
+		*image.error() = helHandleIrq((HelHandle)arg0, &handle);
+		*image.out0() = handle;
+	} break;
 	case kHelCallAcknowledgeIrq: {
 		*image.error() = helAcknowledgeIrq((HelHandle)arg0, (uint32_t)arg1, (uint64_t)arg2);
 	} break;

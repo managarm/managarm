@@ -351,10 +351,18 @@ extern inline __attribute__ (( always_inline )) HelError helRaiseEvent(HelHandle
 	return helSyscall1(kHelCallRaiseEvent, (HelWord)handle);
 };
 
-extern inline __attribute__ (( always_inline )) HelError helAccessIrq(int number, 
+extern inline __attribute__ (( always_inline )) HelError helAccessIrq(int number,
 		HelHandle *handle) {
 	HelWord handle_word;
 	HelError error = helSyscall1_1(kHelCallAccessIrq, number, &handle_word);
+	*handle = (HelHandle)handle_word;
+	return error;
+};
+
+extern inline __attribute__ (( always_inline )) HelError helHandleIrq(HelHandle pin_handle,
+		HelHandle *handle) {
+	HelWord handle_word;
+	HelError error = helSyscall1_1(kHelCallHandleIrq, (HelWord)pin_handle, &handle_word);
 	*handle = (HelHandle)handle_word;
 	return error;
 };

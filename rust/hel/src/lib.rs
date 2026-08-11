@@ -98,10 +98,17 @@ pub fn access_io(ports: &[usize]) -> Result<Handle> {
     Ok(unsafe { Handle::from_raw(handle) })
 }
 
-/// Returns an IRQ object for the given global system interrupt number.
+/// Returns the IRQ pin that the given global system interrupt is attached to.
 pub fn access_irq(number: i32) -> Result<Handle> {
     let mut handle = hel_sys::kHelNullHandle as hel_sys::HelHandle;
     result::hel_check(unsafe { hel_sys::helAccessIrq(number, &mut handle) })?;
+    Ok(unsafe { Handle::from_raw(handle) })
+}
+
+/// Returns an IRQ object that handles interrupts of the given IRQ pin.
+pub fn handle_irq(pin: &Handle) -> Result<Handle> {
+    let mut handle = hel_sys::kHelNullHandle as hel_sys::HelHandle;
+    result::hel_check(unsafe { hel_sys::helHandleIrq(pin.handle(), &mut handle) })?;
     Ok(unsafe { Handle::from_raw(handle) })
 }
 

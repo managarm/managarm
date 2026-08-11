@@ -3461,12 +3461,27 @@ HelError helAccessIrq(int number, HelHandle *handle) {
 	if (!pin)
 		return kHelErrOutOfBounds;
 
+	*handle = this_universe->attachDescriptor(
+			AnyDescriptor::make<DescriptorType::irqPin>(std::move(pin), kHelRightAssign));
+
+	return kHelErrNone;
+}
+
+HelError helHandleIrq(HelHandle pinHandle, HelHandle *handle) {
+	auto this_thread = getCurrentThread();
+	auto this_universe = this_thread->getUniverse();
+
+	auto pinOutcome = this_universe->resolveObject<DescriptorType::irqPin>(pinHandle,
+			kHelRightAssign);
+	if(!pinOutcome)
+		return translateError(pinOutcome.error());
+
 	auto irqOutcome = GenericIrqObject::create(
 			frg::string<KernelAlloc>{*kernelAlloc, "generic-irq-object"});
 	if(!irqOutcome)
 		return translateError(irqOutcome.error());
 	auto irq = std::move(*irqOutcome);
-	IrqPin::attachSink(pin, irq.get());
+	IrqPin::attachSink(std::move(*pinOutcome), irq.get());
 
 	*handle = this_universe->attachDescriptor(
 			AnyDescriptor::make<DescriptorType::irq>(std::move(irq), kHelRightWait | kHelRightSignal));

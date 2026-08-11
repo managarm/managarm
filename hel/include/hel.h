@@ -96,6 +96,7 @@ enum {
 	kHelCallCreateBitsetEvent = 97,
 	kHelCallRaiseEvent = 98,
 	kHelCallAccessIrq = 14,
+	kHelCallHandleIrq = 5,
 	kHelCallAcknowledgeIrq = 81,
 	kHelCallSubmitAwaitEvent = 82,
 	kHelCallAutomateIrq = 94,
@@ -214,6 +215,7 @@ static const HelRights kHelRightInvoke = UINT32_C(1) << 5;
 // - Memory view: required to map into indirect memory.
 // - Memory view: required to create slice.
 // - Memory view: required to bind to kernlet.
+// - IRQ pin: required to install an IRQ handler.
 // - Memory slice: required to map.
 // - Memory slice: required to map into indirect memory.
 // - Virtualized space: required to create virtualized CPU.
@@ -1522,7 +1524,19 @@ HEL_C_LINKAGE HelError helCreateBitsetEvent(HelHandle *handle);
 //!     Handle to the event that will be raised.
 HEL_C_LINKAGE HelError helRaiseEvent(HelHandle handle);
 
+//! Access the IRQ pin that a global system interrupt is attached to.
+//! @param[in] number
+//!     Global system interrupt number.
+//! @param[out] handle
+//!     Handle to the IRQ pin.
 HEL_C_LINKAGE HelError helAccessIrq(int number, HelHandle *handle);
+
+//! Install an IRQ handler on an IRQ pin.
+//! @param[in] pinHandle
+//!     Handle to the IRQ pin that the handler is installed on.
+//! @param[out] handle
+//!     Handle to the new IRQ object.
+HEL_C_LINKAGE HelError helHandleIrq(HelHandle pinHandle, HelHandle *handle);
 
 HEL_C_LINKAGE HelError helConfigureIrq(int number, uint32_t trigger, uint32_t polarity);
 

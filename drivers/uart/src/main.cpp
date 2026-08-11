@@ -376,8 +376,12 @@ async::detached runTerminal() {
 int main() {
 	std::cout << "uart: Starting driver" << std::endl;
 
+	HelHandle pin_handle;
+	HEL_CHECK(helAccessIrq(4, &pin_handle));
+	helix::UniqueDescriptor pin{pin_handle};
+
 	HelHandle irq_handle;
-	HEL_CHECK(helAccessIrq(4, &irq_handle));
+	HEL_CHECK(helHandleIrq(pin.getHandle(), &irq_handle));
 	irq = helix::UniqueIrq(irq_handle);
 
 	uintptr_t ports[] = { COM1, COM1 + 1, COM1 + 2, COM1 + 3, COM1 + 4, COM1 + 5, COM1 + 6,
