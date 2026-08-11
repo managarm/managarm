@@ -1060,6 +1060,7 @@ enum HelLogSeverity {
 
 enum {
 	kHelAccessIrqByGsi = 1,
+	kHelAccessIrqByPhandle = 2,
 };
 
 enum {
@@ -1535,9 +1536,11 @@ HEL_C_LINKAGE HelError helRaiseEvent(HelHandle handle);
 //! @param[in] controller
 //!     Identifies the interrupt controller that the IRQ belongs to.
 //!     Unused for ::kHelAccessIrqByGsi.
+//!     For ::kHelAccessIrqByPhandle, this is the device tree phandle of the controller.
 //! @param[in] index
 //!     Identifies the IRQ within the interrupt controller.
 //!     For ::kHelAccessIrqByGsi, this is the global system interrupt number.
+//!     For ::kHelAccessIrqByPhandle, this is a controller-specific IRQ index.
 //! @param[out] handle
 //!     Handle to the IRQ pin.
 HEL_C_LINKAGE HelError helAccessIrq(uint32_t mode, uint64_t controller, uint64_t index,

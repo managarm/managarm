@@ -107,6 +107,20 @@ pub fn access_irq_by_gsi(gsi: u64) -> Result<Handle> {
     Ok(unsafe { Handle::from_raw(handle) })
 }
 
+/// Returns the IRQ pin identified by a device tree phandle and a controller-specific index.
+pub fn access_irq_by_phandle(phandle: u64, index: u64) -> Result<Handle> {
+    let mut handle = hel_sys::kHelNullHandle as hel_sys::HelHandle;
+    result::hel_check(unsafe {
+        hel_sys::helAccessIrq(
+            hel_sys::kHelAccessIrqByPhandle as u32,
+            phandle,
+            index,
+            &mut handle,
+        )
+    })?;
+    Ok(unsafe { Handle::from_raw(handle) })
+}
+
 /// Returns an IRQ object that handles interrupts of the given IRQ pin.
 pub fn handle_irq(pin: &Handle) -> Result<Handle> {
     let mut handle = hel_sys::kHelNullHandle as hel_sys::HelHandle;

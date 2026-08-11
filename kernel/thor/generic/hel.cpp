@@ -25,6 +25,9 @@
 #include <thor-internal/thread.hpp>
 #include <thor-internal/timer.hpp>
 #include <thor-internal/acpi/acpi.hpp>
+#ifdef THOR_HAS_DTB_SUPPORT
+#include <thor-internal/dtb/dtb.hpp>
+#endif
 #ifdef __x86_64__
 #include <thor-internal/arch/debug.hpp>
 #include <thor-internal/arch/ept.hpp>
@@ -3450,21 +3453,36 @@ HelError helRaiseEvent(HelHandle handle) {
 }
 
 HelError helAccessIrq(uint32_t mode, uint64_t controller, uint64_t index, HelHandle *handle) {
-	if(mode != kHelAccessIrqByGsi)
-		return kHelErrIllegalArgs;
-	// kHelAccessIrqByGsi does not take any controller argument.
-	if (controller)
-		return kHelErrIllegalArgs;
-
-	// This syscall only makes sense on ACPI systems.
-	if (!acpiRsdpNote->rsdp)
-		return kHelErrUnsupportedOperation;
-
 	auto this_thread = getCurrentThread();
 	auto this_universe = this_thread->getUniverse();
 
-	auto pin = acpi::getGlobalSystemIrq(index);
-	if (!pin)
+	smarter::shared_ptr<IrqPin> pin;
+	if(mode == kHelAccessIrqByGsi) {
+		// kHelAccessIrqByGsi does not take any controller argument.
+		if (controller)
+			return kHelErrIllegalArgs;
+		// GSIs only make sense on ACPI systems.
+		if (!acpiRsdpNote->rsdp)
+			return kHelErrUnsupportedOperation;
+		pin = acpi::getGlobalSystemIrq(index);
+	}else if(mode == kHelAccessIrqByPhandle) {
+#ifdef THOR_HAS_DTB_SUPPORT
+		if(controller > UINT32_MAX)
+			return kHelErrOutOfBounds;
+		auto *node = getDeviceTreeNodeByPhandle(controller);
+		if(!node)
+			return kHelErrOutOfBounds;
+		auto *irqController = node->getAssociatedIrqController();
+		if(!irqController)
+			return kHelErrIllegalArgs;
+		pin = irqController->resolveIrqIndex(index);
+#else
+		return kHelErrUnsupportedOperation;
+#endif
+	}else{
+		return kHelErrIllegalArgs;
+	}
+	if(!pin)
 		return kHelErrOutOfBounds;
 
 	*handle = this_universe->attachDescriptor(

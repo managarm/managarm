@@ -95,6 +95,12 @@ struct Gic : dt::IrqController {
 		auto pin = setupIrq(irq, trigger);
 		return pin;
 	}
+
+	smarter::shared_ptr<IrqPin> resolveIrqIndex(uint64_t index) override {
+		if (index >= irqCount())
+			return nullptr;
+		return getPin(index);
+	}
 };
 
 void initGicOnThisCpu();
