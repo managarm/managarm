@@ -2,7 +2,11 @@ use anyhow::{Result, bail};
 
 mod acpi;
 mod io;
+// Only x86 has an ISA bus (and hence ISA IRQs).
+#[cfg(target_arch = "x86_64")]
+mod isa;
 mod pci;
+mod uacpi;
 
 fn main() -> Result<()> {
     hel::block_on(async {
@@ -21,6 +25,10 @@ fn main() -> Result<()> {
         acpi::uacpi_init()?;
 
         println!("sif: uACPI initialized");
+
+        // Configure the ISA IRQs before the PCI links to match thor's ordering.
+        #[cfg(target_arch = "x86_64")]
+        isa::configure_isa_irqs();
 
         pci::publish_devices().await?;
 
