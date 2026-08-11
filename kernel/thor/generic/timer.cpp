@@ -22,7 +22,7 @@ extern PerCpu<DeadlineState> deadlineState;
 THOR_DEFINE_PERCPU(deadlineState);
 
 
-void updateDeadline_() {
+void updateDeadline_(bool inTimerInterrupt = false) {
 	assert(!intsAreEnabled());
 	auto &state = deadlineState.get();
 
@@ -37,14 +37,21 @@ void updateDeadline_() {
 	consider(state.timerDeadline);
 	consider(state.preemptionDeadline);
 
-	// No need to do anything if the current deadline didn't change.
-
-	// FIXME(qookie): This is just deadline == state.currentDeadline,
-	// but frg::optional is missing the overload to do that.
+	// If there is no deadline, we do not need to reprogram the hardware.
 	if (!deadline && !state.currentDeadline)
 		return;
-	if (deadline && state.currentDeadline && deadline == *state.currentDeadline)
-		return;
+
+	// Skip reprogramming on unchanged deadlines.
+	// There are various situations in which a timer interrupt can fire even if the deadline
+	// has not passed from the callers point of view. For example:
+	// - The hardware register is too narrow to store the full deadline and we have to saturate.
+	// - The timer's clock does not match getClockNanos() and the calibration is inaccurate.
+	// - A timer interrupt fires too early because of hardware of VMM bugs.
+	// Thus, this check is only done outside of timer interrupts.
+	if (!inTimerInterrupt) {
+		if (deadline && state.currentDeadline && deadline == *state.currentDeadline)
+			return;
+	}
 
 	state.currentDeadline = deadline;
 	setTimerDeadline(state.currentDeadline);
@@ -87,7 +94,15 @@ void handleTimerInterrupt() {
 	auto preemptionExpired = checkAndClear(state.preemptionDeadline);
 
 	// Update the timer hardware.
-	updateDeadline_();
+	// Note that timer deadlines may be computed based on a different clock than getClockNanos(),
+	// hence the IRQ can arrive before we consider the programmed deadline to be expired.
+	// The consequences depend on the timer mechanism:
+	// - Edge triggered timers (e.g., TSC deadline on x86) are disarmed by now
+	//   and we may need to reprogram them.
+	// - Level triggered timers (e.g., sstc on RISC-V) never need to be reprogrammed here
+	//   (they need to be disarmed to prevent them from firing again;
+	//   however, this this disarming happens whether inTimerInterrupt is set or not).
+	updateDeadline_(true);
 
 	// Finally, take action for the deadlines that have expired.
 	if (timerExpired)
