@@ -45,6 +45,34 @@ void disableMmu() {
 	}
 }
 
+// CNTHCTL_EL2 and CPTR_EL2 change their layout depending on E2H,
+// hence they can only be programmed once we settled on a mode.
+// Since the reset value of CNTHCTL_EL2 is UNKNOWN, we never preserve its other bits.
+
+// Must only be called in EL2 with E2H set.
+void configureVheTraps() {
+	// Do not trap EL0 access to the counters.
+	uint64_t cnthctl = 0;
+	cnthctl |= UINT64_C(1) << 0; // EL0PCTEN
+	cnthctl |= UINT64_C(1) << 1; // EL0VCTEN
+	asm volatile("msr cnthctl_el2, %0" : : "r"(cnthctl));
+
+	// Do not trap FP and SIMD. CPTR_EL2 has the CPACR_EL1 layout if E2H is set.
+	asm volatile("msr cptr_el2, %0" : : "r"(UINT64_C(0b11) << 20)); // FPEN
+}
+
+// Must only be called in EL2 without E2H.
+void configureEl2Traps() {
+	// Do not trap EL1 access to the counters.
+	uint64_t cnthctl = 0;
+	cnthctl |= UINT64_C(1) << 0; // EL1PCTEN
+	cnthctl |= UINT64_C(1) << 1; // EL1PCEN
+	asm volatile("msr cnthctl_el2, %0" : : "r"(cnthctl));
+
+	// Do not trap FP and SIMD to EL2.
+	asm volatile("msr cptr_el2, %0" : : "r"(UINT64_C(0x33ff)));
+}
+
 // Must only be called in EL2.
 bool inVhe() {
 	constexpr uint64_t e2hAndTge = (UINT64_C(1) << 34) | (UINT64_C(1) << 27);
@@ -368,18 +396,9 @@ bool patchArchSpecificManagarmElfNote(unsigned int, frg::span<char>) { return fa
 		              << frg::endlog;
 
 	if ((currentel >> 2) == 2) {
-		// Do not trap EL0 access to counters.
-		uint64_t cnthctl;
-		asm volatile("mrs %0, cnthctl_el2" : "=r"(cnthctl));
-		cnthctl |= UINT64_C(1) << 0; // EL0PCTEN
-		cnthctl |= UINT64_C(1) << 1; // EL0VCTEN.
-		asm volatile("msr cnthctl_el2, %0" : : "r"(cnthctl));
-
 		// Set virtual offset zero.
 		asm volatile("msr cntvoff_el2, %0" : : "r"(UINT64_C(0)));
 
-		// Do not trap FP and SIMD to EL2.
-		asm volatile("msr cptr_el2, %0" : : "r"(UINT64_C(0x33ff)));
 		// TODO: Our previous raspi4 entry code cleared hstr_el2 but it is not clear why.
 		asm volatile("msr hstr_el2, %0" : : "r"(UINT64_C(0)));
 	}
@@ -407,8 +426,11 @@ bool patchArchSpecificManagarmElfNote(unsigned int, frg::span<char>) { return fa
 
 				// Only now does SCTLR_EL2 have the SCTLR_EL1 layout.
 				asm volatile("msr sctlr_el1, %0; isb" : : "r"(kernelSctlr()) : "memory");
+
+				configureVheTraps();
 			} else {
 				infoLogger() << "eir: Dropping to EL1 (VHE is unsupported)" << frg::endlog;
+				configureEl2Traps();
 				dropToEl1();
 			}
 		}
@@ -424,6 +446,8 @@ bool patchArchSpecificManagarmElfNote(unsigned int, frg::span<char>) { return fa
 			uint64_t sctlr;
 			asm volatile("mrs %0, sctlr_el1" : "=r"(sctlr));
 			asm volatile("msr sctlr_el1, %0; isb" : : "r"(sctlr | kernelSctlr()) : "memory");
+
+			configureVheTraps();
 		}
 
 		// Running from non-identity mapping with paging enabled.
