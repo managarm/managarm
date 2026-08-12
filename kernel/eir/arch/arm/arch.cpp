@@ -394,7 +394,7 @@ bool patchArchSpecificManagarmElfNote(unsigned int, frg::span<char>) { return fa
 		if ((currentel >> 2) == 2) {
 			// Enter E2H mode if VHE is supported.
 			// Otherwise, drop to EL1.
-			if (((aa64mmfr1 >> 8) & 0xF) == 1) {
+			if (((aa64mmfr1 >> 8) & 0xF) >= 1) {
 				infoLogger() << "eir: Entering VHE mode" << frg::endlog;
 				// TGE routes exceptions from EL0 to EL2 and makes EL0 use the EL2&0
 				// translation regime. It also redirects the EL1 TLBI instructions to
