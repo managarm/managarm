@@ -6,6 +6,7 @@
 #include <thor-internal/arch/gic.hpp>
 #include <thor-internal/arch/gic_v2.hpp>
 #include <thor-internal/arch/gic_v3.hpp>
+#include <thor-internal/arch/system.hpp>
 #include <thor-internal/arch/timer.hpp>
 #include <thor-internal/arch/trap.hpp>
 #include <thor-internal/dtb/dtb.hpp>
@@ -80,6 +81,16 @@ namespace {
 					panicLogger()
 						<< node->path() << ": failed to read cpu-on" << frg::endlog;
 			}
+		}
+
+		// HVC is taken to EL3 (or is UNDEFINED) if the kernel itself runs in EL2.
+		bool checkUsable() const {
+			if (usesHvc_ && isKernelInEl2()) {
+				infoLogger() << "thor: PSCI uses HVC but the kernel runs in EL2"
+						<< frg::endlog;
+				return false;
+			}
+			return true;
 		}
 
 		int turnOnCpu(uint64_t id, uintptr_t addr) {
@@ -400,6 +411,10 @@ bool initPsciFromAcpi() {
 	}
 
 	psci_.initialize(fadt->arm_boot_arch & ACPI_ARM_PSCI_USE_HVC);
+	if (!psci_->checkUsable()) {
+		psci_.destruct();
+		return false;
+	}
 	return true;
 }
 
@@ -506,6 +521,8 @@ static initgraph::Task initAPs{&globalInitEngine, "arm.init-aps",
 		root->forEach([&](DeviceTreeNode *node) -> bool {
 			if (node->isCompatible<2>({"arm,psci", "arm,psci-1.0"})) {
 				psci_.initialize(node);
+				if (!psci_->checkUsable())
+					psci_.destruct();
 				return true;
 			}
 			return false;
