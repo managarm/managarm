@@ -53,7 +53,10 @@ bool inVhe() {
 	return (hcr & e2hAndTge) == e2hAndTge;
 }
 
-void dropToEl1() {
+// SCTLR that the kernel runs with.
+// Since E2H gives SCTLR_EL2 the SCTLR_EL1 layout, the same value applies to both exception levels.
+// The MMU is enabled later on, in enterKernelPaging().
+uint64_t kernelSctlr() {
 	uint64_t sctlr = 0;
 	sctlr |= UINT64_C(1) << 29; // LSMAOE
 	sctlr |= UINT64_C(1) << 28; // nTLSMD
@@ -63,7 +66,11 @@ void dropToEl1() {
 	sctlr |= UINT64_C(1) << 12; // I
 	sctlr |= UINT64_C(1) << 11; // EOS
 	sctlr |= UINT64_C(1) << 2;  // C
-	asm volatile("msr sctlr_el1, %0" : : "r"(sctlr));
+	return sctlr;
+}
+
+void dropToEl1() {
+	asm volatile("msr sctlr_el1, %0" : : "r"(kernelSctlr()));
 
 	uint64_t hcr = 0;
 	hcr |= UINT64_C(1) << 1;  // SWIO
@@ -389,8 +396,17 @@ bool patchArchSpecificManagarmElfNote(unsigned int, frg::span<char>) { return fa
 			// Otherwise, drop to EL1.
 			if (((aa64mmfr1 >> 8) & 0xF) == 1) {
 				infoLogger() << "eir: Entering VHE mode" << frg::endlog;
+				// TGE routes exceptions from EL0 to EL2 and makes EL0 use the EL2&0
+				// translation regime. It also redirects the EL1 TLBI instructions to
+				// that regime.
 				uint64_t hcr = 0;
+				hcr |= UINT64_C(1) << 1;  // SWIO
+				hcr |= UINT64_C(1) << 27; // TGE
+				hcr |= UINT64_C(1) << 31; // RW
 				eirEnterE2h(hcr);
+
+				// Only now does SCTLR_EL2 have the SCTLR_EL1 layout.
+				asm volatile("msr sctlr_el1, %0; isb" : : "r"(kernelSctlr()) : "memory");
 			} else {
 				infoLogger() << "eir: Dropping to EL1 (VHE is unsupported)" << frg::endlog;
 				dropToEl1();
@@ -400,8 +416,15 @@ bool patchArchSpecificManagarmElfNote(unsigned int, frg::span<char>) { return fa
 		// We cannot turn off the MMU from a non-identity mapping.
 		// If we are in EL2, only continue if VHE is already enabled (as we do not support a drop to
 		// EL1 here).
-		if ((currentel >> 2) == 2 && !inVhe())
-			panicLogger() << "eir: In EL2 without VHE with non-identity mapping" << frg::endlog;
+		if ((currentel >> 2) == 2) {
+			if (!inVhe())
+				panicLogger() << "eir: In EL2 without VHE with non-identity mapping" << frg::endlog;
+
+			// Since the MMU may already be enabled here, we can only set bits and not clear them.
+			uint64_t sctlr;
+			asm volatile("mrs %0, sctlr_el1" : "=r"(sctlr));
+			asm volatile("msr sctlr_el1, %0; isb" : : "r"(sctlr | kernelSctlr()) : "memory");
+		}
 
 		// Running from non-identity mapping with paging enabled.
 		// We cannot reconfigure paging.
