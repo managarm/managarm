@@ -45,6 +45,14 @@ void disableMmu() {
 	}
 }
 
+// Must only be called in EL2.
+bool inVhe() {
+	constexpr uint64_t e2hAndTge = (UINT64_C(1) << 34) | (UINT64_C(1) << 27);
+	uint64_t hcr;
+	asm volatile("mrs %0, hcr_el2" : "=r"(hcr));
+	return (hcr & e2hAndTge) == e2hAndTge;
+}
+
 void dropToEl1() {
 	uint64_t sctlr = 0;
 	sctlr |= UINT64_C(1) << 29; // LSMAOE
@@ -389,10 +397,11 @@ bool patchArchSpecificManagarmElfNote(unsigned int, frg::span<char>) { return fa
 			}
 		}
 	} else {
-		// TODO: We can continue here if E2H is already set.
-		if ((currentel >> 2) != 1)
-			panicLogger() << "eir: Unexpected exception level: in EL" << (currentel >> 2)
-			              << " with non-identity mapping" << frg::endlog;
+		// We cannot turn off the MMU from a non-identity mapping.
+		// If we are in EL2, only continue if VHE is already enabled (as we do not support a drop to
+		// EL1 here).
+		if ((currentel >> 2) == 2 && !inVhe())
+			panicLogger() << "eir: In EL2 without VHE with non-identity mapping" << frg::endlog;
 
 		// Running from non-identity mapping with paging enabled.
 		// We cannot reconfigure paging.
