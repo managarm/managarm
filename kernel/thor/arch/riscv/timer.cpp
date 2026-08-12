@@ -118,6 +118,11 @@ void setTimerDeadline(frg::optional<uint64_t> deadline) {
 	}
 }
 
+bool timerDisarmsItself() {
+	// STIP stays pending while time is past stimecmp.
+	return false;
+}
+
 bool haveTimer() { return static_cast<bool>(tickDuration); }
 
 } // namespace thor

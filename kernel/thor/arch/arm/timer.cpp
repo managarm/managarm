@@ -93,6 +93,11 @@ void setTimerDeadline(frg::optional<uint64_t> deadline) {
 	}
 }
 
+bool timerDisarmsItself() {
+	// The generic timer keeps asserting its interrupt while cntvct is past cntv_cval.
+	return false;
+}
+
 void initializeTimers() {
 	constexpr uint64_t divisor = 1'000'000'000;
 	uint64_t freqHz;

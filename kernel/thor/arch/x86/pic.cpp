@@ -177,6 +177,11 @@ void setTimerDeadline(frg::optional<uint64_t> deadline) {
 	}
 }
 
+bool timerDisarmsItself() {
+	// Both TSC deadline and local APIC one-shot timer are edge-triggered.
+	return true;
+}
+
 void LocalApicContext::clearPmi() {
 	picBase.store(lApicLvtPerfCount, apicLvtMode(4));
 }

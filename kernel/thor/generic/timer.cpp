@@ -54,6 +54,11 @@ void updateDeadline_(bool inTimerInterrupt = false) {
 	}
 
 	state.currentDeadline = deadline;
+
+	// Do not explicitly disarm edge-triggered timers that just fired.
+	if (!deadline && inTimerInterrupt && timerDisarmsItself())
+		return;
+
 	setTimerDeadline(state.currentDeadline);
 }
 
