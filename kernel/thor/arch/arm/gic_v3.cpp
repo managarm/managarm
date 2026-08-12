@@ -374,10 +374,19 @@ bool initGicV3FromAcpi(
 void initGicOnThisCpuV3() {
 	getRedistForThisCpu().initOnThisCpu();
 
+	// The system register interface of the EL that we run in is enabled by the
+	// ICC_SRE register of that EL; ICC_SRE_EL1 is not redirected by E2H.
 	arch::bit_value<uint64_t> sre{0};
-	asm volatile("mrs %0, icc_sre_el1" : "=r"(sre));
-	sre |= cpu_sre::sre(true);
-	asm volatile("msr icc_sre_el1, %0" : : "r"(sre));
+	if (isKernelInEl2()) {
+		asm volatile("mrs %0, icc_sre_el2" : "=r"(sre));
+		sre |= cpu_sre::sre(true);
+		asm volatile("msr icc_sre_el2, %0" : : "r"(sre));
+	} else {
+		asm volatile("mrs %0, icc_sre_el1" : "=r"(sre));
+		sre |= cpu_sre::sre(true);
+		asm volatile("msr icc_sre_el1, %0" : : "r"(sre));
+	}
+	asm volatile("isb");
 
 	arch::bit_value<uint64_t> ctlr{0};
 	asm volatile("mrs %0, icc_ctlr_el1" : "=r"(ctlr));
