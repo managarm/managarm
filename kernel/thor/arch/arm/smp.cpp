@@ -32,6 +32,7 @@ namespace {
 		StatusBlock *self; // Pointer to this struct in the higher half.
 		int targetStage;
 		int cpuId;
+		int useVhe;
 		uintptr_t ttbr0;
 		uintptr_t ttbr1;
 		uintptr_t stack;
@@ -43,6 +44,7 @@ namespace {
 	constexpr size_t statusBlockOffset = kPageSize - sizeof(StatusBlock);
 
 	static_assert(statusBlockOffset + offsetof(StatusBlock, self) == THOR_AP_STATUS_SELF);
+	static_assert(statusBlockOffset + offsetof(StatusBlock, useVhe) == THOR_AP_STATUS_USE_VHE);
 	static_assert(statusBlockOffset + offsetof(StatusBlock, ttbr0) == THOR_AP_STATUS_TTBR0);
 	static_assert(statusBlockOffset + offsetof(StatusBlock, ttbr1) == THOR_AP_STATUS_TTBR1);
 	static_assert(statusBlockOffset + offsetof(StatusBlock, stack) == THOR_AP_STATUS_STACK);
@@ -222,6 +224,7 @@ bool bootSecondary(uint64_t id, size_t cpuIndex, EnableInfo enable) {
 
 	statusBlock->self = statusBlock;
 	statusBlock->targetStage = 0;
+	statusBlock->useVhe = isKernelInEl2();
 	statusBlock->ttbr0 = lowMapping.rootTable();
 	statusBlock->ttbr1 = KernelPageSpace::global().rootTable();
 	statusBlock->stack = (uintptr_t)stackPtr + stackSize;
