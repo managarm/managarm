@@ -1,11 +1,6 @@
 // vim: ft=arm64asm
 
-.set statusSelf, 0xFC8
-.set statusTTBR0, 0xFD8
-.set statusTTBR1, 0xFE0
-.set statusStack, 0xFE8
-.set statusMain, 0xFF0
-.set statusCpuContext, 0xFF8
+#include <thor-internal/arch/asm.h>
 
 .global apEntryPoint
 apEntryPoint:
@@ -69,7 +64,7 @@ apEntryPoint:
 	dsb ish
 	isb
 
-	add x0, x1, statusTTBR0
+	add x0, x1, THOR_AP_STATUS_TTBR0
 	ldp x0, x2, [x0]
 	msr ttbr0_el1, x0
 	msr ttbr1_el1, x2
@@ -80,18 +75,18 @@ apEntryPoint:
 	ldr x0, =0x5a5102510
 	msr tcr_el1, x0
 
-	add x0, x1, statusMain
+	add x0, x1, THOR_AP_STATUS_MAIN
 	ldr x0, [x0]
 	msr elr_el1, x0
 
 	mov x0, #0x3C5
 	msr spsr_el1, x0
 
-	add x0, x1, statusStack
+	add x0, x1, THOR_AP_STATUS_STACK
 	ldr x0, [x0]
 	mov sp, x0
 
-	add x0, x1, statusSelf
+	add x0, x1, THOR_AP_STATUS_SELF
 	ldr x0, [x0]
 
 	mov x30, xzr

@@ -39,6 +39,17 @@ namespace {
 		CpuData *cpuContext;
 	};
 
+	// The status block is placed at the end of the trampoline page.
+	constexpr size_t statusBlockOffset = kPageSize - sizeof(StatusBlock);
+
+	static_assert(statusBlockOffset + offsetof(StatusBlock, self) == THOR_AP_STATUS_SELF);
+	static_assert(statusBlockOffset + offsetof(StatusBlock, ttbr0) == THOR_AP_STATUS_TTBR0);
+	static_assert(statusBlockOffset + offsetof(StatusBlock, ttbr1) == THOR_AP_STATUS_TTBR1);
+	static_assert(statusBlockOffset + offsetof(StatusBlock, stack) == THOR_AP_STATUS_STACK);
+	static_assert(statusBlockOffset + offsetof(StatusBlock, main) == THOR_AP_STATUS_MAIN);
+	static_assert(
+			statusBlockOffset + offsetof(StatusBlock, cpuContext) == THOR_AP_STATUS_CPU_CONTEXT);
+
 	enum class EnableMethod {
 		unknown,
 		spinTable,
@@ -201,13 +212,13 @@ bool bootSecondary(uint64_t id, size_t cpuIndex, EnableInfo enable) {
 
 	auto imageSize = (uintptr_t)_binary_kernel_thor_arch_arm_trampoline_bin_end
 			- (uintptr_t)_binary_kernel_thor_arch_arm_trampoline_bin_start;
-	assert(imageSize <= kPageSize - sizeof(StatusBlock));
+	assert(imageSize <= statusBlockOffset);
 
 	memcpy(codeVirtPtr, _binary_kernel_thor_arch_arm_trampoline_bin_start, imageSize);
 
 	// Setup a status block to communicate information to the AP.
 	auto statusBlock = reinterpret_cast<StatusBlock *>(reinterpret_cast<char *>(codeVirtPtr)
-			+ (kPageSize - sizeof(StatusBlock)));
+			+ statusBlockOffset);
 
 	statusBlock->self = statusBlock;
 	statusBlock->targetStage = 0;
