@@ -624,6 +624,63 @@ initgraph::Task setupMemoryMap{
 		    }
 	    };
 
+	    for (size_t i = 0; i < entries; i++) {
+		    auto e = reinterpret_cast<const efi_memory_descriptor *>(
+		        uintptr_t(memMap) + (i * descriptorSize)
+		    );
+
+		    EirMemoryType type;
+		    switch (e->type) {
+			    case EfiConventionalMemory:
+			    case EfiLoaderCode:
+			    case EfiLoaderData:
+			    case EfiBootServicesCode:
+			    case EfiBootServicesData:
+				    // Eir is responsible for dealing with bootloader reclaimable memory.
+				    // Hence, we map it to usableRam.
+				    type = EirMemoryType::usableRam;
+				    break;
+			    case EfiRuntimeServicesCode:
+			    case EfiRuntimeServicesData:
+				    type = EirMemoryType::runtimeServices;
+				    break;
+			    case EfiACPIReclaimMemory:
+				    type = EirMemoryType::acpiReclaimable;
+				    break;
+			    case EfiACPIMemoryNVS:
+				    type = EirMemoryType::acpiNvs;
+				    break;
+			    case EfiMemoryMappedIO:
+			    case EfiMemoryMappedIOPortSpace:
+				    type = EirMemoryType::mmio;
+				    break;
+			    case EfiReservedMemoryType:
+			    case EfiUnusableMemory:
+			    case EfiPalCode:
+			    case EfiPersistentMemory:
+			    case EfiUnacceptedMemoryType:
+				    type = EirMemoryType::reserved;
+				    break;
+			    default:
+				    eir::infoLogger() << "eir: Unknown EFI memory type " << e->type << frg::endlog;
+				    type = EirMemoryType::reserved;
+		    }
+
+		    uint32_t attrs = 0;
+		    if (e->attribute & EFI_MEMORY_UC)
+			    attrs |= eir_memory_attrs::uc;
+		    if (e->attribute & EFI_MEMORY_WC)
+			    attrs |= eir_memory_attrs::wc;
+		    if (e->attribute & EFI_MEMORY_WT)
+			    attrs |= eir_memory_attrs::wt;
+		    if (e->attribute & EFI_MEMORY_WB)
+			    attrs |= eir_memory_attrs::wb;
+
+		    reportFirmwareMemory(
+		        e->physical_start, e->number_of_pages * eir::pageSize, type, attrs
+		    );
+	    }
+
 	    eir::infoLogger() << "Memory map:" << frg::endlog;
 	    auto entry = nextEntry(0);
 

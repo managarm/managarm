@@ -59,6 +59,34 @@ initgraph::Task setupMemoryRegions{
 		    eir::infoLogger() << "    Type " << map->type << " mapping."
 		                      << " Base: 0x" << frg::hex_fmt{map->base} << ", length: 0x"
 		                      << frg::hex_fmt{map->length} << frg::endlog;
+
+		    // The entry types are the E820 memory types.
+		    switch (map->type) {
+			    case 1: // Available RAM.
+				    reportFirmwareMemory(
+				        map->base, map->length, EirMemoryType::usableRam, eir_memory_attrs::wb
+				    );
+				    break;
+			    case 3: // ACPI reclaimable.
+				    reportFirmwareMemory(
+				        map->base, map->length, EirMemoryType::acpiReclaimable, eir_memory_attrs::wb
+				    );
+				    break;
+			    case 4: // ACPI NVS.
+				    reportFirmwareMemory(
+				        map->base, map->length, EirMemoryType::acpiNvs, eir_memory_attrs::wb
+				    );
+				    break;
+			    case 2: // Reserved.
+			    case 5: // Defective RAM.
+				    reportFirmwareMemory(map->base, map->length, EirMemoryType::reserved, 0);
+				    break;
+			    default:
+				    eir::infoLogger()
+				        << "eir: Unknown E820 memory type " << map->type << frg::endlog;
+				    reportFirmwareMemory(map->base, map->length, EirMemoryType::reserved, 0);
+		    }
+
 		    if (map->type == 1)
 			    createInitialRegions(
 			        {map->base, map->length}, {reservedRegions.data(), nReservedRegions}

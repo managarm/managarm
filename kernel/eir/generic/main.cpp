@@ -9,6 +9,7 @@
 #include <eir-internal/uart/uart.hpp>
 
 #include <elf.h>
+#include <frg/algorithm.hpp>
 #include <frg/array.hpp>
 #include <frg/manual_box.hpp>
 #include <frg/utility.hpp>
@@ -197,6 +198,97 @@ void setupRegionStructs() {
 		auto tablePtr = physToVirt<int8_t>(regions[i].buddyTree);
 		BuddyAccessor::initialize(tablePtr, numRoots, order);
 	}
+}
+
+// ----------------------------------------------------------------------------
+// Firmware memory map handling.
+// ----------------------------------------------------------------------------
+
+namespace {
+
+constexpr size_t maxFirmwareMemoryEntries = 512;
+
+EirFirmwareMemory firmwareMemoryEntries[maxFirmwareMemoryEntries];
+size_t numFirmwareMemoryEntries = 0;
+
+// Complains about type/attribute combinations that thor would map in a surprising way,
+// either because the firmware lied to us or because we misclassified the entry.
+void checkFirmwareMemoryAttrs(address_t address, EirMemoryType type, uint32_t attributes) {
+	auto complain = [&](const char *what) {
+		eir::infoLogger() << "eir: Firmware memory at 0x" << frg::hex_fmt{address} << " " << what
+		                  << " (attributes: 0x" << frg::hex_fmt{attributes} << ")" << frg::endlog;
+	};
+
+	switch (type) {
+		case EirMemoryType::usableRam:
+		case EirMemoryType::acpiReclaimable:
+		case EirMemoryType::acpiNvs:
+			if (!(attributes & eir_memory_attrs::wb))
+				complain("is RAM but does not support write-back caching");
+			break;
+		case EirMemoryType::mmio:
+			if (attributes & eir_memory_attrs::wb)
+				complain("is MMIO but advertises write-back caching");
+			break;
+		default:
+			break;
+	}
+}
+
+} // namespace
+
+void
+reportFirmwareMemory(address_t address, address_t size, EirMemoryType type, uint32_t attributes) {
+	if (!size)
+		return;
+
+	checkFirmwareMemoryAttrs(address, type, attributes);
+
+	// Merge with the previous entry if possible; firmware maps are usually sorted.
+	if (numFirmwareMemoryEntries) {
+		auto &last = firmwareMemoryEntries[numFirmwareMemoryEntries - 1];
+		if (last.type == type && last.attributes == attributes
+		    && last.address + last.size == address) {
+			last.size += size;
+			return;
+		}
+	}
+
+	if (numFirmwareMemoryEntries >= maxFirmwareMemoryEntries)
+		eir::panicLogger() << "Eir: Firmware memory map entry limit exhausted" << frg::endlog;
+	firmwareMemoryEntries[numFirmwareMemoryEntries++] = {address, size, type, attributes};
+}
+
+void serializeFirmwareMemoryMap() {
+	// Note that frg::insertion_sort() swaps whenever the comparator returns true,
+	// i.e., this sorts by ascending address.
+	frg::insertion_sort(
+	    firmwareMemoryEntries,
+	    firmwareMemoryEntries + numFirmwareMemoryEntries,
+	    [](const EirFirmwareMemory &a, const EirFirmwareMemory &b) { return a.address > b.address; }
+	);
+
+	// Coalesce contiguous entries of the same type and attributes.
+	size_t n = 0;
+	for (size_t i = 0; i < numFirmwareMemoryEntries; ++i) {
+		auto &entry = firmwareMemoryEntries[i];
+		if (n && firmwareMemoryEntries[n - 1].type == entry.type
+		    && firmwareMemoryEntries[n - 1].attributes == entry.attributes
+		    && firmwareMemoryEntries[n - 1].address + firmwareMemoryEntries[n - 1].size
+		           == entry.address) {
+			firmwareMemoryEntries[n - 1].size += entry.size;
+			continue;
+		}
+		firmwareMemoryEntries[n++] = entry;
+	}
+	numFirmwareMemoryEntries = n;
+
+	auto bootstrapData =
+	    BootstrapData::place(n * sizeof(EirFirmwareMemory), alignof(EirFirmwareMemory));
+	bootstrapData.writeArray(std::span{firmwareMemoryEntries, n});
+
+	physicalMemoryNote.numFirmwareEntries = n;
+	physicalMemoryNote.firmwareEntriesPtr = bootstrapData.kernelAddress();
 }
 
 // ----------------------------------------------------------------------------

@@ -61,6 +61,10 @@ void allocLogRingBuffer();
 void setupRegionStructs();
 void createInitialRegion(address_t base, address_t size);
 
+void
+reportFirmwareMemory(address_t address, address_t size, EirMemoryType type, uint32_t attributes);
+void serializeFirmwareMemoryMap();
+
 struct InitialRegion {
 	address_t base;
 	address_t size;

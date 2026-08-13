@@ -144,6 +144,8 @@ static initgraph::Task mapRegions{
 	    }
 	    physicalMemoryNote.numRegions = n;
 	    physicalMemoryNote.regionInfo = bootstrapData.kernelAddress();
+
+	    serializeFirmwareMemoryMap();
     }
 };
 
