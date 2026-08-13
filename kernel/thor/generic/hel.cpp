@@ -639,7 +639,13 @@ HelError helAccessPhysical(uintptr_t physical, size_t size, uint32_t cachingMode
 
 	CachingMode caching;
 	switch(cachingMode) {
-	case kHelCachingDefault: caching = CachingMode::null; break;
+	case kHelCachingDefault: {
+		// Derive the caching mode from the firmware memory map.
+		auto firmwareMode = determineFirmwareCachingMode(physical, size);
+		if(!firmwareMode)
+			return kHelErrIllegalArgs;
+		caching = *firmwareMode;
+	} break;
 	case kHelCachingUncached: caching = CachingMode::uncached; break;
 	case kHelCachingWriteCombine: caching = CachingMode::writeCombine; break;
 	case kHelCachingWriteThrough: caching = CachingMode::writeThrough; break;
