@@ -384,16 +384,39 @@ void allocLogRingBuffer() {
 
 address_t bootstrapDataPointer = 0;
 
-address_t mapBootstrapData(void *p) {
+BootstrapData BootstrapData::place(size_t size, size_t alignment) {
+	// Placements always start at a page boundary.
+	assert(alignment <= pageSize);
+
 	if (!bootstrapDataPointer)
 		bootstrapDataPointer = getMemoryLayout().bootstrapData;
 
-	auto pointer = bootstrapDataPointer;
-	bootstrapDataPointer += pageSize;
-	mapSingle4kPage(pointer, virtToPhys(p), 0);
-	mapKasanShadow(pointer, pageSize);
-	unpoisonKasanShadow(pointer, pageSize);
-	return pointer;
+	auto address = bootstrapDataPointer;
+	bootstrapDataPointer += (size + pageSize - 1) & ~(pageSize - 1);
+	if (bootstrapDataPointer > getMemoryLayout().bootstrapData + bootstrapDataSize)
+		panicLogger() << "eir: Bootstrap data region is exhausted" << frg::endlog;
+	return BootstrapData{address, size};
+}
+
+void BootstrapData::writeBytes(std::span<const std::byte> bytes) {
+	assert(offset_ + bytes.size() <= size_);
+
+	while (!bytes.empty()) {
+		auto misalign = offset_ & (pageSize - 1);
+		// Map a new page whenever the placement crosses a page boundary.
+		if (!misalign) {
+			auto physical = allocPage();
+			mapSingle4kPage(address_ + offset_, physical, 0);
+			mapKasanShadow(address_ + offset_, pageSize);
+			unpoisonKasanShadow(address_ + offset_, pageSize);
+			window_ = physToVirt<std::byte>(physical);
+		}
+
+		auto chunk = frg::min(bytes.size(), pageSize - misalign);
+		memcpy(window_ + misalign, bytes.data(), chunk);
+		offset_ += chunk;
+		bytes = bytes.subspan(chunk);
+	}
 }
 
 // ----------------------------------------------------------------------------
@@ -708,28 +731,31 @@ static initgraph::Task composeCommandLine{
 	    auto cmdlineChunks = getCmdline();
 
 	    // For each chunk: we either have a trailing space or null terminator.
-	    auto cmdlineLength = cmdlineChunks.size();
+	    // Without any chunks, we still write the null terminator.
+	    auto cmdlineLength = frg::max(cmdlineChunks.size(), size_t{1});
 	    for (auto chunk : cmdlineChunks)
 		    cmdlineLength += chunk.size();
 
-	    if (cmdlineLength > pageSize)
-		    panicLogger() << "eir: Command line exceeds page size" << frg::endlog;
-	    auto cmdlineBuffer = bootAlloc<char>(cmdlineLength);
+	    auto bootstrapData = BootstrapData::place(cmdlineLength, alignof(char));
 
-	    char *cmdlinePtr = cmdlineBuffer;
+	    auto logger = infoLogger();
+	    logger << "eir: Kernel command line: '";
+	    bool first = true;
 	    for (auto chunk : cmdlineChunks) {
 		    if (!chunk.size())
 			    continue;
-		    if (cmdlinePtr != cmdlineBuffer)
-			    *(cmdlinePtr++) = ' ';
-		    memcpy(cmdlinePtr, chunk.data(), chunk.size());
-		    cmdlinePtr += chunk.size();
+		    if (!first) {
+			    bootstrapData.write(' ');
+			    logger << ' ';
+		    }
+		    bootstrapData.writeArray(std::span{chunk.data(), chunk.size()});
+		    logger << chunk;
+		    first = false;
 	    }
-	    *cmdlinePtr = '\0';
+	    bootstrapData.write('\0');
+	    logger << "'" << frg::endlog;
 
-	    infoLogger() << "eir: Kernel command line: '" << cmdlineBuffer << "'" << frg::endlog;
-
-	    commandLineNote.ptr = mapBootstrapData(cmdlineBuffer);
+	    commandLineNote.ptr = bootstrapData.kernelAddress();
     }
 };
 

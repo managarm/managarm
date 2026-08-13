@@ -5,6 +5,9 @@
 
 namespace eir {
 
+// Size of the region that holds the data that eir passes to thor.
+constexpr uint64_t bootstrapDataSize = 0x200000; // 2 MiB should be enough.
+
 // Kernel stack and kernel stack size.
 // TODO: This does not need to be global if we move stack allocation into memory-layout.cpp.
 extern uint64_t kernelStack;
