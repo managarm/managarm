@@ -18,6 +18,7 @@
 #include <thor-internal/kernel-heap.hpp>
 #include <thor-internal/main.hpp>
 #include <thor-internal/pci/pci.hpp>
+#include <thor-internal/physical.hpp>
 #include <thor-internal/timer.hpp>
 #include <thor-internal/work-queue.hpp>
 
@@ -207,10 +208,14 @@ void *uacpi_kernel_map(uacpi_phys_addr physical, uacpi_size length) {
 	auto vsize = length + (physical & (kPageSize - 1));
 	size_t msize = pow2ceil(frg::max(vsize, static_cast<size_t>(0x10000)));
 
+	auto caching = determineFirmwareCachingMode(physical, length);
+	if (!caching)
+		return nullptr;
+
 	auto ptr = KernelVirtualMemory::global().allocate(msize);
 	for (size_t pg = 0; pg < vsize; pg += kPageSize)
 		KernelPageSpace::global().mapSingle4k(
-		    (VirtualAddr)ptr + pg, paddr + pg, page_access::write, CachingMode::null
+		    (VirtualAddr)ptr + pg, paddr + pg, page_access::write, *caching
 		);
 	return reinterpret_cast<char *>(ptr) + (physical & (kPageSize - 1));
 }
@@ -234,6 +239,8 @@ void uacpi_kernel_unmap(void *ptr, uacpi_size length) {
 uacpi_status
 uacpi_kernel_raw_memory_read(uacpi_phys_addr address, uacpi_u8 byte_width, uacpi_u64 *out) {
 	auto *ptr = uacpi_kernel_map(address, byte_width);
+	if (!ptr)
+		return UACPI_STATUS_MAPPING_FAILED;
 
 	switch (byte_width) {
 		case 1:
@@ -260,6 +267,8 @@ uacpi_kernel_raw_memory_read(uacpi_phys_addr address, uacpi_u8 byte_width, uacpi
 uacpi_status
 uacpi_kernel_raw_memory_write(uacpi_phys_addr address, uacpi_u8 byte_width, uacpi_u64 in) {
 	auto *ptr = uacpi_kernel_map(address, byte_width);
+	if (!ptr)
+		return UACPI_STATUS_MAPPING_FAILED;
 
 	switch (byte_width) {
 		case 1:

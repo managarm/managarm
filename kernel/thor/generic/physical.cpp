@@ -11,6 +11,40 @@ static bool logPhysicalAllocs = false;
 THOR_DEFINE_ELF_NOTE(memoryLayoutNote){elf_note_type::memoryLayout, {}};
 THOR_DEFINE_ELF_NOTE(physicalMemoryNote){elf_note_type::physicalMemory, {}};
 
+frg::optional<CachingMode> determineFirmwareCachingMode(PhysicalAddr physical, size_t size) {
+	auto *entries = reinterpret_cast<const EirFirmwareMemory *>(physicalMemoryNote->firmwareEntriesPtr);
+	size_t numEntries = physicalMemoryNote->numFirmwareEntries;
+
+	// Find the entry that contains the start of the range.
+	const EirFirmwareMemory *foundEntry = nullptr;
+	for(size_t i = 0; i < numEntries; i++) {
+		if(entries[i].address <= physical && physical < entries[i].address + entries[i].size) {
+			foundEntry = &entries[i];
+			break;
+		}
+	}
+
+	// Treat ranges outside of the firmware memory map as device memory.
+	if(!foundEntry)
+		return CachingMode::mmioNonPosted;
+	auto &entry = *foundEntry;
+
+	if(physical + size > entry.address + entry.size) {
+		warningLogger() << "thor: Physical range 0x" << frg::hex_fmt{physical}
+				<< " - 0x" << frg::hex_fmt{physical + size}
+				<< " straddles multiple firmware memory map entries" << frg::endlog;
+		return frg::null_opt;
+	}
+
+	if(entry.attributes & eir_memory_attrs::wb)
+		return CachingMode::writeBack;
+	// We do not have a CachingMode to represent WT, treat it like WC.
+	if(entry.attributes & (eir_memory_attrs::wc | eir_memory_attrs::wt))
+		return CachingMode::writeCombine;
+	// If neither WB nor WC is supported, treat it as device memory.
+	return CachingMode::mmioNonPosted;
+}
+
 void poisonPhysicalAccess(PhysicalAddr physical) {
 	auto address = directPhysicalOffset() + physical;
 	KernelPageSpace::global().unmapSingle4k(address);
