@@ -37,14 +37,28 @@ fn read_entity_bars(entity: &PciEntity, n_bars: usize) {
 
     // The caller passes the number of BARs of the header type of the entity, hence all
     // offsets that we compute below address BARs.
+    //
+    // Sizing a BAR temporarily invalidates its address; disable I/O and memory
+    // decode around the probe so the device does not respond to stray accesses.
     let size_bar = |offset: u16, restore: u32| -> u32 {
-        unsafe {
+        let command = bus.command(slot, function);
+        if command & 0x03 != 0 {
+            bus.set_command(slot, function, command & !0x03);
+        }
+
+        let mask = unsafe {
             bus.set_bar(slot, function, offset, 0xFFFFFFFF);
             let mask = bus.bar(slot, function, offset);
             bus.set_bar(slot, function, offset, restore);
 
             mask
+        };
+
+        if command & 0x03 != 0 {
+            bus.set_command(slot, function, command);
         }
+
+        mask
     };
 
     let mut i = 0;
@@ -119,6 +133,11 @@ fn read_entity_bars(entity: &PciEntity, n_bars: usize) {
             let high = unsafe { bus.bar(slot, function, offset + 4) };
             let address = ((high as u64) << 32) | (bar & 0xFFFFFFF0) as u64;
 
+            let command = bus.command(slot, function);
+            if command & 0x03 != 0 {
+                bus.set_command(slot, function, command & !0x03);
+            }
+
             let mask = unsafe {
                 bus.set_bar(slot, function, offset, 0xFFFFFFFF);
                 bus.set_bar(slot, function, offset + 4, 0xFFFFFFFF);
@@ -129,6 +148,10 @@ fn read_entity_bars(entity: &PciEntity, n_bars: usize) {
 
                 mask
             };
+
+            if command & 0x03 != 0 {
+                bus.set_command(slot, function, command);
+            }
 
             // The device does not decode any address bits from this BAR.
             if mask == 0 {
