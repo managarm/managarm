@@ -95,7 +95,7 @@ static initgraph::Task setupBootUartMmio{
 
 BootUartConfig bootUartConfig;
 
-UartLogHandler::UartLogHandler(common::uart::AnyUart *uart) : uart_{uart} {}
+UartLogHandler::UartLogHandler(common::uart::AnyUart *uart) : uart_{uart} { wantsBacklog = true; }
 
 void UartLogHandler::emit(frg::string_view line) {
 	std::visit(
