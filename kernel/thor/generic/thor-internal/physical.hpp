@@ -3,6 +3,7 @@
 #include <atomic>
 
 #include <eir/interface.hpp>
+#include <frg/optional.hpp>
 #include <frg/spinlock.hpp>
 #include <frg/manual_box.hpp>
 #include <physical-buddy.hpp>
@@ -27,6 +28,12 @@ inline void *mapDirectPhysical(PhysicalAddr physical) {
 inline PhysicalAddr reverseDirectPhysical(void *pointer) {
 	return reinterpret_cast<uintptr_t>(pointer) - directPhysicalOffset();
 }
+
+// Determines the caching mode with which the given physical range may be mapped,
+// based on the firmware memory map. Ranges that the firmware memory map does not
+// describe are assumed to be device memory. Returns null if the range straddles
+// multiple entries (mixing distinct memory types in one mapping is not meaningful).
+frg::optional<CachingMode> determineFirmwareCachingMode(PhysicalAddr physical, size_t size);
 
 struct PageAccessor {
 	friend void swap(PageAccessor &a, PageAccessor &b) {

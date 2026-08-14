@@ -9,6 +9,7 @@
 #include <eir-internal/uart/uart.hpp>
 
 #include <elf.h>
+#include <frg/algorithm.hpp>
 #include <frg/array.hpp>
 #include <frg/manual_box.hpp>
 #include <frg/utility.hpp>
@@ -200,6 +201,97 @@ void setupRegionStructs() {
 }
 
 // ----------------------------------------------------------------------------
+// Firmware memory map handling.
+// ----------------------------------------------------------------------------
+
+namespace {
+
+constexpr size_t maxFirmwareMemoryEntries = 512;
+
+EirFirmwareMemory firmwareMemoryEntries[maxFirmwareMemoryEntries];
+size_t numFirmwareMemoryEntries = 0;
+
+// Complains about type/attribute combinations that thor would map in a surprising way,
+// either because the firmware lied to us or because we misclassified the entry.
+void checkFirmwareMemoryAttrs(address_t address, EirMemoryType type, uint32_t attributes) {
+	auto complain = [&](const char *what) {
+		eir::infoLogger() << "eir: Firmware memory at 0x" << frg::hex_fmt{address} << " " << what
+		                  << " (attributes: 0x" << frg::hex_fmt{attributes} << ")" << frg::endlog;
+	};
+
+	switch (type) {
+		case EirMemoryType::usableRam:
+		case EirMemoryType::acpiReclaimable:
+		case EirMemoryType::acpiNvs:
+			if (!(attributes & eir_memory_attrs::wb))
+				complain("is RAM but does not support write-back caching");
+			break;
+		case EirMemoryType::mmio:
+			if (attributes & eir_memory_attrs::wb)
+				complain("is MMIO but advertises write-back caching");
+			break;
+		default:
+			break;
+	}
+}
+
+} // namespace
+
+void
+reportFirmwareMemory(address_t address, address_t size, EirMemoryType type, uint32_t attributes) {
+	if (!size)
+		return;
+
+	checkFirmwareMemoryAttrs(address, type, attributes);
+
+	// Merge with the previous entry if possible; firmware maps are usually sorted.
+	if (numFirmwareMemoryEntries) {
+		auto &last = firmwareMemoryEntries[numFirmwareMemoryEntries - 1];
+		if (last.type == type && last.attributes == attributes
+		    && last.address + last.size == address) {
+			last.size += size;
+			return;
+		}
+	}
+
+	if (numFirmwareMemoryEntries >= maxFirmwareMemoryEntries)
+		eir::panicLogger() << "Eir: Firmware memory map entry limit exhausted" << frg::endlog;
+	firmwareMemoryEntries[numFirmwareMemoryEntries++] = {address, size, type, attributes};
+}
+
+void serializeFirmwareMemoryMap() {
+	// Note that frg::insertion_sort() swaps whenever the comparator returns true,
+	// i.e., this sorts by ascending address.
+	frg::insertion_sort(
+	    firmwareMemoryEntries,
+	    firmwareMemoryEntries + numFirmwareMemoryEntries,
+	    [](const EirFirmwareMemory &a, const EirFirmwareMemory &b) { return a.address > b.address; }
+	);
+
+	// Coalesce contiguous entries of the same type and attributes.
+	size_t n = 0;
+	for (size_t i = 0; i < numFirmwareMemoryEntries; ++i) {
+		auto &entry = firmwareMemoryEntries[i];
+		if (n && firmwareMemoryEntries[n - 1].type == entry.type
+		    && firmwareMemoryEntries[n - 1].attributes == entry.attributes
+		    && firmwareMemoryEntries[n - 1].address + firmwareMemoryEntries[n - 1].size
+		           == entry.address) {
+			firmwareMemoryEntries[n - 1].size += entry.size;
+			continue;
+		}
+		firmwareMemoryEntries[n++] = entry;
+	}
+	numFirmwareMemoryEntries = n;
+
+	auto bootstrapData =
+	    BootstrapData::place(n * sizeof(EirFirmwareMemory), alignof(EirFirmwareMemory));
+	bootstrapData.writeArray(std::span{firmwareMemoryEntries, n});
+
+	physicalMemoryNote.numFirmwareEntries = n;
+	physicalMemoryNote.firmwareEntriesPtr = bootstrapData.kernelAddress();
+}
+
+// ----------------------------------------------------------------------------
 
 physaddr_t bootReserve(size_t length, size_t alignment) {
 	assert(length <= pageSize);
@@ -384,16 +476,39 @@ void allocLogRingBuffer() {
 
 address_t bootstrapDataPointer = 0;
 
-address_t mapBootstrapData(void *p) {
+BootstrapData BootstrapData::place(size_t size, size_t alignment) {
+	// Placements always start at a page boundary.
+	assert(alignment <= pageSize);
+
 	if (!bootstrapDataPointer)
 		bootstrapDataPointer = getMemoryLayout().bootstrapData;
 
-	auto pointer = bootstrapDataPointer;
-	bootstrapDataPointer += pageSize;
-	mapSingle4kPage(pointer, virtToPhys(p), 0);
-	mapKasanShadow(pointer, pageSize);
-	unpoisonKasanShadow(pointer, pageSize);
-	return pointer;
+	auto address = bootstrapDataPointer;
+	bootstrapDataPointer += (size + pageSize - 1) & ~(pageSize - 1);
+	if (bootstrapDataPointer > getMemoryLayout().bootstrapData + bootstrapDataSize)
+		panicLogger() << "eir: Bootstrap data region is exhausted" << frg::endlog;
+	return BootstrapData{address, size};
+}
+
+void BootstrapData::writeBytes(std::span<const std::byte> bytes) {
+	assert(offset_ + bytes.size() <= size_);
+
+	while (!bytes.empty()) {
+		auto misalign = offset_ & (pageSize - 1);
+		// Map a new page whenever the placement crosses a page boundary.
+		if (!misalign) {
+			auto physical = allocPage();
+			mapSingle4kPage(address_ + offset_, physical, 0);
+			mapKasanShadow(address_ + offset_, pageSize);
+			unpoisonKasanShadow(address_ + offset_, pageSize);
+			window_ = physToVirt<std::byte>(physical);
+		}
+
+		auto chunk = frg::min(bytes.size(), pageSize - misalign);
+		memcpy(window_ + misalign, bytes.data(), chunk);
+		offset_ += chunk;
+		bytes = bytes.subspan(chunk);
+	}
 }
 
 // ----------------------------------------------------------------------------
@@ -708,28 +823,31 @@ static initgraph::Task composeCommandLine{
 	    auto cmdlineChunks = getCmdline();
 
 	    // For each chunk: we either have a trailing space or null terminator.
-	    auto cmdlineLength = cmdlineChunks.size();
+	    // Without any chunks, we still write the null terminator.
+	    auto cmdlineLength = frg::max(cmdlineChunks.size(), size_t{1});
 	    for (auto chunk : cmdlineChunks)
 		    cmdlineLength += chunk.size();
 
-	    if (cmdlineLength > pageSize)
-		    panicLogger() << "eir: Command line exceeds page size" << frg::endlog;
-	    auto cmdlineBuffer = bootAlloc<char>(cmdlineLength);
+	    auto bootstrapData = BootstrapData::place(cmdlineLength, alignof(char));
 
-	    char *cmdlinePtr = cmdlineBuffer;
+	    auto logger = infoLogger();
+	    logger << "eir: Kernel command line: '";
+	    bool first = true;
 	    for (auto chunk : cmdlineChunks) {
 		    if (!chunk.size())
 			    continue;
-		    if (cmdlinePtr != cmdlineBuffer)
-			    *(cmdlinePtr++) = ' ';
-		    memcpy(cmdlinePtr, chunk.data(), chunk.size());
-		    cmdlinePtr += chunk.size();
+		    if (!first) {
+			    bootstrapData.write(' ');
+			    logger << ' ';
+		    }
+		    bootstrapData.writeArray(std::span{chunk.data(), chunk.size()});
+		    logger << chunk;
+		    first = false;
 	    }
-	    *cmdlinePtr = '\0';
+	    bootstrapData.write('\0');
+	    logger << "'" << frg::endlog;
 
-	    infoLogger() << "eir: Kernel command line: '" << cmdlineBuffer << "'" << frg::endlog;
-
-	    commandLineNote.ptr = mapBootstrapData(cmdlineBuffer);
+	    commandLineNote.ptr = bootstrapData.kernelAddress();
     }
 };
 

@@ -21,6 +21,33 @@ struct EirRegion {
 	EirPtr buddyTree;
 };
 
+enum class EirMemoryType : uint32_t {
+	null,
+	usableRam,
+	acpiReclaimable,
+	acpiNvs,
+	runtimeServices,
+	mmio,
+	framebuffer,
+	reserved,
+};
+
+// Caching modes that a memory region supports (derived from EFI_MEMORY_{UC,WC,WT,WB}).
+// Note that these are not mutually exclusive.
+namespace eir_memory_attrs {
+constexpr uint32_t uc = UINT32_C(1) << 0;
+constexpr uint32_t wc = UINT32_C(1) << 1;
+constexpr uint32_t wt = UINT32_C(1) << 2;
+constexpr uint32_t wb = UINT32_C(1) << 3;
+} // namespace eir_memory_attrs
+
+struct EirFirmwareMemory {
+	EirPtr address = 0;
+	EirSize size = 0;
+	EirMemoryType type = EirMemoryType::null;
+	uint32_t attributes = 0;
+};
+
 struct EirFramebuffer {
 	EirPtr fbAddress;
 	EirPtr fbEarlyWindow;
@@ -268,6 +295,14 @@ struct PhysicalMemory {
 	uint64_t numRegions = 0;
 	// Virtual address of an EirRegion[numRegions] array in the bootstrap data area.
 	uint64_t regionInfo = 0;
+
+	// Number of entries in the array pointed to by firmwarePtr.
+	uint64_t numFirmwareEntries = 0;
+	// Virtual address of an EirFirmwareMemory[numFirmwareEntries] array in the bootstrap data area.
+	// In contrast to regionInfo, this array describes the entire firmware memory map
+	// (e.g., as obtained from UEFI) and not only the memory that is usable by the kernel.
+	// The entries are sorted by address.
+	uint64_t firmwareEntriesPtr = 0;
 };
 
 struct CommandLine {

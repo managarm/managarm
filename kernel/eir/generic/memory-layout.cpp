@@ -58,7 +58,7 @@ void doDetermineMemoryLayout() {
 	ml.directPhysical = assignLayout(UINT64_C(1) << (s - 2));
 	ml.kernelVirtual = assignLayout(ml.kernelVirtualSize);
 	ml.allocLog = assignLayout(ml.allocLogSize);
-	ml.bootstrapData = assignLayout(0x200000);     // 2 MiB should be enough.
+	ml.bootstrapData = assignLayout(bootstrapDataSize);
 	kernelFrameBuffer = assignLayout(0x4000'0000); // 1 GiB.
 	kernelStack = assignLayout(kernelStackSize);
 	if (earlyMmioSize)

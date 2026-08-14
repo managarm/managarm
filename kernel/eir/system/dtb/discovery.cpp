@@ -228,6 +228,7 @@ void discoverMemoryFromDtb() {
 			auto size = reg->asPropArrayEntry(sizeCells, j);
 			j += sizeCells * 4;
 
+			reportFirmwareMemory(base, size, EirMemoryType::usableRam, eir_memory_attrs::wb);
 			createInitialRegions({base, size}, {reservedRegions, nReservedRegions});
 		}
 	}

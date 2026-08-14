@@ -94,6 +94,11 @@ using efi_physical_addr = uint64_t;
 
 using efi_virtual_addr = uint64_t;
 
+constexpr uint64_t EFI_MEMORY_UC = 0x1;
+constexpr uint64_t EFI_MEMORY_WC = 0x2;
+constexpr uint64_t EFI_MEMORY_WT = 0x4;
+constexpr uint64_t EFI_MEMORY_WB = 0x8;
+
 struct efi_memory_descriptor {
 	uint32_t type;
 	efi_physical_addr physical_start;

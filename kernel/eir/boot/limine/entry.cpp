@@ -111,6 +111,57 @@ initgraph::Task setupMemoryRegions{
 		    eir::infoLogger() << "    Type " << map->type << " mapping."
 		                      << " Base: 0x" << frg::hex_fmt{map->base} << ", length: 0x"
 		                      << frg::hex_fmt{map->length} << frg::endlog;
+
+		    // Limine guarantees that all RAM-like entry types are actual memory.
+		    switch (map->type) {
+			    case LIMINE_MEMMAP_USABLE:
+			    case LIMINE_MEMMAP_BOOTLOADER_RECLAIMABLE:
+				    // Eir is responsible for dealing with bootloader reclaimable memory.
+				    // Hence, we map it to usableRam.
+				    reportFirmwareMemory(
+				        map->base, map->length, EirMemoryType::usableRam, eir_memory_attrs::wb
+				    );
+				    break;
+			    case LIMINE_MEMMAP_ACPI_RECLAIMABLE:
+				    reportFirmwareMemory(
+				        map->base, map->length, EirMemoryType::acpiReclaimable, eir_memory_attrs::wb
+				    );
+				    break;
+			    case LIMINE_MEMMAP_ACPI_NVS:
+				    reportFirmwareMemory(
+				        map->base, map->length, EirMemoryType::acpiNvs, eir_memory_attrs::wb
+				    );
+				    break;
+			    case LIMINE_MEMMAP_EXECUTABLE_AND_MODULES:
+				    reportFirmwareMemory(
+				        map->base, map->length, EirMemoryType::reserved, eir_memory_attrs::wb
+				    );
+				    break;
+			    case LIMINE_MEMMAP_FRAMEBUFFER:
+				    reportFirmwareMemory(
+				        map->base,
+				        map->length,
+				        EirMemoryType::framebuffer,
+				        eir_memory_attrs::wc | eir_memory_attrs::uc
+				    );
+				    break;
+			    case LIMINE_MEMMAP_RESERVED_MAPPED:
+				    // Limine uses this type for ACPI tables that live outside of ACPI
+				    // reclaimable memory (and for EFI runtime services).
+				    reportFirmwareMemory(
+				        map->base, map->length, EirMemoryType::reserved, eir_memory_attrs::wb
+				    );
+				    break;
+			    case LIMINE_MEMMAP_RESERVED:
+			    case LIMINE_MEMMAP_BAD_MEMORY:
+				    reportFirmwareMemory(map->base, map->length, EirMemoryType::reserved, 0);
+				    break;
+			    default:
+				    eir::infoLogger()
+				        << "eir: Unknown Limine memory map type " << map->type << frg::endlog;
+				    reportFirmwareMemory(map->base, map->length, EirMemoryType::reserved, 0);
+		    }
+
 		    if (map->type == LIMINE_MEMMAP_USABLE
 		        || map->type == LIMINE_MEMMAP_BOOTLOADER_RECLAIMABLE)
 			    createInitialRegions(

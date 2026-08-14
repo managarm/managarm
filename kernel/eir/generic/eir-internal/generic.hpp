@@ -1,11 +1,14 @@
 #pragma once
 
+#include <cstddef>
 #include <eir-internal/arch/types.hpp>
 #include <eir/interface.hpp>
 #include <frg/span.hpp>
 #include <frg/string.hpp>
+#include <span>
 #include <stddef.h>
 #include <stdint.h>
+#include <type_traits>
 
 namespace eir {
 
@@ -58,6 +61,10 @@ void allocLogRingBuffer();
 void setupRegionStructs();
 void createInitialRegion(address_t base, address_t size);
 
+void
+reportFirmwareMemory(address_t address, address_t size, EirMemoryType type, uint32_t attributes);
+void serializeFirmwareMemoryMap();
+
 struct InitialRegion {
 	address_t base;
 	address_t size;
@@ -75,7 +82,39 @@ physaddr_t virtToPhys(T *virt) {
 	return reinterpret_cast<physaddr_t>(virt) - physOffset;
 }
 
-address_t mapBootstrapData(void *p);
+// Data that eir passes to thor. A placement is virtually contiguous in thor's address space
+// but not in eir's; the write functions take care of crossing page boundaries.
+struct BootstrapData {
+	// Reserves size bytes of bootstrap data. The data is filled in by the write functions.
+	static BootstrapData place(size_t size, size_t alignment);
+
+	void writeBytes(std::span<const std::byte> bytes);
+
+	template <typename T>
+	    requires std::is_trivially_copyable_v<T>
+	void write(const T &object) {
+		writeBytes(std::as_bytes(std::span{&object, 1}));
+	}
+
+	template <typename T>
+	    requires std::is_trivially_copyable_v<T>
+	void writeArray(std::span<T> array) {
+		writeBytes(std::as_bytes(array));
+	}
+
+	// Address of the placement in thor's address space.
+	address_t kernelAddress() { return address_; }
+
+private:
+	BootstrapData(address_t address, size_t size) : address_{address}, size_{size} {}
+
+	address_t address_;
+	size_t size_;
+	size_t offset_{0};
+	// eir's view of the page that offset_ points into.
+	std::byte *window_{nullptr};
+};
+
 void mapKasanShadow(uint64_t address, size_t size);
 void unpoisonKasanShadow(uint64_t address, size_t size);
 void mapRegionsAndStructs();

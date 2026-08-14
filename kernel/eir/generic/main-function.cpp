@@ -130,20 +130,22 @@ static initgraph::Task mapRegions{
 		    if (regions[i].regionType == RegionType::allocatable)
 			    n++;
 	    }
-	    auto regionInfos = bootAlloc<EirRegion>(n);
-	    int j = 0;
+	    auto bootstrapData = BootstrapData::place(n * sizeof(EirRegion), alignof(EirRegion));
 	    for (size_t i = 0; i < eirMaxMemoryRegions; ++i) {
 		    if (regions[i].regionType != RegionType::allocatable)
 			    continue;
-		    regionInfos[j].address = regions[i].address;
-		    regionInfos[j].length = regions[i].size;
-		    regionInfos[j].order = regions[i].order;
-		    regionInfos[j].numRoots = regions[i].numRoots;
-		    regionInfos[j].buddyTree = regions[i].buddyMap;
-		    j++;
+		    EirRegion regionInfo{};
+		    regionInfo.address = regions[i].address;
+		    regionInfo.length = regions[i].size;
+		    regionInfo.order = regions[i].order;
+		    regionInfo.numRoots = regions[i].numRoots;
+		    regionInfo.buddyTree = regions[i].buddyMap;
+		    bootstrapData.write(regionInfo);
 	    }
 	    physicalMemoryNote.numRegions = n;
-	    physicalMemoryNote.regionInfo = mapBootstrapData(regionInfos);
+	    physicalMemoryNote.regionInfo = bootstrapData.kernelAddress();
+
+	    serializeFirmwareMemoryMap();
     }
 };
 
