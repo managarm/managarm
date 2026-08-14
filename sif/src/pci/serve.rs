@@ -87,7 +87,16 @@ impl managarm::hw::server::PciDevice for ServedEntity {
         let entity = self.entity();
         let bus = entity.parent_bus;
 
-        if offset as usize + size as usize > 0x1000 {
+        let limit = if bus.io.supports_4k_config_space() {
+            0x1000
+        } else {
+            0x100
+        };
+        // The offset comes from the client, hence a wrapping addition would defeat the check.
+        if !matches!(size, 1 | 2 | 4)
+            || offset & (size - 1) != 0
+            || offset.checked_add(size).is_none_or(|end| end > limit)
+        {
             return None;
         }
 
@@ -96,8 +105,7 @@ impl managarm::hw::server::PciDevice for ServedEntity {
         Some(match size {
             1 => (unsafe { bus.read_config_byte(entity.slot, entity.function, offset) }) as u32,
             2 => (unsafe { bus.read_config_half(entity.slot, entity.function, offset) }) as u32,
-            4 => unsafe { bus.read_config_word(entity.slot, entity.function, offset) },
-            _ => 0xFFFFFFFF,
+            _ => unsafe { bus.read_config_word(entity.slot, entity.function, offset) },
         })
     }
 
@@ -105,7 +113,16 @@ impl managarm::hw::server::PciDevice for ServedEntity {
         let entity = self.entity();
         let bus = entity.parent_bus;
 
-        if offset as usize + size as usize > 0x1000 {
+        let limit = if bus.io.supports_4k_config_space() {
+            0x1000
+        } else {
+            0x100
+        };
+        // The offset comes from the client, hence a wrapping addition would defeat the check.
+        if !matches!(size, 1 | 2 | 4)
+            || offset & (size - 1) != 0
+            || offset.checked_add(size).is_none_or(|end| end > limit)
+        {
             return false;
         }
 
@@ -116,8 +133,7 @@ impl managarm::hw::server::PciDevice for ServedEntity {
             2 => unsafe {
                 bus.write_config_half(entity.slot, entity.function, offset, word as u16)
             },
-            4 => unsafe { bus.write_config_word(entity.slot, entity.function, offset, word) },
-            _ => {}
+            _ => unsafe { bus.write_config_word(entity.slot, entity.function, offset, word) },
         }
         true
     }
@@ -127,7 +143,7 @@ impl managarm::hw::server::PciDevice for ServedEntity {
             let caps = self.entity().caps.lock().expect(EXPECT_LOCK);
             caps.get(usize::try_from(index).ok()?)?.offset
         };
-        self.config_read(cap_offset as u32 + offset, size)
+        self.config_read(u32::from(cap_offset).checked_add(offset)?, size)
     }
 
     fn access_bar(&self, index: usize) -> hel::Result<hel::Handle> {
