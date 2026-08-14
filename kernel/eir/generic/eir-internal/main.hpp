@@ -27,6 +27,10 @@ extern "C" void eirRunConstructors();
 initgraph::Stage *getInitrdAvailableStage();
 initgraph::Stage *getCmdlineAvailableStage();
 
+// After this stage, the boot protocol does not call into firmware anymore.
+// Boot protocols that never invoke firmware services reach this stage immediately.
+initgraph::Stage *getFirmwareDoneStage();
+
 // Before this stage, all reserved regions must be available.
 initgraph::Stage *getReservedRegionsKnownStage();
 

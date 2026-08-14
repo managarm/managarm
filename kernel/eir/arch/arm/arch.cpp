@@ -388,6 +388,8 @@ void initProcessorEarly() {
 static initgraph::Task earlyProcessorInit{
     &globalInitEngine,
     "arm.early-processor-init",
+    // The firmware handles its own interrupts, hence we must not steal VBAR before it is done.
+    initgraph::Requires{getFirmwareDoneStage()},
     initgraph::Entails{getMemoryLayoutReservedStage()},
     [] { initProcessorEarly(); }
 };
