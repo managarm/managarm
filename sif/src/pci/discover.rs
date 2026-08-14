@@ -2,8 +2,8 @@ use std::sync::Mutex;
 use std::sync::atomic::Ordering;
 
 use super::{
-    BarType, Capability, EXPECT_LOCK, IrqIndex, PCI_REGULAR_BAR0, PciBridge, PciBus, PciDevice,
-    PciEntity, name_of_capability,
+    BarType, Capability, EXPECT_LOCK, ExtendedCapability, IrqIndex, PCI_REGULAR_BAR0, PciBridge,
+    PciBus, PciDevice, PciEntity, name_of_capability, name_of_extended_capability,
 };
 
 use crate::acpi::PAGE_MASK;
@@ -37,14 +37,28 @@ fn read_entity_bars(entity: &PciEntity, n_bars: usize) {
 
     // The caller passes the number of BARs of the header type of the entity, hence all
     // offsets that we compute below address BARs.
+    //
+    // Sizing a BAR temporarily invalidates its address; disable I/O and memory
+    // decode around the probe so the device does not respond to stray accesses.
     let size_bar = |offset: u16, restore: u32| -> u32 {
-        unsafe {
+        let command = bus.command(slot, function);
+        if command & 0x03 != 0 {
+            bus.set_command(slot, function, command & !0x03);
+        }
+
+        let mask = unsafe {
             bus.set_bar(slot, function, offset, 0xFFFFFFFF);
             let mask = bus.bar(slot, function, offset);
             bus.set_bar(slot, function, offset, restore);
 
             mask
+        };
+
+        if command & 0x03 != 0 {
+            bus.set_command(slot, function, command);
         }
+
+        mask
     };
 
     let mut i = 0;
@@ -119,6 +133,11 @@ fn read_entity_bars(entity: &PciEntity, n_bars: usize) {
             let high = unsafe { bus.bar(slot, function, offset + 4) };
             let address = ((high as u64) << 32) | (bar & 0xFFFFFFF0) as u64;
 
+            let command = bus.command(slot, function);
+            if command & 0x03 != 0 {
+                bus.set_command(slot, function, command & !0x03);
+            }
+
             let mask = unsafe {
                 bus.set_bar(slot, function, offset, 0xFFFFFFFF);
                 bus.set_bar(slot, function, offset + 4, 0xFFFFFFFF);
@@ -129,6 +148,10 @@ fn read_entity_bars(entity: &PciEntity, n_bars: usize) {
 
                 mask
             };
+
+            if command & 0x03 != 0 {
+                bus.set_command(slot, function, command);
+            }
 
             // The device does not decode any address bits from this BAR.
             if mask == 0 {
@@ -190,6 +213,19 @@ fn find_pci_caps(entity: &PciEntity) {
                 println!("sif:     Capability of type {type_:#04x}");
             }
 
+            if type_ == 0x10 {
+                entity.is_pcie.store(true, Ordering::Relaxed);
+
+                let flags = unsafe { bus.read_config_half(slot, function, offset + 2) };
+                let port_type = (flags >> 4) & 0xF;
+                entity.is_downstream_port.store(
+                    port_type == 4 // Root port
+                    || port_type == 6 // Downstream port
+                    || port_type == 8, // PCI(-X) to PCIe bridge
+                    Ordering::Relaxed,
+                );
+            }
+
             let length = if type_ == 0x09 {
                 Some(unsafe { bus.read_config_byte(slot, function, offset + 2) } as u64)
             } else {
@@ -203,6 +239,49 @@ fn find_pci_caps(entity: &PciEntity) {
             });
 
             offset = ((ent >> 8) & 0xFC) as u16;
+        }
+    }
+
+    // PCIe devices are required to provide the 4096-byte configuration space.
+    if bus.io.supports_4k_config_space() && entity.is_pcie.load(Ordering::Relaxed) {
+        let mut offset: u16 = 0x100;
+
+        while offset != 0 {
+            // Extended capability headers sit at device-defined offsets, hence we cannot
+            // use a safe accessor to read them.
+            let data = unsafe { bus.read_config_word(slot, function, offset) };
+            let extended_cap_id = (data & 0xFFFF) as u16;
+            let version = (data >> 16) & 0xF;
+            // The bottom 2 bits are reserved and must be masked out.
+            // This offset is relative to the start of the entire configuration space.
+            let next_offset = ((data >> 20) & 0xFFC) as u16;
+            if next_offset > 0 && next_offset < 0x100 {
+                println!("sif: invalid 'Next Capability Offset' {next_offset:#x}, skipping");
+                break;
+            }
+
+            // Any one of these conditions signals that there are no further extended capabilities.
+            if extended_cap_id == 0xFFFF || extended_cap_id == 0 || next_offset == 0 {
+                break;
+            }
+
+            // We have a valid extended capability.
+            if let Some(name) = name_of_extended_capability(extended_cap_id) {
+                println!("sif:     {name} Extended Capability (v{version})");
+            } else {
+                println!("sif:     Extended Capability {extended_cap_id:#x} (v{version})");
+            }
+
+            entity
+                .extended_caps
+                .lock()
+                .expect(EXPECT_LOCK)
+                .push(ExtendedCapability {
+                    type_: extended_cap_id,
+                    offset,
+                });
+
+            offset = next_offset;
         }
     }
 }
@@ -235,6 +314,15 @@ fn check_pci_function(
             header_type & 0x7F
         );
     }
+
+    // Disable interrupts and bus mastering until a driver configures the device.
+    //
+    // We don't disable I/O and memory decoding so any devices in use by the kernel
+    // remain functional (e.g. framebuffers or UARTs).
+    let mut command = bus.command(slot, function);
+    command &= !0x4; // Disable bus mastering.
+    command |= 0x400; // Mask IRQs.
+    bus.set_command(slot, function, command);
 
     let device_id = bus.device_id(slot, function);
     let revision = bus.revision(slot, function);
@@ -276,15 +364,17 @@ fn check_pci_function(
 
         let irq_index = IrqIndex::from_pin(bus.interrupt_pin(slot, function));
         if irq_index != IrqIndex::Null {
-            if let Some(gsi) = super::acpi::resolve_irq(bus.seg_id, slot, irq_index) {
+            let router = bus.irq_router.get().expect("bus has no IRQ router");
+            if let Some(pin) = router.resolve_irq_route(slot, irq_index) {
                 println!(
-                    "sif:     Interrupt: {} (routed to GSI {gsi})",
-                    irq_index.name()
+                    "sif:     Interrupt: {} (routed to GSI {})",
+                    irq_index.name(),
+                    pin.gsi()
                 );
-                device
-                    .interrupt
-                    .set(gsi)
-                    .expect("sif: PCI device was already enumerated");
+                assert!(
+                    device.interrupt.set(pin).is_ok(),
+                    "sif: PCI device was already enumerated"
+                );
             } else {
                 println!("sif:     Interrupt routing not available!");
             }
@@ -349,7 +439,21 @@ fn check_pci_device(
 }
 
 fn check_pci_bus(bus: &'static PciBus, enumerate_downstream: &mut dyn FnMut(&'static PciBus)) {
-    for slot in 0..32 {
+    let bridge = bus.associated_bridge;
+    let mut n_slots: u8 = 32;
+
+    // A PCIe downstream port has only one device (slot 0) attached.
+    // In theory, this is only an optimization, in practice however omitting
+    // this causes a SError on the BCM2711 when trying to access the vendor ID
+    // of a non-existant device.
+    if let Some(bridge) = bridge
+        && bridge.entity.is_pcie.load(Ordering::Relaxed)
+        && bridge.entity.is_downstream_port.load(Ordering::Relaxed)
+    {
+        n_slots = 1;
+    }
+
+    for slot in 0..n_slots {
         check_pci_device(bus, slot, enumerate_downstream);
     }
 }

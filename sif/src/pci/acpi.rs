@@ -1,179 +1,273 @@
-use std::collections::HashMap;
-use std::ffi::c_void;
-use std::sync::OnceLock;
+use std::ffi::CStr;
 
 use hel::{IrqPolarity, IrqTrigger};
 
-use uacpi_sys::{uacpi_iteration_decision, uacpi_namespace_node, uacpi_u32, uacpi_u64};
+use crate::uacpi::namespace::{
+    IterationDecision, NamespaceNode, PredefinedNamespace, find_devices_at,
+};
+use crate::uacpi::resources::{Polarity, Resource, Triggering};
 
 use super::discover::add_root_bus;
-use super::{IrqIndex, PciBus, config};
+use super::{
+    IrqIndex, IrqPin, PciBus, PciIrqRouter, RouterState, RoutingEntry, RoutingModel, config, leak,
+    system_irq,
+};
 
 #[derive(Clone, Copy)]
 struct RootBus {
     seg: u16,
     bus: u8,
-    node: *mut uacpi_namespace_node,
+    node: NamespaceNode,
 }
 
-type Routes = HashMap<(u16, u8, u8), u32>;
-
-static ROUTES: OnceLock<Routes> = OnceLock::new();
-
-unsafe extern "C" fn root_bus_callback(
-    user: *mut c_void,
-    node: *mut uacpi_namespace_node,
-    _depth: uacpi_u32,
-) -> uacpi_iteration_decision {
-    let roots = unsafe { &mut *(user as *mut Vec<RootBus>) };
-
-    let mut segment: uacpi_u64 = 0;
-    unsafe { uacpi_sys::uacpi_eval_simple_integer(node, c"_SEG".as_ptr(), &mut segment) };
-    let mut base_bus: uacpi_u64 = 0;
-    unsafe { uacpi_sys::uacpi_eval_simple_integer(node, c"_BBN".as_ptr(), &mut base_bus) };
-
-    roots.push(RootBus {
-        seg: segment as u16,
-        bus: base_bus as u8,
-        node,
-    });
-    uacpi_sys::UACPI_ITERATION_DECISION_NEXT_PEER
+/// Evaluates an integer method that defaults to zero if the device does not implement it.
+fn eval_integer_or_zero(node: NamespaceNode, path: &CStr) -> u64 {
+    match node.eval_simple_integer(path) {
+        Ok(value) => value.unwrap_or(0),
+        Err(err) => {
+            println!("sif: Failed to evaluate {}: {err}", path.to_string_lossy());
+            0
+        }
+    }
 }
 
 fn find_root_buses() -> Vec<RootBus> {
     let mut roots: Vec<RootBus> = Vec::new();
-    let user = &mut roots as *mut _ as *mut c_void;
-    unsafe {
-        uacpi_sys::uacpi_find_devices(c"PNP0A03".as_ptr(), Some(root_bus_callback), user);
-        uacpi_sys::uacpi_find_devices(c"PNP0A08".as_ptr(), Some(root_bus_callback), user);
-    }
-    roots.sort_by_key(|root| (root.seg, root.bus));
-    roots.dedup_by_key(|root| (root.seg, root.bus));
-    if roots.is_empty() {
+
+    // PCIe host bridges usually declare PNP0A08 as their _HID and PNP0A03 as a _CID, hence
+    // both IDs have to be matched in a single search to visit every bridge exactly once.
+    let system_bus = NamespaceNode::predefined(PredefinedNamespace::SystemBus);
+    let search = find_devices_at(system_bus, &[c"PNP0A03", c"PNP0A08"], |node| {
         roots.push(RootBus {
-            seg: 0,
-            bus: 0,
-            node: std::ptr::null_mut(),
+            seg: eval_integer_or_zero(node, c"_SEG") as u16,
+            bus: eval_integer_or_zero(node, c"_BBN") as u8,
+            node,
         });
+        // Devices below a host bridge are never host bridges themselves.
+        IterationDecision::NextPeer
+    });
+    if let Err(err) = search {
+        println!("sif: Failed to search for PCI host bridges: {err}");
+    }
+
+    if roots.is_empty() {
+        println!("sif: Firmware describes no PCI host bridge");
     }
     roots
 }
 
-fn resolve_link(
-    source: *mut uacpi_namespace_node,
-    index: u32,
-) -> Option<(u32, IrqTrigger, IrqPolarity)> {
-    let mut raw_resources: *mut uacpi_sys::uacpi_resources = std::ptr::null_mut();
-    let status = unsafe { uacpi_sys::uacpi_get_current_resources(source, &raw mut raw_resources) };
-    if status != uacpi_sys::UACPI_STATUS_OK || raw_resources.is_null() {
+/// Resolves the IRQ that a link device is connected to.
+///
+/// `index` is the source index of the _PRT entry, i.e., it selects a resource descriptor
+/// of the _CRS of the link and not an IRQ within a descriptor.
+fn resolve_link(source: NamespaceNode, index: u32) -> Option<(u32, IrqTrigger, IrqPolarity)> {
+    let resources = match source.current_resources() {
+        Ok(resources) => resources,
+        Err(err) => {
+            println!("sif: Failed to evaluate the _CRS of an IRQ link: {err}");
+            return None;
+        }
+    };
+
+    let Some(resource) = resources.iter().nth(index as usize) else {
+        println!("sif: The _CRS of an IRQ link has no resource {index}");
         return None;
-    }
+    };
 
-    let resources =
-        unsafe { std::slice::from_raw_parts((*raw_resources).entries, (*raw_resources).length) };
+    let (gsi, triggering, polarity) = match resource {
+        Resource::Irq(irq) => (
+            irq.irqs().first().map(|&gsi| u32::from(gsi)),
+            irq.triggering(),
+            irq.polarity(),
+        ),
+        Resource::ExtendedIrq(irq) => (
+            irq.irqs().first().copied(),
+            irq.triggering(),
+            irq.polarity(),
+        ),
+        Resource::Other => {
+            println!("sif: Resource {index} of an IRQ link does not describe an IRQ");
+            return None;
+        }
+    };
 
-    let mut route = None;
+    // Firmware reports a link that it did not connect to an IRQ as one without any IRQs.
+    // TODO: Connect such links ourselves by picking an IRQ from _PRS and applying it via _SRS.
+    let Some(gsi) = gsi else {
+        println!("sif: An IRQ link is not connected to any IRQ");
+        return None;
+    };
 
-    for cur in resources.iter() {
-        let ty = cur.type_;
-        if ty == uacpi_sys::UACPI_RESOURCE_TYPE_END_TAG as u32 {
-            break;
-        }
-        if ty == uacpi_sys::UACPI_RESOURCE_TYPE_IRQ as u32 {
-            let irq = unsafe { (*cur).__bindgen_anon_1.irq.as_ref() };
-            if (index as usize) < irq.num_irqs as usize {
-                let gsi = unsafe { *irq.irqs.as_ptr().add(index as usize) } as u32;
-                route = Some((gsi, trigger_of(irq.triggering), polarity_of(irq.polarity)));
-            }
-            break;
-        }
-        if ty == uacpi_sys::UACPI_RESOURCE_TYPE_EXTENDED_IRQ as u32 {
-            let irq = unsafe { (*cur).__bindgen_anon_1.extended_irq.as_ref() };
-            if (index as usize) < irq.num_irqs as usize {
-                let gsi = unsafe { *irq.irqs.as_ptr().add(index as usize) };
-                route = Some((gsi, trigger_of(irq.triggering), polarity_of(irq.polarity)));
-            }
-            break;
-        }
-        let len = cur.length as usize;
-        if len == 0 {
-            break;
-        }
-    }
-
-    unsafe { uacpi_sys::uacpi_free_resources(raw_resources) };
-    route
+    Some((gsi, trigger_of(triggering), polarity_of(polarity)))
 }
 
-fn trigger_of(triggering: u8) -> IrqTrigger {
-    if triggering as u32 == uacpi_sys::UACPI_TRIGGERING_EDGE {
-        IrqTrigger::Edge
-    } else {
-        IrqTrigger::Level
+fn trigger_of(triggering: Triggering) -> IrqTrigger {
+    match triggering {
+        Triggering::Edge => IrqTrigger::Edge,
+        Triggering::Level => IrqTrigger::Level,
     }
 }
 
-fn polarity_of(polarity: u8) -> IrqPolarity {
-    if polarity as u32 == uacpi_sys::UACPI_POLARITY_ACTIVE_HIGH {
-        IrqPolarity::High
-    } else {
-        IrqPolarity::Low
+fn polarity_of(polarity: Polarity) -> IrqPolarity {
+    match polarity {
+        Polarity::ActiveHigh => IrqPolarity::High,
+        Polarity::ActiveLow | Polarity::ActiveBoth => IrqPolarity::Low,
     }
 }
 
-fn build_routes(roots: &[RootBus]) -> Routes {
-    let mut routes = Routes::new();
-    for root in roots {
-        if root.node.is_null() {
-            continue;
-        }
+pub struct AcpiPciIrqRouter {
+    state: RouterState,
+    acpi_node: Option<NamespaceNode>,
+}
 
-        let mut table: *mut uacpi_sys::uacpi_pci_routing_table = std::ptr::null_mut();
-        let status = unsafe { uacpi_sys::uacpi_get_pci_routing_table(root.node, &mut table) };
-        if status != uacpi_sys::UACPI_STATUS_OK || table.is_null() {
-            continue;
-        }
+impl AcpiPciIrqRouter {
+    pub fn new(
+        parent: Option<&'static dyn PciIrqRouter>,
+        bus: &'static PciBus,
+        node: Option<NamespaceNode>,
+    ) -> &'static AcpiPciIrqRouter {
+        let mut state = RouterState::new();
+        build_routing(&mut state, parent, bus, node);
 
-        let num_entries = unsafe { (*table).num_entries };
-        let entries = unsafe { (*table).entries.as_ptr() };
-        for i in 0..num_entries {
-            let entry = unsafe { &*entries.add(i) };
-            let slot = (entry.address >> 16) as u8;
-            let (gsi, trigger, polarity) = if entry.source.is_null() {
-                (entry.index, IrqTrigger::Level, IrqPolarity::Low)
+        leak(AcpiPciIrqRouter {
+            state,
+            acpi_node: node,
+        })
+    }
+}
+
+fn build_routing(
+    state: &mut RouterState,
+    parent: Option<&'static dyn PciIrqRouter>,
+    bus: &'static PciBus,
+    node: Option<NamespaceNode>,
+) {
+    let Some(node) = node else {
+        if let Some(parent) = parent {
+            bridge_routing(state, parent, bus);
+        }
+        return;
+    };
+
+    let pci_routes = match node.pci_routing_table() {
+        Ok(Some(pci_routes)) => pci_routes,
+        Ok(None) => {
+            if let Some(parent) = parent {
+                println!(
+                    "sif: There is no _PRT for bus {}; assuming expansion bridge routing",
+                    bus.bus_id
+                );
+                bridge_routing(state, parent, bus);
             } else {
-                match resolve_link(entry.source, entry.index) {
-                    Some(route) => route,
-                    None => continue,
-                }
-            };
-
-            if let Err(err) = hel::configure_irq(gsi as i32, trigger, polarity) {
-                println!("sif: Failed to configure GSI {gsi}: {err}");
-                continue;
+                println!(
+                    "sif: There is no _PRT for bus {}; giving up IRQ routing of this bus",
+                    bus.bus_id
+                );
             }
-            routes.insert((root.seg, slot, entry.pin), gsi);
+            return;
+        }
+        Err(err) => {
+            println!("sif: Failed to evaluate _PRT: {err}; giving up IRQ routing");
+            return;
+        }
+    };
+
+    // Walk through the PRT and determine the routing.
+    for entry in pci_routes.entries() {
+        // These are the defaults.
+        let mut triggering = IrqTrigger::Level;
+        let mut polarity = IrqPolarity::Low;
+        let mut gsi = entry.index;
+        let slot = ((entry.address >> 16) & 0xFFFF) as u8;
+
+        assert!(
+            entry.address & 0xFFFF == 0xFFFF,
+            "TODO: support routing of individual functions"
+        );
+
+        let index = IrqIndex::from_pin(entry.pin + 1);
+
+        if let Some(source) = entry.source {
+            match resolve_link(source, entry.index) {
+                Some((link_gsi, link_trigger, link_polarity)) => {
+                    gsi = link_gsi;
+                    triggering = link_trigger;
+                    polarity = link_polarity;
+                }
+                None => {
+                    println!("sif:     No route for slot {slot}, {}", index.name());
+                    continue;
+                }
+            }
         }
 
-        unsafe { uacpi_sys::uacpi_free_pci_routing_table(table) };
+        println!(
+            "sif:     Route for slot {slot}, {}: GSI {gsi}",
+            index.name()
+        );
+
+        let Some(pin) = system_irq(gsi, triggering, polarity) else {
+            continue;
+        };
+        state.routing_table.push(RoutingEntry { slot, index, pin });
     }
-    routes
+
+    state.routing_model = RoutingModel::RootTable;
 }
 
-pub fn resolve_irq(seg: u16, slot: u8, index: IrqIndex) -> Option<u32> {
-    ROUTES.get()?.get(&(seg, slot, index as u8 - 1)).copied()
+fn bridge_routing(state: &mut RouterState, parent: &dyn PciIrqRouter, bus: &PciBus) {
+    let bridge = bus
+        .associated_bridge
+        .expect("expansion bridge routing without an associated bridge");
+
+    for (i, bridge_irq) in state.bridge_irqs.iter_mut().enumerate() {
+        *bridge_irq = parent.resolve_irq_route(bridge.entity.slot, IrqIndex::from_pin(i as u8 + 1));
+        if let Some(pin) = bridge_irq {
+            println!("sif:     Bridge IRQ [{i}]: GSI {}", pin.gsi());
+        }
+    }
+
+    state.routing_model = RoutingModel::ExpansionBridge;
+}
+
+/// Searches the ACPI node of the bridge that a bus is attached to.
+fn find_bridge_node(parent: NamespaceNode, bus: &PciBus) -> Option<NamespaceNode> {
+    let bridge = bus
+        .associated_bridge
+        .expect("downstream router without an associated bridge");
+    let bridge_adr = ((bridge.entity.slot as u64) << 16) | bridge.entity.function as u64;
+
+    let mut node = None;
+    let mut match_adr = |candidate: NamespaceNode| match candidate.eval_adr() {
+        Ok(Some(adr)) if adr == bridge_adr => {
+            node = Some(candidate);
+            IterationDecision::Break
+        }
+        _ => IterationDecision::Continue,
+    };
+
+    if let Err(err) = parent.for_each_child_device(&mut match_adr) {
+        println!("sif: Failed to search for the ACPI node of a PCI bridge: {err}");
+    }
+    node
+}
+
+impl PciIrqRouter for AcpiPciIrqRouter {
+    fn resolve_irq_route(&self, slot: u8, index: IrqIndex) -> Option<&'static IrqPin> {
+        self.state.resolve_irq_route(slot, index)
+    }
+
+    fn make_downstream_router(&'static self, bus: &'static PciBus) -> &'static dyn PciIrqRouter {
+        let node = self
+            .acpi_node
+            .and_then(|acpi_node| find_bridge_node(acpi_node, bus));
+
+        AcpiPciIrqRouter::new(Some(self), bus, node)
+    }
 }
 
 pub fn discover_root_buses() {
-    let roots = find_root_buses();
-
-    let routes = build_routes(&roots);
-    println!("sif: Resolved {} PCI interrupt routes", routes.len());
-    ROUTES
-        .set(routes)
-        .expect("sif: PCI interrupt routes were already resolved");
-
-    for root in roots {
+    for root in find_root_buses() {
         let Some(io) = config::get_config_io_for(root.seg, root.bus) else {
             println!(
                 "sif: No config space for PCI host bridge {:04x}:{:02x}",
@@ -188,6 +282,11 @@ pub fn discover_root_buses() {
         );
 
         let root_bus = PciBus::new(None, io, root.seg, root.bus);
+        let router = AcpiPciIrqRouter::new(None, root_bus, Some(root.node));
+        assert!(
+            root_bus.irq_router.set(router).is_ok(),
+            "sif: PCI bus already has an IRQ router"
+        );
         add_root_bus(root_bus);
     }
 }

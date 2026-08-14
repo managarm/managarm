@@ -3,6 +3,9 @@
 //! Wrappers are named after the uacpi_*() functions that they wrap. To keep this module
 //! extractable into a crate of its own, it must not depend on the rest of sif.
 
+pub mod namespace;
+pub mod pci;
+pub mod resources;
 pub mod table;
 
 use std::borrow::Cow;
@@ -27,6 +30,23 @@ impl Error {
 }
 
 pub type Result<T> = std::result::Result<T, Error>;
+
+/// Turns a uACPI status code into a Result.
+fn check(function: &'static str, status: uacpi_status) -> Result<()> {
+    match status {
+        uacpi_sys::UACPI_STATUS_OK => Ok(()),
+        _ => Err(Error::new(function, status)),
+    }
+}
+
+/// Like check(), but reports whether the object that we asked for exists at all.
+fn check_optional(function: &'static str, status: uacpi_status) -> Result<bool> {
+    match status {
+        uacpi_sys::UACPI_STATUS_OK => Ok(true),
+        uacpi_sys::UACPI_STATUS_NOT_FOUND => Ok(false),
+        _ => Err(Error::new(function, status)),
+    }
+}
 
 /// Wraps uacpi_status_to_string().
 fn status_to_string(status: uacpi_status) -> Cow<'static, str> {
