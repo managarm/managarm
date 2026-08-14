@@ -215,6 +215,15 @@ fn find_pci_caps(entity: &PciEntity) {
 
             if type_ == 0x10 {
                 entity.is_pcie.store(true, Ordering::Relaxed);
+
+                let flags = unsafe { bus.read_config_half(slot, function, offset + 2) };
+                let port_type = (flags >> 4) & 0xF;
+                entity.is_downstream_port.store(
+                    port_type == 4 // Root port
+                    || port_type == 6 // Downstream port
+                    || port_type == 8, // PCI(-X) to PCIe bridge
+                    Ordering::Relaxed,
+                );
             }
 
             let length = if type_ == 0x09 {
@@ -428,7 +437,21 @@ fn check_pci_device(
 }
 
 fn check_pci_bus(bus: &'static PciBus, enumerate_downstream: &mut dyn FnMut(&'static PciBus)) {
-    for slot in 0..32 {
+    let bridge = bus.associated_bridge;
+    let mut n_slots: u8 = 32;
+
+    // A PCIe downstream port has only one device (slot 0) attached.
+    // In theory, this is only an optimization, in practice however omitting
+    // this causes a SError on the BCM2711 when trying to access the vendor ID
+    // of a non-existant device.
+    if let Some(bridge) = bridge
+        && bridge.entity.is_pcie.load(Ordering::Relaxed)
+        && bridge.entity.is_downstream_port.load(Ordering::Relaxed)
+    {
+        n_slots = 1;
+    }
+
+    for slot in 0..n_slots {
         check_pci_device(bus, slot, enumerate_downstream);
     }
 }

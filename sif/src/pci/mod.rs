@@ -359,6 +359,7 @@ pub struct PciEntity {
     pub interface: u8,
 
     pub is_pcie: AtomicBool,
+    pub is_downstream_port: AtomicBool,
 
     pub caps: Mutex<Vec<Capability>>,
     pub extended_caps: Mutex<Vec<ExtendedCapability>>,
@@ -394,6 +395,7 @@ impl PciEntity {
             sub_class,
             interface,
             is_pcie: AtomicBool::new(false),
+            is_downstream_port: AtomicBool::new(false),
             caps: Mutex::new(Vec::new()),
             extended_caps: Mutex::new(Vec::new()),
             bars: Mutex::new(vec![PciBar::default(); n_bars]),
