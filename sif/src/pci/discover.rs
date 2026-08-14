@@ -2,8 +2,8 @@ use std::sync::Mutex;
 use std::sync::atomic::Ordering;
 
 use super::{
-    BarType, Capability, EXPECT_LOCK, IrqIndex, PCI_REGULAR_BAR0, PciBridge, PciBus, PciDevice,
-    PciEntity, name_of_capability,
+    BarType, Capability, EXPECT_LOCK, ExtendedCapability, IrqIndex, PCI_REGULAR_BAR0, PciBridge,
+    PciBus, PciDevice, PciEntity, name_of_capability, name_of_extended_capability,
 };
 
 use crate::acpi::PAGE_MASK;
@@ -213,6 +213,10 @@ fn find_pci_caps(entity: &PciEntity) {
                 println!("sif:     Capability of type {type_:#04x}");
             }
 
+            if type_ == 0x10 {
+                entity.is_pcie.store(true, Ordering::Relaxed);
+            }
+
             let length = if type_ == 0x09 {
                 Some(unsafe { bus.read_config_byte(slot, function, offset + 2) } as u64)
             } else {
@@ -226,6 +230,49 @@ fn find_pci_caps(entity: &PciEntity) {
             });
 
             offset = ((ent >> 8) & 0xFC) as u16;
+        }
+    }
+
+    // PCIe devices are required to provide the 4096-byte configuration space.
+    if bus.io.supports_4k_config_space() && entity.is_pcie.load(Ordering::Relaxed) {
+        let mut offset: u16 = 0x100;
+
+        while offset != 0 {
+            // Extended capability headers sit at device-defined offsets, hence we cannot
+            // use a safe accessor to read them.
+            let data = unsafe { bus.read_config_word(slot, function, offset) };
+            let extended_cap_id = (data & 0xFFFF) as u16;
+            let version = (data >> 16) & 0xF;
+            // The bottom 2 bits are reserved and must be masked out.
+            // This offset is relative to the start of the entire configuration space.
+            let next_offset = ((data >> 20) & 0xFFC) as u16;
+            if next_offset > 0 && next_offset < 0x100 {
+                println!("sif: invalid 'Next Capability Offset' {next_offset:#x}, skipping");
+                break;
+            }
+
+            // Any one of these conditions signals that there are no further extended capabilities.
+            if extended_cap_id == 0xFFFF || extended_cap_id == 0 || next_offset == 0 {
+                break;
+            }
+
+            // We have a valid extended capability.
+            if let Some(name) = name_of_extended_capability(extended_cap_id) {
+                println!("sif:     {name} Extended Capability (v{version})");
+            } else {
+                println!("sif:     Extended Capability {extended_cap_id:#x} (v{version})");
+            }
+
+            entity
+                .extended_caps
+                .lock()
+                .expect(EXPECT_LOCK)
+                .push(ExtendedCapability {
+                    type_: extended_cap_id,
+                    offset,
+                });
+
+            offset = next_offset;
         }
     }
 }

@@ -3,7 +3,7 @@ pub mod config;
 pub mod discover;
 pub mod serve;
 
-use std::sync::atomic::{AtomicI64, AtomicU8};
+use std::sync::atomic::{AtomicBool, AtomicI64, AtomicU8};
 use std::sync::{Mutex, OnceLock};
 
 use anyhow::Result;
@@ -62,6 +62,29 @@ pub fn name_of_capability(type_: u32) -> Option<&'static str> {
         0x10 => Some("PCIe"),
         0x11 => Some("MSI-X"),
         0x12 => Some("Serial ATA DATA/Index Configuration"),
+        _ => None,
+    }
+}
+
+pub fn name_of_extended_capability(type_: u16) -> Option<&'static str> {
+    match type_ {
+        0x0001 => Some("Advanced Error Reporting"),
+        0x0002 => Some("Virtual Channel"),
+        0x0003 => Some("Device Serial Number"),
+        0x0004 => Some("Power Budgeting"),
+        0x0005 => Some("Root Complex Link Declaration"),
+        0x0006 => Some("Root Complex Internal Link Control"),
+        0x000B => Some("Vendor-specific"),
+        0x000D => Some("ACS"),
+        0x000E => Some("ARI"),
+        0x000F => Some("ATS"),
+        0x0010 => Some("SR-IOV"),
+        0x0011 => Some("MR-IOV"),
+        0x0013 => Some("Page Request"),
+        0x0015 => Some("Resizable BAR"),
+        0x0017 => Some("TPH Requester"),
+        0x0018 => Some("LTR"),
+        0x001B => Some("PASID"),
         _ => None,
     }
 }
@@ -305,6 +328,13 @@ pub struct Capability {
     pub length: Option<u64>,
 }
 
+// Not consumed yet; kept to match the information thor collects.
+#[allow(dead_code)]
+pub struct ExtendedCapability {
+    pub type_: u16,
+    pub offset: u16,
+}
+
 // Common part of devices and bridges.
 pub struct PciEntity {
     pub parent_bus: &'static PciBus,
@@ -328,7 +358,10 @@ pub struct PciEntity {
     pub sub_class: u8,
     pub interface: u8,
 
+    pub is_pcie: AtomicBool,
+
     pub caps: Mutex<Vec<Capability>>,
+    pub extended_caps: Mutex<Vec<ExtendedCapability>>,
 
     pub bars: Mutex<Vec<PciBar>>,
 }
@@ -360,7 +393,9 @@ impl PciEntity {
             class_code,
             sub_class,
             interface,
+            is_pcie: AtomicBool::new(false),
             caps: Mutex::new(Vec::new()),
+            extended_caps: Mutex::new(Vec::new()),
             bars: Mutex::new(vec![PciBar::default(); n_bars]),
         }
     }
