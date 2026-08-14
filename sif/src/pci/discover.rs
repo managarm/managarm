@@ -364,15 +364,17 @@ fn check_pci_function(
 
         let irq_index = IrqIndex::from_pin(bus.interrupt_pin(slot, function));
         if irq_index != IrqIndex::Null {
-            if let Some(gsi) = super::acpi::resolve_irq(bus.seg_id, slot, irq_index) {
+            let router = bus.irq_router.get().expect("bus has no IRQ router");
+            if let Some(pin) = router.resolve_irq_route(slot, irq_index) {
                 println!(
-                    "sif:     Interrupt: {} (routed to GSI {gsi})",
-                    irq_index.name()
+                    "sif:     Interrupt: {} (routed to GSI {})",
+                    irq_index.name(),
+                    pin.gsi()
                 );
-                device
-                    .interrupt
-                    .set(gsi)
-                    .expect("sif: PCI device was already enumerated");
+                assert!(
+                    device.interrupt.set(pin).is_ok(),
+                    "sif: PCI device was already enumerated"
+                );
             } else {
                 println!("sif:     Interrupt routing not available!");
             }

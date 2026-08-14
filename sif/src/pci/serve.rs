@@ -174,7 +174,7 @@ impl managarm::hw::server::PciDevice for ServedEntity {
             return Ok(None);
         }
         match device.interrupt.get() {
-            Some(&gsi) => Ok(Some(hel::access_irq(gsi as i32)?)),
+            Some(pin) => Ok(Some(hel::access_irq(pin.gsi() as i32)?)),
             None => Ok(None),
         }
     }

@@ -3,10 +3,12 @@ pub mod config;
 pub mod discover;
 pub mod serve;
 
+use std::collections::BTreeMap;
 use std::sync::atomic::{AtomicBool, AtomicI64, AtomicU8};
 use std::sync::{Mutex, OnceLock};
 
 use anyhow::Result;
+use hel::{IrqPolarity, IrqTrigger};
 
 use config::PciConfigIo;
 
@@ -16,6 +18,44 @@ pub(crate) fn leak<T>(value: T) -> &'static T {
 
 // The PCI tree is only locked for the duration of a single operation, none of which can panic.
 pub(crate) const EXPECT_LOCK: &str = "sif: PCI tree mutex was poisoned";
+
+pub struct IrqPin {
+    gsi: u32,
+    trigger: IrqTrigger,
+    polarity: IrqPolarity,
+}
+
+impl IrqPin {
+    pub fn gsi(&self) -> u32 {
+        self.gsi
+    }
+}
+
+static IRQ_PINS: Mutex<BTreeMap<u32, &'static IrqPin>> = Mutex::new(BTreeMap::new());
+
+// Configures a GSI and returns its pin, sharing pins between users of the same GSI.
+pub fn system_irq(gsi: u32, trigger: IrqTrigger, polarity: IrqPolarity) -> Option<&'static IrqPin> {
+    let mut pins = IRQ_PINS.lock().expect(EXPECT_LOCK);
+    if let Some(pin) = pins.get(&gsi) {
+        if pin.trigger != trigger || pin.polarity != polarity {
+            println!("sif: Conflicting configurations for GSI {gsi}");
+        }
+        return Some(*pin);
+    }
+
+    if let Err(err) = hel::configure_irq(gsi as i32, trigger, polarity) {
+        println!("sif: Failed to configure GSI {gsi}: {err}");
+        return None;
+    }
+
+    let pin = leak(IrqPin {
+        gsi,
+        trigger,
+        polarity,
+    });
+    pins.insert(gsi, pin);
+    Some(pin)
+}
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum IrqIndex {
@@ -89,8 +129,59 @@ pub fn name_of_extended_capability(type_: u16) -> Option<&'static str> {
     }
 }
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum RoutingModel {
+    None,
+    RootTable,       // Routing table of PCI IRQ pins to global IRQs (i.e., PRT).
+    ExpansionBridge, // Default routing of expansion bridges.
+}
+
+pub struct RoutingEntry {
+    pub slot: u8,
+    pub index: IrqIndex,
+    pub pin: &'static IrqPin,
+}
+
+pub trait PciIrqRouter: Sync {
+    fn resolve_irq_route(&self, slot: u8, index: IrqIndex) -> Option<&'static IrqPin>;
+
+    fn make_downstream_router(&'static self, bus: &'static PciBus) -> &'static dyn PciIrqRouter;
+}
+
+// State shared by all PciIrqRouter implementations.
+pub struct RouterState {
+    pub routing_table: Vec<RoutingEntry>,
+    pub routing_model: RoutingModel,
+    pub bridge_irqs: [Option<&'static IrqPin>; 4],
+}
+
+impl RouterState {
+    pub fn new() -> RouterState {
+        RouterState {
+            routing_table: Vec::new(),
+            routing_model: RoutingModel::None,
+            bridge_irqs: [None; 4],
+        }
+    }
+
+    pub fn resolve_irq_route(&self, slot: u8, index: IrqIndex) -> Option<&'static IrqPin> {
+        match self.routing_model {
+            RoutingModel::RootTable => self
+                .routing_table
+                .iter()
+                .find(|entry| entry.slot == slot && entry.index == index)
+                .map(|entry| entry.pin),
+            RoutingModel::ExpansionBridge => {
+                self.bridge_irqs[(index as usize - 1 + slot as usize) % 4]
+            }
+            RoutingModel::None => None,
+        }
+    }
+}
+
 pub struct PciBus {
     pub associated_bridge: Option<&'static PciBridge>,
+    pub irq_router: OnceLock<&'static dyn PciIrqRouter>,
     pub io: &'static dyn PciConfigIo,
     pub child_devices: Mutex<Vec<&'static PciDevice>>,
     pub child_bridges: Mutex<Vec<&'static PciBridge>>,
@@ -114,6 +205,7 @@ impl PciBus {
     ) -> &'static PciBus {
         leak(PciBus {
             associated_bridge,
+            irq_router: OnceLock::new(),
             io,
             child_devices: Mutex::new(Vec::new()),
             child_bridges: Mutex::new(Vec::new()),
@@ -128,7 +220,19 @@ impl PciBus {
         bridge: &'static PciBridge,
         downstream_id: u8,
     ) -> &'static PciBus {
-        PciBus::new(Some(bridge), self.io, self.seg_id, downstream_id)
+        let new_bus = PciBus::new(Some(bridge), self.io, self.seg_id, downstream_id);
+
+        let router = self
+            .irq_router
+            .get()
+            .expect("bus has no IRQ router")
+            .make_downstream_router(new_bus);
+        assert!(
+            new_bus.irq_router.set(router).is_ok(),
+            "sif: PCI bus already has an IRQ router"
+        );
+
+        new_bus
     }
 
     /// # Safety
@@ -458,7 +562,7 @@ pub struct PciDevice {
     pub subsystem_vendor: u16,
     pub subsystem_device: u16,
 
-    pub interrupt: OnceLock<u32>,
+    pub interrupt: OnceLock<&'static IrqPin>,
 }
 
 impl PciDevice {
