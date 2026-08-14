@@ -236,6 +236,15 @@ fn check_pci_function(
         );
     }
 
+    // Disable interrupts and bus mastering until a driver configures the device.
+    //
+    // We don't disable I/O and memory decoding so any devices in use by the kernel
+    // remain functional (e.g. framebuffers or UARTs).
+    let mut command = bus.command(slot, function);
+    command &= !0x4; // Disable bus mastering.
+    command |= 0x400; // Mask IRQs.
+    bus.set_command(slot, function, command);
+
     let device_id = bus.device_id(slot, function);
     let revision = bus.revision(slot, function);
     let class_code = bus.class_code(slot, function);

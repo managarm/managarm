@@ -366,10 +366,19 @@ impl PciEntity {
     }
 
     pub fn enable_busmaster(&self) {
-        let bus = self.parent_bus;
+        // Enable busmastering for the whole tree.
+        let mut entity = self;
+        loop {
+            let bus = entity.parent_bus;
 
-        let cmd = bus.command(self.slot, self.function);
-        bus.set_command(self.slot, self.function, cmd | 0x0004);
+            let cmd = bus.command(entity.slot, entity.function);
+            bus.set_command(entity.slot, entity.function, cmd | 0x0004);
+
+            match bus.associated_bridge {
+                Some(bridge) => entity = &bridge.entity,
+                None => break,
+            }
+        }
     }
 }
 
