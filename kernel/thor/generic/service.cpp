@@ -15,6 +15,7 @@
 #include <thor-internal/stream.hpp>
 #include <protocols/posix/data.hpp>
 #include <protocols/posix/supercalls.hpp>
+#include <protocols/svrctl/supercalls.hpp>
 
 #define __MLIBC_ABI_ONLY
 #include <sys/mman.h>
@@ -1107,7 +1108,7 @@ namespace posix {
 					panicLogger() << "thor: Failed to access server registers" << frg::endlog;
 				if(auto e = Thread::resumeOther(smarter::rc_policy_downcast<smarter::default_rc_policy>(info.thread)); e != Error::success)
 					panicLogger() << "thor: Failed to resume server" << frg::endlog;
-			}else if(interrupt == kIntrSuperCall + ::posix::superGetServerData) {
+			}else if(interrupt == kIntrSuperCall + ::protocols::svrctl::superGetServerData) {
 				uintptr_t dataAddr;
 				auto readOutcome = info.thread->accessRegisters([&](Executor *executor) {
 					dataAddr = *executor->arg0();
@@ -1115,12 +1116,12 @@ namespace posix {
 				if(!readOutcome)
 					panicLogger() << "thor: Failed to access server registers" << frg::endlog;
 
-				::posix::ManagarmServerData data = {
+				::protocols::svrctl::ManagarmServerData data = {
 					controlHandle
 				};
 
 				auto outcome = co_await info.thread->getAddressSpace()->writeSpace(
-						dataAddr, &data, sizeof(::posix::ManagarmServerData));
+						dataAddr, &data, sizeof(::protocols::svrctl::ManagarmServerData));
 				auto writeOutcome = info.thread->accessRegisters([&](Executor *executor) {
 					if(!outcome) {
 						*executor->result0() = kHelErrFault;

@@ -18,8 +18,4 @@ struct ManagarmProcessData {
 	void *clockTrackerPage;
 };
 
-struct ManagarmServerData {
-	HelHandle controlLane;
-};
-
 } // namespace posix

@@ -10,6 +10,7 @@
 #include <helix/ipc.hpp>
 
 #include <protocols/svrctl/server.hpp>
+#include <protocols/svrctl/supercalls.hpp>
 #include "svrctl.bragi.hpp"
 
 namespace protocols {
@@ -18,10 +19,6 @@ namespace svrctl {
 static_assert(static_cast<int>(Error::success) == int(managarm::svrctl::Errors::SUCCESS));
 static_assert(static_cast<int>(Error::deviceNotSupported)
 		== int(managarm::svrctl::Errors::DEVICE_NOT_SUPPORTED));
-
-struct ManagarmServerData {
-	HelHandle controlLane;
-};
 
 namespace {
 
@@ -51,7 +48,7 @@ struct HandleBind {
 async::result<void>
 serveControl(const ControlOperations *ops) {
 	ManagarmServerData sd;
-	HEL_CHECK(helSyscall1(kHelCallSuper + 64, reinterpret_cast<HelWord>(&sd)));
+	HEL_CHECK(helSyscall1(kHelCallSuper + superGetServerData, reinterpret_cast<HelWord>(&sd)));
 	helix::UniqueLane lane{sd.controlLane};
 
 	while(true) {

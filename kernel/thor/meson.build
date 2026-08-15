@@ -120,6 +120,7 @@ inc += include_directories(
 	'system/smbios',
 	'../common',
 	'../../protocols/posix/include',
+	'../../protocols/svrctl/include',
 )
 
 # For now, we only use static initializers for initgraph stages.
