@@ -20,6 +20,7 @@ if not provide_deps
 	)
 
 	install_headers('include/protocols/svrctl/server.hpp',
+		'include/protocols/svrctl/supercalls.hpp',
 		subdir : 'protocols/svrctl'
 	)
 endif
