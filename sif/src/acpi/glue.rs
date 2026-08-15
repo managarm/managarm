@@ -7,10 +7,10 @@ use lock_api::{RawMutex as _, RawMutexTimed as _};
 use parking_lot::{Condvar, Mutex, RawMutex};
 
 use uacpi_sys::{
-    uacpi_bool, uacpi_cpu_flags, uacpi_firmware_request, uacpi_handle, uacpi_interrupt_handler,
-    uacpi_interrupt_state, uacpi_io_addr, uacpi_log_level, uacpi_pci_address, uacpi_phys_addr,
-    uacpi_size, uacpi_status, uacpi_thread_id, uacpi_u8, uacpi_u16, uacpi_u32, uacpi_u64,
-    uacpi_work_handler, uacpi_work_type,
+    uacpi_bool, uacpi_char, uacpi_cpu_flags, uacpi_firmware_request, uacpi_handle,
+    uacpi_interrupt_handler, uacpi_interrupt_state, uacpi_io_addr, uacpi_log_level,
+    uacpi_pci_address, uacpi_phys_addr, uacpi_size, uacpi_status, uacpi_thread_id, uacpi_u8,
+    uacpi_u16, uacpi_u32, uacpi_u64, uacpi_work_handler, uacpi_work_type,
 };
 
 use super::{PAGE_MASK, RSDP};
@@ -98,8 +98,8 @@ pub unsafe extern "C" fn uacpi_kernel_unmap(addr: *mut c_void, _len: uacpi_size)
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn uacpi_kernel_log(level: uacpi_log_level, msg: *const u8) {
-    let text = unsafe { CStr::from_ptr(msg as *const _) };
+pub unsafe extern "C" fn uacpi_kernel_log(level: uacpi_log_level, msg: *const uacpi_char) {
+    let text = unsafe { CStr::from_ptr(msg) };
     let tag = match level {
         uacpi_sys::UACPI_LOG_TRACE => "trace",
         uacpi_sys::UACPI_LOG_INFO => "info",
