@@ -58,6 +58,9 @@ initgraph::Stage *getTablesDiscoveredStage();
 initgraph::Stage *getNsAvailableStage();
 initgraph::Stage *getAcpiFiberAvailableStage();
 
+// Applies the uacpi.log kernel command line option.
+void configureLogLevel();
+
 void initGlue();
 void initEc();
 void initEvents();
