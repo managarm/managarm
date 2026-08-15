@@ -685,7 +685,7 @@ void handleSyscall(SyscallImageAccessor image) {
 		*image.out0() = handle;
 	} break;
 	case kHelCallConfigureIrq: {
-		*image.error() = helConfigureIrq((int)arg0, (uint32_t)arg1, (uint32_t)arg2);
+		*image.error() = helConfigureIrq((HelHandle)arg0, (uint32_t)arg1, (uint32_t)arg2);
 	} break;
 	case kHelCallMapMemory: {
 		void *actual_pointer;
@@ -821,7 +821,12 @@ void handleSyscall(SyscallImageAccessor image) {
 	} break;
 	case kHelCallAccessIrq: {
 		HelHandle handle;
-		*image.error() = helAccessIrq((int)arg0, &handle);
+		*image.error() = helAccessIrq((uint32_t)arg0, (uint64_t)arg1, (uint64_t)arg2, &handle);
+		*image.out0() = handle;
+	} break;
+	case kHelCallHandleIrq: {
+		HelHandle handle;
+		*image.error() = helHandleIrq((HelHandle)arg0, &handle);
 		*image.out0() = handle;
 	} break;
 	case kHelCallAcknowledgeIrq: {

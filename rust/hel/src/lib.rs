@@ -98,10 +98,33 @@ pub fn access_io(ports: &[usize]) -> Result<Handle> {
     Ok(unsafe { Handle::from_raw(handle) })
 }
 
-/// Returns an IRQ object for the given global system interrupt number.
-pub fn access_irq(number: i32) -> Result<Handle> {
+/// Returns the IRQ pin that the given global system interrupt is attached to.
+pub fn access_irq_by_gsi(gsi: u64) -> Result<Handle> {
     let mut handle = hel_sys::kHelNullHandle as hel_sys::HelHandle;
-    result::hel_check(unsafe { hel_sys::helAccessIrq(number, &mut handle) })?;
+    result::hel_check(unsafe {
+        hel_sys::helAccessIrq(hel_sys::kHelAccessIrqByGsi as u32, 0, gsi, &mut handle)
+    })?;
+    Ok(unsafe { Handle::from_raw(handle) })
+}
+
+/// Returns the IRQ pin identified by a device tree phandle and a controller-specific index.
+pub fn access_irq_by_phandle(phandle: u64, index: u64) -> Result<Handle> {
+    let mut handle = hel_sys::kHelNullHandle as hel_sys::HelHandle;
+    result::hel_check(unsafe {
+        hel_sys::helAccessIrq(
+            hel_sys::kHelAccessIrqByPhandle as u32,
+            phandle,
+            index,
+            &mut handle,
+        )
+    })?;
+    Ok(unsafe { Handle::from_raw(handle) })
+}
+
+/// Returns an IRQ object that handles interrupts of the given IRQ pin.
+pub fn handle_irq(pin: &Handle) -> Result<Handle> {
+    let mut handle = hel_sys::kHelNullHandle as hel_sys::HelHandle;
+    result::hel_check(unsafe { hel_sys::helHandleIrq(pin.handle(), &mut handle) })?;
     Ok(unsafe { Handle::from_raw(handle) })
 }
 
@@ -119,8 +142,8 @@ pub enum IrqPolarity {
     Low,
 }
 
-/// Configures the trigger mode and polarity of a global system interrupt.
-pub fn configure_irq(number: i32, trigger: IrqTrigger, polarity: IrqPolarity) -> Result<()> {
+/// Configures the trigger mode and polarity of an IRQ pin.
+pub fn configure_irq(pin: &Handle, trigger: IrqTrigger, polarity: IrqPolarity) -> Result<()> {
     let trigger = match trigger {
         IrqTrigger::Edge => hel_sys::kHelIrqTriggerEdge,
         IrqTrigger::Level => hel_sys::kHelIrqTriggerLevel,
@@ -129,7 +152,9 @@ pub fn configure_irq(number: i32, trigger: IrqTrigger, polarity: IrqPolarity) ->
         IrqPolarity::High => hel_sys::kHelIrqPolarityHigh,
         IrqPolarity::Low => hel_sys::kHelIrqPolarityLow,
     };
-    result::hel_check(unsafe { hel_sys::helConfigureIrq(number, trigger as u32, polarity as u32) })
+    result::hel_check(unsafe {
+        hel_sys::helConfigureIrq(pin.handle(), trigger as u32, polarity as u32)
+    })
 }
 
 /// A time value in nanoseconds since boot.

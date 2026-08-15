@@ -123,6 +123,12 @@ struct Plic : dt::IrqController {
 		return pin;
 	}
 
+	smarter::shared_ptr<IrqPin> resolveIrqIndex(uint64_t index) override {
+		if (!index || index >= irqs_.size())
+			return nullptr;
+		return getIrq(index);
+	}
+
 	// Claim the highest priority interrupt.
 	uint32_t claim(size_t ctx) { return space_.load(plicClaimCompleteRegister(ctx)); }
 	// Complete IRQ handling. Called at EOI.

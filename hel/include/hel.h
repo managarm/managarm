@@ -96,6 +96,7 @@ enum {
 	kHelCallCreateBitsetEvent = 97,
 	kHelCallRaiseEvent = 98,
 	kHelCallAccessIrq = 14,
+	kHelCallHandleIrq = 5,
 	kHelCallAcknowledgeIrq = 81,
 	kHelCallSubmitAwaitEvent = 82,
 	kHelCallAutomateIrq = 94,
@@ -214,6 +215,7 @@ static const HelRights kHelRightInvoke = UINT32_C(1) << 5;
 // - Memory view: required to map into indirect memory.
 // - Memory view: required to create slice.
 // - Memory view: required to bind to kernlet.
+// - IRQ pin: required to install an IRQ handler.
 // - Memory slice: required to map.
 // - Memory slice: required to map into indirect memory.
 // - Virtualized space: required to create virtualized CPU.
@@ -261,6 +263,7 @@ static const HelRights kHelRightSignal = UINT32_C(1) << 12;
 // - Thread: required to set priority.
 // - Thread: required to resume.
 // - Thread: required to kill.
+// - IRQ pin: required to configure the IRQ.
 static const HelRights kHelRightManage = UINT32_C(1) << 13;
 // All rights (even unspecified ones). Easier to recognize in code than a literal.
 static const HelRights kHelRightsMax = ~UINT32_C(0);
@@ -1056,6 +1059,11 @@ enum HelLogSeverity {
 };
 
 enum {
+	kHelAccessIrqByGsi = 1,
+	kHelAccessIrqByPhandle = 2,
+};
+
+enum {
 	kHelIrqTriggerNull = 0,
 	kHelIrqTriggerEdge = 1,
 	kHelIrqTriggerLevel = 2
@@ -1522,9 +1530,37 @@ HEL_C_LINKAGE HelError helCreateBitsetEvent(HelHandle *handle);
 //!     Handle to the event that will be raised.
 HEL_C_LINKAGE HelError helRaiseEvent(HelHandle handle);
 
-HEL_C_LINKAGE HelError helAccessIrq(int number, HelHandle *handle);
+//! Access the IRQ pin that an IRQ is attached to.
+//! @param[in] mode
+//!     Determines how the IRQ is identified (e.g., ::kHelAccessIrqByGsi).
+//! @param[in] controller
+//!     Identifies the interrupt controller that the IRQ belongs to.
+//!     Unused for ::kHelAccessIrqByGsi.
+//!     For ::kHelAccessIrqByPhandle, this is the device tree phandle of the controller.
+//! @param[in] index
+//!     Identifies the IRQ within the interrupt controller.
+//!     For ::kHelAccessIrqByGsi, this is the global system interrupt number.
+//!     For ::kHelAccessIrqByPhandle, this is a controller-specific IRQ index.
+//! @param[out] handle
+//!     Handle to the IRQ pin.
+HEL_C_LINKAGE HelError helAccessIrq(uint32_t mode, uint64_t controller, uint64_t index,
+		HelHandle *handle);
 
-HEL_C_LINKAGE HelError helConfigureIrq(int number, uint32_t trigger, uint32_t polarity);
+//! Install an IRQ handler on an IRQ pin.
+//! @param[in] pinHandle
+//!     Handle to the IRQ pin that the handler is installed on.
+//! @param[out] handle
+//!     Handle to the new IRQ object.
+HEL_C_LINKAGE HelError helHandleIrq(HelHandle pinHandle, HelHandle *handle);
+
+//! Configure the trigger mode and polarity of an IRQ pin.
+//! @param[in] pinHandle
+//!     Handle to the IRQ pin that is configured.
+//! @param[in] trigger
+//!     Trigger mode of the IRQ (see ::kHelIrqTriggerEdge and ::kHelIrqTriggerLevel).
+//! @param[in] polarity
+//!     Polarity of the IRQ (see ::kHelIrqPolarityHigh and ::kHelIrqPolarityLow).
+HEL_C_LINKAGE HelError helConfigureIrq(HelHandle pinHandle, uint32_t trigger, uint32_t polarity);
 
 HEL_C_LINKAGE HelError helAcknowledgeIrq(HelHandle handle, uint32_t flags, uint64_t sequence);
 

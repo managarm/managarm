@@ -25,6 +25,9 @@
 #include <thor-internal/thread.hpp>
 #include <thor-internal/timer.hpp>
 #include <thor-internal/acpi/acpi.hpp>
+#ifdef THOR_HAS_DTB_SUPPORT
+#include <thor-internal/dtb/dtb.hpp>
+#endif
 #ifdef __x86_64__
 #include <thor-internal/arch/debug.hpp>
 #include <thor-internal/arch/ept.hpp>
@@ -3449,24 +3452,60 @@ HelError helRaiseEvent(HelHandle handle) {
 	return kHelErrNone;
 }
 
-HelError helAccessIrq(int number, HelHandle *handle) {
-	// This syscall only makes sense on ACPI systems.
-	if (!acpiRsdpNote->rsdp)
-		return kHelErrUnsupportedOperation;
-
+HelError helAccessIrq(uint32_t mode, uint64_t controller, uint64_t index, HelHandle *handle) {
 	auto this_thread = getCurrentThread();
 	auto this_universe = this_thread->getUniverse();
 
-	auto pin = acpi::getGlobalSystemIrq(number);
-	if (!pin)
+	smarter::shared_ptr<IrqPin> pin;
+	if(mode == kHelAccessIrqByGsi) {
+		// kHelAccessIrqByGsi does not take any controller argument.
+		if (controller)
+			return kHelErrIllegalArgs;
+		// GSIs only make sense on ACPI systems.
+		if (!acpiRsdpNote->rsdp)
+			return kHelErrUnsupportedOperation;
+		pin = acpi::getGlobalSystemIrq(index);
+	}else if(mode == kHelAccessIrqByPhandle) {
+#ifdef THOR_HAS_DTB_SUPPORT
+		if(controller > UINT32_MAX)
+			return kHelErrOutOfBounds;
+		auto *node = getDeviceTreeNodeByPhandle(controller);
+		if(!node)
+			return kHelErrOutOfBounds;
+		auto *irqController = node->getAssociatedIrqController();
+		if(!irqController)
+			return kHelErrIllegalArgs;
+		pin = irqController->resolveIrqIndex(index);
+#else
+		return kHelErrUnsupportedOperation;
+#endif
+	}else{
+		return kHelErrIllegalArgs;
+	}
+	if(!pin)
 		return kHelErrOutOfBounds;
+
+	*handle = this_universe->attachDescriptor(
+			AnyDescriptor::make<DescriptorType::irqPin>(std::move(pin), kHelRightAssign | kHelRightManage));
+
+	return kHelErrNone;
+}
+
+HelError helHandleIrq(HelHandle pinHandle, HelHandle *handle) {
+	auto this_thread = getCurrentThread();
+	auto this_universe = this_thread->getUniverse();
+
+	auto pinOutcome = this_universe->resolveObject<DescriptorType::irqPin>(pinHandle,
+			kHelRightAssign);
+	if(!pinOutcome)
+		return translateError(pinOutcome.error());
 
 	auto irqOutcome = GenericIrqObject::create(
 			frg::string<KernelAlloc>{*kernelAlloc, "generic-irq-object"});
 	if(!irqOutcome)
 		return translateError(irqOutcome.error());
 	auto irq = std::move(*irqOutcome);
-	IrqPin::attachSink(pin, irq.get());
+	IrqPin::attachSink(std::move(*pinOutcome), irq.get());
 
 	*handle = this_universe->attachDescriptor(
 			AnyDescriptor::make<DescriptorType::irq>(std::move(irq), kHelRightWait | kHelRightSignal));
@@ -3474,7 +3513,7 @@ HelError helAccessIrq(int number, HelHandle *handle) {
 	return kHelErrNone;
 }
 
-HelError helConfigureIrq(int number, uint32_t trigger, uint32_t polarity) {
+HelError helConfigureIrq(HelHandle pinHandle, uint32_t trigger, uint32_t polarity) {
 	TriggerMode triggerMode;
 	switch(trigger) {
 		case kHelIrqTriggerEdge: triggerMode = TriggerMode::edge; break;
@@ -3489,15 +3528,15 @@ HelError helConfigureIrq(int number, uint32_t trigger, uint32_t polarity) {
 		default: return kHelErrIllegalArgs;
 	}
 
-	// This syscall only makes sense on ACPI systems.
-	if (!acpiRsdpNote->rsdp)
-	    return kHelErrUnsupportedOperation;
+	auto this_thread = getCurrentThread();
+	auto this_universe = this_thread->getUniverse();
 
-	auto pin = acpi::getGlobalSystemIrq(number);
-	if(!pin)
-		return kHelErrOutOfBounds;
+	auto pinOutcome = this_universe->resolveObject<DescriptorType::irqPin>(pinHandle,
+			kHelRightManage);
+	if(!pinOutcome)
+		return translateError(pinOutcome.error());
 
-	pin->configure(IrqConfiguration{triggerMode, irqPolarity});
+	(*pinOutcome)->configure(IrqConfiguration{triggerMode, irqPolarity});
 
 	return kHelErrNone;
 }

@@ -357,6 +357,12 @@ struct Aplic : dt::IrqController {
 		return pin;
 	}
 
+	smarter::shared_ptr<IrqPin> resolveIrqIndex(uint64_t index) override {
+		if (!index || index >= irqs_.size())
+			return nullptr;
+		return getIrq(index);
+	}
+
 	// TODO: Move this to a per-CPU AplicContext class.
 	uint32_t claim(size_t idx) {
 		assert(!imsic_); // claim() is only valid for direct routing.

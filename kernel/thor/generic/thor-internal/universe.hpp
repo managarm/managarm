@@ -29,6 +29,7 @@ struct KernletObject;
 struct BoundKernlet;
 struct TokenObject;
 struct DmaSpace;
+struct IrqPin;
 struct IrqObject;
 struct OneshotEvent;
 struct BitsetEvent;
@@ -103,6 +104,7 @@ enum class DescriptorType : uint8_t {
 	memoryViewLock,
 	thread,
 	lane,
+	irqPin,
 	irq,
 	oneshotEvent,
 	bitsetEvent,
@@ -181,6 +183,12 @@ template<>
 struct DescriptorTraits<DescriptorType::lane> {
 	using Object = Stream;
 	using Policy = LanePolicy;
+};
+
+template<>
+struct DescriptorTraits<DescriptorType::irqPin> {
+	using Object = IrqPin;
+	using Policy = smarter::default_rc_policy;
 };
 
 template<>
