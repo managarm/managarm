@@ -10,7 +10,6 @@
 #include <helix/ipc.hpp>
 
 #include <protocols/svrctl/server.hpp>
-#include <protocols/svrctl/supercalls.hpp>
 #include "svrctl.bragi.hpp"
 
 namespace protocols {
@@ -45,10 +44,19 @@ struct HandleBind {
 
 } // namespace anonymous
 
+ManagarmServerData getServerData() {
+	ManagarmServerData sd{};
+	HEL_CHECK(helSyscall2(
+		kHelCallSuper + superGetServerData,
+		reinterpret_cast<HelWord>(&sd),
+		sizeof(ManagarmServerData)
+	));
+	return sd;
+}
+
 async::result<void>
 serveControl(const ControlOperations *ops) {
-	ManagarmServerData sd;
-	HEL_CHECK(helSyscall1(kHelCallSuper + superGetServerData, reinterpret_cast<HelWord>(&sd)));
+	auto sd = getServerData();
 	helix::UniqueLane lane{sd.controlLane};
 
 	while(true) {

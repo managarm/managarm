@@ -1,6 +1,7 @@
 #include <stdint.h>
 
 #include <thor-internal/credentials.hpp>
+#include <thor-internal/debug.hpp>
 #include <thor-internal/kernel-heap.hpp>
 #include <thor-internal/random.hpp>
 
@@ -30,6 +31,16 @@ Credentials::Credentials() {
 	// ... and variant 1.
 	_credentials[8] &= 0x3f;
 	_credentials[8] |= 0x80;
+}
+
+smarter::shared_ptr<TokenObject> hardwareAccessToken() {
+	static frg::eternal<smarter::shared_ptr<TokenObject>> singleton{[] {
+		auto outcome = TokenObject::create();
+		if (!outcome)
+			panicLogger() << "thor: Failed to create global hardwareAccessToken" << frg::endlog;
+		return *outcome;
+	}()};
+	return *singleton;
 }
 
 } // namespace thor

@@ -9,6 +9,7 @@
 #include <async/result.hpp>
 #include <helix/ipc.hpp>
 #include <helix/memory.hpp>
+#include <protocols/svrctl/supercalls.hpp>
 #include <smarter.hpp>
 
 namespace protocols {
@@ -24,6 +25,8 @@ struct ControlOperations {
 	// Returns Error::deviceNotSupported if the operation is not possible.
 	async::result<Error> (*bind)(int64_t base_id);
 };
+
+ManagarmServerData getServerData();
 
 async::result<void>
 serveControl(const ControlOperations *ops);

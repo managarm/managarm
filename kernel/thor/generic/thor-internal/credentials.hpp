@@ -28,4 +28,6 @@ public:
 	TokenObject(CtorToken) { }
 };
 
+smarter::shared_ptr<TokenObject> hardwareAccessToken();
+
 }
