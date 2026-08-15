@@ -1,3 +1,4 @@
+#include <frg/cmdline.hpp>
 #include <frg/scope_exit.hpp>
 #include <thor-internal/address-space.hpp>
 #include <thor-internal/arch-generic/asid.hpp>
@@ -17,7 +18,7 @@ namespace {
 	constexpr bool logUncaching = false;
 
 	// The following flags are debugging options to debug the correctness of various components.
-	constexpr bool tortureUncaching = false;
+	bool tortureUncaching = false;
 	constexpr bool disableUncaching = false;
 }
 
@@ -278,6 +279,13 @@ static frg::manual_box<MemoryReclaimer> globalReclaimer;
 static initgraph::Task initReclaim{&globalInitEngine, "generic.init-reclaim",
 	initgraph::Requires{getFibersAvailableStage()},
 	[] {
+		frg::array args = {
+			frg::option{"thor.torture-uncaching", frg::store_true(tortureUncaching)},
+		};
+		frg::parse_arguments(getKernelCmdline(), args);
+		if(tortureUncaching)
+			infoLogger() << "thor: torture-uncaching is enabled" << frg::endlog;
+
 		globalReclaimer.initialize();
 		globalReclaimer->runReclaimFiber();
 	}
