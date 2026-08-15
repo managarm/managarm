@@ -5,6 +5,7 @@ executable('kernel-tests',
 		'src/mapping.cpp',
 		'src/memory.cpp',
 		'src/protect.cpp',
+		'src/swap.cpp',
 	],
 	dependencies: [ helix_dep ],
 	install : true
