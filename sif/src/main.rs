@@ -22,6 +22,7 @@ fn main() -> Result<()> {
             bail!("sif: kernel reported no ACPI RSDP");
         }
         acpi::set_rsdp(rsdp);
+        acpi::configure_log_level(&cmdline);
         acpi::uacpi_init()?;
 
         println!("sif: uACPI initialized");
