@@ -21,7 +21,6 @@ const UACPI_MAP_FAILED: *mut c_void = (-1isize) as *mut c_void;
 
 unsafe extern "C" {
     unsafe fn malloc(size: usize) -> *mut c_void;
-    unsafe fn calloc(n: usize, size: usize) -> *mut c_void;
     unsafe fn free(ptr: *mut c_void);
 }
 
@@ -114,11 +113,6 @@ pub unsafe extern "C" fn uacpi_kernel_log(level: uacpi_log_level, msg: *const u8
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn uacpi_kernel_alloc(size: uacpi_size) -> *mut c_void {
     unsafe { malloc(size) }
-}
-
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn uacpi_kernel_alloc_zeroed(size: uacpi_size) -> *mut c_void {
-    unsafe { calloc(1, size) }
 }
 
 #[unsafe(no_mangle)]
