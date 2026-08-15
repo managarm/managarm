@@ -78,10 +78,21 @@ impl CachingMode {
 }
 
 /// Returns a memory object backing the given physical memory range.
-pub fn access_physical(physical: usize, size: usize, caching: CachingMode) -> Result<Handle> {
+pub fn access_physical(
+    access_handle: &Handle,
+    physical: usize,
+    size: usize,
+    caching: CachingMode,
+) -> Result<Handle> {
     let mut handle = hel_sys::kHelNullHandle as hel_sys::HelHandle;
     result::hel_check(unsafe {
-        hel_sys::helAccessPhysical(physical, size, caching.to_raw(), &mut handle)
+        hel_sys::helAccessPhysical(
+            access_handle.handle(),
+            physical,
+            size,
+            caching.to_raw(),
+            &mut handle,
+        )
     })?;
     Ok(unsafe { Handle::from_raw(handle) })
 }
@@ -92,26 +103,40 @@ pub fn enable_io(handle: Handle) -> Result<()> {
 }
 
 /// Returns an IO-space object granting access to the given set of IO ports.
-pub fn access_io(ports: &[usize]) -> Result<Handle> {
+pub fn access_io(access_handle: &Handle, ports: &[usize]) -> Result<Handle> {
     let mut handle = hel_sys::kHelNullHandle as hel_sys::HelHandle;
-    result::hel_check(unsafe { hel_sys::helAccessIo(ports.as_ptr(), ports.len(), &mut handle) })?;
+    result::hel_check(unsafe {
+        hel_sys::helAccessIo(
+            access_handle.handle(),
+            ports.as_ptr(),
+            ports.len(),
+            &mut handle,
+        )
+    })?;
     Ok(unsafe { Handle::from_raw(handle) })
 }
 
 /// Returns the IRQ pin that the given global system interrupt is attached to.
-pub fn access_irq_by_gsi(gsi: u64) -> Result<Handle> {
+pub fn access_irq_by_gsi(access_handle: &Handle, gsi: u64) -> Result<Handle> {
     let mut handle = hel_sys::kHelNullHandle as hel_sys::HelHandle;
     result::hel_check(unsafe {
-        hel_sys::helAccessIrq(hel_sys::kHelAccessIrqByGsi as u32, 0, gsi, &mut handle)
+        hel_sys::helAccessIrq(
+            access_handle.handle(),
+            hel_sys::kHelAccessIrqByGsi as u32,
+            0,
+            gsi,
+            &mut handle,
+        )
     })?;
     Ok(unsafe { Handle::from_raw(handle) })
 }
 
 /// Returns the IRQ pin identified by a device tree phandle and a controller-specific index.
-pub fn access_irq_by_phandle(phandle: u64, index: u64) -> Result<Handle> {
+pub fn access_irq_by_phandle(access_handle: &Handle, phandle: u64, index: u64) -> Result<Handle> {
     let mut handle = hel_sys::kHelNullHandle as hel_sys::HelHandle;
     result::hel_check(unsafe {
         hel_sys::helAccessIrq(
+            access_handle.handle(),
             hel_sys::kHelAccessIrqByPhandle as u32,
             phandle,
             index,

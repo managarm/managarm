@@ -106,12 +106,14 @@ extern inline __attribute__ (( always_inline )) HelError helCopyOnWrite(HelHandl
 	return error;
 };
 
-extern inline __attribute__ (( always_inline )) HelError helAccessPhysical(uintptr_t physical,
-		size_t size, uint32_t cachingMode, HelHandle *handle) {
-	HelWord hel_handle;
-	HelError error = helSyscall3_1(kHelCallAccessPhysical, (HelWord)physical, (HelWord)size,
-			(HelWord)cachingMode, &hel_handle);
-	*handle = (HelHandle)hel_handle;
+extern inline __attribute__ (( always_inline )) HelError helAccessPhysical(
+	HelHandle accessHandle, uintptr_t physical, size_t size, uint32_t cachingMode, HelHandle *handle
+) {
+	HelWord outHandle;
+	HelError error = helSyscall4_1(
+		kHelCallAccessPhysical, (HelWord)accessHandle, (HelWord)physical, (HelWord)size, (HelWord)cachingMode, &outHandle
+	);
+	*handle = (HelHandle)outHandle;
 	return error;
 };
 
@@ -351,12 +353,14 @@ extern inline __attribute__ (( always_inline )) HelError helRaiseEvent(HelHandle
 	return helSyscall1(kHelCallRaiseEvent, (HelWord)handle);
 };
 
-extern inline __attribute__ (( always_inline )) HelError helAccessIrq(uint32_t mode,
-		uint64_t controller, uint64_t index, HelHandle *handle) {
-	HelWord handle_word;
-	HelError error = helSyscall3_1(kHelCallAccessIrq, (HelWord)mode, (HelWord)controller,
-			(HelWord)index, &handle_word);
-	*handle = (HelHandle)handle_word;
+extern inline __attribute__ (( always_inline )) HelError helAccessIrq(
+	HelHandle accessHandle, uint32_t mode, uint64_t controller, uint64_t index, HelHandle *handle
+) {
+	HelWord outHandle;
+	HelError error = helSyscall4_1(
+		kHelCallAccessIrq, (HelWord)accessHandle, (HelWord)mode, (HelWord)controller, (HelWord)index, &outHandle
+	);
+	*handle = (HelHandle)outHandle;
 	return error;
 };
 
@@ -386,12 +390,14 @@ extern inline __attribute__ (( always_inline )) HelError helAutomateIrq(HelHandl
 			(HelWord)kernlet);
 };
 
-extern inline __attribute__ (( always_inline )) HelError helAccessIo(const uintptr_t *port_array,
-		size_t num_ports, HelHandle *handle) {
-	HelWord out_handle;
-	HelError error = helSyscall2_1(kHelCallAccessIo, (HelWord)port_array,
-			(HelWord) num_ports, &out_handle);
-	*handle = (HelHandle)out_handle;
+extern inline __attribute__ (( always_inline )) HelError helAccessIo(
+	HelHandle accessHandle, const uintptr_t *portArray, size_t numPorts, HelHandle *handle
+) {
+	HelWord outHandle;
+	HelError error = helSyscall3_1(
+		kHelCallAccessIo, (HelWord)accessHandle, (HelWord)portArray, (HelWord) numPorts, &outHandle
+	);
+	*handle = (HelHandle)outHandle;
 	return error;
 };
 

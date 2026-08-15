@@ -18,6 +18,7 @@
 #include <helix/ipc.hpp>
 #include <protocols/fs/server.hpp>
 #include <protocols/mbus/client.hpp>
+#include <protocols/svrctl/server.hpp>
 
 #include "spec.hpp"
 #include "fs.bragi.hpp"
@@ -376,8 +377,10 @@ async::detached runTerminal() {
 int main() {
 	std::cout << "uart: Starting driver" << std::endl;
 
+	auto sd = protocols::svrctl::getServerData();
+
 	HelHandle pin_handle;
-	HEL_CHECK(helAccessIrq(kHelAccessIrqByGsi, 0, 4, &pin_handle));
+	HEL_CHECK(helAccessIrq(sd.hardwareAccess, kHelAccessIrqByGsi, 0, 4, &pin_handle));
 	helix::UniqueDescriptor pin{pin_handle};
 
 	HelHandle irq_handle;
@@ -387,7 +390,7 @@ int main() {
 	uintptr_t ports[] = { COM1, COM1 + 1, COM1 + 2, COM1 + 3, COM1 + 4, COM1 + 5, COM1 + 6,
 			COM1 + 7 };
 	HelHandle handle;
-	HEL_CHECK(helAccessIo(ports, 8, &handle));
+	HEL_CHECK(helAccessIo(sd.hardwareAccess, ports, 8, &handle));
 	HEL_CHECK(helEnableIo(handle));
 
 	base = arch::global_io.subspace(COM1);

@@ -1,4 +1,5 @@
 use hel::{IrqPolarity, IrqTrigger};
+use managarm::svrctl::hardware_access_handle;
 use uacpi_sys::acpi_madt_interrupt_source_override;
 use zerocopy::FromBytes;
 
@@ -100,7 +101,7 @@ pub fn configure_isa_irqs() {
     println!("sif: Configuring ISA IRQs");
     for irq in PRECONFIGURED_ISA_IRQS {
         let line = overrides[usize::from(irq)].unwrap_or_else(|| IsaIrq::identity(irq));
-        let pin = match hel::access_irq_by_gsi(line.gsi as u64) {
+        let pin = match hel::access_irq_by_gsi(hardware_access_handle(), line.gsi as u64) {
             Ok(pin) => pin,
             Err(err) => {
                 println!(

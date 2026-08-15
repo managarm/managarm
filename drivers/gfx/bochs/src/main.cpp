@@ -16,6 +16,7 @@
 #include <protocols/fs/server.hpp>
 #include <protocols/hw/client.hpp>
 #include <protocols/mbus/client.hpp>
+#include <protocols/svrctl/server.hpp>
 #include <core/drm/core.hpp>
 
 #include <libdrm/drm.h>
@@ -37,9 +38,11 @@ GfxDevice::GfxDevice(protocols::hw::Device hw_device,
 		helix::UniqueDescriptor video_ram, void *)
 : _videoRam{std::move(video_ram)}, _hwDevice{std::move(hw_device)},
 		_vramAllocator{24, 10}, _claimedDevice{false} {
+	auto sd = protocols::svrctl::getServerData();
+
 	uintptr_t ports[] = { 0x01CE, 0x01CF, 0x01D0 };
 	HelHandle handle;
-	HEL_CHECK(helAccessIo(ports, 3, &handle));
+	HEL_CHECK(helAccessIo(sd.hardwareAccess, ports, 3, &handle));
 	HEL_CHECK(helEnableIo(handle));
 
 	_operational = arch::global_io;

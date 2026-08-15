@@ -633,8 +633,9 @@ HelError helCopyOnWrite(HelHandle memoryHandle,
 	return kHelErrNone;
 }
 
-HelError helAccessPhysical(uintptr_t physical, size_t size, uint32_t cachingMode,
-		HelHandle *handle) {
+HelError helAccessPhysical(
+	HelHandle accessHandle, uintptr_t physical, size_t size, uint32_t cachingMode, HelHandle *handle
+) {
 	if (physical & (kPageSize - 1))
 		return kHelErrIllegalArgs;
 	if (size & (kPageSize - 1))
@@ -661,6 +662,13 @@ HelError helAccessPhysical(uintptr_t physical, size_t size, uint32_t cachingMode
 
 	auto this_thread = getCurrentThread();
 	auto this_universe = this_thread->getUniverse();
+
+	// Require the hardware access token to proceed.
+	auto accessOutcome = this_universe->resolveObject<DescriptorType::token>(accessHandle, kHelRightInvoke);
+	if(!accessOutcome)
+		return translateError(accessOutcome.error());
+	if (accessOutcome->get() != hardwareAccessToken().get())
+		return kHelErrIllegalObject;
 
 	auto memoryOutcome = HardwareMemory::create(physical, size, caching);
 	if(!memoryOutcome)
@@ -3452,9 +3460,18 @@ HelError helRaiseEvent(HelHandle handle) {
 	return kHelErrNone;
 }
 
-HelError helAccessIrq(uint32_t mode, uint64_t controller, uint64_t index, HelHandle *handle) {
+HelError helAccessIrq(
+	HelHandle accessHandle, uint32_t mode, uint64_t controller, uint64_t index, HelHandle *handle
+) {
 	auto this_thread = getCurrentThread();
 	auto this_universe = this_thread->getUniverse();
+
+	// Require the hardware access token to proceed.
+	auto accessOutcome = this_universe->resolveObject<DescriptorType::token>(accessHandle, kHelRightInvoke);
+	if(!accessOutcome)
+		return translateError(accessOutcome.error());
+	if (accessOutcome->get() != hardwareAccessToken().get())
+		return kHelErrIllegalObject;
 
 	smarter::shared_ptr<IrqPin> pin;
 	if(mode == kHelAccessIrqByGsi) {
@@ -3690,18 +3707,26 @@ HelError helAutomateIrq(HelHandle handle, uint32_t flags, HelHandle kernlet_hand
 	return kHelErrNone;
 }
 
-HelError helAccessIo(const uintptr_t *port_array, size_t num_ports,
-		HelHandle *handle) {
+HelError helAccessIo(
+	HelHandle accessHandle, const uintptr_t *portArray, size_t numPorts, HelHandle *handle
+) {
 	auto this_thread = getCurrentThread();
 	auto this_universe = this_thread->getUniverse();
+
+	// Require the hardware access token to proceed.
+	auto accessOutcome = this_universe->resolveObject<DescriptorType::token>(accessHandle, kHelRightInvoke);
+	if(!accessOutcome)
+		return translateError(accessOutcome.error());
+	if (accessOutcome->get() != hardwareAccessToken().get())
+		return kHelErrIllegalObject;
 
 	auto ioSpaceOutcome = IoSpace::create();
 	if(!ioSpaceOutcome)
 		return translateError(ioSpaceOutcome.error());
 	auto io_space = std::move(*ioSpaceOutcome);
-	for(size_t i = 0; i < num_ports; i++) {
+	for(size_t i = 0; i < numPorts; i++) {
 		uintptr_t port;
-		if(!readUserObject<uintptr_t>(port_array + i, port))
+		if(!readUserObject<uintptr_t>(portArray + i, port))
 			return kHelErrFault;
 		if (auto outcome = io_space->addPort(port); !outcome)
 			return translateError(outcome.error());

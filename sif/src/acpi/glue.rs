@@ -1,3 +1,4 @@
+use managarm::svrctl::hardware_access_handle;
 use std::collections::{BTreeMap, VecDeque};
 use std::ffi::{CStr, c_void};
 use std::sync::atomic::Ordering;
@@ -66,7 +67,12 @@ pub unsafe extern "C" fn uacpi_kernel_map(addr: uacpi_phys_addr, len: uacpi_size
     let aligned = (addr as usize) & !PAGE_MASK;
     let span = (len + page_off + PAGE_MASK) & !PAGE_MASK;
 
-    let handle = match hel::access_physical(aligned, span, hel::CachingMode::Default) {
+    let handle = match hel::access_physical(
+        hardware_access_handle(),
+        aligned,
+        span,
+        hel::CachingMode::Default,
+    ) {
         Ok(handle) => handle,
         Err(_) => return UACPI_MAP_FAILED,
     };
@@ -295,7 +301,7 @@ pub unsafe extern "C" fn uacpi_kernel_io_map(
             ports.push(base as usize + i);
         }
 
-        let Ok(handle) = hel::access_io(&ports) else {
+        let Ok(handle) = hel::access_io(hardware_access_handle(), &ports) else {
             return uacpi_sys::UACPI_STATUS_INVALID_ARGUMENT;
         };
         let Ok(()) = hel::enable_io(handle) else {

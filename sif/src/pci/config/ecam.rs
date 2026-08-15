@@ -1,3 +1,4 @@
+use managarm::svrctl::hardware_access_handle;
 use std::collections::BTreeMap;
 use std::sync::Mutex;
 
@@ -55,6 +56,7 @@ impl EcamPcieConfigIo {
         let offset = ((bus - self.bus_start) as u64) << 20;
 
         let handle = hel::access_physical(
+            hardware_access_handle(),
             (self.mmio_base + offset) as usize,
             SIZE,
             hel::CachingMode::Mmio,

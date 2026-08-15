@@ -1,6 +1,7 @@
 pub mod ecam;
 pub mod legacy;
 
+use managarm::svrctl::hardware_access_handle;
 use std::collections::BTreeMap;
 use std::ptr::addr_of;
 use std::sync::Mutex;
@@ -247,7 +248,7 @@ pub unsafe fn write_config_word(
 fn add_legacy_config_io() -> anyhow::Result<()> {
     // Unlike thor, we need to be granted access to the config window ports.
     let ports: Vec<usize> = (0xCF8..=0xCFF).collect();
-    hel::access_io(&ports)
+    hel::access_io(hardware_access_handle(), &ports)
         .and_then(hel::enable_io)
         .context("failed to enable the legacy PCI config I/O ports")?;
 
