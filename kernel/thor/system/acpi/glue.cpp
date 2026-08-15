@@ -277,62 +277,6 @@ void uacpi_kernel_unmap(void *ptr, uacpi_size length) {
 	(void)msize;
 }
 
-uacpi_status
-uacpi_kernel_raw_memory_read(uacpi_phys_addr address, uacpi_u8 byte_width, uacpi_u64 *out) {
-	auto *ptr = uacpi_kernel_map(address, byte_width);
-	if (!ptr)
-		return UACPI_STATUS_MAPPING_FAILED;
-
-	switch (byte_width) {
-		case 1:
-			*out = *(volatile uint8_t *)ptr;
-			break;
-		case 2:
-			*out = *(volatile uint16_t *)ptr;
-			break;
-		case 4:
-			*out = *(volatile uint32_t *)ptr;
-			break;
-		case 8:
-			*out = *(volatile uint64_t *)ptr;
-			break;
-		default:
-			uacpi_kernel_unmap(ptr, byte_width);
-			return UACPI_STATUS_INVALID_ARGUMENT;
-	}
-
-	uacpi_kernel_unmap(ptr, byte_width);
-	return UACPI_STATUS_OK;
-}
-
-uacpi_status
-uacpi_kernel_raw_memory_write(uacpi_phys_addr address, uacpi_u8 byte_width, uacpi_u64 in) {
-	auto *ptr = uacpi_kernel_map(address, byte_width);
-	if (!ptr)
-		return UACPI_STATUS_MAPPING_FAILED;
-
-	switch (byte_width) {
-		case 1:
-			*(volatile uint8_t *)ptr = in;
-			break;
-		case 2:
-			*(volatile uint16_t *)ptr = in;
-			break;
-		case 4:
-			*(volatile uint32_t *)ptr = in;
-			break;
-		case 8:
-			*(volatile uint64_t *)ptr = in;
-			break;
-		default:
-			uacpi_kernel_unmap(ptr, byte_width);
-			return UACPI_STATUS_INVALID_ARGUMENT;
-	}
-
-	uacpi_kernel_unmap(ptr, byte_width);
-	return UACPI_STATUS_OK;
-}
-
 uacpi_status uacpi_kernel_io_map(uacpi_io_addr base, uacpi_size, uacpi_handle *out_handle) {
 	*out_handle = reinterpret_cast<uacpi_handle>(base);
 	return UACPI_STATUS_OK;
