@@ -6,6 +6,7 @@
 #include <vector>
 #include <span>
 
+#include <async/basic.hpp>
 #include <async/oneshot-event.hpp>
 
 // This is here since ipc-structs.hpp needs ElementHandle
@@ -147,6 +148,7 @@ struct Context {
 
 struct CurrentDispatcherToken {
 	void wait();
+	async::run_queue *get_run_queue() const;
 };
 
 inline constexpr CurrentDispatcherToken currentDispatcher;
@@ -168,6 +170,18 @@ private:
 		size_t progress;
 	};
 
+	struct RunQueue final : async::run_queue {
+		RunQueue(Dispatcher *dispatcher)
+		: dispatcher_{dispatcher} { }
+
+	private:
+		void wakeup() override {
+			HEL_CHECK(helAlertQueue(dispatcher_->_handle));
+		}
+
+		Dispatcher *dispatcher_;
+	};
+
 public:
 	static Dispatcher &global();
 
@@ -175,11 +189,15 @@ public:
 	: _handle{kHelNullHandle}, _queue{nullptr},
 			_numCqChunks{0}, _numSqChunks{0}, _chunkSize{0},
 			_retrieveChunk{0}, _tailChunk{0}, _lastProgress{0},
-			_sqCurrentChunk{0}, _sqProgress{0} { }
+			_sqCurrentChunk{0}, _sqProgress{0}, _runQueue{this} { }
 
 	Dispatcher(const Dispatcher &) = delete;
 
 	Dispatcher &operator= (const Dispatcher &) = delete;
+
+	async::run_queue *runQueue() {
+		return &_runQueue;
+	}
 
 	HelHandle acquire() {
 		if(!_handle) {
@@ -242,9 +260,19 @@ public:
 	}
 
 	void wait() {
+		acquire();
+
 		while(true) {
+			if(_runQueue.check()) {
+				_runQueue.run_iteration();
+				return;
+			}
+
 			bool done;
-			_waitProgressFutex(&done);
+			bool rqPending;
+			_waitProgressFutex(&done, &rqPending);
+			if(rqPending)
+				continue;
 			if(done) {
 				auto cn = _retrieveChunk;
 				auto next = __atomic_load_n(&_chunks[cn]->next, __ATOMIC_ACQUIRE);
@@ -371,9 +399,12 @@ private:
 			HEL_CHECK(helDriveQueue(_handle, 0, 0));
 	}
 
-	void _waitProgressFutex(bool *done) {
+	void _waitProgressFutex(bool *done, bool *rqPending) {
+		*done = false;
+		*rqPending = false;
+
 		// userNotify bits checked by this function (these MUST be checked in the loop below!).
-		const auto relevantNotify = kHelUserNotifyCqProgress;
+		const auto relevantNotify = kHelUserNotifyCqProgress | kHelUserNotifyAlert;
 		// userNotify bits ignored by this function.
 		const auto maskedNotify = kHelUserNotifySupplySqChunks;
 
@@ -407,6 +438,11 @@ private:
 			if (!notifyToClear) {
 				// The only remaining bits must be masked ones (otherwise we are missing checks above).
 				assert(!(_pendingNotify & ~maskedNotify));
+
+				if (_runQueue.check()) {
+					*rqPending = true;
+					return;
+				}
 
 				auto e = helDriveQueue(_handle, kHelDriveWait, maskedNotify);
 				if (e != kHelErrCancelled)
@@ -451,10 +487,16 @@ private:
 	int _sqCurrentChunk;
 	// Progress into the current SQ chunk.
 	int _sqProgress;
+
+	RunQueue _runQueue;
 };
 
 inline void CurrentDispatcherToken::wait() {
 	Dispatcher::global().wait();
+}
+
+inline async::run_queue *CurrentDispatcherToken::get_run_queue() const {
+	return Dispatcher::global().runQueue();
 }
 
 inline ElementHandle::~ElementHandle() {
