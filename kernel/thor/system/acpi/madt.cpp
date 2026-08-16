@@ -374,6 +374,9 @@ static initgraph::Task initTablesTask{
 	    if (!acpiRsdpNote->rsdp)
 		    return;
 
+	    // Set the log level before the first uacpi call to also cover early table access.
+	    configureLogLevel();
+
 	    auto ret = uacpi_setup_early_table_access(earlyTableBuffer.data(), earlyTableBuffer.size());
 	    assert(ret == UACPI_STATUS_OK);
 

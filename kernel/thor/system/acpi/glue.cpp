@@ -4,6 +4,7 @@
 #include <async/queue.hpp>
 #include <async/recurring-event.hpp>
 #include <frg/allocation.hpp>
+#include <frg/cmdline.hpp>
 #include <frg/manual_box.hpp>
 #include <frg/spinlock.hpp>
 #include <frg/string.hpp>
@@ -26,6 +27,7 @@
 #include <thor-internal/arch/pic.hpp>
 #endif
 
+#include <uacpi/context.h>
 #include <uacpi/kernel_api.h>
 
 using namespace thor;
@@ -170,6 +172,9 @@ void uacpi_kernel_log(enum uacpi_log_level lvl, const char *msg) {
 	const char *lvlStr;
 
 	switch (lvl) {
+		case UACPI_LOG_DEBUG:
+			lvlStr = "debug";
+			break;
 		case UACPI_LOG_TRACE:
 			lvlStr = "trace";
 			break;
@@ -191,6 +196,42 @@ void uacpi_kernel_log(enum uacpi_log_level lvl, const char *msg) {
 		msgView = msgView.sub_string(0, msgView.size() - 1);
 
 	infoLogger() << "uacpi-" << lvlStr << ": " << msgView << frg::endlog;
+}
+
+namespace {
+
+constexpr struct {
+	frg::string_view name;
+	uacpi_log_level level;
+} uacpiLogLevels[] = {
+    {"error", UACPI_LOG_ERROR},
+    {"warn", UACPI_LOG_WARN},
+    {"info", UACPI_LOG_INFO},
+    {"trace", UACPI_LOG_TRACE},
+    {"debug", UACPI_LOG_DEBUG},
+};
+
+} // namespace
+
+void thor::acpi::configureLogLevel() {
+	frg::string_view name;
+
+	frg::array args = {
+	    frg::option{"uacpi.log", frg::as_string_view(name)},
+	};
+	frg::parse_arguments(getKernelCmdline(), args);
+
+	if (!name.size())
+		return;
+
+	for (auto entry : uacpiLogLevels) {
+		if (entry.name != name)
+			continue;
+		uacpi_context_set_log_level(entry.level);
+		return;
+	}
+
+	infoLogger() << "thor: Ignoring unknown uacpi.log level \"" << name << "\"" << frg::endlog;
 }
 
 void *uacpi_kernel_alloc(uacpi_size size) { return kernelAlloc->allocate(size); }
@@ -234,62 +275,6 @@ void uacpi_kernel_unmap(void *ptr, uacpi_size length) {
 		KernelPageSpace::global().unmapSingle4k(vaddr + pg);
 	// TODO: free the virtual memory range.
 	(void)msize;
-}
-
-uacpi_status
-uacpi_kernel_raw_memory_read(uacpi_phys_addr address, uacpi_u8 byte_width, uacpi_u64 *out) {
-	auto *ptr = uacpi_kernel_map(address, byte_width);
-	if (!ptr)
-		return UACPI_STATUS_MAPPING_FAILED;
-
-	switch (byte_width) {
-		case 1:
-			*out = *(volatile uint8_t *)ptr;
-			break;
-		case 2:
-			*out = *(volatile uint16_t *)ptr;
-			break;
-		case 4:
-			*out = *(volatile uint32_t *)ptr;
-			break;
-		case 8:
-			*out = *(volatile uint64_t *)ptr;
-			break;
-		default:
-			uacpi_kernel_unmap(ptr, byte_width);
-			return UACPI_STATUS_INVALID_ARGUMENT;
-	}
-
-	uacpi_kernel_unmap(ptr, byte_width);
-	return UACPI_STATUS_OK;
-}
-
-uacpi_status
-uacpi_kernel_raw_memory_write(uacpi_phys_addr address, uacpi_u8 byte_width, uacpi_u64 in) {
-	auto *ptr = uacpi_kernel_map(address, byte_width);
-	if (!ptr)
-		return UACPI_STATUS_MAPPING_FAILED;
-
-	switch (byte_width) {
-		case 1:
-			*(volatile uint8_t *)ptr = in;
-			break;
-		case 2:
-			*(volatile uint16_t *)ptr = in;
-			break;
-		case 4:
-			*(volatile uint32_t *)ptr = in;
-			break;
-		case 8:
-			*(volatile uint64_t *)ptr = in;
-			break;
-		default:
-			uacpi_kernel_unmap(ptr, byte_width);
-			return UACPI_STATUS_INVALID_ARGUMENT;
-	}
-
-	uacpi_kernel_unmap(ptr, byte_width);
-	return UACPI_STATUS_OK;
 }
 
 uacpi_status uacpi_kernel_io_map(uacpi_io_addr base, uacpi_size, uacpi_handle *out_handle) {

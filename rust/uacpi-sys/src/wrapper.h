@@ -1,7 +1,5 @@
 #pragma once
 
-#define UACPI_SIZED_FREES
-
 #include <uacpi/acpi.h>
 #include <uacpi/context.h>
 #include <uacpi/kernel_api.h>
