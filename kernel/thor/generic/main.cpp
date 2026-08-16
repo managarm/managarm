@@ -656,7 +656,7 @@ void handleSyscall(SyscallImageAccessor image) {
 	} break;
 	case kHelCallAccessPhysical: {
 		HelHandle handle;
-		*image.error() = helAccessPhysical((uintptr_t)arg0, (size_t)arg1, (uint32_t)arg2, &handle);
+		*image.error() = helAccessPhysical((HelHandle)arg0, (uintptr_t)arg1, (size_t)arg2, (uint32_t)arg3, &handle);
 		*image.out0() = handle;
 	} break;
 	case kHelCallCreateIndirectMemory: {
@@ -821,7 +821,7 @@ void handleSyscall(SyscallImageAccessor image) {
 	} break;
 	case kHelCallAccessIrq: {
 		HelHandle handle;
-		*image.error() = helAccessIrq((uint32_t)arg0, (uint64_t)arg1, (uint64_t)arg2, &handle);
+		*image.error() = helAccessIrq((HelHandle)arg0, (uint32_t)arg1, (uint64_t)arg2, (uint64_t)arg3, &handle);
 		*image.out0() = handle;
 	} break;
 	case kHelCallHandleIrq: {
@@ -838,7 +838,7 @@ void handleSyscall(SyscallImageAccessor image) {
 
 	case kHelCallAccessIo: {
 		HelHandle handle;
-		*image.error() = helAccessIo((uintptr_t *)arg0, (size_t)arg1, &handle);
+		*image.error() = helAccessIo((HelHandle)arg0, (uintptr_t *)arg1, (size_t)arg2, &handle);
 		*image.out0() = handle;
 	} break;
 	case kHelCallEnableIo: {

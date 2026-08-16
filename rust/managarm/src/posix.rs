@@ -25,7 +25,6 @@ pub enum PosixSupercall {
     SigSuspend = 13,
     GetTid = 14,
     SigGetPending = 15,
-    GetServerData = 64,
 }
 
 #[repr(C)]

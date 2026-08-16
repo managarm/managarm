@@ -530,6 +530,7 @@ namespace posix {
 
 		uint64_t nextTid_ = 1;
 
+		Handle hardwareAccessHandle;
 		Handle mbusHandle;
 		Handle controlHandle;
 		frg::vector<OpenFile *, KernelAlloc> openFiles;
@@ -1110,18 +1111,24 @@ namespace posix {
 					panicLogger() << "thor: Failed to resume server" << frg::endlog;
 			}else if(interrupt == kIntrSuperCall + ::protocols::svrctl::superGetServerData) {
 				uintptr_t dataAddr;
+				size_t dataSize;
 				auto readOutcome = info.thread->accessRegisters([&](Executor *executor) {
 					dataAddr = *executor->arg0();
+					dataSize = *executor->arg1();
 				});
 				if(!readOutcome)
 					panicLogger() << "thor: Failed to access server registers" << frg::endlog;
 
 				::protocols::svrctl::ManagarmServerData data = {
-					controlHandle
+					.hardwareAccess = hardwareAccessHandle,
+					.controlLane = controlHandle,
 				};
 
 				auto outcome = co_await info.thread->getAddressSpace()->writeSpace(
-						dataAddr, &data, sizeof(::protocols::svrctl::ManagarmServerData));
+					dataAddr,
+					&data,
+					frg::min(dataSize, sizeof(::protocols::svrctl::ManagarmServerData))
+				);
 				auto writeOutcome = info.thread->accessRegisters([&](Executor *executor) {
 					if(!outcome) {
 						*executor->result0() = kHelErrFault;
@@ -1226,6 +1233,9 @@ void runService(frg::string<KernelAlloc> name, smarter::shared_ptr<Stream, LaneP
 
 		auto process = frg::construct<posix::Process>(*kernelAlloc, std::move(name));
 		KernelFiber::asyncBlockCurrent(process->setupAddressSpace(thread));
+		process->hardwareAccessHandle = thread->getUniverse()->attachDescriptor(
+			AnyDescriptor::make<DescriptorType::token>(hardwareAccessToken(), kHelRightInvoke)
+		);
 		process->attachControl(thread, std::move(controlLane));
 		process->attachMbus(thread);
 		KernelFiber::asyncBlockCurrent(process->attachFile(thread, stdioFile));

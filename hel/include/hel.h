@@ -1228,8 +1228,9 @@ HEL_C_LINKAGE HelError helCreateManagedMemory(size_t size, uint32_t flags,
 HEL_C_LINKAGE HelError helCopyOnWrite(HelHandle memory,
 		uintptr_t offset, size_t size, HelHandle *handle);
 
-HEL_C_LINKAGE HelError helAccessPhysical(uintptr_t physical,
-		size_t size, uint32_t cachingMode, HelHandle *handle);
+HEL_C_LINKAGE HelError helAccessPhysical(
+	HelHandle accessToken, uintptr_t physical, size_t size, uint32_t cachingMode, HelHandle *handle
+);
 
 //! Creates a memory object that obtains its memory by delegating to other memory objects.
 //! @param[in] numSlots
@@ -1543,8 +1544,9 @@ HEL_C_LINKAGE HelError helRaiseEvent(HelHandle handle);
 //!     For ::kHelAccessIrqByPhandle, this is a controller-specific IRQ index.
 //! @param[out] handle
 //!     Handle to the IRQ pin.
-HEL_C_LINKAGE HelError helAccessIrq(uint32_t mode, uint64_t controller, uint64_t index,
-		HelHandle *handle);
+HEL_C_LINKAGE HelError helAccessIrq(
+	HelHandle accessHandle, uint32_t mode, uint64_t controller, uint64_t index, HelHandle *handle
+);
 
 //! Install an IRQ handler on an IRQ pin.
 //! @param[in] pinHandle
@@ -1570,8 +1572,9 @@ HEL_C_LINKAGE HelError helAutomateIrq(HelHandle handle, uint32_t flags, HelHandl
 //! @name Input/Output
 //! @{
 
-HEL_C_LINKAGE HelError helAccessIo(const uintptr_t *port_array, size_t num_ports,
-		HelHandle *handle);
+HEL_C_LINKAGE HelError helAccessIo(
+	HelHandle accessToken, const uintptr_t *portArray, size_t numPorts, HelHandle *handle
+);
 
 //! Enable userspace access to hardware I/O resources.
 //! @param[in] handle

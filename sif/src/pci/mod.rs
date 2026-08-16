@@ -3,6 +3,7 @@ pub mod config;
 pub mod discover;
 pub mod serve;
 
+use managarm::svrctl::hardware_access_handle;
 use std::collections::BTreeMap;
 use std::sync::atomic::{AtomicBool, AtomicI64, AtomicU8};
 use std::sync::{Mutex, OnceLock};
@@ -48,7 +49,7 @@ pub fn system_irq(gsi: u32, trigger: IrqTrigger, polarity: IrqPolarity) -> Optio
         return Some(*pin);
     }
 
-    let handle = match hel::access_irq_by_gsi(gsi as u64) {
+    let handle = match hel::access_irq_by_gsi(hardware_access_handle(), gsi as u64) {
         Ok(handle) => handle,
         Err(err) => {
             println!("sif: Failed to access GSI {gsi}: {err}");

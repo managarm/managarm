@@ -1,3 +1,4 @@
+use managarm::svrctl::hardware_access_handle;
 use std::collections::HashMap;
 use std::rc::Rc;
 use std::sync::atomic::Ordering;
@@ -154,13 +155,18 @@ impl managarm::hw::server::PciDevice for ServedEntity {
                 let aligned = (bar.host_address as usize) & !PAGE_MASK;
                 let page_off = (bar.host_address as usize) & PAGE_MASK;
                 let span = ((bar.length as usize) + page_off + PAGE_MASK) & !PAGE_MASK;
-                hel::access_physical(aligned, span.max(PAGE_SIZE), hel::CachingMode::Mmio)
+                hel::access_physical(
+                    hardware_access_handle(),
+                    aligned,
+                    span.max(PAGE_SIZE),
+                    hel::CachingMode::Mmio,
+                )
             }
             BarType::Io => {
                 let ports: Vec<usize> = (bar.address..bar.address + bar.length)
                     .map(|p| p as usize)
                     .collect();
-                hel::access_io(&ports)
+                hel::access_io(hardware_access_handle(), &ports)
             }
             BarType::None => Err(hel::Error::IllegalArgs),
         }
