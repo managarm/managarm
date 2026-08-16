@@ -45,7 +45,63 @@ void disableMmu() {
 	}
 }
 
-void dropToEl1() {
+// CNTHCTL_EL2 and CPTR_EL2 change their layout depending on E2H,
+// hence they can only be programmed once we settled on a mode.
+// Since the reset value of CNTHCTL_EL2 is UNKNOWN, we never preserve its other bits.
+
+// Must only be called in EL2 with E2H set.
+void configureVheTraps() {
+	// Do not trap EL0 access to the counters.
+	uint64_t cnthctl = 0;
+	cnthctl |= UINT64_C(1) << 0; // EL0PCTEN
+	cnthctl |= UINT64_C(1) << 1; // EL0VCTEN
+	asm volatile("msr cnthctl_el2, %0" : : "r"(cnthctl));
+
+	// Do not trap FP and SIMD. CPTR_EL2 has the CPACR_EL1 layout if E2H is set.
+	asm volatile("msr cptr_el2, %0" : : "r"(UINT64_C(0b11) << 20)); // FPEN
+}
+
+// Must only be called in EL2 without E2H.
+void configureEl2Traps() {
+	// Do not trap EL1 access to the counters.
+	uint64_t cnthctl = 0;
+	cnthctl |= UINT64_C(1) << 0; // EL1PCTEN
+	cnthctl |= UINT64_C(1) << 1; // EL1PCEN
+	asm volatile("msr cnthctl_el2, %0" : : "r"(cnthctl));
+
+	// Do not trap FP and SIMD to EL2.
+	asm volatile("msr cptr_el2, %0" : : "r"(UINT64_C(0x33ff)));
+}
+
+// Must only be called in EL2.
+// EL1 can only access the GICv3 system registers if EL2 enables the interface for it:
+// ICC_SRE_EL1.SRE is RAZ/WI unless ICC_SRE_EL2.SRE is set, and writing ICC_SRE_EL1 traps
+// to EL2 unless ICC_SRE_EL2.Enable is set.
+void enableGicSysregsForEl1() {
+	uint64_t pfr0;
+	asm volatile("mrs %0, id_aa64pfr0_el1" : "=r"(pfr0));
+	if (!((pfr0 >> 24) & 0xF))
+		return;
+
+	uint64_t sre;
+	asm volatile("mrs %0, icc_sre_el2" : "=r"(sre));
+	sre |= UINT64_C(1) << 0; // SRE
+	sre |= UINT64_C(1) << 3; // Enable
+	asm volatile("msr icc_sre_el2, %0; isb" : : "r"(sre) : "memory");
+}
+
+// Must only be called in EL2.
+bool inVhe() {
+	constexpr uint64_t e2hAndTge = (UINT64_C(1) << 34) | (UINT64_C(1) << 27);
+	uint64_t hcr;
+	asm volatile("mrs %0, hcr_el2" : "=r"(hcr));
+	return (hcr & e2hAndTge) == e2hAndTge;
+}
+
+// SCTLR that the kernel runs with.
+// Since E2H gives SCTLR_EL2 the SCTLR_EL1 layout, the same value applies to both exception levels.
+// The MMU is enabled later on, in enterKernelPaging().
+uint64_t kernelSctlr() {
 	uint64_t sctlr = 0;
 	sctlr |= UINT64_C(1) << 29; // LSMAOE
 	sctlr |= UINT64_C(1) << 28; // nTLSMD
@@ -55,7 +111,11 @@ void dropToEl1() {
 	sctlr |= UINT64_C(1) << 12; // I
 	sctlr |= UINT64_C(1) << 11; // EOS
 	sctlr |= UINT64_C(1) << 2;  // C
-	asm volatile("msr sctlr_el1, %0" : : "r"(sctlr));
+	return sctlr;
+}
+
+void dropToEl1() {
+	asm volatile("msr sctlr_el1, %0" : : "r"(kernelSctlr()));
 
 	uint64_t hcr = 0;
 	hcr |= UINT64_C(1) << 1;  // SWIO
@@ -353,18 +413,9 @@ bool patchArchSpecificManagarmElfNote(unsigned int, frg::span<char>) { return fa
 		              << frg::endlog;
 
 	if ((currentel >> 2) == 2) {
-		// Do not trap EL0 access to counters.
-		uint64_t cnthctl;
-		asm volatile("mrs %0, cnthctl_el2" : "=r"(cnthctl));
-		cnthctl |= UINT64_C(1) << 0; // EL0PCTEN
-		cnthctl |= UINT64_C(1) << 1; // EL0VCTEN.
-		asm volatile("msr cnthctl_el2, %0" : : "r"(cnthctl));
-
 		// Set virtual offset zero.
 		asm volatile("msr cntvoff_el2, %0" : : "r"(UINT64_C(0)));
 
-		// Do not trap FP and SIMD to EL2.
-		asm volatile("msr cptr_el2, %0" : : "r"(UINT64_C(0x33ff)));
 		// TODO: Our previous raspi4 entry code cleared hstr_el2 but it is not clear why.
 		asm volatile("msr hstr_el2, %0" : : "r"(UINT64_C(0)));
 	}
@@ -379,20 +430,43 @@ bool patchArchSpecificManagarmElfNote(unsigned int, frg::span<char>) { return fa
 		if ((currentel >> 2) == 2) {
 			// Enter E2H mode if VHE is supported.
 			// Otherwise, drop to EL1.
-			if (((aa64mmfr1 >> 8) & 0xF) == 1) {
+			if (((aa64mmfr1 >> 8) & 0xF) >= 1) {
 				infoLogger() << "eir: Entering VHE mode" << frg::endlog;
+				// TGE routes exceptions from EL0 to EL2 and makes EL0 use the EL2&0
+				// translation regime. It also redirects the EL1 TLBI instructions to
+				// that regime.
 				uint64_t hcr = 0;
+				hcr |= UINT64_C(1) << 1;  // SWIO
+				hcr |= UINT64_C(1) << 27; // TGE
+				hcr |= UINT64_C(1) << 31; // RW
 				eirEnterE2h(hcr);
+
+				// Only now does SCTLR_EL2 have the SCTLR_EL1 layout.
+				asm volatile("msr sctlr_el1, %0; isb" : : "r"(kernelSctlr()) : "memory");
+
+				configureVheTraps();
 			} else {
 				infoLogger() << "eir: Dropping to EL1 (VHE is unsupported)" << frg::endlog;
+				configureEl2Traps();
+				enableGicSysregsForEl1();
 				dropToEl1();
 			}
 		}
 	} else {
-		// TODO: We can continue here if E2H is already set.
-		if ((currentel >> 2) != 1)
-			panicLogger() << "eir: Unexpected exception level: in EL" << (currentel >> 2)
-			              << " with non-identity mapping" << frg::endlog;
+		// We cannot turn off the MMU from a non-identity mapping.
+		// If we are in EL2, only continue if VHE is already enabled (as we do not support a drop to
+		// EL1 here).
+		if ((currentel >> 2) == 2) {
+			if (!inVhe())
+				panicLogger() << "eir: In EL2 without VHE with non-identity mapping" << frg::endlog;
+
+			// Since the MMU may already be enabled here, we can only set bits and not clear them.
+			uint64_t sctlr;
+			asm volatile("mrs %0, sctlr_el1" : "=r"(sctlr));
+			asm volatile("msr sctlr_el1, %0; isb" : : "r"(sctlr | kernelSctlr()) : "memory");
+
+			configureVheTraps();
+		}
 
 		// Running from non-identity mapping with paging enabled.
 		// We cannot reconfigure paging.

@@ -1,5 +1,7 @@
 #include <frg/scope_exit.hpp>
+#include <stddef.h>
 #include <thor-internal/acpi/acpi.hpp>
+#include <thor-internal/arch/system.hpp>
 #include <thor-internal/arch/timer.hpp>
 #include <thor-internal/arch/trap.hpp>
 #include <thor-internal/arch-generic/cpu.hpp>
@@ -23,11 +25,42 @@ namespace thor {
 constinit FreqFraction timerFreq;
 constinit FreqFraction timerInverseFreq;
 
+// In EL2 with VHE, CNTP_* and CNTV_* access the EL2 timers (CNTHP_* and CNTHV_*).
+// We use the physical one of the two since firmware always describes its interrupt,
+// while the interrupt of the EL2 virtual timer is optional.
+// TODO: Linux prefers the EL2 virtual timer and only falls back to the EL2 physical one if
+//       firmware does not describe its interrupt. Note that the GSIV of the EL2 virtual timer
+//       lives in a GTDT revision 3 extension and not in the base table.
+
 uint64_t getRawTimestampCounter() {
 	uint64_t cnt;
-	asm volatile ("mrs %0, cntvct_el0" : "=r"(cnt));
+	if (isKernelInEl2()) {
+		asm volatile ("mrs %0, cntpct_el0" : "=r"(cnt));
+	} else {
+		asm volatile ("mrs %0, cntvct_el0" : "=r"(cnt));
+	}
 	return cnt;
 }
+
+namespace {
+
+void setRawTimerDeadline(uint64_t deadline) {
+	if (isKernelInEl2()) {
+		asm volatile ("msr cntp_cval_el0, %0" :: "r"(deadline));
+	} else {
+		asm volatile ("msr cntv_cval_el0, %0" :: "r"(deadline));
+	}
+}
+
+void setTimerControl(uint64_t ctl) {
+	if (isKernelInEl2()) {
+		asm volatile ("msr cntp_ctl_el0, %0" :: "r"(ctl));
+	} else {
+		asm volatile ("msr cntv_ctl_el0, %0" :: "r"(ctl));
+	}
+}
+
+} // namespace anonymous
 
 struct GenericTimerSink : IrqSink {
 	GenericTimerSink()
@@ -49,12 +82,12 @@ void setTimerDeadline(frg::optional<uint64_t> deadline) {
 	if (deadline) {
 		uint64_t rawDeadline = timerFreq * *deadline;
 
-		asm volatile ("msr cntv_cval_el0, %0" :: "r"(rawDeadline));
+		setRawTimerDeadline(rawDeadline);
 		// Unmask the timer interrupt.
-		asm volatile ("msr cntv_ctl_el0, %0" :: "r"(uint64_t{0b01}));
+		setTimerControl(0b01);
 	} else {
 		// Mask the timer interrupt.
-		asm volatile ("msr cntv_ctl_el0, %0" :: "r"(uint64_t{0b11}));
+		setTimerControl(0b11);
 	}
 }
 
@@ -68,7 +101,7 @@ void initializeTimers() {
 	timerInverseFreq = computeFreqFraction(divisor, freqHz);
 
 	// Enable and mask the timer interrupt.
-	asm volatile ("msr cntv_ctl_el0, %0" :: "r"(uint64_t{0b11}));
+	setTimerControl(0b11);
 }
 
 static bool timersFound = false;
@@ -124,20 +157,32 @@ bool initTimerIrqFromAcpi() {
 		return false;
 	frg::scope_exit finish{[&] { uacpi_table_unref(&gtdtTbl); }};
 
-	if (gtdtTbl.hdr->length < sizeof(acpi_gtdt))
+	// Only require the fields that we read below. acpi_gtdt also covers the EL2 virtual
+	// timer that revision 3 appended to the table.
+	constexpr size_t requiredLength = offsetof(acpi_gtdt, el2_flags) + sizeof(acpi_gtdt::el2_flags);
+	if (gtdtTbl.hdr->length < requiredLength)
 		panicLogger() << "thor: GTDT is too small" << frg::endlog;
 
 	auto *gtdt = reinterpret_cast<acpi_gtdt *>(gtdtTbl.ptr);
-	auto flags = gtdt->el1_virtual_flags;
+	bool inEl2 = isKernelInEl2();
+	auto name = inEl2 ? "EL2 physical" : "EL1 virtual";
+	auto flags = inEl2 ? gtdt->el2_flags : gtdt->el1_virtual_flags;
+	auto gsiv = inEl2 ? gtdt->el2_gsiv : gtdt->el1_virtual_gsiv;
 
-	acpiTimerIrq.gsi = gtdt->el1_virtual_gsiv;
+	// GSIV zero would resolve to an SGI, i.e., the timer is not described at all.
+	if (!gsiv) {
+		infoLogger() << "thor: GTDT has no " << name << " timer" << frg::endlog;
+		return false;
+	}
+
+	acpiTimerIrq.gsi = gsiv;
 	acpiTimerIrq.configuration.trigger =
 	    (flags & ACPI_GTDT_TRIGGERING) ? TriggerMode::edge : TriggerMode::level;
 	acpiTimerIrq.configuration.polarity =
 	    (flags & ACPI_GTDT_POLARITY) ? Polarity::low : Polarity::high;
 	timerIrqSource = TimerIrqSource::acpi;
 
-	infoLogger() << "thor: Found GTDT EL1 virtual timer at GSI " << acpiTimerIrq.gsi
+	infoLogger() << "thor: Found GTDT " << name << " timer at GSI " << acpiTimerIrq.gsi
 	             << frg::endlog;
 	return true;
 }
@@ -172,12 +217,15 @@ static initgraph::Task initTimerIrq{&globalInitEngine, "arm.init-timer-irq",
 		// should probably replicate instead of always picking
 		// the virtual one.
 
+		// Index 2 is the EL1 virtual timer, index 3 the EL2 physical timer.
+		int wantedIdx = isKernelInEl2() ? 3 : 2;
+
 		int idx = 0;
 		auto walkInterruptResult = dt::walkInterrupts(
 			[&] (DeviceTreeNode *parentNode, dtb::Cells irqCells) {
 				// This offset is defined in the Linux
 				// DTB binding for compatible nodes.
-				if (idx == 2) {
+				if (idx == wantedIdx) {
 					timerIrqParent = parentNode->getAssociatedIrqController();
 					timerIrq.initialize(irqCells);
 					timerIrqSource = TimerIrqSource::dt;

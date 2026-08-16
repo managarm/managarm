@@ -27,3 +27,12 @@
 #define THOR_FPREGS_V0 0x0 // v1-v32 follows
 #define THOR_FPREGS_FPCR 0x200
 #define THOR_FPREGS_FPSR 0x208
+
+// AP status block offsets, relative to the start of the trampoline page.
+#define THOR_AP_STATUS_SELF 0xFC0
+#define THOR_AP_STATUS_USE_VHE 0xFD0
+#define THOR_AP_STATUS_TTBR0 0xFD8
+#define THOR_AP_STATUS_TTBR1 0xFE0
+#define THOR_AP_STATUS_STACK 0xFE8
+#define THOR_AP_STATUS_MAIN 0xFF0
+#define THOR_AP_STATUS_CPU_CONTEXT 0xFF8

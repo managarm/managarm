@@ -19,10 +19,12 @@ src += files(
 trampoline = custom_target('trampoline',
 	command : [
 		c.cmd_array(), '-o', '@OUTPUT@',
+		'-I' + meson.current_source_dir(),
 		'-nostdlib', '-Wl,-Ttext,0', '@INPUT@',
 		get_option('cpp_args')
 	],
 	input : files('trampoline.S'),
+	depend_files : files('thor-internal/arch/asm.h'),
 	output : 'trampoline.elf'
 )
 

@@ -6,6 +6,7 @@
 #include <thor-internal/arch/gic.hpp>
 #include <thor-internal/arch/gic_v2.hpp>
 #include <thor-internal/arch/gic_v3.hpp>
+#include <thor-internal/arch/system.hpp>
 #include <thor-internal/arch/timer.hpp>
 #include <thor-internal/arch/trap.hpp>
 #include <thor-internal/dtb/dtb.hpp>
@@ -31,12 +32,25 @@ namespace {
 		StatusBlock *self; // Pointer to this struct in the higher half.
 		int targetStage;
 		int cpuId;
+		int useVhe;
 		uintptr_t ttbr0;
 		uintptr_t ttbr1;
 		uintptr_t stack;
 		void (*main)(StatusBlock *);
 		CpuData *cpuContext;
 	};
+
+	// The status block is placed at the end of the trampoline page.
+	constexpr size_t statusBlockOffset = kPageSize - sizeof(StatusBlock);
+
+	static_assert(statusBlockOffset + offsetof(StatusBlock, self) == THOR_AP_STATUS_SELF);
+	static_assert(statusBlockOffset + offsetof(StatusBlock, useVhe) == THOR_AP_STATUS_USE_VHE);
+	static_assert(statusBlockOffset + offsetof(StatusBlock, ttbr0) == THOR_AP_STATUS_TTBR0);
+	static_assert(statusBlockOffset + offsetof(StatusBlock, ttbr1) == THOR_AP_STATUS_TTBR1);
+	static_assert(statusBlockOffset + offsetof(StatusBlock, stack) == THOR_AP_STATUS_STACK);
+	static_assert(statusBlockOffset + offsetof(StatusBlock, main) == THOR_AP_STATUS_MAIN);
+	static_assert(
+			statusBlockOffset + offsetof(StatusBlock, cpuContext) == THOR_AP_STATUS_CPU_CONTEXT);
 
 	enum class EnableMethod {
 		unknown,
@@ -80,6 +94,16 @@ namespace {
 					panicLogger()
 						<< node->path() << ": failed to read cpu-on" << frg::endlog;
 			}
+		}
+
+		// HVC is taken to EL3 (or is UNDEFINED) if the kernel itself runs in EL2.
+		bool checkUsable() const {
+			if (usesHvc_ && isKernelInEl2()) {
+				infoLogger() << "thor: PSCI uses HVC but the kernel runs in EL2"
+						<< frg::endlog;
+				return false;
+			}
+			return true;
 		}
 
 		int turnOnCpu(uint64_t id, uintptr_t addr) {
@@ -190,16 +214,17 @@ bool bootSecondary(uint64_t id, size_t cpuIndex, EnableInfo enable) {
 
 	auto imageSize = (uintptr_t)_binary_kernel_thor_arch_arm_trampoline_bin_end
 			- (uintptr_t)_binary_kernel_thor_arch_arm_trampoline_bin_start;
-	assert(imageSize <= kPageSize - sizeof(StatusBlock));
+	assert(imageSize <= statusBlockOffset);
 
 	memcpy(codeVirtPtr, _binary_kernel_thor_arch_arm_trampoline_bin_start, imageSize);
 
 	// Setup a status block to communicate information to the AP.
 	auto statusBlock = reinterpret_cast<StatusBlock *>(reinterpret_cast<char *>(codeVirtPtr)
-			+ (kPageSize - sizeof(StatusBlock)));
+			+ statusBlockOffset);
 
 	statusBlock->self = statusBlock;
 	statusBlock->targetStage = 0;
+	statusBlock->useVhe = isKernelInEl2();
 	statusBlock->ttbr0 = lowMapping.rootTable();
 	statusBlock->ttbr1 = KernelPageSpace::global().rootTable();
 	statusBlock->stack = (uintptr_t)stackPtr + stackSize;
@@ -400,6 +425,10 @@ bool initPsciFromAcpi() {
 	}
 
 	psci_.initialize(fadt->arm_boot_arch & ACPI_ARM_PSCI_USE_HVC);
+	if (!psci_->checkUsable()) {
+		psci_.destruct();
+		return false;
+	}
 	return true;
 }
 
@@ -506,6 +535,8 @@ static initgraph::Task initAPs{&globalInitEngine, "arm.init-aps",
 		root->forEach([&](DeviceTreeNode *node) -> bool {
 			if (node->isCompatible<2>({"arm,psci", "arm,psci-1.0"})) {
 				psci_.initialize(node);
+				if (!psci_->checkUsable())
+					psci_.destruct();
 				return true;
 			}
 			return false;
