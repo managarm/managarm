@@ -59,6 +59,17 @@ apEntryPoint:
 	mov x0, #0x33FF
 	msr cptr_el2, x0
 
+	// EL1 can only access the GICv3 system registers if EL2 enables the interface.
+	mrs x0, id_aa64pfr0_el1
+	ubfx x0, x0, #24, #4
+	cbz x0, .L_noGicSre
+	mrs x0, icc_sre_el2
+	orr x0, x0, #1 // SRE
+	orr x0, x0, #8 // Enable
+	msr icc_sre_el2, x0
+	isb
+.L_noGicSre:
+
 	// Enter EL1
 	mov x0, #0x3C5
 	msr spsr_el2, x0
