@@ -1,3 +1,4 @@
+#include <arch/cache.hpp>
 #include <frg/scope_exit.hpp>
 #include <frg/utility.hpp>
 #include <stddef.h>
@@ -203,8 +204,9 @@ bool bootSecondary(uint64_t id, size_t cpuIndex, EnableInfo enable) {
 	auto codePhysPtr = physicalAllocator->allocate(kPageSize);
 	auto codeVirtPtr = KernelVirtualMemory::global().allocate(kPageSize);
 
+	// We have to map as normal memory here to avoid mismatch with the AP's view.
 	KernelPageSpace::global().mapSingle4k(VirtualAddr(codeVirtPtr), codePhysPtr,
-			page_access::write, CachingMode::uncached);
+			page_access::write, CachingMode::null);
 
 	// We use a ClientPageSpace here to create an identity mapping for the trampoline
 	ClientPageSpace lowMapping;
@@ -237,6 +239,10 @@ bool bootSecondary(uint64_t id, size_t cpuIndex, EnableInfo enable) {
 	cursor.remap4k(codePhysPtr, page_access::execute, CachingMode::null);
 	*cursor.getPtePtr() &= ~kPagePXN; // Workaround: clear PXN so the AP can execute code from the page.
 	asm volatile("dsb ishst; isb" ::: "memory"); // Publish the PTE to the page table walkers.
+
+	// The AP runs the trampoline with its MMU off (and thus caching disabled).
+	// Flush its code page (and thus the status block) such that it does not see stale memory contents.
+	arch::cache_writeback(reinterpret_cast<uintptr_t>(codeVirtPtr), kPageSize);
 
 	bool dontWait = false;
 
