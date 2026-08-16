@@ -42,23 +42,17 @@ struct BootScreen final : public LogHandler {
 	void emit(frg::string_view record) override;
 	void flush() override;
 
-	void redraw();
-
 private:
-	struct Line {
-		Severity severity;
-		size_t length{0};
-		char msg[logLineLength]{};
-	};
-
-	// Number of lines that are kept in memory. Must be power of 2.
-	static constexpr size_t NUM_LINES = 128;
+	void redraw();
+	size_t countRecords();
+	void renderLine(size_t y, frg::string_view record);
 
 	TextDisplay *_display;
 	size_t _width;
 	size_t _height;
-	Line _displayLines[NUM_LINES];
-	uint64_t _displaySeq{0};
+
+	// Ring pointer of the first record that is displayed on screen.
+	uint64_t _topPtr{0};
 };
 
 } // namespace thor

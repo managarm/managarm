@@ -1,5 +1,6 @@
 
 #include <thor-internal/framebuffer/boot-screen.hpp>
+#include <thor-internal/kernel-log.hpp>
 
 namespace thor {
 
@@ -96,15 +97,8 @@ BootScreen::BootScreen(TextDisplay *display)
 	_height = _display->getHeight();
 }
 
-void BootScreen::emit(frg::string_view record) {
-	auto [md, msg] = destructureLogRecord(record);
-	size_t idx = _displaySeq & (NUM_LINES - 1);
-	auto *line = &_displayLines[idx];
-
-	line->severity = md.severity;
-	line->length = msg.size();
-	memcpy(line->msg, msg.data(), msg.size());
-	++_displaySeq;
+void BootScreen::emit(frg::string_view) {
+	// postLogRecord() posted the record to the log ring already; redraw() renders from there.
 }
 
 void BootScreen::flush() {
@@ -112,42 +106,87 @@ void BootScreen::flush() {
 }
 
 void BootScreen::redraw() {
-	// Redraw up to _height lines.
-	for(size_t i = 0; i < _height - 1; i++) {
-		if(i >= _displaySeq)
+	char buffer[logLineLength];
+
+	// The last row is always left blank.
+	auto numRows = _height - 1;
+
+	// Drop records until the tail of the log ring fits onto the screen.
+	auto numRecords = countRecords();
+	while(numRecords > numRows) {
+		auto [success, recordPtr, nextPtr, size] = retrieveLogRecord(_topPtr, buffer, 0);
+		if(!success)
 			break;
-		auto seq = _displaySeq - i - 1;
-		size_t idx = seq & (NUM_LINES - 1);
-		auto *line = &_displayLines[idx];
-
-		Formatter fmt{this, 0, _height - i - 2};
-
-		switch(line->severity) {
-			case Severity::emergency:
-			case Severity::alert:
-			case Severity::critical:
-			case Severity::error:
-				fmt.print("\e[31m");
-				break;
-			case Severity::warning:
-				fmt.print("\e[33m");
-				break;
-			case Severity::notice:
-			case Severity::info:
-				fmt.print("\e[37m");
-				break;
-			case Severity::debug:
-				fmt.print("\e[35m");
-				break;
-			default:
-				fmt.print("\e[39m");
-		}
-
-		fmt.print(line->msg, line->length);
+		_topPtr = nextPtr;
+		numRecords--;
 	}
 
-	// Clear the last line.
-	_display->setBlanks(0, _height - 1, frg::min(logLineLength, _width), -1);
+	// Render the records. Producers may append to the ring while we do so; those records
+	// are picked up by the next redraw().
+	size_t y = 0;
+	auto ptr = _topPtr;
+	while(y < numRows) {
+		auto [success, recordPtr, nextPtr, size] = retrieveLogRecord(ptr, buffer, logLineLength);
+		if(!success)
+			break;
+
+		renderLine(y, {buffer, size});
+		ptr = nextPtr;
+		y++;
+	}
+
+	// Clear the rows that no record is rendered to.
+	for(; y < _height; y++)
+		_display->setBlanks(0, y, _width, -1);
+}
+
+size_t BootScreen::countRecords() {
+	// Only the record boundaries are of interest here; a maximal size of zero avoids copying.
+	char dummy;
+
+	size_t n = 0;
+	auto ptr = _topPtr;
+	while(true) {
+		auto [success, recordPtr, nextPtr, size] = retrieveLogRecord(ptr, &dummy, 0);
+		if(!success)
+			break;
+
+		// The ring may have invalidated the records that _topPtr points to.
+		if(!n)
+			_topPtr = recordPtr;
+		ptr = nextPtr;
+		n++;
+	}
+	return n;
+}
+
+void BootScreen::renderLine(size_t y, frg::string_view record) {
+	auto [md, msg] = destructureLogRecord(record);
+
+	Formatter fmt{this, 0, y};
+
+	switch(md.severity) {
+		case Severity::emergency:
+		case Severity::alert:
+		case Severity::critical:
+		case Severity::error:
+			fmt.print("\e[31m");
+			break;
+		case Severity::warning:
+			fmt.print("\e[33m");
+			break;
+		case Severity::notice:
+		case Severity::info:
+			fmt.print("\e[37m");
+			break;
+		case Severity::debug:
+			fmt.print("\e[35m");
+			break;
+		default:
+			fmt.print("\e[39m");
+	}
+
+	fmt.print(msg.data(), msg.size());
 }
 
 } //namespace thor
