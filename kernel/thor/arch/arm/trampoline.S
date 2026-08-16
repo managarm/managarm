@@ -41,16 +41,19 @@ apEntryPoint:
 
 	// Drop to EL1
 
-	// Don't trap EL1 access to the counters
-	mrs x0, cnthctl_el2
-	orr x0, x0, #3 // EL1PCTEN and EL1PCEN
-	msr cnthctl_el2, x0
-
-	// Enable AArch64
+	// Enable AArch64. This also clears E2H, which selects the layout of
+	// CNTHCTL_EL2 and CPTR_EL2 below; PSCI enters us with an unknown value.
 	mov x0, xzr
 	orr x0, x0, #(1 << 31)
 	orr x0, x0, #(1 << 1)
 	msr hcr_el2, x0
+	isb
+
+	// Don't trap EL1 access to the counters.
+	// We do not preserve the other bits: their meaning depends on E2H and
+	// PSCI hands us the register with an unknown reset value.
+	mov x0, #3 // EL1PCTEN and EL1PCEN
+	msr cnthctl_el2, x0
 
 	// Don't trap FP/SIMD to EL2
 	mov x0, #0x33FF
