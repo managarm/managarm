@@ -209,8 +209,7 @@ bool bootSecondary(uint64_t id, size_t cpuIndex, EnableInfo enable) {
 	// We use a ClientPageSpace here to create an identity mapping for the trampoline
 	ClientPageSpace lowMapping;
 	ClientPageSpace::Cursor cursor{&lowMapping, codePhysPtr};
-	cursor.map4k(codePhysPtr, page_access::execute, CachingMode::null);
-	*cursor.getPtePtr() &= ~kPagePXN; // Workaround: clear PXN so the AP can execute code from the page.
+	cursor.map4k(codePhysPtr, page_access::write, CachingMode::null);
 
 	auto imageSize = (uintptr_t)_binary_kernel_thor_arch_arm_trampoline_bin_end
 			- (uintptr_t)_binary_kernel_thor_arch_arm_trampoline_bin_start;
@@ -231,6 +230,13 @@ bool bootSecondary(uint64_t id, size_t cpuIndex, EnableInfo enable) {
 	statusBlock->main = &secondaryMain;
 	statusBlock->cpuContext = context;
 	statusBlock->cpuId = static_cast<int>(cpuIndex);
+
+	// Only make the mapping executable now:
+	// both map4k() and remap4k() synchronize the I-cache before they update the PTE,
+	// hence doing this earlier would synchronize it against stale contents of the page.
+	cursor.remap4k(codePhysPtr, page_access::execute, CachingMode::null);
+	*cursor.getPtePtr() &= ~kPagePXN; // Workaround: clear PXN so the AP can execute code from the page.
+	asm volatile("dsb ishst; isb" ::: "memory"); // Publish the PTE to the page table walkers.
 
 	bool dontWait = false;
 
