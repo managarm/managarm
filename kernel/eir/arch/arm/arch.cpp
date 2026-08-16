@@ -74,6 +74,23 @@ void configureEl2Traps() {
 }
 
 // Must only be called in EL2.
+// EL1 can only access the GICv3 system registers if EL2 enables the interface for it:
+// ICC_SRE_EL1.SRE is RAZ/WI unless ICC_SRE_EL2.SRE is set, and writing ICC_SRE_EL1 traps
+// to EL2 unless ICC_SRE_EL2.Enable is set.
+void enableGicSysregsForEl1() {
+	uint64_t pfr0;
+	asm volatile("mrs %0, id_aa64pfr0_el1" : "=r"(pfr0));
+	if (!((pfr0 >> 24) & 0xF))
+		return;
+
+	uint64_t sre;
+	asm volatile("mrs %0, icc_sre_el2" : "=r"(sre));
+	sre |= UINT64_C(1) << 0; // SRE
+	sre |= UINT64_C(1) << 3; // Enable
+	asm volatile("msr icc_sre_el2, %0; isb" : : "r"(sre) : "memory");
+}
+
+// Must only be called in EL2.
 bool inVhe() {
 	constexpr uint64_t e2hAndTge = (UINT64_C(1) << 34) | (UINT64_C(1) << 27);
 	uint64_t hcr;
@@ -431,6 +448,7 @@ bool patchArchSpecificManagarmElfNote(unsigned int, frg::span<char>) { return fa
 			} else {
 				infoLogger() << "eir: Dropping to EL1 (VHE is unsupported)" << frg::endlog;
 				configureEl2Traps();
+				enableGicSysregsForEl1();
 				dropToEl1();
 			}
 		}
