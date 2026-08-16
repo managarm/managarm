@@ -35,6 +35,20 @@ namespace proto = protocols::usb;
 
 std::vector<std::shared_ptr<Controller>> globalControllers;
 
+namespace {
+
+// Number of address bits that the controller can use for DMA.
+size_t dmaAddressBits([[maybe_unused]] arch::mem_space space) {
+#ifdef __aarch64__
+	// TODO: When we have a way to query the platform this could be restricted to RPI4 only.
+	return 31;
+#else
+	return (space.load(cap_regs::hccparams1) & hccparams1::ac64) ? 64 : 32;
+#endif
+}
+
+} // namespace
+
 Controller::Controller(
     protocols::hw::Device hw_device,
     mbus_ng::Entity entity,
@@ -51,14 +65,7 @@ Controller::Controller(
   _irq{std::move(irq)},
   _space{_mapping.get()},
   _name{name},
-#ifdef __aarch64__
-// TODO: When we have a way to query the platform this could be restricted to RPI4 only.
-		_memoryPool{{.addressBits = 31}},
-#else
-// TODO: It is theoretically possible that there could be controllers that don't support 64-bit
-// addresses, to support those this would have to be conditional.
-		_memoryPool{{.addressBits = 64}},
-#endif
+  _memoryPool{{.addressBits = dmaAddressBits(_space)}},
   _dmaSpaceHandle{std::move(dmaSpaceHandle)},
   _dmaSpace{_memoryPool.attachDmaSpace(_dmaSpaceHandle, iommuActive)},
   _dcbaa{&_memoryPool, 256},

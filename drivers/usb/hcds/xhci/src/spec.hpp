@@ -81,6 +81,7 @@ namespace hccparams1 {
 
 inline constexpr arch::field<uint32_t, uint16_t> extCapPtr(16, 16);
 inline constexpr arch::field<uint32_t, bool> contextSize(2, 1);
+inline constexpr arch::field<uint32_t, bool> ac64(0, 1);
 
 } // namespace hccparams1
 
