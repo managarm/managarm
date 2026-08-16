@@ -51,6 +51,11 @@ initgraph::Stage *getCmdlineAvailableStage() {
 	return &s;
 }
 
+initgraph::Stage *getFirmwareDoneStage() {
+	static initgraph::Stage s{&globalInitEngine, "generic.firmware-done"};
+	return &s;
+}
+
 initgraph::Stage *getKernelMappableStage() {
 	static initgraph::Stage s{&globalInitEngine, "generic.kernel-mappable"};
 	return &s;

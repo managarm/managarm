@@ -499,7 +499,7 @@ initgraph::Task exitBootServices{
     &globalInitEngine,
     "uefi.exit-boot-services",
     initgraph::Requires{getBootservicesDoneStage()},
-    initgraph::Entails{getReservedRegionsKnownStage()},
+    initgraph::Entails{getFirmwareDoneStage(), getReservedRegionsKnownStage()},
     [] {
 	    disableLogHandler(&conOutLogHandler);
 

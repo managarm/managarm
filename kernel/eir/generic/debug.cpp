@@ -83,6 +83,18 @@ void enableLogHandler(LogHandler *handler) {
 	if (handler->active)
 		return;
 
+	// Handlers that become available late would otherwise miss the entire early boot log.
+	if (handler->wantsBacklog) {
+		auto &ring = bootLogRing();
+		char buffer[maxLogLine];
+
+		uint64_t ptr = 0;
+		while (auto record = ring.dequeueAt(ptr, buffer, maxLogLine)) {
+			handler->emit({buffer, record->size});
+			ptr = record->nextPtr;
+		}
+	}
+
 	auto &handlerList = accessHandlerList();
 	handlerList.push_back(handler);
 	handler->active = true;

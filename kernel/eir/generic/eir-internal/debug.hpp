@@ -30,6 +30,8 @@ struct LogHandler {
 
 	frg::default_list_hook<LogHandler> hook;
 	bool active{false};
+	// Whether enableLogHandler() replays the lines that were logged before.
+	bool wantsBacklog{false};
 };
 
 void enableLogHandler(LogHandler *handler);
