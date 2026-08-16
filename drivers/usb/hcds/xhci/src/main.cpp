@@ -1,6 +1,7 @@
 
 #include <assert.h>
 #include <stdio.h>
+#include <string.h>
 #include <unistd.h>
 #include <optional>
 #include <memory>
@@ -220,16 +221,21 @@ async::detached Controller::initialize() {
 	auto pageSize = 1u << ((std::countr_zero(operational.load(op_regs::pagesize))) + 12);
 	std::println("{} Controller's minimum page size is {}", this, pageSize);
 
+	// We need to force a cache flush even on cache coherent platforms since
+	// the scratchpad buffer array and the scratchpad buffers use no-snoop transactions.
+	arch::dma_barrier forcedBarrier{false};
+
 	// Allocate the scratchpad buffers
-	_scratchpadBufArray = arch::dma_array<uint64_t>{&_memoryPool, nScratchpadBufs};
+	_scratchpadBufArray = arch::dma_array<uint64_t, 64>{&_memoryPool, nScratchpadBufs};
 	for (size_t i = 0; i < nScratchpadBufs; i++) {
 		_scratchpadBufs.push_back(arch::dma_buffer(&_memoryPool,
-					pageSize));
+					pageSize, pageSize));
+		memset(_scratchpadBufs.back().data(), 0, pageSize);
 
-		barrier.writeback(_scratchpadBufs.back());
+		forcedBarrier.writeback(_scratchpadBufs.back());
 		_scratchpadBufArray[i] = co_await _dmaSpace.iova_of(_scratchpadBufs.back());
 	}
-	barrier.writeback(_scratchpadBufArray.view_buffer());
+	forcedBarrier.writeback(_scratchpadBufArray.view_buffer());
 
 	// Initialize the device context pointer array
 	for (size_t i = 0; i < 256; i++)
