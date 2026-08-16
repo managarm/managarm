@@ -210,6 +210,13 @@ void postLogRecord(frg::string_view record, bool expedited) {
 	}
 }
 
+void flushLogHandler(LogHandler *handler) {
+	StatelessIrqLock irqLock;
+	auto emitLock = frg::guard(&emitMutex);
+
+	handler->flush();
+}
+
 coroutine<void> waitForLog(uint64_t deqPtr) {
 	// TODO: Since we simply wait for drainEvent, log records may become available earlier
 	//       to consumers of the asynchronous waitForLog() / retrieveLogRecord() API

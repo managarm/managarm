@@ -43,8 +43,13 @@ void LogHandler::emitUrgent(frg::string_view record) {
 }
 
 void enableLogHandler(LogHandler *sink) {
-	auto lock = frg::guard(&listMutex);
-	globalLogList.push_back(sink);
+	{
+		auto lock = frg::guard(&listMutex);
+		globalLogList.push_back(sink);
+	}
+
+	// Handlers that render from the log ring need this to display the pre-existing records.
+	flushLogHandler(sink);
 }
 
 void disableLogHandler(LogHandler *sink) {
