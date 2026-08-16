@@ -235,7 +235,7 @@ struct dma_space {
 
 		// Ensure that the backing pages of the view are already present, or faulted in.
 		auto populateResult = co_await helix_ng::populateSpace(
-		    space_, iova_base + dp.offset(), view.size()
+		    space_, iova_base + dp.offset(), view.size_bytes()
 		);
 		HEL_CHECK(populateResult.error());
 
