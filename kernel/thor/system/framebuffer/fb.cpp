@@ -111,6 +111,10 @@ void initializeBootFb(uint64_t address, uint64_t pitch, uint64_t width,
 	fb_info->bpp = bpp;
 	fb_info->type = type;
 
+	// Without a framebuffer, there is nothing to display the boot screen on.
+	if(!address)
+		return;
+
 	// Initialize the framebuffer with a lower-half window.
 	bootDisplay.initialize(early_window,
 			fb_info->width, fb_info->height, fb_info->pitch);
