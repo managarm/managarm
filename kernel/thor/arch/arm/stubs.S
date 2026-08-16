@@ -198,6 +198,18 @@ MAKE_STUB el0SyncStub, onPlatformSyncFault, 0
 MAKE_STUB el0IrqStub, onPlatformIrq, 0
 MAKE_STUB el0SErrorStub, onPlatformAsyncFault, 0
 
+// Call the PSCI conduit with the usual AArch64 calling convention.
+// The SMCCC permits firmware to clobber x0-x17, hence we cannot use an inline asm statement in C++.
+.global thorPsciSmcCall
+thorPsciSmcCall:
+	smc #0
+	ret
+
+.global thorPsciHvcCall
+thorPsciHvcCall:
+	hvc #0
+	ret
+
 .global _restoreExecutorRegisters
 _restoreExecutorRegisters:
 	// Restore SP_EL1

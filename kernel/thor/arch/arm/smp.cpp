@@ -28,6 +28,11 @@ namespace thor {
 extern "C" uint8_t _binary_kernel_thor_arch_arm_trampoline_bin_start[];
 extern "C" uint8_t _binary_kernel_thor_arch_arm_trampoline_bin_end[];
 
+// The SMCCC permits the conduit to clobber x0-x17, which we cannot express in an inline asm statement.
+// The last argument is the context ID that PSCI hands back to the AP.
+extern "C" int64_t thorPsciSmcCall(uint64_t function, uint64_t arg0, uint64_t arg1, uint64_t arg2);
+extern "C" int64_t thorPsciHvcCall(uint64_t function, uint64_t arg0, uint64_t arg1, uint64_t arg2);
+
 namespace {
 	struct StatusBlock {
 		StatusBlock *self; // Pointer to this struct in the higher half.
@@ -108,17 +113,9 @@ namespace {
 		}
 
 		int turnOnCpu(uint64_t id, uintptr_t addr) {
-			register int64_t regResult asm("x0");
-			register uint64_t regCmd asm("x0") = cpuOn_;
-			register uint64_t regCpu asm("x1") = id;
-			register uint64_t regAddr asm("x2") = addr;
-			if (usesHvc_) {
-				asm volatile ("hvc #0" : "=r"(regResult) : "r"(regCmd), "r"(regCpu), "r"(regAddr));
-			} else {
-				asm volatile ("smc #0" : "=r"(regResult) : "r"(regCmd), "r"(regCpu), "r"(regAddr));
-			}
-
-			return regResult;
+			if (usesHvc_)
+				return thorPsciHvcCall(cpuOn_, id, addr, 0);
+			return thorPsciSmcCall(cpuOn_, id, addr, 0);
 		}
 
 	private:
