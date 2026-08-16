@@ -37,7 +37,10 @@ initgraph::Stage *getIrqControllerReadyStage() {
 	return &s;
 }
 
-void initializeIrqVectors() { asm volatile("msr vbar_el1, %0" ::"r"(&thorExcVectors)); }
+void initializeIrqVectors() {
+	// The ISB ensures that an exception taken right afterwards already uses our vectors.
+	asm volatile("msr vbar_el1, %0; isb" ::"r"(&thorExcVectors) : "memory");
+}
 
 extern "C" void onPlatformInvalidException(FaultImageAccessor) {
 	thor::panicLogger() << "thor: an invalid exception has occured" << frg::endlog;
