@@ -1,4 +1,5 @@
 #include <frg/scope_exit.hpp>
+#include <stddef.h>
 #include <thor-internal/acpi/acpi.hpp>
 #include <thor-internal/arch/system.hpp>
 #include <thor-internal/arch/timer.hpp>
@@ -156,7 +157,10 @@ bool initTimerIrqFromAcpi() {
 		return false;
 	frg::scope_exit finish{[&] { uacpi_table_unref(&gtdtTbl); }};
 
-	if (gtdtTbl.hdr->length < sizeof(acpi_gtdt))
+	// Only require the fields that we read below. acpi_gtdt also covers the EL2 virtual
+	// timer that revision 3 appended to the table.
+	constexpr size_t requiredLength = offsetof(acpi_gtdt, el2_flags) + sizeof(acpi_gtdt::el2_flags);
+	if (gtdtTbl.hdr->length < requiredLength)
 		panicLogger() << "thor: GTDT is too small" << frg::endlog;
 
 	auto *gtdt = reinterpret_cast<acpi_gtdt *>(gtdtTbl.ptr);
