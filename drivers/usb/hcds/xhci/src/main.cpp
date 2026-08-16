@@ -238,11 +238,15 @@ async::detached Controller::initialize() {
 	barrier.writeback(_dcbaa.view_buffer());
 
 	// Tell the controller about our device context pointer array
-	operational.store(op_regs::dcbaap, co_await _dmaSpace.iova_of(_dcbaa));
+	auto dcbaaPtr = co_await _dmaSpace.iova_of(_dcbaa);
+	operational.store(op_regs::dcbaapLow, dcbaaPtr & 0xFFFFFFFF);
+	operational.store(op_regs::dcbaapHi, dcbaaPtr >> 32);
 
 	// Tell the controller about our command ring
 	co_await _cmdRing.initialize();
-	operational.store(op_regs::crcr, _cmdRing.getPtr() | 1);
+	auto cmdRingPtr = _cmdRing.getPtr() | 1;
+	operational.store(op_regs::crcrLow, cmdRingPtr & 0xFFFFFFFF);
+	operational.store(op_regs::crcrHi, cmdRingPtr >> 32);
 
 	// Set up interrupters
 	// TODO(qookie): MSIs let us use multiple interrupters to
