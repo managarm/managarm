@@ -215,6 +215,7 @@ public:
 	Word *arg1() { return &general()->a(2); }
 	Word *result0() { return &general()->a(0); }
 	Word *result1() { return &general()->a(1); }
+	Word *result2() { return &general()->a(2); }
 
 	Frame *general() { return reinterpret_cast<Frame *>(_pointer); }
 

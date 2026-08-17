@@ -1178,18 +1178,10 @@ namespace posix {
 					panicLogger() << "thor: Failed to create thread" << frg::endlog;
 				auto new_thread = std::move(*threadOutcome);
 				new_thread->flags |= Thread::kFlagServer;
-				auto new_info = attachThread(new_thread);
 
 				// see helCreateThread for the reasoning here
 				new_thread.policy().increment();
 				new_thread.policy().increment();
-
-				auto writeOutcome = info.thread->accessRegisters([&](Executor *executor) {
-					*executor->result0() = kHelErrNone;
-					*executor->result1() = new_info.tid;
-				});
-				if(!writeOutcome)
-					panicLogger() << "thor: Failed to access server registers" << frg::endlog;
 
 				LoadBalancer::singleton().connect(new_thread.get(), getCpuData());
 				Scheduler::associate(new_thread.get(), &localScheduler.get());
@@ -1197,6 +1189,19 @@ namespace posix {
 
 				if(auto e = Thread::resumeOther(smarter::rc_policy_downcast<smarter::default_rc_policy>(new_thread)); e != Error::success)
 					panicLogger() << "thor: Failed to resume server" << frg::endlog;
+
+				// Attach after resumeOther() to ensure that we do not see the initial interrupt.
+				auto new_info = attachThread(new_thread);
+
+				auto writeOutcome = info.thread->accessRegisters([&](Executor *executor) {
+					*executor->result0() = kHelErrNone;
+					// The POSIX error; zero is managarm::posix::Errors::SUCCESS.
+					*executor->result1() = 0;
+					*executor->result2() = new_info.tid;
+				});
+				if(!writeOutcome)
+					panicLogger() << "thor: Failed to access server registers" << frg::endlog;
+
 				if(auto e = Thread::resumeOther(smarter::rc_policy_downcast<smarter::default_rc_policy>(info.thread)); e != Error::success)
 					panicLogger() << "thor: Failed to resume server" << frg::endlog;
 			}else if(interrupt == kIntrSuperCall + ::posix::superExit) {

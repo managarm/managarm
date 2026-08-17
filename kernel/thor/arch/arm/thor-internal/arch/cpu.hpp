@@ -248,6 +248,7 @@ public:
 	Word *arg1() { return &general()->x[2]; }
 	Word *result0() { return &general()->x[0]; }
 	Word *result1() { return &general()->x[1]; }
+	Word *result2() { return &general()->x[2]; }
 
 	ExecutorState *state() {
 		return reinterpret_cast<ExecutorState *>(_pointer);

@@ -331,6 +331,7 @@ public:
 	Word *arg1() { return &general()->rdx; }
 	Word *result0() { return &general()->rdi; }
 	Word *result1() { return &general()->rsi; }
+	Word *result2() { return &general()->rdx; }
 
 private:
 	// note: this struct is accessed from assembly.
