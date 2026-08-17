@@ -65,3 +65,23 @@ pub async fn get_acpi_rsdp() -> anyhow::Result<u64> {
 
     Ok(response.rsdp())
 }
+
+/// Returns the physical address and size of the device tree blob, or zeroes if there is none.
+pub async fn get_device_tree() -> anyhow::Result<(u64, u64)> {
+    let lane = open_kerncfg_lane().await?;
+
+    let head = bragi::head_to_bytes(&bindings::GetDeviceTreeRequest::new())?;
+    let (_offer, (_send_head, recv)) = hel::submit_async(
+        &lane,
+        hel::Offer::new_with_lane((hel::SendBuffer::new(&head), hel::ReceiveInline)),
+    )
+    .await?;
+
+    let recv_data = recv?;
+    let response: bindings::GetDeviceTreeResponse = bragi::head_from_bytes(&recv_data)?;
+    if response.error() != bindings::Error::Success {
+        bail!("kerncfg returned error {:?}", response.error());
+    }
+
+    Ok((response.address(), response.size()))
+}
