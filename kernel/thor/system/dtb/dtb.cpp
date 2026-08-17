@@ -93,7 +93,7 @@ void DeviceTreeNode::initializeWith(::DeviceTreeNode dtNode) {
 					if (addrCells == 3) {
 						reg.addrHi = prop.asPropArrayEntry(1, j);
 						reg.addrHiValid = true;
-						reg.addr = prop.asPropArrayEntry(addrCells - 1, j + 1);
+						reg.addr = prop.asPropArrayEntry(addrCells - 1, j + 4);
 						j += addrCells * 4;
 					} else {
 						if(j + addrCells * 4 > prop.size()) {
@@ -280,7 +280,7 @@ uint64_t DeviceTreeNode::translateAddress(uint64_t addr) const {
 		return addr;
 
 	for (auto tr : ranges_)
-		if (addr >= tr.childAddr && addr <= (tr.childAddr + tr.size))
+		if (addr >= tr.childAddr && addr < (tr.childAddr + tr.size))
 			return tr.parentAddr + (addr - tr.childAddr);
 
 	panicLogger() << "thor: address " << (void *)addr
