@@ -223,7 +223,7 @@ fn bridge_routing(state: &mut RouterState, parent: &dyn PciIrqRouter, bus: &PciB
     for (i, bridge_irq) in state.bridge_irqs.iter_mut().enumerate() {
         *bridge_irq = parent.resolve_irq_route(bridge.entity.slot, IrqIndex::from_pin(i as u8 + 1));
         if let Some(pin) = bridge_irq {
-            println!("sif:     Bridge IRQ [{i}]: GSI {}", pin.gsi());
+            println!("sif:     Bridge IRQ [{i}]: {}", pin.name());
         }
     }
 

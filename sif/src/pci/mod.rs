@@ -21,15 +21,15 @@ pub(crate) fn leak<T>(value: T) -> &'static T {
 pub(crate) const EXPECT_LOCK: &str = "sif: PCI tree mutex was poisoned";
 
 pub struct IrqPin {
-    gsi: u32,
+    name: String,
     handle: hel::Handle,
     trigger: IrqTrigger,
     polarity: IrqPolarity,
 }
 
 impl IrqPin {
-    pub fn gsi(&self) -> u32 {
-        self.gsi
+    pub fn name(&self) -> &str {
+        &self.name
     }
 
     pub fn handle(&self) -> &hel::Handle {
@@ -62,7 +62,7 @@ pub fn system_irq(gsi: u32, trigger: IrqTrigger, polarity: IrqPolarity) -> Optio
     }
 
     let pin = leak(IrqPin {
-        gsi,
+        name: format!("gsi-{gsi}"),
         handle,
         trigger,
         polarity,
