@@ -882,42 +882,61 @@ Queue::Queue(
 	_usedExtra->eventIndex.store(0);
 
 	// Construct the software state.
+	_descriptorStack.reserve(_queueSize);
 	for(size_t i = 0; i < _queueSize; i++)
 		_descriptorStack.push_back(i);
+	_descriptorSemaphore.release(_queueSize);
 	_activeRequests.resize(_queueSize);
 }
 
 async::result<Handle> Queue::obtainDescriptor() {
-	while(true) {
-		if(_descriptorStack.empty()) {
-			co_await _descriptorDoorbell.async_wait();
-			continue;
+	Handle handle;
+	co_await obtainDescriptors({&handle, 1});
+	co_return handle;
+}
+
+async::result<void> Queue::obtainDescriptors(std::span<Handle> handles) {
+	assert(!handles.empty());
+	assert(handles.size() <= _queueSize);
+
+	co_await _descriptorSemaphore.async_acquire(handles.size());
+
+	{
+		std::lock_guard lock{_mutex};
+
+		// The semaphore guarantees that enough descriptors are available.
+		assert(_descriptorStack.size() >= handles.size());
+		for(auto &handle : handles) {
+			size_t table_index = _descriptorStack.back();
+			_descriptorStack.pop_back();
+			handle = Handle{this, table_index};
 		}
+	}
 
-		size_t table_index = _descriptorStack.back();
-		_descriptorStack.pop_back();
-
-		auto descriptor = _table + table_index;
+	// We own the descriptors exclusively now; no need to hold the lock.
+	for(auto &handle : handles) {
+		auto descriptor = _table + handle.tableIndex();
 		descriptor->address.store(0);
 		descriptor->length.store(0);
 		descriptor->flags.store(0);
-
-		co_return Handle{this, table_index};
 	}
 }
 
 void Queue::postDescriptor(Handle handle, Request *request,
 		void (*complete)(Request *)) {
+	assert(request);
 	request->complete = complete;
 
-	assert(request);
-	assert(!_activeRequests[handle.tableIndex()]);
-	_activeRequests[handle.tableIndex()] = request;
+	{
+		std::lock_guard lock{_mutex};
+		assert(!_activeRequests[handle.tableIndex()]);
+		_activeRequests[handle.tableIndex()] = request;
 
-	auto enqueue_head = _availableRing->headIndex.load();
-	auto ring_index = enqueue_head & (_queueSize - 1);
-	_availableRing->elements[ring_index].tableIndex.store(handle.tableIndex());
-	_availableRing->headIndex.store(enqueue_head + 1);
+		auto enqueue_head = _availableRing->headIndex.load();
+		auto ring_index = enqueue_head & (_queueSize - 1);
+		_availableRing->elements[ring_index].tableIndex.store(handle.tableIndex());
+		_availableRing->headIndex.store(enqueue_head + 1);
+	}
 }
 
 void Queue::notify() {
@@ -927,35 +946,43 @@ void Queue::notify() {
 
 void Queue::processInterrupt() {
 	while(true) {
-		auto used_head = _usedRing->headIndex.load();
+		Request *request;
+		size_t freed = 0;
+		{
+			std::lock_guard lock{_mutex};
 
-		if((_progressHead & 0xFFFF) == used_head)
-			break;
+			auto used_head = _usedRing->headIndex.load();
 
-		auto ring_index = _progressHead & (_queueSize - 1);
-		auto table_index = _usedRing->elements[ring_index].tableIndex.load();
-		assert(table_index < _queueSize);
+			if((_progressHead & 0xFFFF) == used_head)
+				break;
 
-		// Dequeue the Request object.
-		auto request = _activeRequests[table_index];
-		assert(request);
-		request->len = _usedRing->elements[ring_index].written.load();
-		_activeRequests[table_index] = nullptr;
+			auto ring_index = _progressHead & (_queueSize - 1);
+			auto table_index = _usedRing->elements[ring_index].tableIndex.load();
+			assert(table_index < _queueSize);
 
-		// Free all descriptors in the descriptor chain.
-		auto chain_index = table_index;
-		while(_table[chain_index].flags.load() & VIRTQ_DESC_F_NEXT) {
-			auto successor = _table[chain_index].next.load();
+			// Dequeue the Request object.
+			request = _activeRequests[table_index];
+			assert(request);
+			request->len = _usedRing->elements[ring_index].written.load();
+			_activeRequests[table_index] = nullptr;
+
+			// Free all descriptors in the descriptor chain.
+			auto chain_index = table_index;
+			while(_table[chain_index].flags.load() & VIRTQ_DESC_F_NEXT) {
+				auto successor = _table[chain_index].next.load();
+				_descriptorStack.push_back(chain_index);
+				++freed;
+				chain_index = successor;
+			}
 			_descriptorStack.push_back(chain_index);
-			chain_index = successor;
+			++freed;
+
+			_progressHead++;
 		}
-		_descriptorStack.push_back(chain_index);
-		_descriptorDoorbell.raise();
 
-		// Call the completion handler.
+		// Release the semaphore and run the completion handler outside of the lock.
+		_descriptorSemaphore.release(freed);
 		request->complete(request);
-
-		_progressHead++;
 	}
 }
 

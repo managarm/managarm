@@ -4,6 +4,8 @@
 #include <stdint.h>
 #include <string.h>
 #include <memory>
+#include <mutex>
+#include <span>
 #include <vector>
 
 #include <arch/dma_pool.hpp>
@@ -14,7 +16,7 @@
 #include <arch/mem_space.hpp>
 #include <arch/register.hpp>
 #include <arch/variable.hpp>
-#include <async/recurring-event.hpp>
+#include <async/counting-semaphore.hpp>
 #include <async/oneshot-event.hpp>
 #include <helix/ipc.hpp>
 #include <protocols/hw/client.hpp>
@@ -146,6 +148,9 @@ struct QueueInfo {
  * - Call Transport::claimQueues().
  * - Call Transport::setupQueue() for each virtq.
  * - Call Transport::runDevice().
+ *
+ * Queues are thread-safe but this class is not:
+ * initialization must complete on a single thread before any queue is shared.
  */
 struct Transport {
 	DeviceSpace space();
@@ -293,12 +298,15 @@ private:
 };
 
 // Helper functions that obtain descriptor from a queue as needed.
+// Since descriptors are obtained one at a time, concurrent callers on the same
+// queue can deadlock; use obtainDescriptors() on queues with multiple submitters.
 async::result<void> scatterGather(HostToDeviceType, Chain &chain, Queue *queue,
 		arch::dma_buffer_view view);
 async::result<void> scatterGather(DeviceToHostType, Chain &chain, Queue *queue,
 		arch::dma_buffer_view view);
 
 struct Request {
+	// Runs on the thread that calls processInterrupt().
 	void (*complete)(Request *);
 
 	size_t len = 0;
@@ -323,9 +331,12 @@ public:
 		return _queueSize;
 	}
 
-	// Allocates a single descriptor.
-	// The descriptor is automatically freed when the device returns it.
+	// Allocates a single descriptor. Special case of obtainDescriptors(), see below.
 	async::result<Handle> obtainDescriptor();
+
+	// Allocates handles.size() descriptors at once (all-or-nothing).
+	// Waiters are served in FIFO order.
+	async::result<void> obtainDescriptors(std::span<Handle> handles);
 
 	// Posts a descriptor to the virtq's available ring.
 	void postDescriptor(Handle descriptor, Request *request,
@@ -374,14 +385,23 @@ private:
 	spec::AvailableExtra *_availableExtra;
 	spec::UsedExtra *_usedExtra;
 
+	// Protects the queue state.
+	std::mutex _mutex;
+
+	// Counts free descriptors and provides FIFO fairness among waiters.
+	// Invariant: _descriptorStack always holds at least as many indices as the semaphore's count.
+	async::counting_semaphore _descriptorSemaphore;
+
 	// Keeps track of unused descriptor indices.
+	// Protected by _mutex.
 	std::vector<uint16_t> _descriptorStack;
 
-	async::recurring_event _descriptorDoorbell;
-
+	// Currently active requests, indexed by the index of their first descriptor.
+	// Protected by _mutex.
 	std::vector<Request *> _activeRequests;
 
 	// Keeps track of which entries in the used ring have already been processed.
+	// Protected by _mutex.
 	uint16_t _progressHead;
 };
 
