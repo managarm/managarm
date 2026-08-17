@@ -90,11 +90,36 @@ extern inline __attribute__ (( always_inline )) HelError helCreateManagedMemory(
 		uint32_t flags, HelHandle *backing_handle, HelHandle *frontal_handle) {
 	HelWord back_handle;
 	HelWord front_handle;
-	HelError error = helSyscall2_2(kHelCallCreateManagedMemory, (HelWord)size, (HelWord)flags, 
+	HelError error = helSyscall2_2(kHelCallCreateManagedMemory, (HelWord)size, (HelWord)flags,
 			&back_handle, &front_handle);
 	*backing_handle = (HelHandle)back_handle;
 	*frontal_handle = (HelHandle)front_handle;
 	return error;
+};
+
+extern inline __attribute__ (( always_inline )) HelError helCreateSwapSpace(uint32_t flags,
+		HelHandle *backing_handle, HelHandle *swap_handle) {
+	HelWord back_handle;
+	HelWord space_handle;
+	HelError error = helSyscall1_2(kHelCallCreateSwapSpace, (HelWord)flags,
+			&back_handle, &space_handle);
+	*backing_handle = (HelHandle)back_handle;
+	*swap_handle = (HelHandle)space_handle;
+	return error;
+};
+
+extern inline __attribute__ (( always_inline )) HelError helAllocateSwappableMemory(
+		HelHandle swap_space, size_t size, uint32_t flags, HelHandle *handle) {
+	HelWord hel_handle;
+	HelError error = helSyscall3_1(kHelCallAllocateSwappableMemory, (HelWord)swap_space,
+			(HelWord)size, (HelWord)flags, &hel_handle);
+	*handle = (HelHandle)hel_handle;
+	return error;
+};
+
+extern inline __attribute__ (( always_inline )) HelError helSetSwapBudget(HelHandle swap_space,
+		size_t num_pages) {
+	return helSyscall2(kHelCallSetSwapBudget, (HelWord)swap_space, (HelWord)num_pages);
 };
 
 extern inline __attribute__ (( always_inline )) HelError helCopyOnWrite(HelHandle memoryHandle,

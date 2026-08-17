@@ -649,6 +649,22 @@ void handleSyscall(SyscallImageAccessor image) {
 		*image.out0() = backing_handle;
 		*image.out1() = frontal_handle;
 	} break;
+	case kHelCallCreateSwapSpace: {
+		HelHandle backing_handle, swap_handle;
+		*image.error() = helCreateSwapSpace((uint32_t)arg0,
+				&backing_handle, &swap_handle);
+		*image.out0() = backing_handle;
+		*image.out1() = swap_handle;
+	} break;
+	case kHelCallAllocateSwappableMemory: {
+		HelHandle handle;
+		*image.error() = helAllocateSwappableMemory((HelHandle)arg0, (size_t)arg1,
+				(uint32_t)arg2, &handle);
+		*image.out0() = handle;
+	} break;
+	case kHelCallSetSwapBudget: {
+		*image.error() = helSetSwapBudget((HelHandle)arg0, (size_t)arg1);
+	} break;
 	case kHelCallCopyOnWrite: {
 		HelHandle handle;
 		*image.error() = helCopyOnWrite((HelHandle)arg0, (uintptr_t)arg1, (size_t)arg2, &handle);

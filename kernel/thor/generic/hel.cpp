@@ -576,9 +576,10 @@ HelError helCreateManagedMemory(size_t size, uint32_t flags,
 	auto thisThread = getCurrentThread();
 	auto thisUniverse = thisThread->getUniverse();
 
-	auto managed = smarter::allocate_shared<ManagedSpace>(*kernelAlloc, size,
-			flags & kHelManagedReadahead);
-	managed->selfPtr = managed;
+	auto managedOutcome = ManagedSpace::create(size, flags & kHelManagedReadahead);
+	if(!managedOutcome)
+		return translateError(managedOutcome.error());
+	auto managed = std::move(*managedOutcome);
 	auto backingOutcome = BackingMemory::create(managed);
 	if(!backingOutcome)
 		return translateError(backingOutcome.error());
@@ -598,6 +599,81 @@ HelError helCreateManagedMemory(size_t size, uint32_t flags,
 			kHelRightRead | kHelRightWrite | kHelRightExecute | kHelRightAssign | kHelRightProvision | kHelRightPin | kHelRightFence | kHelRightManage
 		)
 	);
+
+	return kHelErrNone;
+}
+
+HelError helCreateSwapSpace(uint32_t flags,
+		HelHandle *backingHandle, HelHandle *swapHandle) {
+	if(flags)
+		return kHelErrIllegalArgs;
+
+	auto thisThread = getCurrentThread();
+	auto thisUniverse = thisThread->getUniverse();
+
+	auto spaceOutcome = SwapSpace::create();
+	if(!spaceOutcome)
+		return translateError(spaceOutcome.error());
+	auto space = std::move(*spaceOutcome);
+	auto backingOutcome = BackingMemory::create(space);
+	if(!backingOutcome)
+		return translateError(backingOutcome.error());
+
+	*backingHandle = thisUniverse->attachDescriptor(
+		AnyDescriptor::make<DescriptorType::memoryView>(
+			std::move(*backingOutcome),
+			kHelRightRead | kHelRightWrite | kHelRightExecute | kHelRightAssign | kHelRightProvision | kHelRightPin | kHelRightFence | kHelRightManage
+		)
+	);
+	*swapHandle = thisUniverse->attachDescriptor(
+		AnyDescriptor::make<DescriptorType::swapSpace>(
+			std::move(space),
+			kHelRightAssign | kHelRightManage
+		)
+	);
+
+	return kHelErrNone;
+}
+
+HelError helAllocateSwappableMemory(HelHandle swapSpaceHandle, size_t size,
+		uint32_t flags, HelHandle *handle) {
+	if(flags)
+		return kHelErrIllegalArgs;
+	if(!size || (size & (kPageSize - 1)))
+		return kHelErrIllegalArgs;
+
+	auto thisThread = getCurrentThread();
+	auto thisUniverse = thisThread->getUniverse();
+
+	auto spaceOutcome = thisUniverse->resolveObject<DescriptorType::swapSpace>(
+			swapSpaceHandle, kHelRightAssign);
+	if(!spaceOutcome)
+		return translateError(spaceOutcome.error());
+
+	auto memoryOutcome = SwappableMemory::create(std::move(*spaceOutcome), size);
+	if(!memoryOutcome)
+		return translateError(memoryOutcome.error());
+
+	*handle = thisUniverse->attachDescriptor(
+		AnyDescriptor::make<DescriptorType::memoryView>(
+			std::move(*memoryOutcome),
+			kHelRightRead | kHelRightWrite | kHelRightExecute | kHelRightAssign | kHelRightDerive | kHelRightProvision | kHelRightPin | kHelRightFence | kHelRightManage
+		)
+	);
+
+	return kHelErrNone;
+}
+
+HelError helSetSwapBudget(HelHandle swapSpaceHandle, size_t numPages) {
+	auto thisThread = getCurrentThread();
+	auto thisUniverse = thisThread->getUniverse();
+
+	auto spaceOutcome = thisUniverse->resolveObject<DescriptorType::swapSpace>(
+			swapSpaceHandle, kHelRightManage);
+	if(!spaceOutcome)
+		return translateError(spaceOutcome.error());
+
+	(*spaceOutcome)->setBudget(numPages);
 
 	return kHelErrNone;
 }

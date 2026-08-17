@@ -13,6 +13,7 @@
 #include <frg/shared_ptr.hpp>
 #include <frg/vector.hpp>
 #include <frg/expected.hpp>
+#include <physical-buddy.hpp>
 #include <thor-internal/arch-generic/paging.hpp>
 #include <thor-internal/error.hpp>
 #include <thor-internal/futex.hpp>
@@ -649,10 +650,13 @@ struct ManagedSpace : CacheBundle {
 		// Page is not in a queue but waiting for updateRange() to mark it as initialized.
 		// Valid in LoadState::missing.
 		initialization,
-		// Page is in _dirtyList (or the draining coroutine's local pending list),
-		// waiting for a fenceDirty() to complete before being promoted to _writebackList.
+		// Page is in _dirtyList, waiting to claim swap budget.
 		// Valid in LoadState::present.
 		dirty,
+		// Page is on the drain coroutine's local pending list.
+		// It has claimed swap budget and awaits the fenceDirty() before it's moved to _writebackList.
+		// Valid in LoadState::present.
+		pendingWriteback,
 		// Page is in _writebackList.
 		// Valid in LoadState::present.
 		wantWriteback,
@@ -671,6 +675,11 @@ struct ManagedSpace : CacheBundle {
 		// Page is owned by the ManagedSpace reclamation logic.
 		// Valid in LoadState::present.
 		avertReclaim,
+		// Page is in _discardList or the reclamation coroutine's local discard batch,
+		// awaiting fenceEphemeral() before its entry is erased.
+		// Page is owned by the ManagedSpace reclamation logic.
+		// Valid whenever the page holds a frame (even in LoadState::missing).
+		discardQueued,
 	};
 
 	// Struct that is attached to ManagedPage for the duration of
@@ -710,10 +719,21 @@ struct ManagedSpace : CacheBundle {
 		// to request that the eviction coroutine raise monitor after completing
 		// the transition to LoadState::missing.
 		bool forceInvalidation{false};
+		// Whether the backing store's copy of the page matches its last in-memory contents.
+		// Maintained by markDirty()/updateRange().
+		bool swapCopyValid{false};
+		// The page is being torn down - see discardPage(). Set once, never cleared.
+		bool discarded{false};
+		// Whether swap budget was claimed for this page.
+		// Owned by SwapSpace, not used by ManagedSpace.
+		bool swapBudgetClaimed{false};
 		unsigned int lockCount = 0;
 		CachePage cachePage;
 		frg::intrusive_shared_ptr<TransactionMonitor, Allocator> monitor;
 	};
+
+	static std::expected<smarter::shared_ptr<ManagedSpace>, Error> create(
+			size_t length, bool readahead);
 
 	ManagedSpace(size_t length, bool readahead);
 	~ManagedSpace();
@@ -721,6 +741,40 @@ struct ManagedSpace : CacheBundle {
 	void incrementUses(CachePage *page) override;
 	void decrementUses(CachePage *page) override;
 	void markDirty(CachePage *page) override;
+
+	// Called under mutex before a dirty page transitions to writeback.
+	// Returning false leaves the page on _dirtyList until swap budget becomes available.
+	virtual bool claimSwapBudget(ManagedPage *page);
+
+	// Discards the page at the given index. The entry is either immediately erased
+	// or once the in-flight transaction is completed. The frames are freed by
+	// the reclamation behind a fenceEphemeral().
+	// Should only be called when the owning view is being destructed.
+	// After a batch of discards the caller must call _wakeDrain() as discards may release swap budget.
+	void discardPage(uint64_t index);
+
+	// Events that _disposeDiscarded()'s caller must raise after dropping the mutex.
+	struct [[nodiscard]] DiscardDisposition {
+		// Queued onto _discardList, raise _discardEvent.
+		bool queued{false};
+		// Entry erased, raise _dirtyEvent as swap budget may have been released.
+		bool erased{false};
+	};
+
+	// Erases a discarded page's entry directly if it holds no frame, otherwise
+	// queues it for the reclamation coroutine.
+	// Must be called under mutex with transactionState == TxState::none.
+	DiscardDisposition _disposeDiscarded(ManagedPage *page);
+
+	// Notifies the subclass that a discarded page's entry is about to be erased.
+	// Called under mutex.
+	virtual void _pageDiscarded(ManagedPage *page);
+
+	// Unblocks the drain coroutine after the swap budget has grown.
+	void _wakeDrain();
+
+	coroutine<void> _runReclaimLoop();
+	coroutine<void> _runDrainLoop();
 
 	Error lockPages(uintptr_t offset, size_t size);
 	void unlockPages(uintptr_t offset, size_t size);
@@ -736,6 +790,9 @@ struct ManagedSpace : CacheBundle {
 
 	size_t numPages;
 	bool readahead;
+
+	// Whether this space is a SwapSpace.
+	bool isSwapSpace = false;
 
 	EvictionQueue _evictQueue;
 
@@ -766,9 +823,53 @@ struct ManagedSpace : CacheBundle {
 		>
 	> _writebackList;
 
+	// Discarded pages whose frames await a fenceEphemeral().
+	// Protected by mutex.
+	CachePagesList _discardList;
+
 	ManageList _managementQueue;
 
 	async::recurring_event _dirtyEvent;
+
+	async::recurring_event _discardEvent;
+
+	// Set by the drain coroutine when dirty pages exist but none of them could claim swap budget.
+	// While this is set, _dirtyEvent does not wake the drain coroutine.
+	// Protected by mutex.
+	bool _drainBlocked = false;
+};
+
+// Backing store for swappable anonymous memory].
+// Pages are keyed by swap offset, the kernel allocates offsets lazily on behalf of the attached views.
+struct SwapSpace final : ManagedSpace {
+	static std::expected<smarter::shared_ptr<SwapSpace>, Error> create();
+
+	SwapSpace();
+
+	bool claimSwapBudget(ManagedPage *page) override;
+	void _pageDiscarded(ManagedPage *page) override;
+
+	void setBudget(size_t numSlots);
+
+private:
+	friend struct SwappableMemory;
+
+	// Allocates the lowest free swap offset (in pages, not bytes).
+	// Must be called under mutex.
+	frg::optional<uint64_t> _allocateOffset();
+
+	// Frees the given swap offset (in pages not bytes).
+	// Must be called under mutex.
+	void _freeOffset(uint64_t offset);
+
+	frg::vector<int8_t, KernelAlloc> _buddyMetadata;
+	BuddyAccessor _buddyAccessor;
+
+	// Protected by mutex.
+	size_t _budget = 0;
+
+	// Protected by mutex.
+	size_t _budgetClaimed = 0;
 };
 
 struct BackingMemory final : MemoryView {
@@ -829,6 +930,51 @@ public:
 	smarter::borrowed_ptr<FrontalMemory> selfPtr;
 private:
 	smarter::shared_ptr<ManagedSpace> _managed;
+};
+
+// Anonymous memory backed by a SwapSpace.
+// The view translates its own page indices to lazily allocated swap offsets.
+// Frames and per-page state are owned by the SwapSpace.
+struct SwappableMemory final : MemoryView {
+private:
+	struct CtorToken {};
+
+public:
+	static std::expected<smarter::shared_ptr<SwappableMemory>, Error> create(
+			smarter::shared_ptr<SwapSpace> space, size_t length);
+
+	SwappableMemory(CtorToken, smarter::shared_ptr<SwapSpace> space, size_t length);
+	~SwappableMemory();
+
+	SwappableMemory(const SwappableMemory &) = delete;
+	SwappableMemory &operator= (const SwappableMemory &) = delete;
+
+	size_t getLength() override;
+	coroutine<frg::expected<Error>> resize(size_t newLength) override;
+	Error lockRange(uintptr_t offset, size_t size) override;
+	void unlockRange(uintptr_t offset, size_t size) override;
+	PhysicalRange peekRange(uintptr_t offset, FetchFlags flags) override;
+	coroutine<frg::expected<Error, size_t>>
+			touchRange(uintptr_t offset, size_t sizeHint, FetchFlags flags) override;
+
+public:
+	// Contract: set by the code that constructs this object.
+	smarter::borrowed_ptr<SwappableMemory> selfPtr;
+
+private:
+	// Returns the swap offset backing the given view page index, allocating one on demand.
+	// Must be called under the SwapSpace mutex.
+	frg::optional<uint64_t> _translate(uint64_t index);
+
+	// Unlock counterpart of lockRange().
+	// Must be called under the SwapSpace mutex.
+	void _unlockPagesLocked(uintptr_t offset, size_t size,
+			bool &raiseDiscard, bool &raiseDirty);
+
+	smarter::shared_ptr<SwapSpace> _space;
+	size_t _length;
+
+	frg::rcu_radixtree<uint64_t, KernelAlloc, RcuPolicy> _table;
 };
 
 struct IndirectMemory final : MemoryView {
