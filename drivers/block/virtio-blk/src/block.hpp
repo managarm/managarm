@@ -25,6 +25,12 @@ enum {
 	VIRTIO_BLK_T_OUT = 1
 };
 
+enum {
+	VIRTIO_BLK_S_OK = 0,
+	VIRTIO_BLK_S_IOERR = 1,
+	VIRTIO_BLK_S_UNSUPP = 2
+};
+
 namespace spec::regs {
 	inline constexpr arch::scalar_register<uint32_t> capacity[] = {
 			arch::scalar_register<uint32_t>{0},

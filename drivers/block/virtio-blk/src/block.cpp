@@ -66,8 +66,15 @@ async::result<void> Device::readSectors(uint64_t sector, arch::dma_buffer_view v
 		co_await _issueRequest(&request);
 	}
 
-	for(auto &request : requests)
+	for(auto &request : requests) {
 		co_await request.event.wait();
+		if(*request.status != VIRTIO_BLK_S_OK) {
+			std::cout << "virtio: Device signaled an error for request at sector "
+					<< request.sector << ", status "
+					<< static_cast<unsigned int>(*request.status) << std::endl;
+			abort();
+		}
+	}
 }
 
 async::result<void> Device::writeSectors(uint64_t sector, arch::dma_buffer_view view) {
@@ -91,8 +98,15 @@ async::result<void> Device::writeSectors(uint64_t sector, arch::dma_buffer_view 
 		co_await _issueRequest(&request);
 	}
 
-	for(auto &request : requests)
+	for(auto &request : requests) {
 		co_await request.event.wait();
+		if(*request.status != VIRTIO_BLK_S_OK) {
+			std::cout << "virtio: Device signaled an error for request at sector "
+					<< request.sector << ", status "
+					<< static_cast<unsigned int>(*request.status) << std::endl;
+			abort();
+		}
+	}
 }
 
 async::result<size_t> Device::getSize() {
