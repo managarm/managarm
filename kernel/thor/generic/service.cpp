@@ -1195,7 +1195,9 @@ namespace posix {
 
 				auto writeOutcome = info.thread->accessRegisters([&](Executor *executor) {
 					*executor->result0() = kHelErrNone;
-					*executor->result1() = new_info.tid;
+					// The POSIX error; zero is managarm::posix::Errors::SUCCESS.
+					*executor->result1() = 0;
+					*executor->result2() = new_info.tid;
 				});
 				if(!writeOutcome)
 					panicLogger() << "thor: Failed to access server registers" << frg::endlog;
