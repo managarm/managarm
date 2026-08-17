@@ -1,6 +1,5 @@
 
 #include <memory>
-#include <queue>
 
 #include <blockfs.hpp>
 #include <core/virtio/core.hpp>
@@ -13,7 +12,8 @@ namespace virtio {
 // VirtIO data structures and constants
 // --------------------------------------------------------
 
-struct VirtRequest {
+// Natural align to guarantee that we do not cross page boundaries.
+struct alignas(16) VirtRequest {
 	uint32_t type;
 	uint32_t reserved;
 	uint64_t sector;
@@ -38,11 +38,16 @@ struct Device;
 // --------------------------------------------------------
 
 struct UserRequest : virtio_core::Request {
-	UserRequest(bool write, uint64_t sector, arch::dma_buffer_view view);
+	UserRequest(bool write, uint64_t sector, arch::dma_buffer_view view,
+			arch::dma_pool *pool);
 
 	bool write;
 	uint64_t sector;
 	arch::dma_buffer_view view;
+
+	// Request header and status byte of this request.
+	arch::dma_object<VirtRequest> header;
+	arch::dma_object<uint8_t> status;
 
 	async::oneshot_primitive event;
 };
@@ -62,22 +67,14 @@ struct Device : blockfs::BlockDevice {
 	async::result<size_t> getSize() override;
 
 private:
-	// Submits requests from _pendingQueue to the device.
-	async::detached _processRequests();
+	// Sets up the descriptor chain of the request and posts it to the device.
+	// Returns after submission without waiting for the request's completion.
+	async::result<void> _issueRequest(UserRequest *request);
 
 	std::unique_ptr<virtio_core::Transport> _transport;
 
 	// The single virtq of this device.
 	virtio_core::Queue *_requestQueue;
-
-	// Stores UserRequest objects that have not been submitted yet.
-	std::queue<UserRequest *> _pendingQueue;
-	async::recurring_event _pendingDoorbell;
-
-	// these two buffer store virtio-block request header and status bytes
-	// they are indexed by the index of the request's first descriptor
-	arch::dma_array<VirtRequest> virtRequestBuffer;
-	arch::dma_array<uint8_t> statusBuffer;
 
 	// The size of the disk
 	size_t _size;
