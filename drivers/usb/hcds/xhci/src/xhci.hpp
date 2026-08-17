@@ -420,7 +420,8 @@ private:
 	arch::dma_space _dmaSpace;
 
 	arch::dma_array<uint64_t> _dcbaa;
-	arch::dma_array<uint64_t> _scratchpadBufArray;
+	// The scratchpad buffer array is required to be 64-byte aligned.
+	arch::dma_array<uint64_t, 64> _scratchpadBufArray;
 	std::vector<arch::dma_buffer> _scratchpadBufs;
 
 	std::vector<std::unique_ptr<Interrupter>> _interrupters;

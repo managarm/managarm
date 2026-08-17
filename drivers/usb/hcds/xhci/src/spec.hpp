@@ -17,8 +17,10 @@ inline constexpr arch::bit_register<uint32_t> usbcmd(0);
 inline constexpr arch::bit_register<uint32_t> usbsts(0x04);
 inline constexpr arch::scalar_register<uint32_t> pagesize(0x8);
 inline constexpr arch::scalar_register<uint32_t> dnctrl(0x14);
-inline constexpr arch::scalar_register<uint64_t> crcr(0x18);
-inline constexpr arch::scalar_register<uint64_t> dcbaap(0x30);
+inline constexpr arch::scalar_register<uint32_t> crcrLow(0x18);
+inline constexpr arch::scalar_register<uint32_t> crcrHi(0x1C);
+inline constexpr arch::scalar_register<uint32_t> dcbaapLow(0x30);
+inline constexpr arch::scalar_register<uint32_t> dcbaapHi(0x34);
 inline constexpr arch::bit_register<uint32_t> config(0x38);
 
 } // namespace op_regs
@@ -81,6 +83,7 @@ namespace hccparams1 {
 
 inline constexpr arch::field<uint32_t, uint16_t> extCapPtr(16, 16);
 inline constexpr arch::field<uint32_t, bool> contextSize(2, 1);
+inline constexpr arch::field<uint32_t, bool> ac64(0, 1);
 
 } // namespace hccparams1
 
