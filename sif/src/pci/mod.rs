@@ -23,8 +23,9 @@ pub(crate) const EXPECT_LOCK: &str = "sif: PCI tree mutex was poisoned";
 pub struct IrqPin {
     name: String,
     handle: hel::Handle,
-    trigger: IrqTrigger,
-    polarity: IrqPolarity,
+    // None if the interrupt controller has no configurable trigger mode / polarity.
+    trigger: Option<IrqTrigger>,
+    polarity: Option<IrqPolarity>,
 }
 
 impl IrqPin {
@@ -43,7 +44,7 @@ static IRQ_PINS: Mutex<BTreeMap<u32, &'static IrqPin>> = Mutex::new(BTreeMap::ne
 pub fn system_irq(gsi: u32, trigger: IrqTrigger, polarity: IrqPolarity) -> Option<&'static IrqPin> {
     let mut pins = IRQ_PINS.lock().expect(EXPECT_LOCK);
     if let Some(pin) = pins.get(&gsi) {
-        if pin.trigger != trigger || pin.polarity != polarity {
+        if pin.trigger != Some(trigger) || pin.polarity != Some(polarity) {
             println!("sif: Conflicting configurations for GSI {gsi}");
         }
         return Some(*pin);
@@ -56,7 +57,7 @@ pub fn system_irq(gsi: u32, trigger: IrqTrigger, polarity: IrqPolarity) -> Optio
             return None;
         }
     };
-    if let Err(err) = hel::configure_irq(&handle, trigger, polarity) {
+    if let Err(err) = hel::configure_irq(&handle, Some(trigger), Some(polarity)) {
         println!("sif: Failed to configure GSI {gsi}: {err}");
         return None;
     }
@@ -64,8 +65,8 @@ pub fn system_irq(gsi: u32, trigger: IrqTrigger, polarity: IrqPolarity) -> Optio
     let pin = leak(IrqPin {
         name: format!("gsi-{gsi}"),
         handle,
-        trigger,
-        polarity,
+        trigger: Some(trigger),
+        polarity: Some(polarity),
     });
     pins.insert(gsi, pin);
     Some(pin)

@@ -111,7 +111,7 @@ pub fn configure_isa_irqs() {
                 continue;
             }
         };
-        if let Err(err) = hel::configure_irq(&pin, line.trigger, line.polarity) {
+        if let Err(err) = hel::configure_irq(&pin, Some(line.trigger), Some(line.polarity)) {
             println!(
                 "sif: Failed to configure ISA IRQ {irq} (GSI {}): {err}",
                 line.gsi

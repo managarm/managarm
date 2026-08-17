@@ -168,14 +168,22 @@ pub enum IrqPolarity {
 }
 
 /// Configures the trigger mode and polarity of an IRQ pin.
-pub fn configure_irq(pin: &Handle, trigger: IrqTrigger, polarity: IrqPolarity) -> Result<()> {
+///
+/// `None` states that the interrupt controller has no configurable trigger mode / polarity.
+pub fn configure_irq(
+    pin: &Handle,
+    trigger: Option<IrqTrigger>,
+    polarity: Option<IrqPolarity>,
+) -> Result<()> {
     let trigger = match trigger {
-        IrqTrigger::Edge => hel_sys::kHelIrqTriggerEdge,
-        IrqTrigger::Level => hel_sys::kHelIrqTriggerLevel,
+        None => hel_sys::kHelIrqTriggerNull,
+        Some(IrqTrigger::Edge) => hel_sys::kHelIrqTriggerEdge,
+        Some(IrqTrigger::Level) => hel_sys::kHelIrqTriggerLevel,
     };
     let polarity = match polarity {
-        IrqPolarity::High => hel_sys::kHelIrqPolarityHigh,
-        IrqPolarity::Low => hel_sys::kHelIrqPolarityLow,
+        None => hel_sys::kHelIrqPolarityNull,
+        Some(IrqPolarity::High) => hel_sys::kHelIrqPolarityHigh,
+        Some(IrqPolarity::Low) => hel_sys::kHelIrqPolarityLow,
     };
     result::hel_check(unsafe {
         hel_sys::helConfigureIrq(pin.handle(), trigger as u32, polarity as u32)
