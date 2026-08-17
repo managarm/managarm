@@ -8,6 +8,7 @@ use managarm::svrctl::hardware_access_handle;
 
 use crate::acpi::PAGE_MASK;
 use crate::dt::fdt;
+use crate::dt::irq::IrqController;
 
 // The device tree is only locked for the duration of a single operation, none of which can panic.
 const EXPECT_LOCK: &str = "sif: device tree mutex was poisoned";
@@ -64,6 +65,9 @@ pub struct DeviceTreeNode {
     interrupt_parent: OnceLock<&'static DeviceTreeNode>,
 
     bus_range: BusRange,
+
+    // Objects associated with this DeviceTreeNode.
+    associated_irq_controller: OnceLock<&'static dyn IrqController>,
 }
 
 fn parse_string_list(prop: fdt::DeviceTreeProperty<'static>) -> Vec<&'static str> {
@@ -105,6 +109,7 @@ impl DeviceTreeNode {
             interrupt_parent_id: 0,
             interrupt_parent: OnceLock::new(),
             bus_range: BusRange { from: 0, to: 0xFF },
+            associated_irq_controller: OnceLock::new(),
         };
 
         if let Some(p) = dt_node.find_property("phandle") {
@@ -361,6 +366,18 @@ impl DeviceTreeNode {
 
     pub fn bus_range(&self) -> &BusRange {
         &self.bus_range
+    }
+
+    pub fn associate_irq_controller(&self, controller: &'static dyn IrqController) {
+        assert!(
+            self.associated_irq_controller.set(controller).is_ok(),
+            "sif: node \"{}\" already has an associated IRQ controller",
+            self.path
+        );
+    }
+
+    pub fn associated_irq_controller(&self) -> Option<&'static dyn IrqController> {
+        self.associated_irq_controller.get().copied()
     }
 
     pub fn translate_address(&self, addr: u64) -> u64 {

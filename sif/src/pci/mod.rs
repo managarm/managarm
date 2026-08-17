@@ -1,6 +1,7 @@
 pub mod acpi;
 pub mod config;
 pub mod discover;
+pub mod dtb;
 pub mod serve;
 
 use managarm::svrctl::hardware_access_handle;
@@ -194,12 +195,67 @@ impl RouterState {
     }
 }
 
+// Not consumed yet; the resources come to life once BARs are allocated from them.
+#[allow(dead_code)]
+pub struct PciBusResource {
+    base: u64,
+    size: u64,
+    host_base: u64,
+    flags: u32,
+    is_host_mmio: bool,
+}
+
+#[allow(dead_code)]
+impl PciBusResource {
+    pub const IO: u32 = 1;
+    pub const MEMORY: u32 = 2;
+    pub const PREF_MEMORY: u32 = 3;
+
+    pub fn new(
+        base: u64,
+        size: u64,
+        host_base: u64,
+        flags: u32,
+        is_host_mmio: bool,
+    ) -> PciBusResource {
+        PciBusResource {
+            base,
+            size,
+            host_base,
+            flags,
+            is_host_mmio,
+        }
+    }
+
+    pub fn base(&self) -> u64 {
+        self.base
+    }
+
+    pub fn size(&self) -> u64 {
+        self.size
+    }
+
+    pub fn host_base(&self) -> u64 {
+        self.host_base
+    }
+
+    pub fn flags(&self) -> u32 {
+        self.flags
+    }
+
+    pub fn is_host_mmio(&self) -> bool {
+        self.is_host_mmio
+    }
+}
+
 pub struct PciBus {
     pub associated_bridge: Option<&'static PciBridge>,
     pub irq_router: OnceLock<&'static dyn PciIrqRouter>,
     pub io: &'static dyn PciConfigIo,
     pub child_devices: Mutex<Vec<&'static PciDevice>>,
     pub child_bridges: Mutex<Vec<&'static PciBridge>>,
+
+    pub resources: Mutex<Vec<PciBusResource>>,
 
     pub seg_id: u16,
     pub bus_id: u8,
@@ -224,6 +280,7 @@ impl PciBus {
             io,
             child_devices: Mutex::new(Vec::new()),
             child_bridges: Mutex::new(Vec::new()),
+            resources: Mutex::new(Vec::new()),
             seg_id,
             bus_id,
             mbus_id: AtomicI64::new(0),
@@ -637,7 +694,10 @@ pub const PCI_BRIDGE_SECONDARY: u16 = 0x19;
 pub const PCI_BRIDGE_SUBORDINATE: u16 = 0x1A;
 
 pub async fn publish_devices() -> Result<()> {
+    // Each discovery source no-ops if its firmware interface is absent.
     acpi::discover_root_buses();
+    dtb::discover_root_buses();
+
     discover::enumerate_all();
     serve::publish_all().await?;
 

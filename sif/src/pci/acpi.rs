@@ -267,6 +267,10 @@ impl PciIrqRouter for AcpiPciIrqRouter {
 }
 
 pub fn discover_root_buses() {
+    if !crate::acpi::has_rsdp() {
+        return;
+    }
+
     for root in find_root_buses() {
         let Some(io) = config::get_config_io_for(root.seg, root.bus) else {
             println!(
