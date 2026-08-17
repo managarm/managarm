@@ -149,7 +149,7 @@ auto GicDistributorV2::setupIrq(uint32_t irq, TriggerMode trigger) -> smarter::s
 	if (!pin)
 		return nullptr;
 
-	pin->configure({trigger, Polarity::high});
+	pin->configure({trigger, Polarity::null});
 
 	return pin;
 }
@@ -226,6 +226,8 @@ bool GicDistributorV2::Pin::setMode(TriggerMode trigger) {
 	uintptr_t j = (irq_ % 16) * 2;
 
 	if (irq_ < 16)
+		return false;
+	if (trigger == TriggerMode::null)
 		return false;
 
 	auto v = arch::scalar_load_relaxed<uint32_t>(parent_->space_,

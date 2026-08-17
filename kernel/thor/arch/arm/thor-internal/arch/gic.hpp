@@ -88,9 +88,8 @@ struct Gic : dt::IrqController {
 
 		auto irq = idx + (type == 1 ? 16 : 32);
 
-		// TODO(qookie): Care about polarity in some way?
-		// AFAICT the GIC does not support configuring IRQ
-		// polarity.
+		// The GIC does not support configuring IRQ polarity, hence setupIrq()
+		// programs the pin with Polarity::null.
 		(void)polarity;
 		auto pin = setupIrq(irq, trigger);
 		return pin;
