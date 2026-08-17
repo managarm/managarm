@@ -97,19 +97,7 @@ fn build_routing(
 ) {
     let Some(node) = node else {
         let parent = parent.expect("expansion bridge routing without a parent router");
-        let bridge = bus
-            .associated_bridge
-            .expect("expansion bridge routing without an associated bridge");
-
-        for (i, bridge_irq) in state.bridge_irqs.iter_mut().enumerate() {
-            *bridge_irq =
-                parent.resolve_irq_route(bridge.entity.slot, IrqIndex::from_pin(i as u8 + 1));
-            if let Some(pin) = bridge_irq {
-                println!("sif:     Bridge IRQ [{i}]: {}", pin.name());
-            }
-        }
-
-        state.routing_model = RoutingModel::ExpansionBridge;
+        state.route_expansion_bridge(parent, bus);
         return;
     };
 

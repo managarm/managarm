@@ -193,6 +193,22 @@ impl RouterState {
             RoutingModel::None => None,
         }
     }
+
+    pub fn route_expansion_bridge(&mut self, parent: &dyn PciIrqRouter, bus: &PciBus) {
+        let bridge = bus
+            .associated_bridge
+            .expect("expansion bridge routing without an associated bridge");
+
+        for (i, bridge_irq) in self.bridge_irqs.iter_mut().enumerate() {
+            *bridge_irq =
+                parent.resolve_irq_route(bridge.entity.slot, IrqIndex::from_pin(i as u8 + 1));
+            if let Some(pin) = bridge_irq {
+                println!("sif:     Bridge IRQ [{i}]: {}", pin.name());
+            }
+        }
+
+        self.routing_model = RoutingModel::ExpansionBridge;
+    }
 }
 
 // Not consumed yet; the resources come to life once BARs are allocated from them.

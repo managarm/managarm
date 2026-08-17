@@ -144,7 +144,7 @@ fn build_routing(
 ) {
     let Some(node) = node else {
         if let Some(parent) = parent {
-            bridge_routing(state, parent, bus);
+            state.route_expansion_bridge(parent, bus);
         }
         return;
     };
@@ -157,7 +157,7 @@ fn build_routing(
                     "sif: There is no _PRT for bus {}; assuming expansion bridge routing",
                     bus.bus_id
                 );
-                bridge_routing(state, parent, bus);
+                state.route_expansion_bridge(parent, bus);
             } else {
                 println!(
                     "sif: There is no _PRT for bus {}; giving up IRQ routing of this bus",
@@ -213,21 +213,6 @@ fn build_routing(
     }
 
     state.routing_model = RoutingModel::RootTable;
-}
-
-fn bridge_routing(state: &mut RouterState, parent: &dyn PciIrqRouter, bus: &PciBus) {
-    let bridge = bus
-        .associated_bridge
-        .expect("expansion bridge routing without an associated bridge");
-
-    for (i, bridge_irq) in state.bridge_irqs.iter_mut().enumerate() {
-        *bridge_irq = parent.resolve_irq_route(bridge.entity.slot, IrqIndex::from_pin(i as u8 + 1));
-        if let Some(pin) = bridge_irq {
-            println!("sif:     Bridge IRQ [{i}]: {}", pin.name());
-        }
-    }
-
-    state.routing_model = RoutingModel::ExpansionBridge;
 }
 
 /// Searches the ACPI node of the bridge that a bus is attached to.
