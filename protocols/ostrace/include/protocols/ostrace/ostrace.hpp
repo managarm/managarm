@@ -1,8 +1,10 @@
 #pragma once
 
+#include <atomic>
 #include <span>
 #include <string>
 
+#include <async/mutex.hpp>
 #include <async/queue.hpp>
 #include <async/result.hpp>
 #include <helix/ipc.hpp>
@@ -102,15 +104,17 @@ struct BragiAttribute : Term {
 struct Context {
 	Context(Vocabulary &vocabulary);
 
+	// Connects to the ostrace server. Does nothing if the Context is already initialized.
 	async::result<void> create();
 
-	inline helix::BorrowedLane getLane() {
-		return lane_;
+	// Whether create() already completed. Allows callers on hot paths to skip redundant calls.
+	inline bool isInitialized() {
+		return initialized_.load(std::memory_order_acquire);
 	}
 
 	// Whether ostrace is currently active or not.
 	inline bool isActive() {
-		return enabled_;
+		return enabled_.load(std::memory_order_acquire);
 	}
 
 	async::result<void> define(Term *term) {
@@ -176,8 +180,10 @@ private:
 	async::result<void> run_();
 
 	Vocabulary *vocabulary_;
+	async::mutex initMutex_;
+	std::atomic<bool> initialized_ = false;
 	helix::UniqueLane lane_;
-	bool enabled_ = false;
+	std::atomic<bool> enabled_ = false;
 	async::queue<std::vector<char>, frg::stl_allocator> queue_;
 };
 

@@ -50,12 +50,7 @@ protocols::ostrace::Vocabulary ostVocabulary{
 	ostBragi,
 };
 
-bool ostraceInit = false;
 protocols::ostrace::Context ostContext{ostVocabulary};
-
-async::result<void> initOstrace() {
-	co_await ostContext.create();
-}
 
 CancelEventRegistry cancellationEvents;
 
@@ -2215,10 +2210,7 @@ serveFile(helix::UniqueLane lane, void *file, const FileOperations *file_ops) {
 async::result<void> servePassthrough(helix::UniqueLane lane,
 		smarter::shared_ptr<void> file, const FileOperations *file_ops,
 		async::cancellation_token cancellation) {
-	if(!ostraceInit) {
-		ostraceInit = true;
-		co_await initOstrace();
-	}
+	co_await ostContext.create();
 
 	async::cancellation_callback cancel_callback{cancellation, [&] {
 		HEL_CHECK(helShutdownLane(lane.getHandle()));

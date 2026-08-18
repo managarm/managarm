@@ -615,14 +615,11 @@ async::detached serveDevice(helix::UniqueLane lane, std::unique_ptr<raw::RawFs> 
 }
 
 async::detached runDevice(BlockDevice *device) {
+	co_await ostContext.create();
+
 	{
 		co_await globalInitializationMutex.async_lock();
 		frg::unique_lock lock{frg::adopt_lock, globalInitializationMutex};
-
-		if (!tracingInitialized) {
-			co_await ostContext.create();
-			tracingInitialized = true;
-		}
 
 		if(!clkInitialized) {
 			co_await clk::enumerateTracker();

@@ -11,6 +11,4 @@ extern protocols::ostrace::UintAttribute ostAttrTime;
 extern protocols::ostrace::UintAttribute ostAttrPid;
 extern protocols::ostrace::BragiAttribute ostBragi;
 
-async::result<void> initOstrace();
-
 } // namespace posix

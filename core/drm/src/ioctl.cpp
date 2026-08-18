@@ -42,12 +42,6 @@ protocols::ostrace::Vocabulary ostVocabulary{
 
 protocols::ostrace::Context ostContext{ostVocabulary};
 
-bool ostraceInitialized = false;
-
-async::result<void> initOstrace() {
-	co_await ostContext.create();
-}
-
 }
 
 async::detached drm_core::File::pageFlipEvent(std::unique_ptr<drm_core::Configuration> config,
@@ -1365,10 +1359,8 @@ struct drm_core::File::HandleIoctl {
 async::result<void>
 drm_core::File::ioctl(void *object, uint32_t id, helix_ng::RecvInlineResult msg,
 		helix::UniqueLane conversation) {
-	if(!ostraceInitialized) {
-		co_await initOstrace();
-		ostraceInitialized = true;
-	}
+	if(!ostContext.isInitialized())
+		co_await ostContext.create();
 
 	auto self = static_cast<drm_core::File *>(object);
 

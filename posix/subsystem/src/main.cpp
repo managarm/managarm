@@ -185,7 +185,7 @@ async::result<void> enumeratePm() {
 // --------------------------------------------------------
 
 async::detached runInit() {
-	co_await posix::initOstrace();
+	co_await posix::ostContext.create();
 	co_await enumerateKerncfg();
 	async::detach(enumeratePm());
 	async::detach(net::enumerateNetserver());
