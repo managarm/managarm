@@ -4,17 +4,27 @@
 
 namespace protocols::fs {
 	Flock::~Flock() {
-		if(manager != nullptr) {
+		if(manager == nullptr)
+			return;
+
+		bool notify = false;
+		{
+			std::lock_guard guard{manager->mutex};
+
 			if(this->active) {
 				manager->flocks.erase(manager->flocks.iterator_to(this));
+				this->active = false;
 				if(manager->flocks.empty())
-					manager->flockNotify.raise();
+					notify = true;
 			}
 		}
+
+		if(notify)
+			manager->flockNotify.raise();
 	}
 
-	// TODO: take an async::cancellation_token to support interruption
-	async::result<protocols::fs::Error> FlockManager::lock(Flock *newFlock, int flags) {
+	async::result<protocols::fs::Error> FlockManager::lock(Flock *newFlock, int flags,
+			async::cancellation_token ct) {
 		if(!validateFlockFlags(flags))
 			co_return protocols::fs::Error::illegalArguments;
 
@@ -24,13 +34,21 @@ namespace protocols::fs {
 		bool unlock = flags & managarm::fs::FlockFlags::LOCK_UN;
 
 		if(unlock) {
-			if(newFlock->active) {
-				flocks.erase(flocks.iterator_to(newFlock));
-				newFlock->manager = nullptr;
-				newFlock->active = false;
-				if(flocks.empty())
-					flockNotify.raise();
+			bool notify = false;
+			{
+				std::lock_guard guard{mutex};
+
+				if(newFlock->active) {
+					flocks.erase(flocks.iterator_to(newFlock));
+					newFlock->manager = nullptr;
+					newFlock->active = false;
+					if(flocks.empty())
+						notify = true;
+				}
 			}
+
+			if(notify)
+				flockNotify.raise();
 
 			co_return protocols::fs::Error::none;
 		}
@@ -38,14 +56,39 @@ namespace protocols::fs {
 		// Keep checking until there are no conflicts
 		while (true) {
 			bool conflict = false;
-			for (auto f : flocks) {
-				// Ignore our own existing lock (allows upgrade/downgrade)
-				if (f == newFlock)
-					continue;
+			// Note: conflicts implies !notify.
+			bool notify = false;
+			uint64_t seenSequence;
+			{
+				std::lock_guard guard{mutex};
 
-				if (exclusive || f->type == protocols::fs::FLockState::LOCKED_EXCLUSIVE) {
-					conflict = true;
-					break;
+				// TODO: Use async::sequenced_event::current_sequence() once it exists.
+				seenSequence = flockNotify.next_sequence() - 1;
+
+				for (auto f : flocks) {
+					// Ignore our own existing lock (allows upgrade/downgrade)
+					if (f == newFlock)
+						continue;
+
+					if (exclusive || f->type == protocols::fs::FLockState::LOCKED_EXCLUSIVE) {
+						conflict = true;
+						break;
+					}
+				}
+
+				if (!conflict) {
+					if (newFlock->active) {
+						auto oldType = newFlock->type;
+						newFlock->type = shared ? protocols::fs::FLockState::LOCKED_SHARED : protocols::fs::FLockState::LOCKED_EXCLUSIVE;
+						// If downgraded from exclusive, notify other waiting locks
+						if (oldType == protocols::fs::FLockState::LOCKED_EXCLUSIVE && shared)
+							notify = true;
+					} else {
+						newFlock->type = shared ? protocols::fs::FLockState::LOCKED_SHARED : protocols::fs::FLockState::LOCKED_EXCLUSIVE;
+						newFlock->manager = this;
+						flocks.push_back(newFlock);
+						newFlock->active = true;
+					}
 				}
 			}
 
@@ -53,22 +96,14 @@ namespace protocols::fs {
 				if (nonblock)
 					co_return protocols::fs::Error::wouldBlock;
 
-				co_await flockNotify.async_wait();
+				co_await flockNotify.async_wait(seenSequence, ct);
+				if (ct.is_cancellation_requested())
+					co_return protocols::fs::Error::interrupted;
 				continue;
 			}
 
-			if (newFlock->active) {
-				auto oldType = newFlock->type;
-				newFlock->type = shared ? protocols::fs::FLockState::LOCKED_SHARED : protocols::fs::FLockState::LOCKED_EXCLUSIVE;
-				// If downgraded from exclusive, notify other waiting locks
-				if (oldType == protocols::fs::FLockState::LOCKED_EXCLUSIVE && shared)
-					flockNotify.raise();
-			} else {
-				newFlock->type = shared ? protocols::fs::FLockState::LOCKED_SHARED : protocols::fs::FLockState::LOCKED_EXCLUSIVE;
-				newFlock->manager = this;
-				flocks.push_back(newFlock);
-				newFlock->active = true;
-			}
+			if (notify)
+				flockNotify.raise();
 
 			co_return protocols::fs::Error::none;
 		}
