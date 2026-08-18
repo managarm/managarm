@@ -14,8 +14,7 @@ namespace protocols::fs {
 			if(this->active) {
 				manager->flocks.erase(manager->flocks.iterator_to(this));
 				this->active = false;
-				if(manager->flocks.empty())
-					notify = true;
+				notify = true;
 			}
 		}
 
@@ -42,8 +41,7 @@ namespace protocols::fs {
 					flocks.erase(flocks.iterator_to(newFlock));
 					newFlock->manager = nullptr;
 					newFlock->active = false;
-					if(flocks.empty())
-						notify = true;
+					notify = true;
 				}
 			}
 
