@@ -1,4 +1,5 @@
 #include "common.hpp"
+#include "../requests.hpp"
 #include <sys/wait.h>
 #include <sys/resource.h>
 #include <iostream>
@@ -196,7 +197,11 @@ HandleRequest::operator()(managarm::posix::SetAffinityRequest &&req,
 		handle = target->threadDescriptor().getHandle();
 	}
 
-	HelError e = helSetAffinity(handle, req.mask().data(), req.mask().size());
+	// Applications may pass masks that are larger than what thor accepts (e.g., sizeof(cpu_set_t)).
+	// Like Linux, ignore the bits beyond the last CPU instead of rejecting the oversized mask.
+	auto maskSize = std::min(req.mask().size(), getAffinityMaskSize());
+
+	HelError e = helSetAffinity(handle, req.mask().data(), maskSize);
 
 	if(e == kHelErrIllegalArgs) {
 		co_await sendErrorResponse<managarm::posix::SetAffinityResponse>(conversation, managarm::posix::Errors::ILLEGAL_ARGUMENTS);
