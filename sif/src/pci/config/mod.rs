@@ -1,3 +1,4 @@
+pub mod brcmstb;
 pub mod ecam;
 pub mod legacy;
 

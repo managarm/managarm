@@ -5,6 +5,7 @@ use crate::irq::{IrqPin, dt_irq};
 use crate::{EXPECT_LOCK, leak};
 
 use super::config::PciConfigIo;
+use super::config::brcmstb::BrcmStbPcie;
 use super::config::ecam::EcamPcieConfigIo;
 use super::discover::add_root_bus;
 use super::{
@@ -185,7 +186,7 @@ impl PciIrqRouter for DtbPciIrqRouter {
     }
 }
 
-fn init_pci_node(node: &'static DeviceTreeNode) -> Result<(), PciError> {
+async fn init_pci_node(node: &'static DeviceTreeNode) -> Result<(), PciError> {
     println!("sif: Initializing node \"{}\":", node.path());
 
     let range = node.bus_range()?;
@@ -204,8 +205,14 @@ fn init_pci_node(node: &'static DeviceTreeNode) -> Result<(), PciError> {
             range.from as u8,
             range.to as u8,
         ))
+    } else if node.is_compatible(&["brcm,bcm2711-pcie"]) {
+        println!("sif:     It's a Broadcom STB PCIe controller.");
+
+        let pcie = BrcmStbPcie::new(node, 0, range.from as u8, range.to as u8)
+            .await
+            .map_err(|err| PciError::HostBridgeSetup(err.into()))?;
+        leak(pcie)
     } else {
-        // The Broadcom STB PCIe controller (brcm,bcm2711-pcie) is not ported yet.
         return Err(PciError::UnsupportedHostBridge);
     };
 
@@ -259,27 +266,30 @@ fn init_pci_node(node: &'static DeviceTreeNode) -> Result<(), PciError> {
     Ok(())
 }
 
-pub fn discover_root_buses() {
+pub async fn discover_root_buses() {
     let Some(root) = get_device_tree_root() else {
         return;
     };
 
-    let mut i = 0;
+    let mut nodes = Vec::new();
 
     root.for_each(&mut |node| {
         if node.is_compatible(&DT_PCI_COMPATIBLE) {
-            if let Err(err) = init_pci_node(node) {
-                println!(
-                    "sif: Ignoring PCI host bridge {}: {:#}",
-                    node.path(),
-                    anyhow::Error::from(err)
-                );
-            }
-            i += 1;
+            nodes.push(node);
         }
 
         false
     });
 
-    println!("sif: Found {i} PCI nodes in total.");
+    for &node in &nodes {
+        if let Err(err) = init_pci_node(node).await {
+            println!(
+                "sif: Ignoring PCI host bridge {}: {:#}",
+                node.path(),
+                anyhow::Error::from(err)
+            );
+        }
+    }
+
+    println!("sif: Found {} PCI nodes in total.", nodes.len());
 }
