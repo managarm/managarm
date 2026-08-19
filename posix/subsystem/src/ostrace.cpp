@@ -23,8 +23,4 @@ protocols::ostrace::Vocabulary ostVocabulary{
 
 protocols::ostrace::Context ostContext{ostVocabulary};
 
-async::result<void> initOstrace() {
-	co_await ostContext.create();
-}
-
 } // namespace posix

@@ -3,6 +3,7 @@
 #include <string.h>
 #include <unistd.h>
 #include <iostream>
+#include <memory>
 #include <print>
 #include <vector>
 
@@ -50,18 +51,12 @@ protocols::ostrace::Vocabulary ostVocabulary{
 	ostBragi,
 };
 
-bool ostraceInit = false;
 protocols::ostrace::Context ostContext{ostVocabulary};
-
-async::result<void> initOstrace() {
-	co_await ostContext.create();
-}
-
-CancelEventRegistry cancellationEvents;
 
 struct HandleFileRequest {
 	uint64_t id = 0;
 	timespec requestTimestamp = {};
+	std::shared_ptr<CancelEventRegistry> cancellationEvents;
 
 	template <typename T>
 	void logBragiRequest(T &req) {
@@ -1026,7 +1021,7 @@ struct HandleFileRequest {
 		);
 		HEL_CHECK(extract_creds.error());
 
-		cancellationEvents.cancel(extract_creds.credentials(), cancellationId);
+		cancellationEvents->cancel(extract_creds.credentials(), cancellationId);
 		co_return {};
 	}
 
@@ -1060,7 +1055,7 @@ struct HandleFileRequest {
 		frg::expected<Error, PollWaitResult> resultOrError = Error::internalError;
 
 		{
-			auto cancelEvent = cancellationEvents.event(extract_creds.credentials(), req.cancellation_id());
+			auto cancelEvent = cancellationEvents->event(extract_creds.credentials(), req.cancellation_id());
 			if (!cancelEvent) {
 				std::println("protocols/fs: possibly duplicate cancellation ID registered");
 				managarm::fs::SvrResponse resp;
@@ -1197,7 +1192,7 @@ struct HandleFileRequest {
 		ReadResult res = std::unexpected{Error::internalError};
 
 		{
-			auto cancelEvent = cancellationEvents.event(extract_creds.credentials(), req.cancellation_id());
+			auto cancelEvent = cancellationEvents->event(extract_creds.credentials(), req.cancellation_id());
 			if (!cancelEvent) {
 				std::println("protocols/fs: possibly duplicate cancellation ID registered");
 				managarm::fs::SvrResponse resp;
@@ -2215,10 +2210,12 @@ serveFile(helix::UniqueLane lane, void *file, const FileOperations *file_ops) {
 async::result<void> servePassthrough(helix::UniqueLane lane,
 		smarter::shared_ptr<void> file, const FileOperations *file_ops,
 		async::cancellation_token cancellation) {
-	if(!ostraceInit) {
-		ostraceInit = true;
-		co_await initOstrace();
-	}
+	co_await ostContext.create();
+
+	// Cancellation IDs are scoped to a lane:
+	// an operation and the CancelOperation that targets it always arrive on the same lane.
+	// Handlers can outlive servePassthrough(), hence the shared ownership.
+	auto cancellationEvents = std::make_shared<CancelEventRegistry>();
 
 	async::cancellation_callback cancel_callback{cancellation, [&] {
 		HEL_CHECK(helShutdownLane(lane.getHandle()));
@@ -2243,7 +2240,8 @@ async::result<void> servePassthrough(helix::UniqueLane lane,
 			managarm::fs::PwriteRequest,
 			managarm::fs::TruncateRequest,
 			managarm::fs::FallocateRequest
-		>(lane, DetachHandlers{}, HandleFileRequest{}, file, file_ops);
+		>(lane, DetachHandlers{}, HandleFileRequest{.cancellationEvents = cancellationEvents},
+				file, file_ops);
 		if(!res) {
 			if(res.error() == DispatchError::shutdown)
 				co_return;

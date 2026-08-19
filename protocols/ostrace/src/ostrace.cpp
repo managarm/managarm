@@ -1,5 +1,6 @@
 #include <async/oneshot-event.hpp>
 #include <bragi/helpers-std.hpp>
+#include <frg/mutex.hpp>
 #include <frg/std_compat.hpp>
 #include <protocols/mbus/client.hpp>
 #include <protocols/ostrace/ostrace.hpp>
@@ -11,7 +12,11 @@ Context::Context(Vocabulary &vocabulary)
 : vocabulary_{&vocabulary}, enabled_{false} { }
 
 async::result<void> Context::create() {
-	assert(!lane_);
+	co_await initMutex_.async_lock();
+	frg::unique_lock lock{frg::adopt_lock, initMutex_};
+
+	if(isInitialized())
+		co_return;
 
 	// Find ostrace in mbus.
 	auto filter = mbus_ng::Conjunction{{
@@ -48,16 +53,20 @@ async::result<void> Context::create() {
 	assert(maybeResp);
 	auto &resp = maybeResp.value();
 
-	if(resp.error() == managarm::ostrace::Error::OSTRACE_GLOBALLY_DISABLED)
-		co_return;
-	assert(resp.error() == managarm::ostrace::Error::SUCCESS);
+	if(resp.error() != managarm::ostrace::Error::OSTRACE_GLOBALLY_DISABLED) {
+		assert(resp.error() == managarm::ostrace::Error::SUCCESS);
 
-	enabled_ = true;
+		for (auto *term : vocabulary_->terms())
+			co_await define(term);
 
-	for (auto *term : vocabulary_->terms())
-		co_await define(term);
+		// Release: only publish the vocabulary once all of its terms are defined.
+		enabled_.store(true, std::memory_order_release);
 
-	async::detach(run_());
+		async::detach(run_());
+	}
+
+	// Release: callers that skip create() must observe the completed initialization.
+	initialized_.store(true, std::memory_order_release);
 }
 
 async::result<ItemId> Context::announceItem_(std::string_view name) {

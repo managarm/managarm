@@ -526,12 +526,7 @@ protocols::ostrace::Vocabulary ostVocabulary{
 	ostBragi,
 };
 
-bool ostraceInit = false;
 protocols::ostrace::Context ostContext{ostVocabulary};
-
-async::result<void> initOstrace() {
-	co_await ostContext.create();
-}
 
 }
 
@@ -863,10 +858,7 @@ struct HandleRequest {
 } // namespace
 
 async::detached serve(helix::UniqueLane lane) {
-	if(!ostraceInit) {
-		co_await initOstrace();
-		ostraceInit = true;
-	}
+	co_await ostContext.create();
 
 	while (true) {
 		auto res = co_await dispatchRequest<

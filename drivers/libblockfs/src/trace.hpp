@@ -4,8 +4,6 @@
 
 namespace blockfs {
 
-inline bool tracingInitialized = false;
-
 inline constinit protocols::ostrace::Event ostEvtGetLink{"libblockfs.getLink"};
 inline constinit protocols::ostrace::Event ostEvtTraverseLinks{"libblockfs.traverseLinks"};
 inline constinit protocols::ostrace::Event ostEvtRead{"libblockfs.read"};
