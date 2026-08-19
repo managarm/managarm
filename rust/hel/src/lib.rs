@@ -10,6 +10,7 @@ pub mod queue;
 pub mod result;
 pub mod submission;
 
+use std::ffi::c_void;
 use std::time::Duration;
 
 pub use executor::{block_on, spawn};
@@ -75,6 +76,54 @@ impl CachingMode {
             Self::MmioNonPosted => hel_sys::kHelCachingMmioNonPosted,
         }
     }
+}
+
+bitflags::bitflags! {
+    /// Flags that control how a memory object is allocated.
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    pub struct AllocFlags: u32 {
+        /// The memory object is backed by physically continuous memory.
+        const CONTINUOUS = hel_sys::kHelAllocContinuous;
+        /// Pages of the memory object are only allocated once they are accessed.
+        const ON_DEMAND = hel_sys::kHelAllocOnDemand;
+    }
+}
+
+/// Allocates a new memory object of the given size. If `address_bits` is given, the memory
+/// is restricted to physical addresses that fit into that many bits.
+pub fn allocate_memory(
+    size: usize,
+    flags: AllocFlags,
+    address_bits: Option<i32>,
+) -> Result<Handle> {
+    let mut handle = hel_sys::kHelNullHandle as hel_sys::HelHandle;
+    let restrictions = address_bits.map(|address_bits| hel_sys::HelAllocRestrictions {
+        addressBits: address_bits,
+    });
+    result::hel_check(unsafe {
+        hel_sys::helAllocateMemory(
+            size,
+            flags.bits(),
+            restrictions
+                .as_ref()
+                .map_or(std::ptr::null(), |restrictions| restrictions),
+            &mut handle,
+        )
+    })?;
+    Ok(unsafe { Handle::from_raw(handle) })
+}
+
+/// Returns the physical address that the given pointer maps to in the current address space.
+pub fn pointer_physical(pointer: *const c_void) -> Result<usize> {
+    let mut physical = 0;
+    result::hel_check(unsafe {
+        hel_sys::helPointerPhysical(
+            hel_sys::kHelNullHandle as hel_sys::HelHandle,
+            pointer,
+            &mut physical,
+        )
+    })?;
+    Ok(physical)
 }
 
 /// Returns a memory object backing the given physical memory range.
