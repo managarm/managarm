@@ -1122,15 +1122,19 @@ auto FileSystem::accessRoot() -> std::shared_ptr<BaseInode> {
 auto FileSystem::accessInode(uint32_t number) -> std::shared_ptr<BaseInode> {
 	assert(number > 0);
 
-	std::lock_guard activeInodesLock{activeInodesMutex};
+	std::shared_ptr<Inode> new_inode;
+	{
+		std::lock_guard activeInodesLock{activeInodesMutex};
 
-	std::weak_ptr<Inode> &inode_slot = activeInodes[number];
-	std::shared_ptr<Inode> active_inode = inode_slot.lock();
-	if(active_inode)
-		return active_inode;
+		std::weak_ptr<Inode> &inode_slot = activeInodes[number];
+		std::shared_ptr<Inode> active_inode = inode_slot.lock();
+		if(active_inode)
+			return active_inode;
 
-	auto new_inode = std::make_shared<Inode>(*this, number);
-	inode_slot = std::weak_ptr<Inode>(new_inode);
+		new_inode = std::make_shared<Inode>(*this, number);
+		inode_slot = std::weak_ptr<Inode>(new_inode);
+	}
+
 	initiateInode(new_inode);
 
 	return new_inode;
