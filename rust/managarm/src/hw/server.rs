@@ -46,6 +46,9 @@ pub trait PciDevice {
     fn access_expansion_rom(&self) -> hel::Result<Option<Handle>> {
         Ok(None)
     }
+    fn access_vbt(&self) -> hel::Result<Option<(u32, Handle)>> {
+        Ok(None)
+    }
 
     fn enable_busmaster(&self);
     fn enable_irq(&self);
@@ -209,6 +212,24 @@ async fn handle_one<D: PciDevice>(lane: &Handle, request: &[u8], device: &D) -> 
                 .await?
             }
             _ => send_response(lane, &Errors::DeviceError.into()).await?,
+        },
+        bindings::GetVbtRequest::MESSAGE_ID => match device.access_vbt() {
+            Ok(Some((size, handle))) => {
+                let mut resp = bindings::SvrResponse::default();
+                resp.set_error(Errors::Success);
+                resp.set_vbt_size(size);
+                send_response_with_push(
+                    lane,
+                    &resp,
+                    &handle,
+                    hel_sys::kHelRightRead
+                        | hel_sys::kHelRightAssign
+                        | hel_sys::kHelRightProvision
+                        | hel_sys::kHelRightPin,
+                )
+                .await?
+            }
+            _ => send_response(lane, &Errors::IllegalArguments.into()).await?,
         },
         bindings::LoadPciSpaceRequest::MESSAGE_ID => {
             let req: bindings::LoadPciSpaceRequest =
