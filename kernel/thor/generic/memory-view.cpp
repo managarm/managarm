@@ -1584,7 +1584,8 @@ coroutine<frg::expected<Error>> BackingMemory::resize(size_t newSize) {
 		co_return Error::illegalObject;
 	if(newSize > backingMemoryLength)
 		co_return Error::illegalArgs;
-	assert(!(newSize & (kPageSize - 1)));
+	if(newSize & (kPageSize - 1))
+		co_return Error::illegalArgs;
 	auto newPages = newSize >> kPageShift;
 
 	size_t oldPages;
