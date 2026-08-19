@@ -187,9 +187,55 @@ public:
 
 	Dispatcher()
 	: _handle{kHelNullHandle}, _queue{nullptr},
-			_numCqChunks{0}, _numSqChunks{0}, _chunkSize{0},
+			_numCqChunks{8}, _numSqChunks{8}, _chunkSize{4096},
 			_retrieveChunk{0}, _tailChunk{0}, _lastProgress{0},
-			_sqCurrentChunk{0}, _sqProgress{0}, _runQueue{this} { }
+			_sqCurrentChunk{0}, _sqProgress{0}, _runQueue{this} {
+		HelQueueParameters params {
+			.flags = 0,
+			.numChunks = _numCqChunks,
+			.chunkSize = _chunkSize,
+			.numSqChunks = _numSqChunks,
+		};
+		HEL_CHECK(helCreateQueue(&params, &_handle));
+		_nextAsyncId = 1;
+
+		auto totalChunks = _numCqChunks + _numSqChunks;
+		auto chunksOffset = (sizeof(HelQueue) + 63) & ~size_t(63);
+		auto reservedPerChunk = (sizeof(HelChunk) + _chunkSize + 63) & ~size_t(63);
+		auto overallSize = chunksOffset + totalChunks * reservedPerChunk;
+
+		void *mapping;
+		HEL_CHECK(helMapMemory(_handle, kHelNullHandle, nullptr,
+				0, (overallSize + 0xFFF) & ~size_t(0xFFF),
+				kHelMapProtRead | kHelMapProtWrite, &mapping));
+
+		_queue = reinterpret_cast<HelQueue *>(mapping);
+		auto chunksPtr = reinterpret_cast<std::byte *>(mapping) + chunksOffset;
+		for(unsigned int i = 0; i < totalChunks; ++i)
+			_chunks[i] = reinterpret_cast<HelChunk *>(chunksPtr + i * reservedPerChunk);
+
+		// Reset all CQ chunks.
+		for (unsigned int i = 0; i < _numCqChunks; ++i)
+			_resetChunk(i);
+
+		// Set up CQ: chunks 0 to numCqChunks-1.
+		__atomic_store_n(&_queue->cqFirst, 0 | kHelNextPresent, __ATOMIC_RELEASE);
+
+		// Supply the remaining CQ chunks.
+		_tailChunk = 0;
+		for (unsigned int i = 1; i < _numCqChunks; ++i)
+			_supplyChunk(i);
+		_retrieveChunk = 0;
+
+		// SQ is initialized by the kernel. Read sqFirst to get the first SQ chunk.
+		if (_numSqChunks > 0) {
+			auto sqFirst = __atomic_load_n(&_queue->sqFirst, __ATOMIC_ACQUIRE);
+			_sqCurrentChunk = sqFirst & ~kHelNextPresent;
+			_sqProgress = 0;
+		}
+
+		_wakeHeadFutex();
+	}
 
 	Dispatcher(const Dispatcher &) = delete;
 
@@ -199,59 +245,7 @@ public:
 		return &_runQueue;
 	}
 
-	HelHandle acquire() {
-		if(!_handle) {
-			_numCqChunks = 8;
-			_numSqChunks = 8;
-			_chunkSize = 4096;
-
-			HelQueueParameters params {
-				.flags = 0,
-				.numChunks = _numCqChunks,
-				.chunkSize = _chunkSize,
-				.numSqChunks = _numSqChunks,
-			};
-			HEL_CHECK(helCreateQueue(&params, &_handle));
-			_nextAsyncId = 1;
-
-			auto totalChunks = _numCqChunks + _numSqChunks;
-			auto chunksOffset = (sizeof(HelQueue) + 63) & ~size_t(63);
-			auto reservedPerChunk = (sizeof(HelChunk) + _chunkSize + 63) & ~size_t(63);
-			auto overallSize = chunksOffset + totalChunks * reservedPerChunk;
-
-			void *mapping;
-			HEL_CHECK(helMapMemory(_handle, kHelNullHandle, nullptr,
-					0, (overallSize + 0xFFF) & ~size_t(0xFFF),
-					kHelMapProtRead | kHelMapProtWrite, &mapping));
-
-			_queue = reinterpret_cast<HelQueue *>(mapping);
-			auto chunksPtr = reinterpret_cast<std::byte *>(mapping) + chunksOffset;
-			for(unsigned int i = 0; i < totalChunks; ++i)
-				_chunks[i] = reinterpret_cast<HelChunk *>(chunksPtr + i * reservedPerChunk);
-
-			// Reset all CQ chunks.
-			for (unsigned int i = 0; i < _numCqChunks; ++i)
-				_resetChunk(i);
-
-			// Set up CQ: chunks 0 to numCqChunks-1.
-			__atomic_store_n(&_queue->cqFirst, 0 | kHelNextPresent, __ATOMIC_RELEASE);
-
-			// Supply the remaining CQ chunks.
-			_tailChunk = 0;
-			for (unsigned int i = 1; i < _numCqChunks; ++i)
-				_supplyChunk(i);
-			_retrieveChunk = 0;
-
-			// SQ is initialized by the kernel. Read sqFirst to get the first SQ chunk.
-			if (_numSqChunks > 0) {
-				auto sqFirst = __atomic_load_n(&_queue->sqFirst, __ATOMIC_ACQUIRE);
-				_sqCurrentChunk = sqFirst & ~kHelNextPresent;
-				_sqProgress = 0;
-			}
-
-			_wakeHeadFutex();
-		}
-
+	HelHandle queueHandle() {
 		return _handle;
 	}
 
@@ -261,7 +255,6 @@ public:
 
 	void wait() {
 		assert(_onOwnerThread());
-		acquire();
 
 		while(true) {
 			if(_runQueue.check()) {
@@ -339,7 +332,6 @@ public:
 	void pushSq(uint32_t opcode, uintptr_t context,
 			std::span<const std::span<const std::byte>> segments) {
 		assert(_onOwnerThread());
-		acquire();
 
 		size_t dataLength = 0;
 		for (auto seg : segments)
