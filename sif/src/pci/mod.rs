@@ -3,6 +3,7 @@ pub mod config;
 pub mod discover;
 pub mod dtb;
 pub mod quirks;
+pub mod quirks_rpi4;
 pub mod serve;
 
 use managarm::svrctl::hardware_access_handle;
