@@ -1683,8 +1683,10 @@ coroutine<frg::expected<Error, MemoryNotification>> BackingMemory::pollNotificat
 }
 
 Error BackingMemory::updateRange(ManageRequest type, size_t offset, size_t length) {
-	assert((offset % kPageSize) == 0);
-	assert((length % kPageSize) == 0);
+	if (offset & (kPageSize - 1))
+		return Error::illegalArgs;
+	if (length & (kPageSize - 1))
+		return Error::illegalArgs;
 
 	frg::intrusive_list<
 		ManagedSpace::TransactionMonitor,
@@ -1700,23 +1702,26 @@ Error BackingMemory::updateRange(ManageRequest type, size_t offset, size_t lengt
 		auto irqLock = frg::guard(&irqMutex());
 		auto lock = frg::guard(&_managed->mutex);
 
-	/*	assert(length == kPageSize);
-		auto inspect = (unsigned char *)physicalToVirtual(_managed->physicalPages[offset / kPageSize]);
-		auto log = infoLogger() << "dump";
-		for(size_t b = 0; b < kPageSize; b += 16) {
-			log << frg::hex_fmt(offset + b) << "   ";
-			for(size_t i = 0; i < 16; i++)
-				log << " " << frg::hex_fmt(inspect[b + i]);
-			log << "\n";
+		// Validate the whole range before updating any page such that failure is atomic.
+		ManagedSpace::TxState expectedState;
+		if (type == ManageRequest::initialize) {
+			expectedState = ManagedSpace::TxState::initialization;
+		} else if (type == ManageRequest::writeback) {
+			expectedState = ManagedSpace::TxState::writeback;
+		} else {
+			return Error::illegalArgs;
 		}
-		log << frg::endlog;*/
+		for(size_t pg = 0; pg < length; pg += kPageSize) {
+			size_t index = (offset + pg) / kPageSize;
+			auto pit = _managed->pages.find(index);
+			if(!pit || pit->transactionState != expectedState)
+				return Error::illegalArgs;
+		}
 
 		if(type == ManageRequest::initialize) {
 			for(size_t pg = 0; pg < length; pg += kPageSize) {
 				size_t index = (offset + pg) / kPageSize;
 				auto pit = _managed->pages.find(index);
-				assert(pit);
-				assert(pit->transactionState == ManagedSpace::TxState::initialization);
 				// Initialization implies an in-flight fetch, which holds a view
 				// reference; discardPage() thus never sees this state.
 				assert(!pit->discarded);
@@ -1735,9 +1740,7 @@ Error BackingMemory::updateRange(ManageRequest type, size_t offset, size_t lengt
 			for(size_t pg = 0; pg < length; pg += kPageSize) {
 				size_t index = (offset + pg) / kPageSize;
 				auto pit = _managed->pages.find(index);
-				assert(pit);
 
-				assert(pit->transactionState == ManagedSpace::TxState::writeback);
 				if(pit->discarded) {
 					// Raise the monitor as usual - writebackFence() waiters hold references to it.
 					ref_rc(pit->monitor.get());

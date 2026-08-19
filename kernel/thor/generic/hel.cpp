@@ -1871,11 +1871,6 @@ HelError doSubmitManageMemory(HelHandle handle, smarter::shared_ptr<IpcQueue> qu
 
 HelError helUpdateMemory(HelHandle handle, int type,
 		uintptr_t offset, size_t length) {
-	if (offset & (kPageSize - 1))
-		return kHelErrIllegalArgs;
-	if (length & (kPageSize - 1))
-		return kHelErrIllegalArgs;
-
 	auto this_thread = getCurrentThread();
 	auto this_universe = this_thread->getUniverse();
 
