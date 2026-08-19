@@ -872,6 +872,11 @@ private:
 	size_t _budgetClaimed = 0;
 };
 
+// Static size of BackingMemory views.
+// It also bounds the ManagedSpace size that is visible to FrontalMemory
+// (otherwise, some pages would be unreachable through the backing view).
+inline constexpr size_t backingMemoryLength = size_t{1} << 62;
+
 struct BackingMemory final : MemoryView {
 private:
 	struct CtorToken {};

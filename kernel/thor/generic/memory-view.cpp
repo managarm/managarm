@@ -925,6 +925,8 @@ size_t AllocatedMemory::getLength() {
 
 std::expected<smarter::shared_ptr<ManagedSpace>, Error> ManagedSpace::create(
 		size_t length, bool readahead) {
+	if(length > backingMemoryLength)
+		return std::unexpected{Error::illegalArgs};
 	auto self = smarter::allocate_shared<ManagedSpace>(*kernelAlloc, length, readahead);
 	self->selfPtr = self;
 	spawnOnWorkQueue(*kernelAlloc, WorkQueue::generalQueue().lock(), self->_runReclaimLoop());
@@ -1336,8 +1338,6 @@ ManagedSpace::~ManagedSpace() {
 Error ManagedSpace::lockPages(uintptr_t offset, size_t size) {
 	auto irq_lock = frg::guard(&irqMutex());
 	auto lock = frg::guard(&mutex);
-	if((offset + size) / kPageSize > numPages)
-		return Error::bufferTooSmall;
 
 	for(size_t pg = 0; pg < size; pg += kPageSize) {
 		size_t index = (offset + pg) / kPageSize;
@@ -1363,7 +1363,6 @@ void ManagedSpace::unlockPages(uintptr_t offset, size_t size) {
 	{
 		auto irq_lock = frg::guard(&irqMutex());
 		auto lock = frg::guard(&mutex);
-		assert((offset + size) / kPageSize <= numPages);
 
 		for(size_t pg = 0; pg < size; pg += kPageSize) {
 			size_t index = (offset + pg) / kPageSize;
@@ -1578,10 +1577,13 @@ std::expected<smarter::shared_ptr<BackingMemory>, Error> BackingMemory::create(
 	return ptr;
 }
 
+// Note: This resizes the ManagedSpace but it does not affect BackingMemory::getLength().
 coroutine<frg::expected<Error>> BackingMemory::resize(size_t newSize) {
 	assert(currentIpl() == ipl::exceptionalWork);
 	if(_managed->isSwapSpace)
 		co_return Error::illegalObject;
+	if(newSize > backingMemoryLength)
+		co_return Error::illegalArgs;
 	assert(!(newSize & (kPageSize - 1)));
 	auto newPages = newSize >> kPageShift;
 
@@ -1606,6 +1608,8 @@ coroutine<frg::expected<Error>> BackingMemory::resize(size_t newSize) {
 }
 
 Error BackingMemory::lockRange(uintptr_t offset, size_t size) {
+	if(offset > backingMemoryLength || size > backingMemoryLength - offset)
+		return Error::bufferTooSmall;
 	return _managed->lockPages(offset, size);
 }
 
@@ -1617,11 +1621,12 @@ PhysicalRange BackingMemory::peekRange(uintptr_t offset, FetchFlags) {
 	auto index = offset >> kPageShift;
 	auto misalign = offset & (kPageSize - 1);
 
+	if(offset >= backingMemoryLength)
+		return PhysicalRange{};
+
 	auto irqLock = frg::guard(&irqMutex());
 	auto lock = frg::guard(&_managed->mutex);
 
-	if(index >= _managed->numPages)
-		return PhysicalRange{};
 	auto pit = _managed->pages.find(index);
 	if(!pit)
 		return PhysicalRange{};
@@ -1641,11 +1646,12 @@ BackingMemory::touchRange(uintptr_t offset, size_t, FetchFlags) {
 	auto index = offset >> kPageShift;
 	auto misalign = offset & (kPageSize - 1);
 
+	if(offset >= backingMemoryLength)
+		co_return Error::fault;
+
 	auto irqLock = frg::guard(&irqMutex());
 	auto lock = frg::guard(&_managed->mutex);
 
-	if(index >= _managed->numPages)
-		co_return Error::fault;
 	auto [pit, wasInserted] = _managed->pages.find_or_insert(index, _managed.get(), index);
 	assert(pit);
 
@@ -1664,8 +1670,7 @@ BackingMemory::touchRange(uintptr_t offset, size_t, FetchFlags) {
 }
 
 size_t BackingMemory::getLength() {
-	// Size is constant so we do not need to lock.
-	return _managed->numPages << kPageShift;
+	return backingMemoryLength;
 }
 
 coroutine<frg::expected<Error, MemoryNotification>> BackingMemory::pollNotification() {
@@ -1694,16 +1699,6 @@ Error BackingMemory::updateRange(ManageRequest type, size_t offset, size_t lengt
 	{
 		auto irqLock = frg::guard(&irqMutex());
 		auto lock = frg::guard(&_managed->mutex);
-
-		if ((offset + length) / kPageSize > _managed->numPages) {
-			infoLogger() << frg::fmt(
-				"thor: Requested {} of range {}-{} in BackingMemory of size {}",
-				type == ManageRequest::initialize ? "initialization" : "writeback",
-				offset, offset + length, _managed->numPages * kPageSize
-			) << frg::endlog;
-
-			return Error::illegalArgs;
-		}
 
 	/*	assert(length == kPageSize);
 		auto inspect = (unsigned char *)physicalToVirtual(_managed->physicalPages[offset / kPageSize]);
@@ -1947,10 +1942,23 @@ std::expected<smarter::shared_ptr<FrontalMemory>, Error> FrontalMemory::create(
 }
 
 Error FrontalMemory::lockRange(uintptr_t offset, size_t size) {
+	// We only check once against the ManagedSpace size.
+	// A concurrent shrink after this check is equivalent to locking before the shrink.
+	{
+		auto irqLock = frg::guard(&irqMutex());
+		auto lock = frg::guard(&_managed->mutex);
+
+		auto limit = _managed->numPages << kPageShift;
+		if(offset > limit || size > limit - offset)
+			return Error::bufferTooSmall;
+	}
+
 	return _managed->lockPages(offset, size);
 }
 
 void FrontalMemory::unlockRange(uintptr_t offset, size_t size) {
+	// Note that unlockPages() tolerates locks beyond the current size:
+	// unlocking a locked range must still be possible even after shrinking the file.
 	_managed->unlockPages(offset, size);
 }
 
