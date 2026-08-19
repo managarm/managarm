@@ -216,6 +216,7 @@ pub struct PciBusResource {
     size: u64,
     host_base: u64,
     flags: u32,
+    alloc_offset: u64,
     is_host_mmio: bool,
 }
 
@@ -236,6 +237,7 @@ impl PciBusResource {
             size,
             host_base,
             flags,
+            alloc_offset: 0,
             is_host_mmio,
         }
     }
@@ -258,6 +260,35 @@ impl PciBusResource {
 
     pub fn is_host_mmio(&self) -> bool {
         self.is_host_mmio
+    }
+
+    pub fn remaining(&self) -> u64 {
+        self.size - self.alloc_offset
+    }
+
+    // Returns the offset from base on success.
+    pub fn allocate(&mut self, size: u64) -> Option<u64> {
+        // Size must be a power of 2.
+        assert!(size & (size - 1) == 0);
+
+        let tmp = (self.alloc_offset + size - 1) & !(size - 1);
+
+        if tmp + size > self.size {
+            return None;
+        }
+
+        self.alloc_offset = tmp + size;
+
+        Some(tmp)
+    }
+
+    pub fn can_fit(&self, size: u64) -> bool {
+        // Size must be a power of 2.
+        assert!(size & (size - 1) == 0);
+
+        let tmp = (self.alloc_offset + size - 1) & !(size - 1);
+
+        tmp + size <= self.size
     }
 }
 
@@ -478,8 +509,22 @@ impl PciBus {
     /// # Safety
     ///
     /// The function must have a PCI-to-PCI bridge header.
+    pub unsafe fn set_io_base(&self, slot: u8, function: u8, value: u8) {
+        unsafe { self.write_config_byte(slot, function, PCI_BRIDGE_IO_BASE, value) };
+    }
+
+    /// # Safety
+    ///
+    /// The function must have a PCI-to-PCI bridge header.
     pub unsafe fn io_limit(&self, slot: u8, function: u8) -> u8 {
         unsafe { self.read_config_byte(slot, function, PCI_BRIDGE_IO_LIMIT) }
+    }
+
+    /// # Safety
+    ///
+    /// The function must have a PCI-to-PCI bridge header.
+    pub unsafe fn set_io_limit(&self, slot: u8, function: u8, value: u8) {
+        unsafe { self.write_config_byte(slot, function, PCI_BRIDGE_IO_LIMIT, value) };
     }
 
     /// # Safety
@@ -492,8 +537,22 @@ impl PciBus {
     /// # Safety
     ///
     /// The function must have a PCI-to-PCI bridge header.
+    pub unsafe fn set_mem_base(&self, slot: u8, function: u8, value: u16) {
+        unsafe { self.write_config_half(slot, function, PCI_BRIDGE_MEM_BASE, value) };
+    }
+
+    /// # Safety
+    ///
+    /// The function must have a PCI-to-PCI bridge header.
     pub unsafe fn mem_limit(&self, slot: u8, function: u8) -> u16 {
         unsafe { self.read_config_half(slot, function, PCI_BRIDGE_MEM_LIMIT) }
+    }
+
+    /// # Safety
+    ///
+    /// The function must have a PCI-to-PCI bridge header.
+    pub unsafe fn set_mem_limit(&self, slot: u8, function: u8, value: u16) {
+        unsafe { self.write_config_half(slot, function, PCI_BRIDGE_MEM_LIMIT, value) };
     }
 
     /// # Safety
@@ -506,8 +565,22 @@ impl PciBus {
     /// # Safety
     ///
     /// The function must have a PCI-to-PCI bridge header.
+    pub unsafe fn set_prefetch_mem_base(&self, slot: u8, function: u8, value: u16) {
+        unsafe { self.write_config_half(slot, function, PCI_BRIDGE_PREFETCH_MEM_BASE, value) };
+    }
+
+    /// # Safety
+    ///
+    /// The function must have a PCI-to-PCI bridge header.
     pub unsafe fn prefetch_mem_limit(&self, slot: u8, function: u8) -> u16 {
         unsafe { self.read_config_half(slot, function, PCI_BRIDGE_PREFETCH_MEM_LIMIT) }
+    }
+
+    /// # Safety
+    ///
+    /// The function must have a PCI-to-PCI bridge header.
+    pub unsafe fn set_prefetch_mem_limit(&self, slot: u8, function: u8, value: u16) {
+        unsafe { self.write_config_half(slot, function, PCI_BRIDGE_PREFETCH_MEM_LIMIT, value) };
     }
 
     /// # Safety
@@ -520,8 +593,26 @@ impl PciBus {
     /// # Safety
     ///
     /// The function must have a PCI-to-PCI bridge header.
+    pub unsafe fn set_prefetch_mem_base_upper(&self, slot: u8, function: u8, value: u32) {
+        unsafe {
+            self.write_config_word(slot, function, PCI_BRIDGE_PREFETCH_MEM_BASE_UPPER, value)
+        };
+    }
+
+    /// # Safety
+    ///
+    /// The function must have a PCI-to-PCI bridge header.
     pub unsafe fn prefetch_mem_limit_upper(&self, slot: u8, function: u8) -> u32 {
         unsafe { self.read_config_word(slot, function, PCI_BRIDGE_PREFETCH_MEM_LIMIT_UPPER) }
+    }
+
+    /// # Safety
+    ///
+    /// The function must have a PCI-to-PCI bridge header.
+    pub unsafe fn set_prefetch_mem_limit_upper(&self, slot: u8, function: u8, value: u32) {
+        unsafe {
+            self.write_config_word(slot, function, PCI_BRIDGE_PREFETCH_MEM_LIMIT_UPPER, value)
+        };
     }
 
     /// # Safety

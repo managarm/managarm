@@ -738,6 +738,411 @@ fn configure_bridges(bus: &'static PciBus, highest_id: &mut u8) {
     }
 }
 
+struct SpaceRequirement {
+    size: u64,
+    flags: u32,
+
+    // For devices (or bridge BARs)
+    index: usize,
+    associated_entity: Option<&'static PciEntity>,
+
+    // For devices behind this bridge
+    associated_bridge: Option<&'static PciBridge>,
+}
+
+fn process_bar(required: &mut Vec<SpaceRequirement>, entity: &'static PciEntity, i: usize) {
+    let bar = entity.bars.lock().expect(EXPECT_LOCK)[i];
+
+    if bar.allocated {
+        return;
+    }
+
+    let flags = match bar.type_ {
+        BarType::None => 0,
+        BarType::Io => PciBusResource::IO,
+        BarType::Memory => {
+            if bar.prefetchable {
+                PciBusResource::PREF_MEMORY
+            } else {
+                PciBusResource::MEMORY
+            }
+        }
+    };
+
+    if flags != 0 {
+        required.push(SpaceRequirement {
+            size: bar.length,
+            flags,
+            index: i,
+            associated_entity: Some(entity),
+            associated_bridge: None,
+        });
+    }
+}
+
+fn get_required_space_for_bus(bus: &'static PciBus) -> Vec<SpaceRequirement> {
+    let mut required = Vec::new();
+
+    for dev in bus.child_devices.lock().expect(EXPECT_LOCK).iter() {
+        for i in 0..6 {
+            process_bar(&mut required, &dev.entity, i);
+        }
+    }
+
+    for bridge in bus.child_bridges.lock().expect(EXPECT_LOCK).iter() {
+        for i in 0..2 {
+            process_bar(&mut required, &bridge.entity, i);
+        }
+
+        let downstream = bridge
+            .associated_bus
+            .get()
+            .expect("bridge has no associated bus");
+
+        // Only require memory allocations if this bus doesn't already have any resources.
+        if downstream.resources.lock().expect(EXPECT_LOCK).is_empty() {
+            // Check requirements below the bridge.
+            let bridge_req = get_required_space_for_bus(downstream);
+
+            let mut required_io: u64 = 0;
+            let mut required_mem: u64 = 0;
+            let mut required_pref_memory: u64 = 0;
+
+            for req in &bridge_req {
+                if req.flags == PciBusResource::IO {
+                    required_io += req.size;
+                } else if req.flags == PciBusResource::PREF_MEMORY {
+                    required_pref_memory += req.size;
+                } else {
+                    assert!(req.flags == PciBusResource::MEMORY);
+                    required_mem += req.size;
+                }
+            }
+
+            if required_io != 0 {
+                // I/O decoded by the bridge has 256 byte granularity,
+                // but the spec requires it to be 4K aligned.
+                required.push(SpaceRequirement {
+                    size: (required_io + 0xFFF) & !0xFFF,
+                    flags: PciBusResource::IO,
+                    index: 0,
+                    associated_entity: None,
+                    associated_bridge: Some(bridge),
+                });
+            }
+
+            // Memory decoded by the bridge has 1 MiB granularity.
+
+            if required_mem != 0 {
+                required.push(SpaceRequirement {
+                    size: (required_mem + 0xFFFFF) & !0xFFFFF,
+                    flags: PciBusResource::MEMORY,
+                    index: 0,
+                    associated_entity: None,
+                    associated_bridge: Some(bridge),
+                });
+            }
+
+            if required_pref_memory != 0 {
+                required.push(SpaceRequirement {
+                    size: (required_pref_memory + 0xFFFFF) & !0xFFFFF,
+                    flags: PciBusResource::PREF_MEMORY,
+                    index: 0,
+                    associated_entity: None,
+                    associated_bridge: Some(bridge),
+                });
+            }
+        }
+    }
+
+    // We group the same requirement types and sort them by size in descending
+    // order to guarantee best fit allocations for requirements of the same type.
+    required.sort_by(|a, b| {
+        if a.flags == b.flags {
+            b.size.cmp(&a.size)
+        } else {
+            a.flags.cmp(&b.flags)
+        }
+    });
+
+    required
+}
+
+fn is_preferred(old: Option<&PciBusResource>, new: &PciBusResource) -> bool {
+    let Some(old) = old else {
+        return true;
+    };
+
+    if new.base() > old.base() {
+        return true;
+    }
+
+    new.remaining() < old.remaining()
+}
+
+// On success, returns (child base, host base, resource flags, is host MMIO).
+fn allocate_bar(bus: &'static PciBus, size: u64, req_flags: u32) -> Option<(u64, u64, u32, bool)> {
+    let mut resources = bus.resources.lock().expect(EXPECT_LOCK);
+
+    let is_addressable = |flags: u32, addr: u64| {
+        if flags == PciBusResource::IO {
+            return true;
+        }
+
+        if flags != PciBusResource::PREF_MEMORY {
+            return addr < 0x1_0000_0000;
+        }
+
+        true
+    };
+
+    let mut best: Option<usize> = None;
+
+    for (idx, res) in resources.iter().enumerate() {
+        if (req_flags == PciBusResource::PREF_MEMORY || req_flags == PciBusResource::MEMORY)
+            && res.flags() == PciBusResource::IO
+        {
+            continue;
+        }
+
+        if (res.flags() == PciBusResource::PREF_MEMORY || res.flags() == PciBusResource::MEMORY)
+            && req_flags == PciBusResource::IO
+        {
+            continue;
+        }
+
+        if req_flags == res.flags() && res.can_fit(size) && is_addressable(req_flags, res.base()) {
+            best = Some(idx);
+            break;
+        }
+
+        if req_flags == PciBusResource::PREF_MEMORY
+            && res.flags() != PciBusResource::PREF_MEMORY
+            && res.can_fit(size)
+            && is_preferred(best.map(|best| &resources[best]), res)
+        {
+            best = Some(idx);
+        }
+    }
+
+    let best = best?;
+    let res = &mut resources[best];
+    let off = res.allocate(size).expect("resource must fit after can_fit");
+
+    Some((
+        res.base() + off,
+        res.host_base() + off,
+        res.flags(),
+        res.is_host_mmio(),
+    ))
+}
+
+fn flags_to_str(flags: u32) -> &'static str {
+    if flags == PciBusResource::IO {
+        return "I/O";
+    }
+    if flags == PciBusResource::PREF_MEMORY {
+        return "pref memory";
+    }
+    assert!(flags == PciBusResource::MEMORY);
+    "memory"
+}
+
+fn allocate_bars(bus: &'static PciBus) {
+    let required = get_required_space_for_bus(bus);
+
+    println!(
+        "sif: Allocating space for entities on bus {:04x}:{:02x}:",
+        bus.seg_id, bus.bus_id
+    );
+
+    for req in required {
+        let entity: &'static PciEntity = match req.associated_entity {
+            Some(entity) => entity,
+            None => &req.associated_bridge.unwrap().entity,
+        };
+
+        let what = if req.associated_bridge.is_some() {
+            "window of bridge".to_string()
+        } else {
+            format!("BAR #{} of entity", req.index)
+        };
+
+        let Some((child_base, host_base, _, is_host_mmio)) = allocate_bar(bus, req.size, req.flags)
+        else {
+            println!(
+                "sif: Failed to allocate {} {what} {:04x}:{:02x}:{:02x}.{}",
+                flags_to_str(req.flags),
+                entity.seg,
+                entity.bus,
+                entity.slot,
+                entity.function
+            );
+            continue;
+        };
+
+        if let Some(bridge) = req.associated_bridge {
+            match req.flags {
+                PciBusResource::IO => unsafe {
+                    entity.parent_bus.set_io_base(
+                        entity.slot,
+                        entity.function,
+                        (child_base >> 8) as u8,
+                    );
+                    entity.parent_bus.set_io_limit(
+                        entity.slot,
+                        entity.function,
+                        ((child_base + req.size - 0x100) >> 8) as u8,
+                    );
+                },
+                PciBusResource::MEMORY => unsafe {
+                    entity.parent_bus.set_mem_base(
+                        entity.slot,
+                        entity.function,
+                        (child_base >> 16) as u16,
+                    );
+                    entity.parent_bus.set_mem_limit(
+                        entity.slot,
+                        entity.function,
+                        ((child_base + req.size - 0x100000) >> 16) as u16,
+                    );
+                },
+                PciBusResource::PREF_MEMORY => unsafe {
+                    entity.parent_bus.set_prefetch_mem_base(
+                        entity.slot,
+                        entity.function,
+                        (child_base >> 16) as u16,
+                    );
+                    entity.parent_bus.set_prefetch_mem_limit(
+                        entity.slot,
+                        entity.function,
+                        ((child_base + req.size - 0x100000) >> 16) as u16,
+                    );
+                    entity.parent_bus.set_prefetch_mem_base_upper(
+                        entity.slot,
+                        entity.function,
+                        (child_base >> 32) as u32,
+                    );
+                    entity.parent_bus.set_prefetch_mem_limit_upper(
+                        entity.slot,
+                        entity.function,
+                        ((child_base + req.size - 0x100000) >> 32) as u32,
+                    );
+                },
+                _ => panic!("Unhandled PCI bus resource type {}", req.flags),
+            }
+
+            bridge
+                .associated_bus
+                .get()
+                .unwrap()
+                .resources
+                .lock()
+                .expect(EXPECT_LOCK)
+                .push(PciBusResource::new(
+                    child_base,
+                    req.size,
+                    host_base,
+                    req.flags,
+                    is_host_mmio,
+                ));
+        } else {
+            let bar_offset = PCI_REGULAR_BAR0 + (req.index as u16) * 4;
+            // The requirement was derived from a BAR of the header type of the entity.
+            let bar_val = unsafe {
+                entity
+                    .parent_bus
+                    .bar(entity.slot, entity.function, bar_offset)
+            };
+
+            // Write the BAR address.
+            unsafe {
+                entity.parent_bus.set_bar(
+                    entity.slot,
+                    entity.function,
+                    bar_offset,
+                    child_base as u32,
+                )
+            };
+
+            if (bar_val >> 1) & 3 == 2 {
+                unsafe {
+                    entity.parent_bus.set_bar(
+                        entity.slot,
+                        entity.function,
+                        bar_offset + 4,
+                        (child_base >> 32) as u32,
+                    )
+                };
+            }
+
+            // Update our associated BAR object.
+            let mut bars = entity.bars.lock().expect(EXPECT_LOCK);
+            let bar = &mut bars[req.index];
+            bar.allocated = true;
+            bar.address = child_base;
+            bar.host_type = BarType::Memory;
+            bar.host_address = host_base;
+            bar.offset = (host_base as usize & PAGE_MASK) as u32;
+        }
+
+        let mut line = format!(
+            "sif: {} {what} {:04x}:{:02x}:{:02x}.{} allocated to {child_base:#x}",
+            flags_to_str(req.flags),
+            entity.seg,
+            entity.bus,
+            entity.slot,
+            entity.function
+        );
+        if child_base != host_base {
+            line += &format!(" (host {host_base:#x})");
+        }
+        println!("{line}, size {} bytes", req.size);
+    }
+
+    for bridge in bus.child_bridges.lock().expect(EXPECT_LOCK).iter() {
+        allocate_bars(bridge.associated_bus.get().unwrap());
+    }
+}
+
+fn enable_decodes_in_chain(decode_bits: u16, entity: &'static PciEntity) {
+    let mut entity = entity;
+    loop {
+        let bus = entity.parent_bus;
+
+        let cmd = bus.command(entity.slot, entity.function);
+        bus.set_command(entity.slot, entity.function, cmd | decode_bits);
+
+        match bus.associated_bridge {
+            Some(bridge) => entity = &bridge.entity,
+            None => break,
+        }
+    }
+}
+
+fn configure_device(device: &'static PciDevice) {
+    // Enable PIO and/or memory decoding for all devices with PIO and/or memory BARs.
+    let mut has_io_bar = false;
+    let mut has_memory_bar = false;
+    for bar in device.entity.bars.lock().expect(EXPECT_LOCK).iter() {
+        if bar.type_ == BarType::Io {
+            has_io_bar = true;
+        }
+        if bar.type_ == BarType::Memory {
+            has_memory_bar = true;
+        }
+    }
+
+    let mut decode_bits: u16 = 0;
+    if has_io_bar {
+        decode_bits |= 0x01;
+    }
+    if has_memory_bar {
+        decode_bits |= 0x02;
+    }
+    enable_decodes_in_chain(decode_bits, &device.entity);
+}
+
 fn find_highest_id(bus: &'static PciBus) -> u8 {
     let mut id = bus.bus_id;
 
@@ -771,5 +1176,10 @@ pub fn enumerate_all() {
     for root_bus in all_root_buses() {
         let mut highest_id = find_highest_id(root_bus);
         configure_bridges(root_bus, &mut highest_id);
+        allocate_bars(root_bus);
+    }
+
+    for device in all_devices() {
+        configure_device(device);
     }
 }
