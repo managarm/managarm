@@ -22,7 +22,7 @@ namespace {
 
 namespace proto = protocols::usb;
 
-async::detached StorageDevice::run(int config_num, int intf_num) {
+async::result<void> StorageDevice::initialize(int config_num, int intf_num) {
 	// I own a USB key that does not support the READ6 command. ~AvdG
 	enableRead6 = false;
 
@@ -55,11 +55,12 @@ async::detached StorageDevice::run(int config_num, int intf_num) {
 
 	if(logSteps)
 		std::cout << "block-usb: Device is ready" << std::endl;
-
-	runScsi();
 }
 
 async::result<frg::expected<scsi::Error, size_t>> StorageDevice::sendScsiCommand(const scsi::CommandInfo &info) {
+	co_await transportMutex_.async_lock();
+	frg::unique_lock transportLock{frg::adopt_lock, transportMutex_};
+
 	CommandBlockWrapper cbw{};
 	cbw.signature = Signatures::kSignCbw;
 	cbw.tag = 1;
@@ -172,7 +173,7 @@ async::detached bindDevice(mbus_ng::Entity entity) {
 		std::cout << "block-usb: Detected USB device" << std::endl;
 
 	auto storage_device = new StorageDevice(device, entity.id());
-	storage_device->run(config_number.value(), intf_number.value());
+	co_await storage_device->initialize(config_number.value(), intf_number.value());
 	blockfs::runDevice(storage_device);
 }
 

@@ -1,6 +1,6 @@
-#include <async/recurring-event.hpp>
-#include <async/oneshot-event.hpp>
+#include <async/mutex.hpp>
 #include <async/result.hpp>
+#include <frg/mutex.hpp>
 #include <blockfs.hpp>
 #include <scsi.hpp>
 
@@ -37,12 +37,15 @@ struct StorageDevice : scsi::StorageDevice {
 	  endp_in_{nullptr},
 	  endp_out_{nullptr} {}
 
-	async::detached run(int config_num, int intf_num);
+	async::result<void> initialize(int config_num, int intf_num);
 
 	async::result<frg::expected<scsi::Error, size_t>> sendScsiCommand(const scsi::CommandInfo &info) override;
 
 private:
 	arch::contiguous_pool pool_{{.addressBits = 64}};
+
+	// Bulk-only transport allows only one command at a time.
+	async::mutex transportMutex_;
 
 	protocols::usb::Device usbDevice_;
 	protocols::usb::Endpoint endp_in_;
