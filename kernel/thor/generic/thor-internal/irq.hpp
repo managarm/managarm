@@ -54,12 +54,14 @@ private:
 
 struct IrqPin;
 
+// null is used for interrupt controllers that do not implement configurable trigger modes.
 enum class TriggerMode {
 	null,
 	edge,
 	level
 };
 
+// null is used for interrupt controllers that do not implement configurable polarities.
 enum class Polarity {
 	null,
 	high,
@@ -67,13 +69,7 @@ enum class Polarity {
 };
 
 struct IrqConfiguration {
-	bool specified() {
-		return trigger != TriggerMode::null
-				&& polarity != Polarity::null;
-	}
-
 	bool compatible(IrqConfiguration other) {
-		assert(specified());
 		return trigger == other.trigger
 				&& polarity == other.polarity;
 	}
@@ -232,6 +228,7 @@ private:
 	frg::ticket_spinlock _mutex;
 
 	IrqConfiguration _activeCfg;
+	bool _configured = false;
 
 	IrqStrategy _strategy;
 

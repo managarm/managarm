@@ -1,6 +1,7 @@
 #include <thor-internal/io.hpp>
 #include <thor-internal/kernel-heap.hpp>
 #include <thor-internal/address-space.hpp>
+#include <thor-internal/debug.hpp>
 #include <thor-internal/pci/pci.hpp>
 #include <thor-internal/main.hpp>
 #include <thor-internal/dtb/dtb.hpp>
@@ -181,6 +182,9 @@ initgraph::Task discoverDtbNodes{&globalInitEngine, "pci.discover-dtb-nodes",
 	initgraph::Requires{getDeviceTreeParsedStage()},
 	initgraph::Entails{getRootsDiscoveredStage()},
 	[] {
+		if (debugOptionsNote->useSif)
+			return;
+
 		size_t i = 0;
 
 		auto root = getDeviceTreeRoot();

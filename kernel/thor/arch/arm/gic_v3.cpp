@@ -167,6 +167,8 @@ bool GicRedistributorV3::ownedBy(uint32_t affinity) const {
 bool GicPinV3::setMode(TriggerMode trigger) {
 	if(irq_ < 16)
 		return false;
+	if(trigger == TriggerMode::null)
+		return false;
 
 	auto bitOffset = irq_ % 16 * 2;
 	auto offset = irq_ / 16 * 4;
@@ -492,7 +494,7 @@ smarter::shared_ptr<Gic::Pin> GicV3::setupIrq(uint32_t irq, TriggerMode trigger)
 	if (!pin)
 		return nullptr;
 
-	pin->configure({trigger, Polarity::high});
+	pin->configure({trigger, Polarity::null});
 
 	return pin;
 }

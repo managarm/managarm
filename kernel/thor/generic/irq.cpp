@@ -170,12 +170,10 @@ IrqPin::IrqPin(frg::string<KernelAlloc> name)
 }
 
 void IrqPin::configure(IrqConfiguration desired) {
-	assert(desired.specified());
-
 	auto irq_lock = frg::guard(&irqMutex());
 	auto lock = frg::guard(&_mutex);
 
-	if(!_activeCfg.specified()) {
+	if(!_configured) {
 		infoLogger() << "thor: Configuring IRQ " << _name
 				<< " to trigger mode: " << static_cast<int>(desired.trigger)
 				<< ", polarity: " << static_cast<int>(desired.polarity) << frg::endlog;
@@ -185,6 +183,7 @@ void IrqPin::configure(IrqConfiguration desired) {
 				&& (_strategy & irq_strategy::suppressMaskInService)));
 
 		_activeCfg = desired;
+		_configured = true;
 		_inService = false;
 		_dueSinks = 0;
 		_maskState = 0;

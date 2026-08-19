@@ -3609,6 +3609,7 @@ HelError helHandleIrq(HelHandle pinHandle, HelHandle *handle) {
 HelError helConfigureIrq(HelHandle pinHandle, uint32_t trigger, uint32_t polarity) {
 	TriggerMode triggerMode;
 	switch(trigger) {
+		case kHelIrqTriggerNull: triggerMode = TriggerMode::null; break;
 		case kHelIrqTriggerEdge: triggerMode = TriggerMode::edge; break;
 		case kHelIrqTriggerLevel: triggerMode = TriggerMode::level; break;
 		default: return kHelErrIllegalArgs;
@@ -3616,6 +3617,7 @@ HelError helConfigureIrq(HelHandle pinHandle, uint32_t trigger, uint32_t polarit
 
 	Polarity irqPolarity;
 	switch(polarity) {
+		case kHelIrqPolarityNull: irqPolarity = Polarity::null; break;
 		case kHelIrqPolarityHigh: irqPolarity = Polarity::high; break;
 		case kHelIrqPolarityLow: irqPolarity = Polarity::low; break;
 		default: return kHelErrIllegalArgs;

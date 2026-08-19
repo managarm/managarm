@@ -1,6 +1,7 @@
 pub mod acpi;
 pub mod config;
 pub mod discover;
+pub mod dtb;
 pub mod serve;
 
 use managarm::svrctl::hardware_access_handle;
@@ -21,15 +22,16 @@ pub(crate) fn leak<T>(value: T) -> &'static T {
 pub(crate) const EXPECT_LOCK: &str = "sif: PCI tree mutex was poisoned";
 
 pub struct IrqPin {
-    gsi: u32,
+    name: String,
     handle: hel::Handle,
-    trigger: IrqTrigger,
-    polarity: IrqPolarity,
+    // None if the interrupt controller has no configurable trigger mode / polarity.
+    trigger: Option<IrqTrigger>,
+    polarity: Option<IrqPolarity>,
 }
 
 impl IrqPin {
-    pub fn gsi(&self) -> u32 {
-        self.gsi
+    pub fn name(&self) -> &str {
+        &self.name
     }
 
     pub fn handle(&self) -> &hel::Handle {
@@ -43,7 +45,7 @@ static IRQ_PINS: Mutex<BTreeMap<u32, &'static IrqPin>> = Mutex::new(BTreeMap::ne
 pub fn system_irq(gsi: u32, trigger: IrqTrigger, polarity: IrqPolarity) -> Option<&'static IrqPin> {
     let mut pins = IRQ_PINS.lock().expect(EXPECT_LOCK);
     if let Some(pin) = pins.get(&gsi) {
-        if pin.trigger != trigger || pin.polarity != polarity {
+        if pin.trigger != Some(trigger) || pin.polarity != Some(polarity) {
             println!("sif: Conflicting configurations for GSI {gsi}");
         }
         return Some(*pin);
@@ -56,16 +58,16 @@ pub fn system_irq(gsi: u32, trigger: IrqTrigger, polarity: IrqPolarity) -> Optio
             return None;
         }
     };
-    if let Err(err) = hel::configure_irq(&handle, trigger, polarity) {
+    if let Err(err) = hel::configure_irq(&handle, Some(trigger), Some(polarity)) {
         println!("sif: Failed to configure GSI {gsi}: {err}");
         return None;
     }
 
     let pin = leak(IrqPin {
-        gsi,
+        name: format!("gsi-{gsi}"),
         handle,
-        trigger,
-        polarity,
+        trigger: Some(trigger),
+        polarity: Some(polarity),
     });
     pins.insert(gsi, pin);
     Some(pin)
@@ -191,6 +193,75 @@ impl RouterState {
             RoutingModel::None => None,
         }
     }
+
+    pub fn route_expansion_bridge(&mut self, parent: &dyn PciIrqRouter, bus: &PciBus) {
+        let bridge = bus
+            .associated_bridge
+            .expect("expansion bridge routing without an associated bridge");
+
+        for (i, bridge_irq) in self.bridge_irqs.iter_mut().enumerate() {
+            *bridge_irq =
+                parent.resolve_irq_route(bridge.entity.slot, IrqIndex::from_pin(i as u8 + 1));
+            if let Some(pin) = bridge_irq {
+                println!("sif:     Bridge IRQ [{i}]: {}", pin.name());
+            }
+        }
+
+        self.routing_model = RoutingModel::ExpansionBridge;
+    }
+}
+
+// Not consumed yet; the resources come to life once BARs are allocated from them.
+#[allow(dead_code)]
+pub struct PciBusResource {
+    base: u64,
+    size: u64,
+    host_base: u64,
+    flags: u32,
+    is_host_mmio: bool,
+}
+
+#[allow(dead_code)]
+impl PciBusResource {
+    pub const IO: u32 = 1;
+    pub const MEMORY: u32 = 2;
+    pub const PREF_MEMORY: u32 = 3;
+
+    pub fn new(
+        base: u64,
+        size: u64,
+        host_base: u64,
+        flags: u32,
+        is_host_mmio: bool,
+    ) -> PciBusResource {
+        PciBusResource {
+            base,
+            size,
+            host_base,
+            flags,
+            is_host_mmio,
+        }
+    }
+
+    pub fn base(&self) -> u64 {
+        self.base
+    }
+
+    pub fn size(&self) -> u64 {
+        self.size
+    }
+
+    pub fn host_base(&self) -> u64 {
+        self.host_base
+    }
+
+    pub fn flags(&self) -> u32 {
+        self.flags
+    }
+
+    pub fn is_host_mmio(&self) -> bool {
+        self.is_host_mmio
+    }
 }
 
 pub struct PciBus {
@@ -199,6 +270,8 @@ pub struct PciBus {
     pub io: &'static dyn PciConfigIo,
     pub child_devices: Mutex<Vec<&'static PciDevice>>,
     pub child_bridges: Mutex<Vec<&'static PciBridge>>,
+
+    pub resources: Mutex<Vec<PciBusResource>>,
 
     pub seg_id: u16,
     pub bus_id: u8,
@@ -223,6 +296,7 @@ impl PciBus {
             io,
             child_devices: Mutex::new(Vec::new()),
             child_bridges: Mutex::new(Vec::new()),
+            resources: Mutex::new(Vec::new()),
             seg_id,
             bus_id,
             mbus_id: AtomicI64::new(0),
@@ -636,7 +710,10 @@ pub const PCI_BRIDGE_SECONDARY: u16 = 0x19;
 pub const PCI_BRIDGE_SUBORDINATE: u16 = 0x1A;
 
 pub async fn publish_devices() -> Result<()> {
+    // Each discovery source no-ops if its firmware interface is absent.
     acpi::discover_root_buses();
+    dtb::discover_root_buses();
+
     discover::enumerate_all();
     serve::publish_all().await?;
 

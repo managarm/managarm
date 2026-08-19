@@ -1602,8 +1602,12 @@ HEL_C_LINKAGE HelError helHandleIrq(HelHandle pinHandle, HelHandle *handle);
 //!     Handle to the IRQ pin that is configured.
 //! @param[in] trigger
 //!     Trigger mode of the IRQ (see ::kHelIrqTriggerEdge and ::kHelIrqTriggerLevel).
+//!     ::kHelIrqTriggerNull states that the interrupt controller has no configurable
+//!     trigger mode.
 //! @param[in] polarity
 //!     Polarity of the IRQ (see ::kHelIrqPolarityHigh and ::kHelIrqPolarityLow).
+//!     ::kHelIrqPolarityNull states that the interrupt controller has no configurable
+//!     polarity.
 HEL_C_LINKAGE HelError helConfigureIrq(HelHandle pinHandle, uint32_t trigger, uint32_t polarity);
 
 HEL_C_LINKAGE HelError helAcknowledgeIrq(HelHandle handle, uint32_t flags, uint64_t sequence);

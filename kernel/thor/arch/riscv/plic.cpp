@@ -119,7 +119,7 @@ struct Plic : dt::IrqController {
 
 		auto pin = getIrq(idx);
 		// PLIC does not care about trigger mode / polarity.
-		pin->configure({TriggerMode::edge, Polarity::high});
+		pin->configure({TriggerMode::null, Polarity::null});
 		return pin;
 	}
 

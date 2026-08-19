@@ -25,6 +25,9 @@ namespace thor {
 extern frg::manual_box<frg::string<KernelAlloc>> kernelCommandLine;
 extern frg::manual_box<LogRingBuffer> allocLog;
 extern ManagarmElfNote<AcpiData> acpiRsdpNote;
+#ifdef THOR_HAS_DTB_SUPPORT
+extern ManagarmElfNote<DtData> dtDataNote;
+#endif
 
 // ------------------------------------------------------------------------
 // mbus object creation and management.
@@ -119,6 +122,27 @@ private:
 			managarm::kerncfg::GetAcpiRsdpResponse<KernelAlloc> resp(*kernelAlloc);
 			resp.set_error(managarm::kerncfg::Error::SUCCESS);
 			resp.set_rsdp(acpiRsdpNote->rsdp);
+
+			frg::unique_memory<KernelAlloc> respBuffer{*kernelAlloc, resp.size_of_head()};
+			bragi::write_head_only(resp, respBuffer);
+			auto respError = co_await sendBuffer(lane, std::move(respBuffer));
+			if(respError != Error::success)
+				co_return respError;
+		}else if(preamble.id() == bragi::message_id<managarm::kerncfg::GetDeviceTreeRequest>) {
+			auto req = bragi::parse_head_only<managarm::kerncfg::GetDeviceTreeRequest>(reqBuffer, *kernelAlloc);
+
+			if (!req)
+				co_return Error::protocolViolation;
+
+			managarm::kerncfg::GetDeviceTreeResponse<KernelAlloc> resp(*kernelAlloc);
+			resp.set_error(managarm::kerncfg::Error::SUCCESS);
+#ifdef THOR_HAS_DTB_SUPPORT
+			resp.set_address(dtDataNote->address);
+			resp.set_size(dtDataNote->size);
+#else
+			resp.set_address(0);
+			resp.set_size(0);
+#endif
 
 			frg::unique_memory<KernelAlloc> respBuffer{*kernelAlloc, resp.size_of_head()};
 			bragi::write_head_only(resp, respBuffer);

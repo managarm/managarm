@@ -367,9 +367,9 @@ fn check_pci_function(
             let router = bus.irq_router.get().expect("bus has no IRQ router");
             if let Some(pin) = router.resolve_irq_route(slot, irq_index) {
                 println!(
-                    "sif:     Interrupt: {} (routed to GSI {})",
+                    "sif:     Interrupt: {} (routed to {})",
                     irq_index.name(),
-                    pin.gsi()
+                    pin.name()
                 );
                 assert!(
                     device.interrupt.set(pin).is_ok(),

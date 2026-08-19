@@ -22,6 +22,10 @@ pub fn set_rsdp(addr: u64) {
     RSDP.store(addr, Ordering::Relaxed);
 }
 
+pub fn has_rsdp() -> bool {
+    RSDP.load(Ordering::Relaxed) != 0
+}
+
 const LOG_LEVELS: &[(&str, uacpi_sys::uacpi_log_level)] = &[
     ("error", uacpi_sys::UACPI_LOG_ERROR),
     ("warn", uacpi_sys::UACPI_LOG_WARN),
