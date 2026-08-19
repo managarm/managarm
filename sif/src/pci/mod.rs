@@ -1084,7 +1084,7 @@ pub const PCI_BRIDGE_SUBORDINATE: u16 = 0x1A;
 pub async fn publish_devices() -> Result<()> {
     // Each discovery source no-ops if its firmware interface is absent.
     acpi::discover_root_buses();
-    dtb::discover_root_buses();
+    dtb::discover_root_buses().await;
 
     discover::enumerate_all();
     serve::publish_all().await?;
