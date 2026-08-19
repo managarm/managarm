@@ -1180,6 +1180,12 @@ fn configure_device(device: &'static PciDevice) {
         decode_bits |= 0x02;
     }
     enable_decodes_in_chain(decode_bits, &device.entity);
+
+    println!(
+        "sif: Applying quirks for PCI device {:04x}:{:02x}:{:02x}.{:x}",
+        device.entity.seg, device.entity.bus, device.entity.slot, device.entity.function
+    );
+    super::quirks::apply_pci_device_quirks(device);
 }
 
 fn find_highest_id(bus: &'static PciBus) -> u8 {

@@ -2,6 +2,7 @@ pub mod acpi;
 pub mod config;
 pub mod discover;
 pub mod dtb;
+pub mod quirks;
 pub mod serve;
 
 use managarm::svrctl::hardware_access_handle;
@@ -843,6 +844,9 @@ pub struct PciDevice {
     pub subsystem_device: u16,
 
     pub interrupt: OnceLock<&'static IrqPin>,
+
+    // Physical address and size of the Intel IGD VBT, if any.
+    pub igd_vbt: OnceLock<(u64, u64)>,
 }
 
 impl PciDevice {
@@ -868,6 +872,7 @@ impl PciDevice {
             subsystem_vendor,
             subsystem_device,
             interrupt: OnceLock::new(),
+            igd_vbt: OnceLock::new(),
         })
     }
 
