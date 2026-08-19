@@ -3,7 +3,7 @@ use std::sync::atomic::Ordering;
 
 use super::{
     BarType, Capability, EXPECT_LOCK, ExtendedCapability, IrqIndex, PCI_REGULAR_BAR0, PciBridge,
-    PciBus, PciDevice, PciEntity, name_of_capability, name_of_extended_capability,
+    PciBus, PciBusResource, PciDevice, PciEntity, name_of_capability, name_of_extended_capability,
 };
 
 use crate::acpi::PAGE_MASK;
@@ -85,9 +85,29 @@ fn read_entity_bars(entity: &PciEntity, n_bars: usize) {
             if address == 0 {
                 println!("sif:     unallocated I/O space BAR #{i}, length: {length} ports");
             } else {
-                bars[i].host_type = BarType::Io;
-                bars[i].host_address = address;
-                bars[i].offset = 0;
+                // Check the parent resources to see if this BAR is actually memory mapped.
+                let mut host = None;
+                for res in bus.resources.lock().expect(EXPECT_LOCK).iter() {
+                    if res.flags() == PciBusResource::IO
+                        && address >= res.base()
+                        && address + length <= res.base() + res.size()
+                    {
+                        host = Some((res.host_base() + (address - res.base()), res.is_host_mmio()));
+                        break;
+                    }
+                }
+
+                if let Some((host_address, true)) = host {
+                    bars[i].host_type = BarType::Memory;
+                    bars[i].allocated = true;
+                    bars[i].host_address = host_address;
+                    bars[i].offset = (host_address as usize & PAGE_MASK) as u32;
+                } else {
+                    bars[i].host_type = BarType::Io;
+                    bars[i].allocated = true;
+                    bars[i].host_address = address;
+                    bars[i].offset = 0;
+                }
 
                 println!("sif:     I/O space BAR #{i} at {address:#x}, length: {length} ports");
             }
@@ -118,6 +138,7 @@ fn read_entity_bars(entity: &PciEntity, n_bars: usize) {
                 );
             } else {
                 bars[i].host_type = BarType::Memory;
+                bars[i].allocated = true;
                 bars[i].host_address = address;
                 bars[i].offset = (address as usize & PAGE_MASK) as u32;
 
@@ -174,6 +195,7 @@ fn read_entity_bars(entity: &PciEntity, n_bars: usize) {
                 );
             } else {
                 bars[i].host_type = BarType::Memory;
+                bars[i].allocated = true;
                 bars[i].host_address = address;
                 bars[i].offset = (address as usize & PAGE_MASK) as u32;
 
@@ -458,6 +480,281 @@ fn check_pci_bus(bus: &'static PciBus, enumerate_downstream: &mut dyn FnMut(&'st
     }
 }
 
+fn check_for_bridge_resources(bridge: &'static PciBridge) {
+    let parent_bus = bridge.entity.parent_bus;
+    let slot = bridge.entity.slot;
+    let function = bridge.entity.function;
+    let downstream = bridge
+        .associated_bus
+        .get()
+        .expect("bridge has no associated bus");
+
+    {
+        // The low nibble of the I/O base/limit encodes capabilities, not address bits.
+        let base = (unsafe { parent_bus.io_base(slot, function) } & 0xF0) as u64;
+        let limit = (unsafe { parent_bus.io_limit(slot, function) } & 0xF0) as u64;
+
+        let addr = base << 8;
+        let size = (limit << 8).wrapping_add(0x100).wrapping_sub(addr);
+
+        // Try to look up the host base address in our parent's resources.
+        let mut host_base = 0;
+        let mut is_host_mmio = false;
+        for res in parent_bus.resources.lock().expect(EXPECT_LOCK).iter() {
+            if res.base() <= addr
+                && res.base() + res.size() >= addr.wrapping_add(size)
+                && res.flags() == PciBusResource::IO
+            {
+                is_host_mmio = res.is_host_mmio();
+                host_base = res.host_base() + (addr - res.base());
+                break;
+            }
+        }
+
+        // If the window is not found in the parent's resources, assume it's
+        // garbage/empty and ignore it.
+        if host_base != 0 && size != 0 {
+            println!(
+                "sif: Discovered existing I/O window of bridge \
+                        {:04x}:{:02x}:{:02x}.{} address: {addr:#x} size: {size} \
+                        (host base: {host_base:#x})",
+                bridge.entity.seg, bridge.entity.bus, slot, function
+            );
+
+            downstream
+                .resources
+                .lock()
+                .expect(EXPECT_LOCK)
+                .push(PciBusResource::new(
+                    addr,
+                    size,
+                    host_base,
+                    PciBusResource::IO,
+                    is_host_mmio,
+                ));
+        }
+    }
+
+    {
+        let base = unsafe { parent_bus.mem_base(slot, function) } as u64;
+        let limit = unsafe { parent_bus.mem_limit(slot, function) } as u64;
+
+        let addr = base << 16;
+        let size = (limit << 16).wrapping_add(0x100000).wrapping_sub(addr);
+
+        // Try to look up the host base address in our parent's resources.
+        let mut host_base = 0;
+        for res in parent_bus.resources.lock().expect(EXPECT_LOCK).iter() {
+            if res.base() <= addr
+                && res.base() + res.size() >= addr.wrapping_add(size)
+                && res.flags() == PciBusResource::MEMORY
+            {
+                host_base = res.host_base() + (addr - res.base());
+                break;
+            }
+        }
+
+        // If the window is not found in the parent's resources, assume it's
+        // garbage/empty and ignore it.
+        if host_base != 0 && size != 0 {
+            println!(
+                "sif: Discovered existing memory window of bridge \
+                        {:04x}:{:02x}:{:02x}.{} address: {addr:#x} size: {size} \
+                        (host base: {host_base:#x})",
+                bridge.entity.seg, bridge.entity.bus, slot, function
+            );
+
+            downstream
+                .resources
+                .lock()
+                .expect(EXPECT_LOCK)
+                .push(PciBusResource::new(
+                    addr,
+                    size,
+                    host_base,
+                    PciBusResource::MEMORY,
+                    true,
+                ));
+        }
+    }
+
+    {
+        // The low nibble of the prefetch base/limit encodes 64-bit support, not address bits.
+        let base = (unsafe { parent_bus.prefetch_mem_base(slot, function) } & 0xFFF0) as u64;
+        let limit = (unsafe { parent_bus.prefetch_mem_limit(slot, function) } & 0xFFF0) as u64;
+
+        let base_upper = unsafe { parent_bus.prefetch_mem_base_upper(slot, function) } as u64;
+        let limit_upper = unsafe { parent_bus.prefetch_mem_limit_upper(slot, function) } as u64;
+
+        let addr = (base << 16) | (base_upper << 32);
+        let size = ((limit << 16) | (limit_upper << 32))
+            .wrapping_add(0x100000)
+            .wrapping_sub(addr);
+
+        // Try to look up the host base address in our parent's resources.
+        let mut host_base = 0;
+        for res in parent_bus.resources.lock().expect(EXPECT_LOCK).iter() {
+            if res.base() <= addr
+                && res.base() + res.size() >= addr.wrapping_add(size)
+                && res.flags() == PciBusResource::PREF_MEMORY
+            {
+                host_base = res.host_base() + (addr - res.base());
+                break;
+            }
+        }
+
+        // If the window is not found in the parent's resources, assume it's
+        // garbage/empty and ignore it.
+        if host_base != 0 && size != 0 {
+            println!(
+                "sif: Discovered existing prefetch memory window of bridge \
+                        {:04x}:{:02x}:{:02x}.{} address: {addr:#x} size: {size} \
+                        (host base: {host_base:#x})",
+                bridge.entity.seg, bridge.entity.bus, slot, function
+            );
+
+            downstream
+                .resources
+                .lock()
+                .expect(EXPECT_LOCK)
+                .push(PciBusResource::new(
+                    addr,
+                    size,
+                    host_base,
+                    PciBusResource::PREF_MEMORY,
+                    true,
+                ));
+        }
+    }
+}
+
+fn configure_bridges(bus: &'static PciBus, highest_id: &mut u8) {
+    let mut i = 0;
+    while let Some(bridge) = {
+        let bridges = bus.child_bridges.lock().expect(EXPECT_LOCK);
+        bridges.get(i).copied()
+    } {
+        if bridge.downstream_id.load(Ordering::Relaxed) == 0 {
+            let parent = bridge.entity.parent_bus.associated_bridge;
+
+            let mut b = parent;
+            while let Some(cur) = b {
+                let subordinate_id = cur.subordinate_id.load(Ordering::Relaxed);
+                println!(
+                    "sif: Bumping bridge {:04x}:{:02x}:{:02x}.{} from subordinate id {} \
+                            to subordinate id {}",
+                    cur.entity.seg,
+                    cur.entity.bus,
+                    cur.entity.slot,
+                    cur.entity.function,
+                    subordinate_id,
+                    subordinate_id + 1
+                );
+
+                cur.subordinate_id
+                    .store(subordinate_id + 1, Ordering::Relaxed);
+                unsafe {
+                    cur.entity.parent_bus.set_subordinate_bus(
+                        cur.entity.slot,
+                        cur.entity.function,
+                        subordinate_id + 1,
+                    )
+                };
+                b = cur.entity.parent_bus.associated_bridge;
+            }
+
+            if let Some(parent) = parent {
+                let subordinate_id = parent.subordinate_id.load(Ordering::Relaxed);
+                assert!(*highest_id < subordinate_id);
+                *highest_id = subordinate_id;
+
+                bridge
+                    .downstream_id
+                    .store(subordinate_id, Ordering::Relaxed);
+                bridge
+                    .subordinate_id
+                    .store(subordinate_id, Ordering::Relaxed);
+            } else {
+                // We're directly on the root bus.
+                // TODO: this ID may be in use by a bridge on a different root bus.
+                *highest_id += 1;
+
+                bridge.downstream_id.store(*highest_id, Ordering::Relaxed);
+                bridge.subordinate_id.store(*highest_id, Ordering::Relaxed);
+            }
+
+            let downstream_id = bridge.downstream_id.load(Ordering::Relaxed);
+            let subordinate_id = bridge.subordinate_id.load(Ordering::Relaxed);
+            unsafe {
+                bridge.entity.parent_bus.set_secondary_bus(
+                    bridge.entity.slot,
+                    bridge.entity.function,
+                    downstream_id,
+                );
+                bridge.entity.parent_bus.set_subordinate_bus(
+                    bridge.entity.slot,
+                    bridge.entity.function,
+                    subordinate_id,
+                );
+            }
+
+            println!(
+                "sif: Found unconfigured bridge {:04x}:{:02x}:{:02x}.{}, now configured to \
+                        downstream {}, subordinate {}",
+                bridge.entity.seg,
+                bridge.entity.bus,
+                bridge.entity.slot,
+                bridge.entity.function,
+                downstream_id,
+                subordinate_id
+            );
+
+            let downstream_bus = bus.make_downstream_bus(bridge, downstream_id);
+            assert!(
+                bridge.associated_bus.set(downstream_bus).is_ok(),
+                "sif: PCI bridge was already enumerated"
+            );
+            check_pci_bus(downstream_bus, &mut |b: &'static PciBus| {
+                let br = b.associated_bridge.unwrap();
+                panic!(
+                    "sif: error: found already configured bridge {:04x}:{:02x}:{:02x}.{} \
+                            under an unconfigured bridge",
+                    br.entity.seg, br.entity.bus, br.entity.slot, br.entity.function
+                );
+            });
+        }
+
+        let downstream_bus = bridge
+            .associated_bus
+            .get()
+            .expect("Bridge has no associated bus");
+
+        // Look for any existing bridge resources.
+        check_for_bridge_resources(bridge);
+
+        configure_bridges(downstream_bus, highest_id);
+
+        i += 1;
+    }
+}
+
+fn find_highest_id(bus: &'static PciBus) -> u8 {
+    let mut id = bus.bus_id;
+
+    for bridge in bus.child_bridges.lock().expect(EXPECT_LOCK).iter() {
+        let subordinate_id = bridge.subordinate_id.load(Ordering::Relaxed);
+        if subordinate_id == 0 {
+            continue;
+        }
+
+        if id < subordinate_id {
+            id = subordinate_id;
+        }
+    }
+
+    id
+}
+
 pub fn enumerate_all() {
     // Downstream buses are appended as we go, hence this also covers buses behind bridges.
     let mut queue = all_root_buses();
@@ -466,5 +763,13 @@ pub fn enumerate_all() {
         let bus = queue[i];
         check_pci_bus(bus, &mut |downstream| queue.push(downstream));
         i += 1;
+    }
+
+    // Configure unconfigured bridges.
+    println!("sif: Looking for unconfigured PCI bridges");
+
+    for root_bus in all_root_buses() {
+        let mut highest_id = find_highest_id(root_bus);
+        configure_bridges(root_bus, &mut highest_id);
     }
 }

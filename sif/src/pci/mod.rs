@@ -211,8 +211,6 @@ impl RouterState {
     }
 }
 
-// Not consumed yet; the resources come to life once BARs are allocated from them.
-#[allow(dead_code)]
 pub struct PciBusResource {
     base: u64,
     size: u64,
@@ -221,7 +219,6 @@ pub struct PciBusResource {
     is_host_mmio: bool,
 }
 
-#[allow(dead_code)]
 impl PciBusResource {
     pub const IO: u32 = 1;
     pub const MEMORY: u32 = 2;
@@ -453,8 +450,78 @@ impl PciBus {
     /// # Safety
     ///
     /// The function must have a PCI-to-PCI bridge header.
+    pub unsafe fn set_secondary_bus(&self, slot: u8, function: u8, value: u8) {
+        unsafe { self.write_config_byte(slot, function, PCI_BRIDGE_SECONDARY, value) };
+    }
+
+    /// # Safety
+    ///
+    /// The function must have a PCI-to-PCI bridge header.
     pub unsafe fn subordinate_bus(&self, slot: u8, function: u8) -> u8 {
         unsafe { self.read_config_byte(slot, function, PCI_BRIDGE_SUBORDINATE) }
+    }
+
+    /// # Safety
+    ///
+    /// The function must have a PCI-to-PCI bridge header.
+    pub unsafe fn set_subordinate_bus(&self, slot: u8, function: u8, value: u8) {
+        unsafe { self.write_config_byte(slot, function, PCI_BRIDGE_SUBORDINATE, value) };
+    }
+
+    /// # Safety
+    ///
+    /// The function must have a PCI-to-PCI bridge header.
+    pub unsafe fn io_base(&self, slot: u8, function: u8) -> u8 {
+        unsafe { self.read_config_byte(slot, function, PCI_BRIDGE_IO_BASE) }
+    }
+
+    /// # Safety
+    ///
+    /// The function must have a PCI-to-PCI bridge header.
+    pub unsafe fn io_limit(&self, slot: u8, function: u8) -> u8 {
+        unsafe { self.read_config_byte(slot, function, PCI_BRIDGE_IO_LIMIT) }
+    }
+
+    /// # Safety
+    ///
+    /// The function must have a PCI-to-PCI bridge header.
+    pub unsafe fn mem_base(&self, slot: u8, function: u8) -> u16 {
+        unsafe { self.read_config_half(slot, function, PCI_BRIDGE_MEM_BASE) }
+    }
+
+    /// # Safety
+    ///
+    /// The function must have a PCI-to-PCI bridge header.
+    pub unsafe fn mem_limit(&self, slot: u8, function: u8) -> u16 {
+        unsafe { self.read_config_half(slot, function, PCI_BRIDGE_MEM_LIMIT) }
+    }
+
+    /// # Safety
+    ///
+    /// The function must have a PCI-to-PCI bridge header.
+    pub unsafe fn prefetch_mem_base(&self, slot: u8, function: u8) -> u16 {
+        unsafe { self.read_config_half(slot, function, PCI_BRIDGE_PREFETCH_MEM_BASE) }
+    }
+
+    /// # Safety
+    ///
+    /// The function must have a PCI-to-PCI bridge header.
+    pub unsafe fn prefetch_mem_limit(&self, slot: u8, function: u8) -> u16 {
+        unsafe { self.read_config_half(slot, function, PCI_BRIDGE_PREFETCH_MEM_LIMIT) }
+    }
+
+    /// # Safety
+    ///
+    /// The function must have a PCI-to-PCI bridge header.
+    pub unsafe fn prefetch_mem_base_upper(&self, slot: u8, function: u8) -> u32 {
+        unsafe { self.read_config_word(slot, function, PCI_BRIDGE_PREFETCH_MEM_BASE_UPPER) }
+    }
+
+    /// # Safety
+    ///
+    /// The function must have a PCI-to-PCI bridge header.
+    pub unsafe fn prefetch_mem_limit_upper(&self, slot: u8, function: u8) -> u32 {
+        unsafe { self.read_config_word(slot, function, PCI_BRIDGE_PREFETCH_MEM_LIMIT_UPPER) }
     }
 
     /// # Safety
@@ -509,6 +576,7 @@ pub struct PciBar {
     pub length: u64,
     pub prefetchable: bool,
 
+    pub allocated: bool,
     pub host_type: BarType,
     pub host_address: u64,
     pub offset: u32,
@@ -706,6 +774,14 @@ pub const PCI_REGULAR_CAPABILITIES: u16 = 0x34;
 pub const PCI_REGULAR_INTERRUPT_PIN: u16 = 0x3D;
 
 // PCI-to-PCI bridge header fields
+pub const PCI_BRIDGE_IO_BASE: u16 = 0x1C;
+pub const PCI_BRIDGE_IO_LIMIT: u16 = 0x1D;
+pub const PCI_BRIDGE_MEM_BASE: u16 = 0x20;
+pub const PCI_BRIDGE_MEM_LIMIT: u16 = 0x22;
+pub const PCI_BRIDGE_PREFETCH_MEM_BASE: u16 = 0x24;
+pub const PCI_BRIDGE_PREFETCH_MEM_LIMIT: u16 = 0x26;
+pub const PCI_BRIDGE_PREFETCH_MEM_BASE_UPPER: u16 = 0x28;
+pub const PCI_BRIDGE_PREFETCH_MEM_LIMIT_UPPER: u16 = 0x2C;
 pub const PCI_BRIDGE_SECONDARY: u16 = 0x19;
 pub const PCI_BRIDGE_SUBORDINATE: u16 = 0x1A;
 
