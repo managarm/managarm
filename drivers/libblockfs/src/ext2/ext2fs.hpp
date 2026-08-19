@@ -14,7 +14,7 @@
 #include <protocols/fs/file-locks.hpp>
 
 #include <async/oneshot-event.hpp>
-#include <async/recurring-event.hpp>
+#include <async/sequenced-event.hpp>
 #include <hel.h>
 
 #include <blockfs.hpp>
@@ -479,7 +479,6 @@ struct FileSystem final : BaseFileSystem {
 
 	async::result<void> init();
 
-	async::recurring_event bdgtWriteback;
 	async::detached handleBgdtWriteback();
 
 	async::detached manageBlockBitmap(helix::UniqueDescriptor memory);
@@ -582,6 +581,9 @@ struct FileSystem final : BaseFileSystem {
 
 	// Serializes block/inode allocation and BGDT modifications.
 	async::mutex allocationMutex;
+
+	// Raised to request a writeback of the block group descriptor table.
+	async::sequenced_event bgdtWriteback;
 
 	// Protected by activeInodesMutex.
 	std::unordered_map<uint32_t, std::weak_ptr<Inode>> activeInodes;
