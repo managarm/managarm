@@ -260,6 +260,7 @@ public:
 	}
 
 	void wait() {
+		assert(_onOwnerThread());
 		acquire();
 
 		while(true) {
@@ -297,7 +298,15 @@ public:
 	}
 
 private:
+	// Check if we are on the owning thread of this dispatcher.
+	// submitSq(), wait() and related functions must only be driven if this returns true;
+	// in particular, the dispatcher's SQ and CQ state is not thread-safe.
+	bool _onOwnerThread() {
+		return _runQueue.context() == async::current_run_queue_context();
+	}
+
 	void _surrender(int cn) {
+		assert(_onOwnerThread());
 		assert(_refCounts[cn] > 0);
 		if(_refCounts[cn]-- > 1)
 			return;
@@ -321,6 +330,7 @@ private:
 	}
 
 	void _reference(int cn) {
+		assert(_onOwnerThread());
 		_refCounts[cn]++;
 	}
 
@@ -328,6 +338,7 @@ public:
 	// Push an element to the SQ using a gather list.
 	void pushSq(uint32_t opcode, uintptr_t context,
 			std::span<const std::span<const std::byte>> segments) {
+		assert(_onOwnerThread());
 		acquire();
 
 		size_t dataLength = 0;
