@@ -5,6 +5,7 @@ pub mod dtb;
 pub mod error;
 pub mod iommu;
 pub mod quirks;
+pub mod quirks_rpi4;
 pub mod serve;
 
 use std::sync::atomic::{AtomicBool, AtomicI32, AtomicI64, AtomicU8, AtomicU32, Ordering};
