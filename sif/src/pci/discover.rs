@@ -2,8 +2,10 @@ use std::sync::Mutex;
 use std::sync::atomic::Ordering;
 
 use super::{
-    BarType, Capability, EXPECT_LOCK, ExtendedCapability, IrqIndex, PCI_REGULAR_BAR0, PciBridge,
-    PciBus, PciBusResource, PciDevice, PciEntity, name_of_capability, name_of_extended_capability,
+    BarType, Capability, EXPECT_LOCK, ExtendedCapability, IrqIndex,
+    PCI_BRIDGE_EXPANSION_ROM_BASE_ADDRESS, PCI_REGULAR_BAR0,
+    PCI_REGULAR_EXPANSION_ROM_BASE_ADDRESS, PciBridge, PciBus, PciBusResource, PciDevice,
+    PciEntity, PciExpansionRom, name_of_capability, name_of_extended_capability,
 };
 
 use crate::acpi::PAGE_MASK;
@@ -212,6 +214,41 @@ fn read_entity_bars(entity: &PciEntity, n_bars: usize) {
     }
 }
 
+fn parse_expansion_rom(entity: &PciEntity, offset: u16) {
+    let bus = entity.parent_bus;
+    let slot = entity.slot;
+    let function = entity.function;
+
+    // The caller passes the expansion ROM offset of the header type of the entity.
+    let expansion_rom_addr = unsafe { bus.expansion_rom_base(slot, function, offset) };
+    // Write all 1s to the expansion ROM address and read it back to determine its length.
+    let expansion_rom_mask = unsafe {
+        bus.set_expansion_rom_base(slot, function, offset, 0xFFFFFFFF);
+
+        let mask = bus.expansion_rom_base(slot, function, offset) & 0xFFFFFFFC;
+        bus.set_expansion_rom_base(slot, function, offset, expansion_rom_addr);
+
+        mask
+    };
+
+    if expansion_rom_mask == 0 {
+        return;
+    }
+
+    let expansion_rom_length = compute_bar_length(expansion_rom_mask as u64);
+    // Enable it.
+    unsafe { bus.set_expansion_rom_base(slot, function, offset, expansion_rom_addr | 1) };
+
+    let rom = PciExpansionRom {
+        address: expansion_rom_addr as u64,
+        length: expansion_rom_length,
+    };
+    assert!(
+        entity.expansion_rom.set(rom).is_ok(),
+        "sif: PCI expansion ROM was already sized"
+    );
+}
+
 fn find_pci_caps(entity: &PciEntity) {
     let bus = entity.parent_bus;
     let slot = entity.slot;
@@ -383,6 +420,7 @@ fn check_pci_function(
         find_pci_caps(&device.entity);
 
         read_entity_bars(&device.entity, 6);
+        parse_expansion_rom(&device.entity, PCI_REGULAR_EXPANSION_ROM_BASE_ADDRESS);
 
         let irq_index = IrqIndex::from_pin(bus.interrupt_pin(slot, function));
         if irq_index != IrqIndex::Null {
@@ -413,6 +451,7 @@ fn check_pci_function(
         find_pci_caps(&bridge.entity);
 
         read_entity_bars(&bridge.entity, 2);
+        parse_expansion_rom(&bridge.entity, PCI_BRIDGE_EXPANSION_ROM_BASE_ADDRESS);
 
         let downstream_id = unsafe { bus.secondary_bus(slot, function) };
 

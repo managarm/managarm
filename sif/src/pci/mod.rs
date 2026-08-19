@@ -650,6 +650,30 @@ impl PciBus {
         Self::check_bar(offset);
         unsafe { self.write_config_word(slot, function, offset, value) };
     }
+
+    // Both header types have an expansion ROM register, but at different offsets.
+    fn check_expansion_rom(offset: u16) {
+        assert!(
+            offset == PCI_REGULAR_EXPANSION_ROM_BASE_ADDRESS
+                || offset == PCI_BRIDGE_EXPANSION_ROM_BASE_ADDRESS
+        );
+    }
+
+    /// # Safety
+    ///
+    /// The offset must address the expansion ROM of the header type of the function.
+    pub unsafe fn expansion_rom_base(&self, slot: u8, function: u8, offset: u16) -> u32 {
+        Self::check_expansion_rom(offset);
+        unsafe { self.read_config_word(slot, function, offset) }
+    }
+
+    /// # Safety
+    ///
+    /// The offset must address the expansion ROM of the header type of the function.
+    pub unsafe fn set_expansion_rom_base(&self, slot: u8, function: u8, offset: u16, value: u32) {
+        Self::check_expansion_rom(offset);
+        unsafe { self.write_config_word(slot, function, offset, value) };
+    }
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Default, Debug)]
@@ -671,6 +695,12 @@ pub struct PciBar {
     pub host_type: BarType,
     pub host_address: u64,
     pub offset: u32,
+}
+
+#[derive(Clone, Copy, Default)]
+pub struct PciExpansionRom {
+    pub address: u64,
+    pub length: u64,
 }
 
 pub struct Capability {
@@ -715,6 +745,8 @@ pub struct PciEntity {
     pub caps: Mutex<Vec<Capability>>,
     pub extended_caps: Mutex<Vec<ExtendedCapability>>,
 
+    pub expansion_rom: OnceLock<PciExpansionRom>,
+
     pub bars: Mutex<Vec<PciBar>>,
 }
 
@@ -749,6 +781,7 @@ impl PciEntity {
             is_downstream_port: AtomicBool::new(false),
             caps: Mutex::new(Vec::new()),
             extended_caps: Mutex::new(Vec::new()),
+            expansion_rom: OnceLock::new(),
             bars: Mutex::new(vec![PciBar::default(); n_bars]),
         }
     }
@@ -861,10 +894,12 @@ pub const PCI_HEADER_TYPE: u16 = 0x0E;
 pub const PCI_REGULAR_BAR0: u16 = 0x10;
 pub const PCI_REGULAR_SUBSYSTEM_VENDOR: u16 = 0x2C;
 pub const PCI_REGULAR_SUBSYSTEM_DEVICE: u16 = 0x2E;
+pub const PCI_REGULAR_EXPANSION_ROM_BASE_ADDRESS: u16 = 0x30;
 pub const PCI_REGULAR_CAPABILITIES: u16 = 0x34;
 pub const PCI_REGULAR_INTERRUPT_PIN: u16 = 0x3D;
 
 // PCI-to-PCI bridge header fields
+pub const PCI_BRIDGE_EXPANSION_ROM_BASE_ADDRESS: u16 = 0x38;
 pub const PCI_BRIDGE_IO_BASE: u16 = 0x1C;
 pub const PCI_BRIDGE_IO_LIMIT: u16 = 0x1D;
 pub const PCI_BRIDGE_MEM_BASE: u16 = 0x20;
