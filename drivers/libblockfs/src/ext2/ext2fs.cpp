@@ -30,7 +30,6 @@ namespace {
 	constexpr bool logSuperblock = true;
 
 	constexpr int pageShift = 12;
-	constexpr size_t pageSize = size_t{1} << pageShift;
 
 	void updateInodeChecksum(FileSystem &fs, DiskInode *inode, uint32_t number) {
 		if(fs.metadataChecksum) {
@@ -126,9 +125,8 @@ Inode::Inode(FileSystem &fs, uint32_t number)
 : BaseInode{fs, number}, fs{fs}, usesExtents{false} { }
 
 DiskInode *Inode::diskInode() {
-	auto inodeAddress = (number - 1) * fs.inodeSize;
 	return reinterpret_cast<DiskInode *>(
-			reinterpret_cast<std::byte *>(fs.inodeTableMapping.get()) + inodeAddress);
+			reinterpret_cast<std::byte *>(diskInodeWindow.get()) + diskInodeOffset);
 }
 
 void Inode::setFileSize(size_t size) {
@@ -917,19 +915,6 @@ async::result<void> FileSystem::init() {
 
 	handleBgdtWriteback();
 
-	// Create a memory bundle to manage the inode table.
-	assert(!((inodesPerGroup * inodeSize) & 0xFFF));
-	HelHandle inode_table_frontal;
-	HelHandle inode_table_backing;
-	HEL_CHECK(helCreateManagedMemory(inodesPerGroup * inodeSize * numBlockGroups,
-			0, &inode_table_backing, &inode_table_frontal));
-	inodeTable = helix::UniqueDescriptor{inode_table_frontal};
-	inodeTableMapping = helix::Mapping{inodeTable,
-			0, inodesPerGroup * inodeSize * numBlockGroups,
-			kHelMapProtWrite | kHelMapProtRead | kHelMapDontRequireBacking};
-
-	manageInodeTable(helix::UniqueDescriptor{inode_table_backing});
-
 	co_return;
 }
 
@@ -957,72 +942,6 @@ async::detached FileSystem::handleBgdtWriteback() {
 		auto bgdt_offset = (2048 + blockSize - 1) & ~size_t(blockSize - 1);
 		co_await device->writeSectors((bgdt_offset >> blockShift) * sectorsPerBlock,
 				writebackBuffer);
-	}
-}
-
-async::detached FileSystem::manageInodeTable(helix::UniqueDescriptor memory) {
-	while(true) {
-		helix::ManageMemory manage;
-		auto &&submit_manage = helix::submitManageMemory(memory,
-				&manage, helix::Dispatcher::global());
-		co_await submit_manage.async_wait();
-		HEL_CHECK(manage.error());
-
-		protocols::ostrace::Timer timer;
-
-		// TODO: Make sure that we do not read/write past the end of the table.
-		assert(!((inodesPerGroup * inodeSize) & (blockSize - 1)));
-
-		auto sizePerGroup = inodesPerGroup * inodeSize;
-		// TODO: It would be possible to support this by separating
-		//       different block group inside the managed memory representing the inode table
-		//       (or by having per-block-group managed memory objects for the inode table).
-		if (sizePerGroup & (pageSize - 1))
-			logPanic("Missing support for inode table sizes that are not multiples of the page size");
-
-		auto view = pool->importMemory(memory, manage.offset(), manage.length());
-
-		size_t progress = 0;
-		while (progress < manage.length()) {
-			// TODO: Use shifts instead of division.
-			auto bg_idx = (manage.offset() + progress) / sizePerGroup;
-			auto bg_offset = (manage.offset() + progress) % sizePerGroup;
-			auto block = bgdt[bg_idx].inodeTable;
-			assert(block);
-
-			// Do not cross block group boundaries.
-			auto chunk = std::min(manage.length() - progress, sizePerGroup - bg_offset);
-			assert(!(progress & (pageSize - 1))); // Guaranteed by the next assertion.
-			assert(!(chunk & (pageSize - 1))); // Otherwise, the panic above would trigger.
-
-			assert(bg_offset % device->sectorSize == 0);
-			assert(chunk % device->sectorSize == 0);
-
-			auto subview = view.view().subview(progress, chunk);
-
-			if(manage.type() == kHelManageInitialize) {
-				co_await device->readSectors(
-				    block * sectorsPerBlock + bg_offset / device->sectorSize, subview
-				);
-				HEL_CHECK(helUpdateMemory(memory.getHandle(), kHelManageInitialize,
-						manage.offset() + progress, chunk));
-			}else{
-				assert(manage.type() == kHelManageWriteback);
-
-				co_await device->writeSectors(
-				    block * sectorsPerBlock + bg_offset / device->sectorSize, subview
-				);
-				HEL_CHECK(helUpdateMemory(memory.getHandle(), kHelManageWriteback,
-						manage.offset() + progress, chunk));
-			}
-
-			progress += chunk;
-		}
-
-		ostContext.emit(
-			ostEvtExt2ManageInode,
-			ostAttrTime(timer.elapsed())
-		);
 	}
 }
 
@@ -1078,19 +997,12 @@ async::result<std::shared_ptr<BaseInode>> FileSystem::createRegular(int uid, int
 	auto ino = co_await allocateInode(parentIno);
 	assert(ino);
 
-	// Lock the inode table.
-	auto inodeAddress = (ino - 1) * inodeSize;
-
-	helix::LockMemoryView lock_inode;
-	auto &&submit = helix::submitLockMemoryView(inodeTable,
-			&lock_inode, inodeAddress & ~(pageSize - 1), pageSize,
-			helix::Dispatcher::global());
-	co_await submit.async_wait();
-	HEL_CHECK(lock_inode.error());
+	auto [inodeBlock, inodeOffset] = locateDiskInode(ino);
+	auto inodeWindow = co_await metadataCache->access(inodeBlock, true);
 
 	// TODO: Set the UID, GID, timestamps.
 	auto disk_inode = reinterpret_cast<DiskInode *>(
-			reinterpret_cast<std::byte *>(inodeTableMapping.get()) + inodeAddress);
+			reinterpret_cast<std::byte *>(inodeWindow.get()) + inodeOffset);
 	auto generation = disk_inode->generation;
 	memset(disk_inode, 0, inodeSize);
 	disk_inode->mode = EXT2_S_IFREG;
@@ -1123,19 +1035,12 @@ async::result<std::shared_ptr<Inode>> FileSystem::createDirectory() {
 	auto ino = co_await allocateInode(0, true);
 	assert(ino);
 
-	// Lock the inode table.
-	auto inodeAddress = (ino - 1) * inodeSize;
-
-	helix::LockMemoryView lock_inode;
-	auto &&submit = helix::submitLockMemoryView(inodeTable,
-			&lock_inode, inodeAddress & ~(pageSize - 1), pageSize,
-			helix::Dispatcher::global());
-	co_await submit.async_wait();
-	HEL_CHECK(lock_inode.error());
+	auto [inodeBlock, inodeOffset] = locateDiskInode(ino);
+	auto inodeWindow = co_await metadataCache->access(inodeBlock, true);
 
 	// TODO: Set the UID, GID, timestamps.
 	auto disk_inode = reinterpret_cast<DiskInode *>(
-			reinterpret_cast<std::byte *>(inodeTableMapping.get()) + inodeAddress);
+			reinterpret_cast<std::byte *>(inodeWindow.get()) + inodeOffset);
 	auto generation = disk_inode->generation;
 	memset(disk_inode, 0, inodeSize);
 	disk_inode->mode = EXT2_S_IFDIR;
@@ -1166,19 +1071,12 @@ async::result<std::shared_ptr<Inode>> FileSystem::createSymlink() {
 	auto ino = co_await allocateInode();
 	assert(ino);
 
-	// Lock the inode table.
-	auto inodeAddress = (ino - 1) * inodeSize;
-
-	helix::LockMemoryView lock_inode;
-	auto &&submit = helix::submitLockMemoryView(inodeTable,
-			&lock_inode, inodeAddress & ~(pageSize - 1), pageSize,
-			helix::Dispatcher::global());
-	co_await submit.async_wait();
-	HEL_CHECK(lock_inode.error());
+	auto [inodeBlock, inodeOffset] = locateDiskInode(ino);
+	auto inodeWindow = co_await metadataCache->access(inodeBlock, true);
 
 	// TODO: Set the UID, GID, timestamps.
 	auto disk_inode = reinterpret_cast<DiskInode *>(
-			reinterpret_cast<std::byte *>(inodeTableMapping.get()) + inodeAddress);
+			reinterpret_cast<std::byte *>(inodeWindow.get()) + inodeOffset);
 	auto generation = disk_inode->generation;
 	memset(disk_inode, 0, inodeSize);
 	disk_inode->mode = EXT2_S_IFLNK;
@@ -1198,17 +1096,17 @@ async::result<std::shared_ptr<Inode>> FileSystem::createSymlink() {
 	co_return std::static_pointer_cast<Inode>(accessInode(ino));
 }
 
-async::detached FileSystem::initiateInode(std::shared_ptr<Inode> inode) {
-	// TODO: Use a shift instead of a division.
-	auto inodeAddress = (inode->number - 1) * inodeSize;
+std::pair<uint64_t, size_t> FileSystem::locateDiskInode(uint32_t number) {
+	auto index = number - 1;
+	auto byteOffset = uint64_t{index % inodesPerGroup} * inodeSize;
+	return {bgdt[index / inodesPerGroup].inodeTable + (byteOffset >> blockShift),
+			static_cast<size_t>(byteOffset & (blockSize - 1))};
+}
 
-	helix::LockMemoryView lock_inode;
-	auto &&submit = helix::submitLockMemoryView(inodeTable,
-			&lock_inode, inodeAddress & ~(pageSize - 1), pageSize,
-			helix::Dispatcher::global());
-	co_await submit.async_wait();
-	HEL_CHECK(lock_inode.error());
-	inode->diskLock = lock_inode.descriptor();
+async::detached FileSystem::initiateInode(std::shared_ptr<Inode> inode) {
+	auto [inodeBlock, inodeOffset] = locateDiskInode(inode->number);
+	inode->diskInodeWindow = co_await metadataCache->access(inodeBlock, true);
+	inode->diskInodeOffset = inodeOffset;
 
 	auto disk_inode = inode->diskInode();
 	// printf("Inode %lu: file size: %u\n", inode->number, disk_inode->size);

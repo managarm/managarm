@@ -11,7 +11,6 @@ inline constinit protocols::ostrace::Event ostEvtReadDir{"libblockfs.readDir"};
 inline constinit protocols::ostrace::Event ostEvtWrite{"libblockfs.write"};
 inline constinit protocols::ostrace::Event ostEvtRawRead{"libblockfs.rawRead"};
 inline constinit protocols::ostrace::Event ostEvtExt2AssignDataBlocks{"ext2.assignDataBlocks"};
-inline constinit protocols::ostrace::Event ostEvtExt2ManageInode{"ext2.manageInode"};
 inline constinit protocols::ostrace::Event ostEvtExt2ManageFile{"ext2.manageFile"};
 inline constinit protocols::ostrace::Event ostEvtExt2AllocateBlocks{"ext2.allocateBlocks"};
 inline constinit protocols::ostrace::Event ostEvtExt2AllocateInode{"ext2.allocateInode"};
@@ -26,7 +25,6 @@ inline protocols::ostrace::Vocabulary ostVocabulary{
 	ostEvtWrite,
 	ostEvtRawRead,
 	ostEvtExt2AssignDataBlocks,
-	ostEvtExt2ManageInode,
 	ostEvtExt2ManageFile,
 	ostEvtExt2AllocateBlocks,
 	ostEvtExt2AllocateInode,
