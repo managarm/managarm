@@ -235,6 +235,13 @@ struct DeviceToHostType { };
 inline constexpr HostToDeviceType hostToDevice;
 inline constexpr DeviceToHostType deviceToHost;
 
+// A DMA-contiguous piece of a buffer together with its resolved DMA address,
+// as produced by Queue::splitContiguous().
+struct DmaChunk {
+	arch::dma_buffer_view view;
+	uintptr_t address;
+};
+
 // Handle to a virtq descriptor.
 struct Handle {
 	Handle()
@@ -250,10 +257,14 @@ struct Handle {
 		return _tableIndex;
 	}
 
-	// setupBuffer() assumes that the buffer is contiguous in physical memory.
-	// Use scatterGather() for a more convenient API.
+	// setupBuffer() assumes that the buffer is contiguous in DMA space.
+	// Use Queue::splitContiguous() or scatterGather() to handle arbitrary buffers.
 	async::result<void> setupBuffer(HostToDeviceType, arch::dma_buffer_view view);
 	async::result<void> setupBuffer(DeviceToHostType, arch::dma_buffer_view view);
+
+	// These overloads take a chunk with an already resolved DMA address.
+	void setupBuffer(HostToDeviceType, DmaChunk chunk);
+	void setupBuffer(DeviceToHostType, DmaChunk chunk);
 
 	void setupLink(Handle other);
 
@@ -290,6 +301,13 @@ struct Chain {
 	}
 	async::result<void> setupBuffer(DeviceToHostType, arch::dma_buffer_view view) {
 		return _back.setupBuffer(deviceToHost, view);
+	}
+
+	void setupBuffer(HostToDeviceType, DmaChunk chunk) {
+		_back.setupBuffer(hostToDevice, chunk);
+	}
+	void setupBuffer(DeviceToHostType, DmaChunk chunk) {
+		_back.setupBuffer(deviceToHost, chunk);
 	}
 
 private:
@@ -330,6 +348,11 @@ public:
 	size_t numDescriptors() {
 		return _queueSize;
 	}
+
+	// Splits the view into a minimal sequence of chunks that are each contiguous
+	// in DMA space, i.e., that satisfy the requirement of Handle::setupBuffer().
+	// The returned chunks carry their resolved DMA addresses.
+	async::result<std::vector<DmaChunk>> splitContiguous(arch::dma_buffer_view view);
 
 	// Allocates a single descriptor. Special case of obtainDescriptors(), see below.
 	async::result<Handle> obtainDescriptor();

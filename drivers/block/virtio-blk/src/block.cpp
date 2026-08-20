@@ -114,11 +114,14 @@ async::result<size_t> Device::getSize() {
 }
 
 async::result<void> Device::_issueRequest(UserRequest *request) {
-	auto numSectors = request->view.size() >> sectorShift;
-	assert(numSectors);
+	assert(request->view.size());
+
+	// Split the view into DMA-contiguous chunks (and not into individual sectors)
+	// since setupBuffer() only requires contiguity in DMA space per descriptor.
+	auto chunks = co_await _requestQueue->splitContiguous(request->view);
 
 	// Acquire all descriptors of the chain at once to avoid potential deadlocks.
-	std::vector<virtio_core::Handle> handles(2 + numSectors);
+	std::vector<virtio_core::Handle> handles(2 + chunks.size());
 	co_await _requestQueue->obtainDescriptors(handles);
 
 	for(size_t i = 1; i < handles.size(); i++)
@@ -136,18 +139,16 @@ async::result<void> Device::_issueRequest(UserRequest *request) {
 	co_await handles.front().setupBuffer(virtio_core::hostToDevice, request->header.view_buffer());
 
 	// Setup descriptors for the transfered data.
-	for(size_t i = 0; i < numSectors; i++) {
+	for(size_t i = 0; i < chunks.size(); i++) {
 		if(request->write) {
-			co_await handles[1 + i].setupBuffer(virtio_core::hostToDevice,
-					request->view.subview(i << sectorShift, sectorSize));
+			handles[1 + i].setupBuffer(virtio_core::hostToDevice, chunks[i]);
 		}else{
-			co_await handles[1 + i].setupBuffer(virtio_core::deviceToHost,
-					request->view.subview(i << sectorShift, sectorSize));
+			handles[1 + i].setupBuffer(virtio_core::deviceToHost, chunks[i]);
 		}
 	}
 
 	if(logInitiateRetire)
-		std::cout << "Submitting " << numSectors << " data descriptors" << std::endl;
+		std::cout << "Submitting " << chunks.size() << " data descriptors" << std::endl;
 
 	// Setup a descriptor for the status byte.
 	co_await handles.back().setupBuffer(
@@ -160,8 +161,8 @@ async::result<void> Device::_issueRequest(UserRequest *request) {
 			[] (virtio_core::Request *base_request) {
 		auto request = static_cast<UserRequest *>(base_request);
 		if(logInitiateRetire)
-			std::cout << "Retiring " << (request->view.size() / 512uz)
-					<< " data descriptors" << std::endl;
+			std::cout << "Retiring request of " << request->view.size()
+					<< " bytes" << std::endl;
 		request->event.raise();
 	});
 	_requestQueue->notify();
