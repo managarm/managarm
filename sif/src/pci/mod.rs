@@ -7,10 +7,11 @@ pub mod serve;
 
 use managarm::svrctl::hardware_access_handle;
 use std::collections::BTreeMap;
-use std::sync::atomic::{AtomicBool, AtomicI64, AtomicU8};
+use std::sync::atomic::{AtomicBool, AtomicI32, AtomicI64, AtomicU8, AtomicU32};
 use std::sync::{Mutex, OnceLock};
 
 use anyhow::Result;
+use arch::{IoMemSpace, bit_register, scalar_register};
 use hel::{IrqPolarity, IrqTrigger};
 
 use config::PciConfigIo;
@@ -710,6 +711,54 @@ pub struct Capability {
     pub length: Option<u64>,
 }
 
+// Entry of the MSI-X vector table, from the PCI specification.
+const MSIX_ENTRY_SIZE: usize = 16;
+scalar_register!(MsixMessageAddress @ 0: u64);
+scalar_register!(MsixMessageData @ 8: u32);
+bit_register! {
+    MsixVectorControl @ 12: u32 {
+        MASK @ 0, 1: bool;
+    }
+}
+
+// MSI-X vector table of a device, mapped from the BAR named by the MSI-X capability.
+pub struct MsixTable {
+    mapping: hel::Mapping<u8>,
+    disp: usize,
+}
+
+impl MsixTable {
+    pub fn new(mapping: hel::Mapping<u8>, disp: usize) -> MsixTable {
+        MsixTable { mapping, disp }
+    }
+
+    // Returns the window of the vector table entry at `index`.
+    fn entry(&self, index: usize) -> IoMemSpace {
+        let space =
+            unsafe { IoMemSpace::new(self.mapping.as_ptr().unwrap().as_ptr(), self.mapping.len()) };
+        space.subspace(self.disp + index * MSIX_ENTRY_SIZE)
+    }
+
+    pub fn store_message_address(&self, index: usize, value: u64) {
+        unsafe { self.entry(index).store(MsixMessageAddress, value) };
+    }
+
+    pub fn store_message_data(&self, index: usize, value: u32) {
+        unsafe { self.entry(index).store(MsixMessageData, value) };
+    }
+
+    pub fn set_masked(&self, index: usize, masked: bool) {
+        let entry = self.entry(index);
+        let control = unsafe { entry.load(MsixVectorControl) };
+        unsafe {
+            entry.store(
+                MsixVectorControl,
+                control.with(MsixVectorControl::MASK, masked),
+            )
+        };
+    }
+}
+
 // Not consumed yet; kept to match the information thor collects.
 #[allow(dead_code)]
 pub struct ExtendedCapability {
@@ -847,6 +896,14 @@ pub struct PciDevice {
 
     // Physical address and size of the Intel IGD VBT, if any.
     pub igd_vbt: OnceLock<(u64, u64)>,
+
+    // MSI / MSI-X support.
+    // Only set once the vectors were fully set up (e.g. the MSI-X table could be mapped).
+    pub msis_usable: AtomicBool,
+    pub num_msis: AtomicU32,
+    pub msix_index: AtomicI32,
+    pub msix_mapping: Mutex<Option<MsixTable>>,
+    pub msi_index: AtomicI32,
 }
 
 impl PciDevice {
@@ -873,6 +930,11 @@ impl PciDevice {
             subsystem_device,
             interrupt: OnceLock::new(),
             igd_vbt: OnceLock::new(),
+            msis_usable: AtomicBool::new(false),
+            num_msis: AtomicU32::new(0),
+            msix_index: AtomicI32::new(-1),
+            msix_mapping: Mutex::new(None),
+            msi_index: AtomicI32::new(-1),
         })
     }
 
