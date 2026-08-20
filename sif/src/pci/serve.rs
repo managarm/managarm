@@ -9,7 +9,9 @@ use managarm::hw::server::{BarDescriptor, CapDescriptor, serve_pci_device};
 use managarm::mbus::{EntityManager, Item, Properties, create_entity};
 
 use super::discover::{all_devices, all_root_buses};
-use super::{BarType, EXPECT_LOCK, PciBridge, PciBus, PciDevice, PciEntity, leak};
+use super::{
+    BarType, EXPECT_LOCK, PciBridge, PciBus, PciDevice, PciEntity, leak, msi_controller_available,
+};
 
 use crate::acpi::{PAGE_MASK, PAGE_SIZE};
 
@@ -49,6 +51,23 @@ fn io_type_of(type_: BarType) -> IoType {
 }
 
 impl managarm::hw::server::PciDevice for ServedEntity {
+    fn num_msis(&self) -> u32 {
+        let ServedEntity::Device(device) = self else {
+            return 0;
+        };
+        if !msi_controller_available() || !device.msis_usable.load(Ordering::Relaxed) {
+            return 0;
+        }
+        device.num_msis.load(Ordering::Relaxed)
+    }
+
+    fn msi_x(&self) -> bool {
+        let ServedEntity::Device(device) = self else {
+            return false;
+        };
+        device.msix_index.load(Ordering::Relaxed) >= 0
+    }
+
     fn bars(&self) -> [BarDescriptor; 6] {
         let mut out = [BarDescriptor::default(); 6];
         for (i, bar) in self
@@ -233,6 +252,34 @@ impl managarm::hw::server::PciDevice for ServedEntity {
         }
     }
 
+    fn install_msi(&self, index: u32) -> hel::Result<Option<hel::Handle>> {
+        let ServedEntity::Device(device) = self else {
+            return Ok(None);
+        };
+        if !msi_controller_available()
+            || !device.msis_usable.load(Ordering::Relaxed)
+            || index >= device.num_msis.load(Ordering::Relaxed)
+        {
+            return Ok(None);
+        }
+
+        // Allocate the MSI.
+        let entity = &device.entity;
+        let name = format!(
+            "pci-msi.{:04x}:{:02x}:{:02x}.{:x}.{index}",
+            entity.seg, entity.bus, entity.slot, entity.function
+        );
+        let pin = hel::allocate_msi(hardware_access_handle(), &name)?;
+        let msi = hel::query_msi_info(&pin)?;
+
+        // Obtain an IRQ object for the interrupt.
+        let irq = hel::handle_irq(&pin)?;
+
+        device.setup_msi(&msi, index as usize);
+
+        Ok(Some(irq))
+    }
+
     fn enable_busmaster(&self) {
         self.entity().enable_busmaster();
     }
@@ -241,6 +288,17 @@ impl managarm::hw::server::PciDevice for ServedEntity {
         if let ServedEntity::Device(device) = self {
             device.enable_irq();
         }
+    }
+
+    fn enable_msi(&self) -> bool {
+        let ServedEntity::Device(device) = self else {
+            return false;
+        };
+        if !msi_controller_available() || !device.msis_usable.load(Ordering::Relaxed) {
+            return false;
+        }
+        device.enable_msi();
+        true
     }
 }
 
