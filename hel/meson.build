@@ -6,6 +6,7 @@ headers = [
 ]
 
 helix_headers = [
+	'include/helix/dispatcher-pool.hpp',
 	'include/helix/ipc-structs.hpp',
 	'include/helix/ipc.hpp',
 	'include/helix/memory.hpp',
@@ -14,6 +15,7 @@ helix_headers = [
 ]
 
 src = files(
+	'src/dispatcher-pool.cpp',
 	'src/globals.cpp',
 	'src/passthrough-fd.cpp',
 )
