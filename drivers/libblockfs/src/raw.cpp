@@ -4,6 +4,7 @@
 
 #include <bragi/helpers-std.hpp>
 #include <core/dispatch.hpp>
+#include <helix/dispatcher-pool.hpp>
 #include "fs.bragi.hpp"
 
 namespace blockfs {
@@ -18,11 +19,11 @@ async::result<void> RawFs::init() {
 	HEL_CHECK(helCreateManagedMemory(cache_size, 0,
 				&backingMemory, &frontalMemory));
 
-	manageMapping();
+	helix::DispatcherPool::global().detach(manageMapping());
 	co_return;
 }
 
-async::detached RawFs::manageMapping() {
+async::result<void> RawFs::manageMapping() {
 	while(true) {
 		helix::ManageMemory manage;
 		auto &&submit = helix::submitManageMemory(helix::BorrowedDescriptor{backingMemory},

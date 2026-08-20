@@ -5,6 +5,7 @@
 #include <async/algorithm.hpp>
 #include <core/clock.hpp>
 #include <frg/scope_exit.hpp>
+#include <helix/dispatcher-pool.hpp>
 #include "fs.hpp"
 #include "trace.hpp"
 
@@ -403,8 +404,8 @@ doOpen(std::shared_ptr<void> object, bool write, bool read, bool append) {
 		co_await self->updateTimes(clk::getRealtime(), std::nullopt, std::nullopt);
 	}
 
-	[] (smarter::shared_ptr<File> file, BaseFileSystem &fs, helix::UniqueLane localCtrl,
-			helix::UniqueLane localPt) -> async::detached {
+	helix::DispatcherPool::global().detach([] (smarter::shared_ptr<File> file, BaseFileSystem &fs,
+			helix::UniqueLane localCtrl, helix::UniqueLane localPt) -> async::result<void> {
 		auto fileOps = fs.fileOps();
 
 		co_await async::race_and_cancel(
@@ -417,7 +418,7 @@ doOpen(std::shared_ptr<void> object, bool write, bool read, bool append) {
 						file, fileOps, ct);
 			}
 		);
-	}(file, self->fs, std::move(localCtrl), std::move(localPt));
+	}(file, self->fs, std::move(localCtrl), std::move(localPt)));
 
 	co_return protocols::fs::OpenResult{std::move(remoteCtrl), std::move(remotePt)};
 }

@@ -10,6 +10,7 @@
 #include <async/oneshot-event.hpp>
 #include <arch/io_space.hpp>
 #include <arch/register.hpp>
+#include <helix/dispatcher-pool.hpp>
 #include <helix/ipc.hpp>
 #include <helix/timer.hpp>
 #include <protocols/hw/client.hpp>
@@ -436,5 +437,8 @@ int main() {
 	printf("block/ata: Starting driver\n");
 
 	observeControllers();
-	async::run_forever(helix::currentDispatcher);
+	// This driver is not thread-safe yet; run the pool single threaded.
+	helix::DispatcherPool::global().setThreadCount(1);
+	helix::DispatcherPool::global().blockOn(
+			async::suspend_indefinitely(async::cancellation_token{}));
 }

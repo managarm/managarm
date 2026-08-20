@@ -12,6 +12,7 @@
 #include <core/clock.hpp>
 #include <core/dispatch.hpp>
 #include <frg/scope_exit.hpp>
+#include <helix/dispatcher-pool.hpp>
 #include <helix/ipc.hpp>
 #include <protocols/fs/server.hpp>
 #include <protocols/mbus/client.hpp>
@@ -69,7 +70,7 @@ struct HandlePartition {
 			helix::UniqueLane local_lane, remote_lane;
 			std::tie(local_lane, remote_lane) = helix::createStream();
 			auto file = smarter::make_shared<raw::OpenFile>(rawFs);
-			async::detach(protocols::fs::servePassthrough(std::move(local_lane),
+			helix::DispatcherPool::global().detach(protocols::fs::servePassthrough(std::move(local_lane),
 							file,
 							&raw::rawOperations));
 
@@ -529,7 +530,7 @@ struct HandleDevice {
 			helix::UniqueLane local_lane, remote_lane;
 			std::tie(local_lane, remote_lane) = helix::createStream();
 			auto file = smarter::make_shared<raw::OpenFile>(rawFs);
-			async::detach(protocols::fs::servePassthrough(std::move(local_lane),
+			helix::DispatcherPool::global().detach(protocols::fs::servePassthrough(std::move(local_lane),
 							file,
 							&raw::rawOperations));
 

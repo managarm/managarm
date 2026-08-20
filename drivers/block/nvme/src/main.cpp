@@ -3,6 +3,7 @@
 
 #include <core/cmdline.hpp>
 #include <frg/cmdline.hpp>
+#include <helix/dispatcher-pool.hpp>
 #include <map>
 #include <protocols/mbus/client.hpp>
 #include <protocols/hw/client.hpp>
@@ -120,5 +121,8 @@ int main() {
 	std::cout << "block/nvme: Starting driver\n";
 
 	async::detach(protocols::svrctl::serveControl(&controlOps));
-	async::run_forever(helix::currentDispatcher);
+	// This driver is not thread-safe yet; run the pool single threaded.
+	helix::DispatcherPool::global().setThreadCount(1);
+	helix::DispatcherPool::global().blockOn(
+			async::suspend_indefinitely(async::cancellation_token{}));
 }
