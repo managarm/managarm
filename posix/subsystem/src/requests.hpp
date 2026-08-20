@@ -7,3 +7,5 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 
 helix::UniqueLane &getKerncfgLane();
 helix::UniqueLane &getPmLane();
+
+size_t getAffinityMaskSize();

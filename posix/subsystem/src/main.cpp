@@ -103,6 +103,7 @@ async::result<void> serve(std::shared_ptr<Process> self, std::shared_ptr<Generat
 namespace {
 	helix::UniqueLane kerncfgLane;
 	helix::UniqueLane pmLane;
+	size_t affinityMaskSize = 0;
 };
 
 helix::UniqueLane &getKerncfgLane() {
@@ -111,6 +112,11 @@ helix::UniqueLane &getKerncfgLane() {
 
 helix::UniqueLane &getPmLane() {
 	return pmLane;
+}
+
+size_t getAffinityMaskSize() {
+	assert(affinityMaskSize);
+	return affinityMaskSize;
 }
 
 struct CmdlineNode final : public procfs::RegularNode {
@@ -162,6 +168,22 @@ async::result<void> enumerateKerncfg() {
 
 	auto entity = co_await mbus_ng::Instance::global().getEntity(events[0].id);
 	kerncfgLane = (co_await entity.getRemoteLane()).unwrap();
+
+	// Determine the size of the affinity masks that thor accepts, i.e., one bit per CPU.
+	managarm::kerncfg::GetNumCpuRequest numCpuReq;
+	auto [offer, sendReq, recvResp] = co_await helix_ng::exchangeMsgs(
+		kerncfgLane,
+		helix_ng::offer(
+			helix_ng::sendBragiHeadOnly(numCpuReq, frg::stl_allocator{}),
+			helix_ng::recvInline()
+		)
+	);
+	HEL_CHECK(offer.error());
+	HEL_CHECK(sendReq.error());
+	HEL_CHECK(recvResp.error());
+
+	auto numCpuResp = bragi::parse_head_only<managarm::kerncfg::GetNumCpuResponse>(recvResp);
+	affinityMaskSize = (numCpuResp->num_cpu() + 7) / 8;
 
 	auto procfsRoot = std::static_pointer_cast<procfs::DirectoryNode>(getProcfs()->getTarget());
 	procfsRoot->directMkregular("cmdline", std::make_shared<CmdlineNode>());

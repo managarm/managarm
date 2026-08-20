@@ -3956,6 +3956,11 @@ HelError helSetAffinity(HelHandle handle, uint8_t *mask, size_t size) {
 	if (!readUserArray(mask, buf.data(), size))
 		return kHelErrFault;
 
+	// Reject the padding bits of the last byte; they do not correspond to any CPU.
+	auto numCpus = getCpuCount();
+	if (numCpus % 8 && (buf[maskSize - 1] >> (numCpus % 8)))
+		return kHelErrIllegalArgs;
+
 	size_t n = 0;
 	for (auto i : buf) {
 		n += __builtin_popcount(i);
