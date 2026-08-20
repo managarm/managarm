@@ -4,7 +4,6 @@
 #include <thor-internal/arch-generic/ints.hpp>
 #include <thor-internal/cpu-data.hpp>
 #include <thor-internal/debug.hpp>
-#include <thor-internal/ostrace.hpp>
 #include <thor-internal/schedule.hpp>
 #include <thor-internal/thread.hpp>
 #include <thor-internal/timer.hpp>
@@ -419,7 +418,6 @@ void Scheduler::_updatePreemption() {
 		assert(!po);
 	}
 
-	ostrace::emit(ostEvtArmPreemption);
 	setPreemptionDeadline(getClockNanos() + sliceGranularity);
 }
 
@@ -507,4 +505,3 @@ smarter::borrowed_ptr<Thread> getCurrentThread() {
 }
 
 } // namespace thor
-

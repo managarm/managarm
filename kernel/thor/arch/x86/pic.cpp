@@ -9,7 +9,6 @@
 #include <initgraph.hpp>
 #include <thor-internal/irq.hpp>
 #include <thor-internal/main.hpp>
-#include <thor-internal/ostrace.hpp>
 #include <thor-internal/arch-generic/ints.hpp>
 #include <thor-internal/arch-generic/paging.hpp>
 #include <thor-internal/arch-generic/timer.hpp>
@@ -135,8 +134,6 @@ void setTimerDeadline(frg::optional<uint64_t> deadline) {
 	assert(localApicContext()->timersAreCalibrated);
 
 	if(localApicContext()->useTscMode) {
-		ostrace::emit(ostEvtArmCpuTimer);
-
 		if(!deadline) {
 			common::x86::wrmsr(common::x86::kMsrIa32TscDeadline, 0);
 			return;

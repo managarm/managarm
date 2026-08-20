@@ -124,7 +124,4 @@ void emit(const Event &event, Args... args) {
 
 } // namespace ostrace
 
-extern ostrace::Event ostEvtArmPreemption;
-extern ostrace::Event ostEvtArmCpuTimer;
-
 } // namespace thor
