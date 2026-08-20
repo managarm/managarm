@@ -379,11 +379,13 @@ extern inline __attribute__ (( always_inline )) HelError helRaiseEvent(HelHandle
 };
 
 extern inline __attribute__ (( always_inline )) HelError helAccessIrq(
-	HelHandle accessHandle, uint32_t mode, uint64_t controller, uint64_t index, HelHandle *handle
+	HelHandle accessHandle, uint32_t mode, uint64_t controller, uint64_t index,
+	const char *name, HelHandle *handle
 ) {
 	HelWord outHandle;
-	HelError error = helSyscall4_1(
-		kHelCallAccessIrq, (HelWord)accessHandle, (HelWord)mode, (HelWord)controller, (HelWord)index, &outHandle
+	HelError error = helSyscall5_1(
+		kHelCallAccessIrq, (HelWord)accessHandle, (HelWord)mode, (HelWord)controller,
+		(HelWord)index, (HelWord)name, &outHandle
 	);
 	*handle = (HelHandle)outHandle;
 	return error;
@@ -401,6 +403,11 @@ extern inline __attribute__ (( always_inline )) HelError helConfigureIrq(HelHand
 		uint32_t trigger, uint32_t polarity) {
 	return helSyscall3(kHelCallConfigureIrq, (HelWord)pin_handle, (HelWord)trigger,
 			(HelWord)polarity);
+};
+
+extern inline __attribute__ (( always_inline )) HelError helQueryMsiInfo(HelHandle pin_handle,
+		struct HelMsiInfo *info) {
+	return helSyscall2(kHelCallQueryMsiInfo, (HelWord)pin_handle, (HelWord)info);
 };
 
 extern inline __attribute__ (( always_inline )) HelError helAcknowledgeIrq(HelHandle handle,
