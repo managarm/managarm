@@ -96,19 +96,27 @@ async::result<protocols::fs::ReadResult> rawRead(void *object, helix_ng::Credent
 	HEL_CHECK(helGetClock(&start));
 
 	auto self = static_cast<raw::OpenFile *>(object);
-	// TODO(geert): pass cancellation token through here
-	auto file_size = co_await self->rawFs->device->getSize();
 
-	if(self->offset >= file_size)
-		co_return std::unexpected{protocols::fs::Error::endOfFile};
+	uint64_t chunk_offset;
+	size_t chunkSize;
+	{
+		co_await self->offsetMutex.async_lock();
+		frg::unique_lock offsetLock{frg::adopt_lock, self->offsetMutex};
 
-	auto remaining = file_size - self->offset;
-	auto chunkSize = std::min(length, remaining);
-	if(!chunkSize)
-		co_return std::unexpected{protocols::fs::Error::endOfFile};
+		// TODO(geert): pass cancellation token through here
+		auto file_size = co_await self->rawFs->device->getSize();
 
-	auto chunk_offset = self->offset;
-	self->offset += chunkSize;
+		if(self->offset >= file_size)
+			co_return std::unexpected{protocols::fs::Error::endOfFile};
+
+		auto remaining = file_size - self->offset;
+		chunkSize = std::min(length, remaining);
+		if(!chunkSize)
+			co_return std::unexpected{protocols::fs::Error::endOfFile};
+
+		chunk_offset = self->offset;
+		self->offset += chunkSize;
+	}
 
 	// TODO(geert): use cancellation token here
 	auto readMemory = co_await helix_ng::readMemory(
@@ -174,18 +182,30 @@ async::result<protocols::fs::Error> rawFlock(void *object, int flags) {
 
 async::result<protocols::fs::SeekResult> rawSeekAbs(void *object, int64_t offset) {
 	auto self = static_cast<raw::OpenFile*>(object);
+
+	co_await self->offsetMutex.async_lock();
+	frg::unique_lock offsetLock{frg::adopt_lock, self->offsetMutex};
+
 	self->offset = offset;
 	co_return static_cast<ssize_t>(self->offset);
 }
 
 async::result<protocols::fs::SeekResult> rawSeekRel(void *object, int64_t offset) {
 	auto self = static_cast<raw::OpenFile*>(object);
+
+	co_await self->offsetMutex.async_lock();
+	frg::unique_lock offsetLock{frg::adopt_lock, self->offsetMutex};
+
 	self->offset += offset;
 	co_return static_cast<ssize_t>(self->offset);
 }
 
 async::result<protocols::fs::SeekResult> rawSeekEof(void *object, int64_t offset) {
 	auto self = static_cast<raw::OpenFile *>(object);
+
+	co_await self->offsetMutex.async_lock();
+	frg::unique_lock offsetLock{frg::adopt_lock, self->offsetMutex};
+
 	auto size = co_await self->rawFs->device->getSize();
 	self->offset = offset + size;
 	co_return static_cast<ssize_t>(self->offset);

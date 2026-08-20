@@ -3,8 +3,6 @@
 #include <blockfs.hpp>
 
 #include <arch/dma_structs.hpp>
-#include <async/recurring-event.hpp>
-#include <frg/list.hpp>
 
 #include <string>
 
@@ -41,6 +39,9 @@ Error statusToError(uint8_t status);
 
 struct Interface {
 	virtual ~Interface() = default;
+
+	// Implementations must accept concurrent calls, serializing or pipelining them as
+	// the transport allows.
 	virtual async::result<frg::expected<Error, size_t>> sendScsiCommand(const CommandInfo &info) = 0;
 
 	async::result<frg::expected<Error, std::vector<uint64_t>>> reportLuns();
@@ -51,8 +52,6 @@ struct Interface {
 struct StorageDevice : Interface, blockfs::BlockDevice {
 	StorageDevice(size_t sectorSize, int64_t parentId, arch::contiguous_pool *pool)
 	: blockfs::BlockDevice(sectorSize, parentId, pool) { }
-
-	async::detached runScsi();
 
 	async::result<void> readSectors(uint64_t sector,
 			arch::dma_buffer_view view) final;
@@ -65,23 +64,8 @@ struct StorageDevice : Interface, blockfs::BlockDevice {
 	size_t storageSize{};
 
 private:
-	struct Request {
-		Request(bool isWrite, uint64_t sector, arch::dma_buffer_view view)
-		: isWrite{isWrite}, sector{sector}, view{view} { }
-
-		bool isWrite;
-		uint64_t sector;
-		arch::dma_buffer_view view;
-		async::oneshot_primitive event;
-		frg::default_list_hook<Request> requestHook;
-	};
-
-	async::recurring_event doorbell_;
-
-	frg::intrusive_list<
-		Request,
-		frg::locate_member<Request, frg::default_list_hook<Request>, &Request::requestHook>
-	> queue_;
+	async::result<void> performIo(bool isWrite, uint64_t sector,
+			arch::dma_buffer_view view);
 };
 
 inline constexpr uint8_t WELL_KNOWN_REPORT_LUNS_LUN = 1;

@@ -953,15 +953,29 @@ async::result<void> FileSystem::init() {
 }
 
 async::detached FileSystem::handleBgdtWriteback() {
+	// Snapshot of blockGroupDescriptorBuffer that we write out.
+	arch::dma_buffer writebackBuffer{pool, blockGroupDescriptorBuffer.size()};
+
+	uint64_t seenSeq = 0;
 	while(true) {
-		co_await bdgtWriteback.async_wait();
+		co_await bgdtWriteback.async_wait(seenSeq);
 
-		co_await allocationMutex.async_lock();
-		frg::unique_lock allocationLock{frg::adopt_lock, allocationMutex};
+		{
+			co_await allocationMutex.async_lock();
+			frg::unique_lock allocationLock{frg::adopt_lock, allocationMutex};
 
+			// Take the sequence together with the snapshot, so that no request is missed.
+			// TODO: Use async::sequenced_event::current_sequence() once it exists.
+			seenSeq = bgdtWriteback.next_sequence() - 1;
+			assert(writebackBuffer.size() == blockGroupDescriptorBuffer.size());
+			memcpy(writebackBuffer.data(), blockGroupDescriptorBuffer.data(),
+					blockGroupDescriptorBuffer.size());
+		}
+
+		// The device write happens outside of allocationMutex.
 		auto bgdt_offset = (2048 + blockSize - 1) & ~size_t(blockSize - 1);
 		co_await device->writeSectors((bgdt_offset >> blockShift) * sectorsPerBlock,
-				blockGroupDescriptorBuffer);
+				writebackBuffer);
 	}
 }
 
@@ -1122,15 +1136,19 @@ auto FileSystem::accessRoot() -> std::shared_ptr<BaseInode> {
 auto FileSystem::accessInode(uint32_t number) -> std::shared_ptr<BaseInode> {
 	assert(number > 0);
 
-	std::lock_guard activeInodesLock{activeInodesMutex};
+	std::shared_ptr<Inode> new_inode;
+	{
+		std::lock_guard activeInodesLock{activeInodesMutex};
 
-	std::weak_ptr<Inode> &inode_slot = activeInodes[number];
-	std::shared_ptr<Inode> active_inode = inode_slot.lock();
-	if(active_inode)
-		return active_inode;
+		std::weak_ptr<Inode> &inode_slot = activeInodes[number];
+		std::shared_ptr<Inode> active_inode = inode_slot.lock();
+		if(active_inode)
+			return active_inode;
 
-	auto new_inode = std::make_shared<Inode>(*this, number);
-	inode_slot = std::weak_ptr<Inode>(new_inode);
+		new_inode = std::make_shared<Inode>(*this, number);
+		inode_slot = std::weak_ptr<Inode>(new_inode);
+	}
+
 	initiateInode(new_inode);
 
 	return new_inode;
@@ -1563,7 +1581,7 @@ async::result<uint32_t> FileSystem::allocateInode(uint32_t parentIno, bool direc
 				updateInodeBitmapChecksum(*this, &bgdt[bg], words, blockSize);
 				updateBlockGroupChecksum(*this, &bgdt[bg], bg);
 
-				bdgtWriteback.raise();
+				bgdtWriteback.raise();
 
 				auto syncBitmap = co_await helix_ng::synchronizeSpace(
 						helix::BorrowedDescriptor{kHelNullHandle},
@@ -1932,7 +1950,7 @@ async::result<void> FileSystem::assignDataBlocksUsingExtents(Inode *inode,
 
 	updateInodeChecksum(*this, diskInode, inode->number);
 
-	bdgtWriteback.raise();
+	bgdtWriteback.raise();
 	auto syncInode = co_await helix_ng::synchronizeSpace(
 			helix::BorrowedDescriptor{kHelNullHandle},
 			inode->diskInode(), inodeSize);
@@ -2158,7 +2176,7 @@ async::result<void> FileSystem::assignDataBlocks(Inode *inode,
 
 	updateInodeChecksum(*this, inode->diskInode(), inode->number);
 
-	bdgtWriteback.raise();
+	bgdtWriteback.raise();
 	auto syncInode = co_await helix_ng::synchronizeSpace(
 			helix::BorrowedDescriptor{kHelNullHandle},
 			inode->diskInode(), inodeSize);

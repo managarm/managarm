@@ -180,103 +180,88 @@ async::result<frg::expected<Error, std::vector<uint64_t>>> Interface::reportLuns
 	co_return data;
 }
 
-async::detached StorageDevice::runScsi() {
-	while (true) {
-		if (queue_.empty()) {
-			co_await doorbell_.async_wait();
-			continue;
-		}
+async::result<void> StorageDevice::performIo(bool isWrite, uint64_t sector,
+		arch::dma_buffer_view view) {
+	auto numSectors = view.size() >> sectorShift;
 
-		auto req = queue_.pop_front();
-		auto numSectors = req->view.size() >> sectorShift;
+	if (logRequests)
+		std::println(std::cout, "block-scsi: Reading {} sectors", numSectors);
+	assert(numSectors);
+	assert(numSectors <= 0xffff);
 
-		if (logRequests)
-			std::println(std::cout, "block-scsi: Reading {} sectors", numSectors);
-		assert(numSectors);
-		assert(numSectors <= 0xffff);
+	uint8_t commandData[16];
+	uint8_t commandLength;
 
-		uint8_t commandData[16];
-		uint8_t commandLength;
+	if (!isWrite) {
+		if (enableRead6 && sector <= 0x1fffff && numSectors <= 0xff) {
+			Read6 command{};
+			command.opCode = 0x08;
+			command.lba[0] = sector >> 16;
+			command.lba[1] = (sector >> 8) & 0xff;
+			command.lba[2] = sector & 0xff;
+			command.transferLength = numSectors;
 
-		if (!req->isWrite) {
-			if (enableRead6 && req->sector <= 0x1fffff && numSectors <= 0xff) {
-				Read6 command{};
-				command.opCode = 0x08;
-				command.lba[0] = req->sector >> 16;
-				command.lba[1] = (req->sector >> 8) & 0xff;
-				command.lba[2] = req->sector & 0xff;
-				command.transferLength = numSectors;
+			commandLength = sizeof(Read6);
+			memcpy(commandData, &command, sizeof(Read6));
+		} else if (sector <= 0xffffffff) {
+			Read10 command{};
+			command.opCode = 0x28;
+			command.lba[0] = sector >> 24;
+			command.lba[1] = (sector >> 16) & 0xff;
+			command.lba[2] = (sector >> 8) & 0xff;
+			command.lba[3] = sector & 0xff;
+			command.transferLength[0] = numSectors >> 8;
+			command.transferLength[1] = numSectors & 0xff;
 
-				commandLength = sizeof(Read6);
-				memcpy(commandData, &command, sizeof(Read6));
-			} else if (req->sector <= 0xffffffff) {
-				Read10 command{};
-				command.opCode = 0x28;
-				command.lba[0] = req->sector >> 24;
-				command.lba[1] = (req->sector >> 16) & 0xff;
-				command.lba[2] = (req->sector >> 8) & 0xff;
-				command.lba[3] = req->sector & 0xff;
-				command.transferLength[0] = numSectors >> 8;
-				command.transferLength[1] = numSectors & 0xff;
-
-				commandLength = sizeof(Read10);
-				memcpy(commandData, &command, sizeof(Read10));
-			} else {
-				logPanic("block-scsi: High LBAs are not supported!");
-			}
+			commandLength = sizeof(Read10);
+			memcpy(commandData, &command, sizeof(Read10));
 		} else {
-			if (req->sector <= 0xffffffff) {
-				Write10 command{};
-				command.opCode = 0x2a;
-				command.lba[0] = req->sector >> 24;
-				command.lba[1] = (req->sector >> 16) & 0xff;
-				command.lba[2] = (req->sector >> 8) & 0xff;
-				command.lba[3] = req->sector & 0xff;
-				command.transferLength[0] = numSectors >> 8;
-				command.transferLength[1] = numSectors & 0xff;
-
-				commandLength = sizeof(Write10);
-				memcpy(commandData, &command, sizeof(Write10));
-			} else {
-				logPanic("block-scsi: High LBAs are not supported!");
-			}
+			logPanic("block-scsi: High LBAs are not supported!");
 		}
+	} else {
+		if (sector <= 0xffffffff) {
+			Write10 command{};
+			command.opCode = 0x2a;
+			command.lba[0] = sector >> 24;
+			command.lba[1] = (sector >> 16) & 0xff;
+			command.lba[2] = (sector >> 8) & 0xff;
+			command.lba[3] = sector & 0xff;
+			command.transferLength[0] = numSectors >> 8;
+			command.transferLength[1] = numSectors & 0xff;
 
-		if (logSteps)
-			std::println(std::cout, "block-scsi: Sending command");
-
-		CommandInfo info{
-			.command{nullptr, commandData, commandLength},
-			.data = req->view,
-			.isWrite = req->isWrite
-		};
-		auto result = co_await sendScsiCommand(info);
-		if (!result) {
-			logPanic("block-scsi: Request failed with error {}",
-					result.error().toString());
+			commandLength = sizeof(Write10);
+			memcpy(commandData, &command, sizeof(Write10));
+		} else {
+			logPanic("block-scsi: High LBAs are not supported!");
 		}
-
-		if (logSteps)
-			std::println(std::cout, "block-scsi: Request complete");
-
-		req->event.raise();
 	}
+
+	if (logSteps)
+		std::println(std::cout, "block-scsi: Sending command");
+
+	CommandInfo info{
+		.command{nullptr, commandData, commandLength},
+		.data = view,
+		.isWrite = isWrite
+	};
+	auto result = co_await sendScsiCommand(info);
+	if (!result) {
+		logPanic("block-scsi: Request failed with error {}",
+				result.error().toString());
+	}
+
+	if (logSteps)
+		std::println(std::cout, "block-scsi: Request complete");
 }
 
 async::result<void> StorageDevice::readSectors(uint64_t sector,
 		arch::dma_buffer_view view) {
-	Request req{false, sector, view};
-	queue_.push_back(&req);
-	doorbell_.raise();
-	co_await req.event.wait();
+	co_await performIo(false, sector, view);
 }
 
 async::result<void> StorageDevice::writeSectors(uint64_t sector,
 		arch::dma_buffer_view view) {
-	Request req{true, sector, view};
-	queue_.push_back(&req);
-	doorbell_.raise();
-	co_await req.event.wait();
+	co_await performIo(true, sector, view);
 }
 
 async::result<size_t> StorageDevice::getSize() {
