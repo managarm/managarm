@@ -7,7 +7,7 @@ pub mod serve;
 
 use managarm::svrctl::hardware_access_handle;
 use std::collections::BTreeMap;
-use std::sync::atomic::{AtomicBool, AtomicI64, AtomicU8};
+use std::sync::atomic::{AtomicBool, AtomicI32, AtomicI64, AtomicU8, AtomicU32};
 use std::sync::{Mutex, OnceLock};
 
 use anyhow::Result;
@@ -710,6 +710,43 @@ pub struct Capability {
     pub length: Option<u64>,
 }
 
+const MSIX_MESSAGE_ADDRESS: usize = 0;
+const MSIX_MESSAGE_DATA: usize = 8;
+const MSIX_VECTOR_CONTROL: usize = 12;
+
+// MSI-X vector table of a device, mapped from the BAR named by the MSI-X capability.
+pub struct MsixTable {
+    mapping: hel::Mapping<u8>,
+    disp: usize,
+}
+
+impl MsixTable {
+    pub fn new(mapping: hel::Mapping<u8>, disp: usize) -> MsixTable {
+        MsixTable { mapping, disp }
+    }
+
+    fn register(&self, index: usize, register: usize) -> *mut u8 {
+        let base = unsafe { self.mapping.as_ptr() }.unwrap().as_ptr();
+        unsafe { base.add(self.disp + index * 16 + register) }
+    }
+
+    pub fn store_message_address(&self, index: usize, value: u64) {
+        unsafe { (self.register(index, MSIX_MESSAGE_ADDRESS) as *mut u64).write_volatile(value) }
+    }
+
+    pub fn store_message_data(&self, index: usize, value: u32) {
+        unsafe { (self.register(index, MSIX_MESSAGE_DATA) as *mut u32).write_volatile(value) }
+    }
+
+    pub fn load_vector_control(&self, index: usize) -> u32 {
+        unsafe { (self.register(index, MSIX_VECTOR_CONTROL) as *const u32).read_volatile() }
+    }
+
+    pub fn store_vector_control(&self, index: usize, value: u32) {
+        unsafe { (self.register(index, MSIX_VECTOR_CONTROL) as *mut u32).write_volatile(value) }
+    }
+}
+
 // Not consumed yet; kept to match the information thor collects.
 #[allow(dead_code)]
 pub struct ExtendedCapability {
@@ -847,6 +884,14 @@ pub struct PciDevice {
 
     // Physical address and size of the Intel IGD VBT, if any.
     pub igd_vbt: OnceLock<(u64, u64)>,
+
+    // MSI / MSI-X support.
+    // Only set once the vectors were fully set up (e.g. the MSI-X table could be mapped).
+    pub msis_usable: AtomicBool,
+    pub num_msis: AtomicU32,
+    pub msix_index: AtomicI32,
+    pub msix_mapping: Mutex<Option<MsixTable>>,
+    pub msi_index: AtomicI32,
 }
 
 impl PciDevice {
@@ -873,6 +918,11 @@ impl PciDevice {
             subsystem_device,
             interrupt: OnceLock::new(),
             igd_vbt: OnceLock::new(),
+            msis_usable: AtomicBool::new(false),
+            num_msis: AtomicU32::new(0),
+            msix_index: AtomicI32::new(-1),
+            msix_mapping: Mutex::new(None),
+            msi_index: AtomicI32::new(-1),
         })
     }
 
