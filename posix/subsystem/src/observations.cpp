@@ -72,8 +72,6 @@ async::result<bool> handlePendingSignalsFromObservation(Process *self) {
 			continue;
 		}
 
-		self->accessThreadPage()->cancellationRequested = true;
-		alertRemoteQueue(self);
 		if (self->checkOrRequestSignalRaise()) {
 			if constexpr (logSignals)
 				std::println("posix: raising signal");
@@ -86,6 +84,9 @@ async::result<bool> handlePendingSignalsFromObservation(Process *self) {
 		} else {
 			if constexpr (logSignals)
 				std::println("posix: making signal delayed");
+			// checkOrRequestSignalRaise() has set globalSignalFlag to 2.
+			// The alert wakes a wait that already passed its globalSignalFlag check.
+			alertRemoteQueue(self);
 			self->delayedSignal = active;
 			self->delayedSignalHandling = handling;
 			co_return true;
@@ -688,9 +689,8 @@ async::result<void> observeThread(std::shared_ptr<Process> self,
 			HEL_CHECK(helLoadRegisters(thread.getHandle(), kHelRegsGeneral, &gprs));
 
 			auto cancelId = gprs[kHelRegArg0];
-			auto fd = gprs[kHelRegArg1];
 
-			co_await self->cancelEvent(cancelId, fd);
+			self->cancelPosixRequest(cancelId);
 
 			gprs[kHelRegError] = 0;
 
