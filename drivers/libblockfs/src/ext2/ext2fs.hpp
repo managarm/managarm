@@ -10,6 +10,7 @@
 #include <optional>
 #include <unordered_map>
 #include <unordered_set>
+#include <utility>
 #include <vector>
 #include <protocols/fs/file-locks.hpp>
 
@@ -409,7 +410,8 @@ struct Inode final : BaseInode, std::enable_shared_from_this<Inode> {
 
 	FileSystem &fs;
 
-	helix::UniqueDescriptor diskLock;
+	MetadataCache::BlockWindow diskInodeWindow;
+	size_t diskInodeOffset = 0;
 
 	// Serializes access to this inode's mapping from file offsets to filesystem blocks.
 	// blockMapMutex MUST be taken for all operations that access:
@@ -481,10 +483,6 @@ struct FileSystem final : BaseFileSystem {
 
 	async::detached handleBgdtWriteback();
 
-	async::detached manageBlockBitmap(helix::UniqueDescriptor memory);
-	async::detached manageInodeBitmap(helix::UniqueDescriptor memory);
-	async::detached manageInodeTable(helix::UniqueDescriptor memory);
-
 	std::shared_ptr<BaseInode> accessRoot() override;
 	std::shared_ptr<BaseInode> accessInode(uint32_t number) override;
 	async::result<std::shared_ptr<BaseInode>> createRegular(int uid, int gid, uint32_t parentIno) override;
@@ -492,6 +490,9 @@ struct FileSystem final : BaseFileSystem {
 
 	async::result<std::shared_ptr<Inode>> createDirectory();
 	async::result<std::shared_ptr<Inode>> createSymlink();
+
+	// Returns the block containing the given on-disk inode and the offset within that block.
+	std::pair<uint64_t, size_t> locateDiskInode(uint32_t number);
 
 	async::detached initiateInode(std::shared_ptr<Inode> inode);
 	async::detached manageFileData(std::shared_ptr<Inode> inode);
@@ -563,18 +564,7 @@ struct FileSystem final : BaseFileSystem {
 	bool metadataChecksum;
 	bool bgdtChecksum;
 
-	helix::UniqueDescriptor blockBitmap;
-	// Immutable handle. Access protected by allocationMutex.
-	// Only locked and present pages must be accessed.
-	helix::Mapping blockBitmapMapping;
-	helix::UniqueDescriptor inodeBitmap;
-	// Immutable handle. Access protected by allocationMutex.
-	// Only locked and present pages must be accessed.
-	helix::Mapping inodeBitmapMapping;
-	helix::UniqueDescriptor inodeTable;
-	helix::Mapping inodeTableMapping;
-
-	// Mount-wide cache of metadata blocks (i.e., indirect blocks), indexed by disk block number.
+	// Mount-wide cache of metadata blocks, indexed by disk block number.
 	std::optional<MetadataCache> metadataCache;
 
 	std::mutex activeInodesMutex;
