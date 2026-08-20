@@ -811,6 +811,23 @@ async::result<void>Handle::setupBuffer(DeviceToHostType, arch::dma_buffer_view v
 	descriptor->flags.store(descriptor->flags.load() | VIRTQ_DESC_F_WRITE);
 }
 
+void Handle::setupBuffer(HostToDeviceType, DmaChunk chunk) {
+	assert(chunk.view.size());
+
+	auto descriptor = _queue->_table + _tableIndex;
+	descriptor->address.store(chunk.address);
+	descriptor->length.store(chunk.view.size());
+}
+
+void Handle::setupBuffer(DeviceToHostType, DmaChunk chunk) {
+	assert(chunk.view.size());
+
+	auto descriptor = _queue->_table + _tableIndex;
+	descriptor->address.store(chunk.address);
+	descriptor->length.store(chunk.view.size());
+	descriptor->flags.store(descriptor->flags.load() | VIRTQ_DESC_F_WRITE);
+}
+
 void Handle::setupLink(Handle other) {
 	auto descriptor = _queue->_table + _tableIndex;
 	descriptor->next.store(other._tableIndex);
@@ -819,27 +836,19 @@ void Handle::setupLink(Handle other) {
 
 async::result<void> scatterGather(HostToDeviceType, Chain &chain, Queue *queue,
 		arch::dma_buffer_view view) {
-	constexpr size_t page_size = 0x1000;
-	size_t offset = 0;
-	while(offset < view.size()) {
-		auto address = reinterpret_cast<uintptr_t>(view.data()) + offset;
-		auto chunk = std::min(view.size() - offset, page_size - (address & (page_size - 1)));
+	auto chunks = co_await queue->splitContiguous(view);
+	for(auto &chunk : chunks) {
 		chain.append(co_await queue->obtainDescriptor());
-		co_await chain.setupBuffer(hostToDevice, view.subview(offset, chunk));
-		offset += chunk;
+		chain.setupBuffer(hostToDevice, chunk);
 	}
 }
 
 async::result<void> scatterGather(DeviceToHostType, Chain &chain, Queue *queue,
 		arch::dma_buffer_view view) {
-	constexpr size_t page_size = 0x1000;
-	size_t offset = 0;
-	while(offset < view.size()) {
-		auto address = reinterpret_cast<uintptr_t>(view.data()) + offset;
-		auto chunk = std::min(view.size() - offset, page_size - (address & (page_size - 1)));
+	auto chunks = co_await queue->splitContiguous(view);
+	for(auto &chunk : chunks) {
 		chain.append(co_await queue->obtainDescriptor());
-		co_await chain.setupBuffer(deviceToHost, view.subview(offset, chunk));
-		offset += chunk;
+		chain.setupBuffer(deviceToHost, chunk);
 	}
 }
 
@@ -887,6 +896,52 @@ Queue::Queue(
 		_descriptorStack.push_back(i);
 	_descriptorSemaphore.release(_queueSize);
 	_activeRequests.resize(_queueSize);
+}
+
+async::result<std::vector<DmaChunk>> Queue::splitContiguous(arch::dma_buffer_view view) {
+	constexpr size_t pageSize = 0x1000;
+	// The descriptor length field is only 32 bits wide.
+	constexpr size_t maxChunkSize = 0xFFFFF000;
+
+	std::vector<DmaChunk> chunks;
+
+	// With an IOMMU, iova_of() maps the view's entire backing region contiguously
+	// into DMA space, hence the whole view fits into a single descriptor.
+	if(dmaSpace().iommuActive()) {
+		size_t offset = 0;
+		while(offset < view.size()) {
+			auto chunkView = view.subview(offset, std::min(view.size() - offset, maxChunkSize));
+			auto address = co_await dmaSpace().iova_of(chunkView);
+			chunks.push_back({chunkView, address});
+			offset += chunkView.size();
+		}
+		co_return chunks;
+	}
+
+	// Without an IOMMU, only contiguity within a page is guaranteed;
+	// still, merge pages that happen to be physically contiguous.
+	size_t chunkOffset = 0;
+	size_t chunkSize = 0;
+	uintptr_t chunkAddress = 0;
+	size_t offset = 0;
+	while(offset < view.size()) {
+		auto va = reinterpret_cast<uintptr_t>(view.data()) + offset;
+		auto piece = std::min(view.size() - offset, pageSize - (va & (pageSize - 1)));
+		auto address = co_await dmaSpace().iova_of(view.subview(offset, piece));
+		if(chunkSize && address == chunkAddress + chunkSize && chunkSize + piece <= maxChunkSize) {
+			chunkSize += piece;
+		}else{
+			if(chunkSize)
+				chunks.push_back({view.subview(chunkOffset, chunkSize), chunkAddress});
+			chunkOffset = offset;
+			chunkSize = piece;
+			chunkAddress = address;
+		}
+		offset += piece;
+	}
+	if(chunkSize)
+		chunks.push_back({view.subview(chunkOffset, chunkSize), chunkAddress});
+	co_return chunks;
 }
 
 async::result<Handle> Queue::obtainDescriptor() {
