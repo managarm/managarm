@@ -535,7 +535,6 @@ struct FileSystem final : BaseFileSystem {
 	uint16_t inodeSize;
 	uint32_t blockShift;
 	uint32_t blockSize;
-	uint32_t blockPagesShift;
 	uint32_t sectorsPerBlock;
 	uint32_t numBlockGroups;
 	uint32_t blocksPerGroup;

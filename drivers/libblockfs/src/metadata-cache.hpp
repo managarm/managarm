@@ -18,6 +18,9 @@ namespace blockfs {
 struct MetadataCache {
 	// A locked and mapped view of a single metadata block.
 	// The block stays present in the cache for the lifetime of this object.
+	//
+	// Destroying a writable window marks it as dirty in the kernel's writeback machinery.
+	// Callers that write through a short-lived window therefore need not request a writeback explicitly.
 	struct BlockWindow {
 		BlockWindow() = default;
 

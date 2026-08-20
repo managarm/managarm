@@ -30,8 +30,6 @@ namespace ext2fs {
 namespace {
 	constexpr bool logSuperblock = true;
 
-	constexpr int pageShift = 12;
-
 	void updateInodeChecksum(FileSystem &fs, DiskInode *inode, uint32_t number) {
 		if(fs.metadataChecksum) {
 			inode->osd2.checksumLow = 0;
@@ -860,7 +858,6 @@ async::result<void> FileSystem::init() {
 	inodeSize = sb.inodeSize;
 	blockShift = 10 + sb.logBlockSize;
 	blockSize = 1024 << sb.logBlockSize;
-	blockPagesShift = blockShift < pageShift ? pageShift : blockShift;
 	sectorsPerBlock = blockSize / device->sectorSize;
 	blocksPerGroup = sb.blocksPerGroup;
 	inodesPerGroup = sb.inodesPerGroup;
@@ -1024,11 +1021,6 @@ async::result<std::shared_ptr<BaseInode>> FileSystem::createRegular(int uid, int
 
 	updateInodeChecksum(*this, disk_inode, ino);
 
-	auto syncInode = co_await helix_ng::synchronizeSpace(
-			helix::BorrowedDescriptor{kHelNullHandle},
-			disk_inode, inodeSize);
-	HEL_CHECK(syncInode.error());
-
 	co_return accessInode(ino);
 }
 
@@ -1060,11 +1052,6 @@ async::result<std::shared_ptr<Inode>> FileSystem::createDirectory() {
 
 	updateInodeChecksum(*this, disk_inode, ino);
 
-	auto syncInode = co_await helix_ng::synchronizeSpace(
-			helix::BorrowedDescriptor{kHelNullHandle},
-			disk_inode, inodeSize);
-	HEL_CHECK(syncInode.error());
-
 	co_return std::static_pointer_cast<Inode>(accessInode(ino));
 }
 
@@ -1088,11 +1075,6 @@ async::result<std::shared_ptr<Inode>> FileSystem::createSymlink() {
 	disk_inode->mtime = time.tv_sec;
 
 	updateInodeChecksum(*this, disk_inode, ino);
-
-	auto syncInode = co_await helix_ng::synchronizeSpace(
-			helix::BorrowedDescriptor{kHelNullHandle},
-			disk_inode, inodeSize);
-	HEL_CHECK(syncInode.error());
 
 	co_return std::static_pointer_cast<Inode>(accessInode(ino));
 }
@@ -1245,11 +1227,6 @@ async::result<std::vector<uint32_t>> FileSystem::allocateBlocks(size_t num, std:
 						updateBlockBitmapChecksum(*this, &bgdt[preferred_bg], words, blockSize);
 						updateBlockGroupChecksum(*this, &bgdt[preferred_bg], preferred_bg);
 
-						auto syncBitmap = co_await helix_ng::synchronizeSpace(
-								helix::BorrowedDescriptor{kHelNullHandle},
-								words, 1 << blockPagesShift);
-						HEL_CHECK(syncBitmap.error());
-
 						ostContext.emit(
 							ostEvtExt2AllocateBlocks,
 							ostAttrTime(timer.elapsed())
@@ -1262,11 +1239,6 @@ async::result<std::vector<uint32_t>> FileSystem::allocateBlocks(size_t num, std:
 			if(!result.empty()) {
 				updateBlockBitmapChecksum(*this, &bgdt[preferred_bg], words, blockSize);
 				updateBlockGroupChecksum(*this, &bgdt[preferred_bg], preferred_bg);
-
-				auto syncBitmap = co_await helix_ng::synchronizeSpace(
-						helix::BorrowedDescriptor{kHelNullHandle},
-						words, 1 << blockPagesShift);
-				HEL_CHECK(syncBitmap.error());
 			}
 		}
 	}
@@ -1299,11 +1271,6 @@ async::result<std::vector<uint32_t>> FileSystem::allocateBlocks(size_t num, std:
 					updateBlockBitmapChecksum(*this, &bgdt[bg_idx], words, blockSize);
 					updateBlockGroupChecksum(*this, &bgdt[bg_idx], bg_idx);
 
-					auto syncBitmap = co_await helix_ng::synchronizeSpace(
-							helix::BorrowedDescriptor{kHelNullHandle},
-							words, 1 << blockPagesShift);
-					HEL_CHECK(syncBitmap.error());
-
 					ostContext.emit(
 						ostEvtExt2AllocateBlocks,
 						ostAttrTime(timer.elapsed())
@@ -1315,11 +1282,6 @@ async::result<std::vector<uint32_t>> FileSystem::allocateBlocks(size_t num, std:
 
 		updateBlockBitmapChecksum(*this, &bgdt[bg_idx], words, blockSize);
 		updateBlockGroupChecksum(*this, &bgdt[bg_idx], bg_idx);
-
-		auto syncBitmap = co_await helix_ng::synchronizeSpace(
-				helix::BorrowedDescriptor{kHelNullHandle},
-				words, 1 << blockPagesShift);
-		HEL_CHECK(syncBitmap.error());
 	}
 
 	assert(!"Failed to find zero-bit");
@@ -1359,11 +1321,6 @@ async::result<uint32_t> FileSystem::allocateInode(uint32_t parentIno, bool direc
 				updateBlockGroupChecksum(*this, &bgdt[bg], bg);
 
 				bgdtWriteback.raise();
-
-				auto syncBitmap = co_await helix_ng::synchronizeSpace(
-						helix::BorrowedDescriptor{kHelNullHandle},
-						words, 1 << blockPagesShift);
-				HEL_CHECK(syncBitmap.error());
 
 				ostContext.emit(
 					ostEvtExt2AllocateInode,
