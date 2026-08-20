@@ -481,8 +481,6 @@ struct FileSystem final : BaseFileSystem {
 
 	async::detached handleBgdtWriteback();
 
-	async::detached manageBlockBitmap(helix::UniqueDescriptor memory);
-	async::detached manageInodeBitmap(helix::UniqueDescriptor memory);
 	async::detached manageInodeTable(helix::UniqueDescriptor memory);
 
 	std::shared_ptr<BaseInode> accessRoot() override;
@@ -563,14 +561,6 @@ struct FileSystem final : BaseFileSystem {
 	bool metadataChecksum;
 	bool bgdtChecksum;
 
-	helix::UniqueDescriptor blockBitmap;
-	// Immutable handle. Access protected by allocationMutex.
-	// Only locked and present pages must be accessed.
-	helix::Mapping blockBitmapMapping;
-	helix::UniqueDescriptor inodeBitmap;
-	// Immutable handle. Access protected by allocationMutex.
-	// Only locked and present pages must be accessed.
-	helix::Mapping inodeBitmapMapping;
 	helix::UniqueDescriptor inodeTable;
 	helix::Mapping inodeTableMapping;
 
