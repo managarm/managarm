@@ -380,7 +380,7 @@ int main() {
 	auto sd = protocols::svrctl::getServerData();
 
 	HelHandle pin_handle;
-	HEL_CHECK(helAccessIrq(sd.hardwareAccess, kHelAccessIrqByGsi, 0, 4, &pin_handle));
+	HEL_CHECK(helAccessIrq(sd.hardwareAccess, kHelAccessIrqByGsi, 0, 4, nullptr, &pin_handle));
 	helix::UniqueDescriptor pin{pin_handle};
 
 	HelHandle irq_handle;

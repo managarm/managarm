@@ -125,6 +125,7 @@ pub fn access_irq_by_gsi(access_handle: &Handle, gsi: u64) -> Result<Handle> {
             hel_sys::kHelAccessIrqByGsi as u32,
             0,
             gsi,
+            std::ptr::null(),
             &mut handle,
         )
     })?;
@@ -140,6 +141,7 @@ pub fn access_irq_by_phandle(access_handle: &Handle, phandle: u64, index: u64) -
             hel_sys::kHelAccessIrqByPhandle as u32,
             phandle,
             index,
+            std::ptr::null(),
             &mut handle,
         )
     })?;
