@@ -49,9 +49,16 @@ pub trait PciDevice {
     fn access_vbt(&self) -> hel::Result<Option<(u32, Handle)>> {
         Ok(None)
     }
+    fn install_msi(&self, index: u32) -> hel::Result<Option<Handle>> {
+        let _ = index;
+        Ok(None)
+    }
 
     fn enable_busmaster(&self);
     fn enable_irq(&self);
+    fn enable_msi(&self) -> bool {
+        false
+    }
     fn get_dma_space(&self) -> hel::Result<(bool, Handle)> {
         Ok((false, hel::create_dma_space()?))
     }
@@ -274,6 +281,30 @@ async fn handle_one<D: PciDevice>(lane: &Handle, request: &[u8], device: &D) -> 
         bindings::EnableBusIrqRequest::MESSAGE_ID => {
             device.enable_irq();
             send_response(lane, &Errors::Success.into()).await?;
+        }
+        bindings::InstallMsiRequest::MESSAGE_ID => {
+            let req: bindings::InstallMsiRequest =
+                bragi::head_from_bytes(request).map_err(|_| hel::Error::IllegalArgs)?;
+            match device.install_msi(req.index()) {
+                Ok(Some(handle)) => {
+                    send_response_with_push(
+                        lane,
+                        &Errors::Success.into(),
+                        &handle,
+                        hel_sys::kHelRightWait | hel_sys::kHelRightSignal,
+                    )
+                    .await?
+                }
+                Ok(None) => send_response(lane, &Errors::IllegalArguments.into()).await?,
+                Err(_) => send_response(lane, &Errors::ResourceExhaustion.into()).await?,
+            }
+        }
+        bindings::EnableMsiRequest::MESSAGE_ID => {
+            if device.enable_msi() {
+                send_response(lane, &Errors::Success.into()).await?;
+            } else {
+                send_response(lane, &Errors::IllegalArguments.into()).await?;
+            }
         }
         bindings::GetDmaSpaceRequest::MESSAGE_ID => {
             let (iommu_active, space) = device.get_dma_space()?;
