@@ -235,10 +235,7 @@ Inode::insertEntry(std::string name, int64_t ino, blockfs::FileType type) {
 		updateInodeChecksum(fs, target->diskInode(), ino);
 
 		// Flush the target inode to disk.
-		auto syncInode = co_await helix_ng::synchronizeSpace(
-				helix::BorrowedDescriptor{kHelNullHandle},
-				target->diskInode(), fs.inodeSize);
-		HEL_CHECK(syncInode.error());
+		target->diskInodeWindow.markDirty();
 
 		DirEntry entry;
 		entry.inode = ino;
@@ -263,10 +260,7 @@ Inode::insertEntry(std::string name, int64_t ino, blockfs::FileType type) {
 
 	updateInodeChecksum(fs, diskInode(), number);
 
-	auto syncInode = co_await helix_ng::synchronizeSpace(
-			helix::BorrowedDescriptor{kHelNullHandle},
-			diskInode(), fs.inodeSize);
-	HEL_CHECK(syncInode.error());
+	diskInodeWindow.markDirty();
 
 	// Space required for the new directory entry.
 	// We use name.size() + 1 for the entry name length to account for the null terminator
@@ -387,10 +381,7 @@ async::result<frg::expected<protocols::fs::Error>> Inode::removeEntry(std::strin
 
 			updateInodeChecksum(fs, target->diskInode(), targetIno);
 
-			auto syncInode = co_await helix_ng::synchronizeSpace(
-					helix::BorrowedDescriptor{kHelNullHandle},
-					target->diskInode(), fs.inodeSize);
-			HEL_CHECK(syncInode.error());
+			target->diskInodeWindow.markDirty();
 
 			// A removed subdirectory drops its ".." backlink to this directory.
 			if(target->fileType == kTypeDirectory) {
@@ -398,10 +389,7 @@ async::result<frg::expected<protocols::fs::Error>> Inode::removeEntry(std::strin
 
 				updateInodeChecksum(fs, diskInode(), number);
 
-				auto syncParent = co_await helix_ng::synchronizeSpace(
-						helix::BorrowedDescriptor{kHelNullHandle},
-						diskInode(), fs.inodeSize);
-				HEL_CHECK(syncParent.error());
+				diskInodeWindow.markDirty();
 			}
 
 			co_return {};
@@ -615,10 +603,7 @@ async::result<std::expected<DirEntry, protocols::fs::Error>> Inode::mkdir(std::s
 	updateInodeChecksum(fs, dirNode->diskInode(), dirNode->number);
 
 	// Synchronize the new directory's inode to update its linksCount
-	auto syncNewInode = co_await helix_ng::synchronizeSpace(
-			helix::BorrowedDescriptor{kHelNullHandle},
-			dirNode->diskInode(), fs.inodeSize);
-	HEL_CHECK(syncNewInode.error());
+	dirNode->diskInodeWindow.markDirty();
 
 	// Synchronize the data blocks
 	auto syncNewDir = co_await helix_ng::synchronizeSpace(
@@ -701,10 +686,7 @@ async::result<std::expected<DirEntry, protocols::fs::Error>> Inode::symlink(std:
 
 	updateInodeChecksum(fs, newNode->diskInode(), newNode->number);
 
-	auto syncInode = co_await helix_ng::synchronizeSpace(
-			helix::BorrowedDescriptor{kHelNullHandle},
-			newNode->diskInode(), fs.inodeSize);
-	HEL_CHECK(syncInode.error());
+	newNode->diskInodeWindow.markDirty();
 
 	auto result = co_await insertEntry(name, newNode->number, kTypeSymlink);
 	if(!result)
@@ -719,10 +701,7 @@ async::result<protocols::fs::Error> Inode::chmod(int mode) {
 
 	updateInodeChecksum(fs, diskInode(), number);
 
-	auto syncInode = co_await helix_ng::synchronizeSpace(
-			helix::BorrowedDescriptor{kHelNullHandle},
-			diskInode(), fs.inodeSize);
-	HEL_CHECK(syncInode.error());
+	diskInodeWindow.markDirty();
 
 	co_return protocols::fs::Error::none;
 }
@@ -737,10 +716,7 @@ async::result<protocols::fs::Error> Inode::chown(std::optional<uid_t> uid, std::
 
 	updateInodeChecksum(fs, diskInode(), number);
 
-	auto syncInode = co_await helix_ng::synchronizeSpace(
-			helix::BorrowedDescriptor{kHelNullHandle},
-			diskInode(), fs.inodeSize);
-	HEL_CHECK(syncInode.error());
+	diskInodeWindow.markDirty();
 
 	co_return protocols::fs::Error::none;
 }
@@ -760,10 +736,7 @@ async::result<protocols::fs::Error> Inode::updateTimes(
 
 	updateInodeChecksum(fs, diskInode(), number);
 
-	auto syncInode = co_await helix_ng::synchronizeSpace(
-			helix::BorrowedDescriptor{kHelNullHandle},
-			diskInode(), fs.inodeSize);
-	HEL_CHECK(syncInode.error());
+	diskInodeWindow.markDirty();
 
 	co_return protocols::fs::Error::none;
 }
@@ -809,10 +782,7 @@ Inode::resizeFile(size_t newSize) {
 
 	updateInodeChecksum(fs, diskInode(), number);
 
-	auto syncInode = co_await helix_ng::synchronizeSpace(
-		helix::BorrowedDescriptor{kHelNullHandle},
-		diskInode(), fs.inodeSize);
-	HEL_CHECK(syncInode.error());
+	diskInodeWindow.markDirty();
 
 	co_return frg::success;
 }
@@ -1685,10 +1655,7 @@ async::result<void> FileSystem::assignDataBlocksUsingExtents(Inode *inode,
 	updateInodeChecksum(*this, diskInode, inode->number);
 
 	bgdtWriteback.raise();
-	auto syncInode = co_await helix_ng::synchronizeSpace(
-			helix::BorrowedDescriptor{kHelNullHandle},
-			inode->diskInode(), inodeSize);
-	HEL_CHECK(syncInode.error());
+	inode->diskInodeWindow.markDirty();
 
 	ostContext.emit(
 		ostEvtExt2AssignDataBlocks,
@@ -1911,10 +1878,7 @@ async::result<void> FileSystem::assignDataBlocks(Inode *inode,
 	updateInodeChecksum(*this, inode->diskInode(), inode->number);
 
 	bgdtWriteback.raise();
-	auto syncInode = co_await helix_ng::synchronizeSpace(
-			helix::BorrowedDescriptor{kHelNullHandle},
-			inode->diskInode(), inodeSize);
-	HEL_CHECK(syncInode.error());
+	inode->diskInodeWindow.markDirty();
 
 	ostContext.emit(
 		ostEvtExt2AssignDataBlocks,
