@@ -90,14 +90,22 @@ async::result<void> createDeviceNode(std::string path, VfsType type, DeviceId id
 			break;
 		}else{
 			assert(s > k);
+			auto name = path.substr(k, s - k);
 			std::shared_ptr<FsLink> link;
-			auto linkResult = co_await node->getLink(path.substr(k, s - k));
-			if (!linkResult)
-				link = std::get<std::shared_ptr<FsLink>>(
-				    co_await node->mkdir(nullptr, path.substr(k, s - k), 0755)
-				);
-			else
-				link = linkResult.value();
+			while(true) {
+				auto linkResult = co_await node->getLink(name);
+				if(linkResult) {
+					link = linkResult.value();
+					break;
+				}
+				auto mkdirResult = co_await node->mkdir(nullptr, name, 0755);
+				if(auto linkp = std::get_if<std::shared_ptr<FsLink>>(&mkdirResult)) {
+					link = std::move(*linkp);
+					break;
+				}
+				// Another createDeviceNode() raced us to create the directory; retry the lookup.
+				assert(std::get<Error>(mkdirResult) == Error::alreadyExists);
+			}
 			k = s + 1;
 			node = link->getTarget();
 		}

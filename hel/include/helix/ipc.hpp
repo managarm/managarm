@@ -6,6 +6,7 @@
 #include <vector>
 #include <span>
 
+#include <async/basic.hpp>
 #include <async/oneshot-event.hpp>
 
 // This is here since ipc-structs.hpp needs ElementHandle
@@ -147,6 +148,7 @@ struct Context {
 
 struct CurrentDispatcherToken {
 	void wait();
+	async::run_queue *get_run_queue() const;
 };
 
 inline constexpr CurrentDispatcherToken currentDispatcher;
@@ -168,72 +170,82 @@ private:
 		size_t progress;
 	};
 
+	struct RunQueue final : async::run_queue {
+		RunQueue(Dispatcher *dispatcher)
+		: dispatcher_{dispatcher} { }
+
+	private:
+		void wakeup() override {
+			HEL_CHECK(helAlertQueue(dispatcher_->_handle));
+		}
+
+		Dispatcher *dispatcher_;
+	};
+
 public:
 	static Dispatcher &global();
 
 	Dispatcher()
 	: _handle{kHelNullHandle}, _queue{nullptr},
-			_numCqChunks{0}, _numSqChunks{0}, _chunkSize{0},
+			_numCqChunks{8}, _numSqChunks{8}, _chunkSize{4096},
 			_retrieveChunk{0}, _tailChunk{0}, _lastProgress{0},
-			_sqCurrentChunk{0}, _sqProgress{0} { }
+			_sqCurrentChunk{0}, _sqProgress{0}, _runQueue{this} {
+		HelQueueParameters params {
+			.flags = 0,
+			.numChunks = _numCqChunks,
+			.chunkSize = _chunkSize,
+			.numSqChunks = _numSqChunks,
+		};
+		HEL_CHECK(helCreateQueue(&params, &_handle));
+		_nextAsyncId = 1;
+
+		auto totalChunks = _numCqChunks + _numSqChunks;
+		auto chunksOffset = (sizeof(HelQueue) + 63) & ~size_t(63);
+		auto reservedPerChunk = (sizeof(HelChunk) + _chunkSize + 63) & ~size_t(63);
+		auto overallSize = chunksOffset + totalChunks * reservedPerChunk;
+
+		void *mapping;
+		HEL_CHECK(helMapMemory(_handle, kHelNullHandle, nullptr,
+				0, (overallSize + 0xFFF) & ~size_t(0xFFF),
+				kHelMapProtRead | kHelMapProtWrite, &mapping));
+
+		_queue = reinterpret_cast<HelQueue *>(mapping);
+		auto chunksPtr = reinterpret_cast<std::byte *>(mapping) + chunksOffset;
+		for(unsigned int i = 0; i < totalChunks; ++i)
+			_chunks[i] = reinterpret_cast<HelChunk *>(chunksPtr + i * reservedPerChunk);
+
+		// Reset all CQ chunks.
+		for (unsigned int i = 0; i < _numCqChunks; ++i)
+			_resetChunk(i);
+
+		// Set up CQ: chunks 0 to numCqChunks-1.
+		__atomic_store_n(&_queue->cqFirst, 0 | kHelNextPresent, __ATOMIC_RELEASE);
+
+		// Supply the remaining CQ chunks.
+		_tailChunk = 0;
+		for (unsigned int i = 1; i < _numCqChunks; ++i)
+			_supplyChunk(i);
+		_retrieveChunk = 0;
+
+		// SQ is initialized by the kernel. Read sqFirst to get the first SQ chunk.
+		if (_numSqChunks > 0) {
+			auto sqFirst = __atomic_load_n(&_queue->sqFirst, __ATOMIC_ACQUIRE);
+			_sqCurrentChunk = sqFirst & ~kHelNextPresent;
+			_sqProgress = 0;
+		}
+
+		_wakeHeadFutex();
+	}
 
 	Dispatcher(const Dispatcher &) = delete;
 
 	Dispatcher &operator= (const Dispatcher &) = delete;
 
-	HelHandle acquire() {
-		if(!_handle) {
-			_numCqChunks = 8;
-			_numSqChunks = 8;
-			_chunkSize = 4096;
+	async::run_queue *runQueue() {
+		return &_runQueue;
+	}
 
-			HelQueueParameters params {
-				.flags = 0,
-				.numChunks = _numCqChunks,
-				.chunkSize = _chunkSize,
-				.numSqChunks = _numSqChunks,
-			};
-			HEL_CHECK(helCreateQueue(&params, &_handle));
-			_nextAsyncId = 1;
-
-			auto totalChunks = _numCqChunks + _numSqChunks;
-			auto chunksOffset = (sizeof(HelQueue) + 63) & ~size_t(63);
-			auto reservedPerChunk = (sizeof(HelChunk) + _chunkSize + 63) & ~size_t(63);
-			auto overallSize = chunksOffset + totalChunks * reservedPerChunk;
-
-			void *mapping;
-			HEL_CHECK(helMapMemory(_handle, kHelNullHandle, nullptr,
-					0, (overallSize + 0xFFF) & ~size_t(0xFFF),
-					kHelMapProtRead | kHelMapProtWrite, &mapping));
-
-			_queue = reinterpret_cast<HelQueue *>(mapping);
-			auto chunksPtr = reinterpret_cast<std::byte *>(mapping) + chunksOffset;
-			for(unsigned int i = 0; i < totalChunks; ++i)
-				_chunks[i] = reinterpret_cast<HelChunk *>(chunksPtr + i * reservedPerChunk);
-
-			// Reset all CQ chunks.
-			for (unsigned int i = 0; i < _numCqChunks; ++i)
-				_resetChunk(i);
-
-			// Set up CQ: chunks 0 to numCqChunks-1.
-			__atomic_store_n(&_queue->cqFirst, 0 | kHelNextPresent, __ATOMIC_RELEASE);
-
-			// Supply the remaining CQ chunks.
-			_tailChunk = 0;
-			for (unsigned int i = 1; i < _numCqChunks; ++i)
-				_supplyChunk(i);
-			_retrieveChunk = 0;
-
-			// SQ is initialized by the kernel. Read sqFirst to get the first SQ chunk.
-			if (_numSqChunks > 0) {
-				auto sqFirst = __atomic_load_n(&_queue->sqFirst, __ATOMIC_ACQUIRE);
-				_sqCurrentChunk = sqFirst & ~kHelNextPresent;
-				_sqProgress = 0;
-			}
-
-			_wakeHeadFutex();
-		}
-
+	HelHandle queueHandle() {
 		return _handle;
 	}
 
@@ -242,9 +254,19 @@ public:
 	}
 
 	void wait() {
+		assert(_onOwnerThread());
+
 		while(true) {
+			if(_runQueue.check()) {
+				_runQueue.run_iteration();
+				return;
+			}
+
 			bool done;
-			_waitProgressFutex(&done);
+			bool rqPending;
+			_waitProgressFutex(&done, &rqPending);
+			if(rqPending)
+				continue;
 			if(done) {
 				auto cn = _retrieveChunk;
 				auto next = __atomic_load_n(&_chunks[cn]->next, __ATOMIC_ACQUIRE);
@@ -269,7 +291,15 @@ public:
 	}
 
 private:
+	// Check if we are on the owning thread of this dispatcher.
+	// submitSq(), wait() and related functions must only be driven if this returns true;
+	// in particular, the dispatcher's SQ and CQ state is not thread-safe.
+	bool _onOwnerThread() {
+		return _runQueue.context() == async::current_run_queue_context();
+	}
+
 	void _surrender(int cn) {
+		assert(_onOwnerThread());
 		assert(_refCounts[cn] > 0);
 		if(_refCounts[cn]-- > 1)
 			return;
@@ -293,6 +323,7 @@ private:
 	}
 
 	void _reference(int cn) {
+		assert(_onOwnerThread());
 		_refCounts[cn]++;
 	}
 
@@ -300,7 +331,7 @@ public:
 	// Push an element to the SQ using a gather list.
 	void pushSq(uint32_t opcode, uintptr_t context,
 			std::span<const std::span<const std::byte>> segments) {
-		acquire();
+		assert(_onOwnerThread());
 
 		size_t dataLength = 0;
 		for (auto seg : segments)
@@ -371,9 +402,12 @@ private:
 			HEL_CHECK(helDriveQueue(_handle, 0, 0));
 	}
 
-	void _waitProgressFutex(bool *done) {
+	void _waitProgressFutex(bool *done, bool *rqPending) {
+		*done = false;
+		*rqPending = false;
+
 		// userNotify bits checked by this function (these MUST be checked in the loop below!).
-		const auto relevantNotify = kHelUserNotifyCqProgress;
+		const auto relevantNotify = kHelUserNotifyCqProgress | kHelUserNotifyAlert;
 		// userNotify bits ignored by this function.
 		const auto maskedNotify = kHelUserNotifySupplySqChunks;
 
@@ -407,6 +441,11 @@ private:
 			if (!notifyToClear) {
 				// The only remaining bits must be masked ones (otherwise we are missing checks above).
 				assert(!(_pendingNotify & ~maskedNotify));
+
+				if (_runQueue.check()) {
+					*rqPending = true;
+					return;
+				}
 
 				auto e = helDriveQueue(_handle, kHelDriveWait, maskedNotify);
 				if (e != kHelErrCancelled)
@@ -451,10 +490,16 @@ private:
 	int _sqCurrentChunk;
 	// Progress into the current SQ chunk.
 	int _sqProgress;
+
+	RunQueue _runQueue;
 };
 
 inline void CurrentDispatcherToken::wait() {
 	Dispatcher::global().wait();
+}
+
+inline async::run_queue *CurrentDispatcherToken::get_run_queue() const {
+	return Dispatcher::global().runQueue();
 }
 
 inline ElementHandle::~ElementHandle() {
