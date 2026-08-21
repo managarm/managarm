@@ -101,8 +101,9 @@ public:
 	}
 
 	void moveTo(uintptr_t va) {
+		// The table at level i is selected by the index that level i - 1 resolves.
 		for(size_t i = initialLevel_ + 1; i < Policy::maxLevels; i++) {
-			if((va_ ^ va) & (levelMask << levelShift(i))) {
+			if((va_ ^ va) & (levelMask << levelShift(i - 1))) {
 				for(size_t j = i; j < Policy::maxLevels; j++) {
 					accessors_[j] = {};
 				}
