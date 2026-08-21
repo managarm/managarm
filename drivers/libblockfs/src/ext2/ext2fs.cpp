@@ -1326,8 +1326,8 @@ async::result<void> FileSystem::manageFileData(std::shared_ptr<Inode> inode) {
 			ServiceBudget::Token budgetToken;
 			arch::imported_dma_buffer fileView;
 			{
-				co_await inode->blockMapMutex.async_lock();
-				frg::unique_lock blockMapLock{frg::adopt_lock, inode->blockMapMutex};
+				co_await inode->blockMapMutex.async_lock_shared();
+				frg::shared_lock blockMapLock{frg::adopt_lock, inode->blockMapMutex};
 
 				// We must resolve any metadata before acquiring servicing budget below;
 				// otherwise, we could deadlock if metadata reads are stuck on budget acquisition.
@@ -1384,17 +1384,40 @@ async::result<void> FileSystem::manageFileData(std::shared_ptr<Inode> inode) {
 			ServiceBudget::Token budgetToken;
 			arch::imported_dma_buffer fileView;
 			{
-				co_await inode->blockMapMutex.async_lock();
-				frg::unique_lock blockMapLock{frg::adopt_lock, inode->blockMapMutex};
+				co_await inode->blockMapMutex.async_lock_shared();
+				frg::shared_lock blockMapLock{frg::adopt_lock, inode->blockMapMutex};
 
 				// We must resolve any metadata before acquiring servicing budget below;
 				// otherwise, we could deadlock if metadata reads are stuck on budget acquisition.
 				lockTime = timer.split();
-				co_await inode->fs.assignDataBlocks(inode.get(), blockOffset, numBlocks);
-				assignTime = timer.split();
 				auto blockRanges = co_await inode->fs.lookupBlocks(inode.get(),
 						blockOffset, numBlocks);
+				bool fullyMapped = true;
+				for(auto &range : blockRanges)
+					if(range.hole)
+						fullyMapped = false;
 				lookupTime = timer.split();
+
+				if(!fullyMapped) {
+					// Drop the shared lock and acquire an exclusive lock; then downgrade back to shared below.
+					// Note that blockRanges may become stale between the unlock and re-lock,
+					// so we need to call lookupBlocks() again here.
+					blockMapLock.unlock();
+					co_await inode->blockMapMutex.async_lock();
+					frg::scope_exit downgradeOnExit{[&] {
+						inode->blockMapMutex.downgrade();
+						blockMapLock = frg::shared_lock{frg::adopt_lock, inode->blockMapMutex};
+					}};
+					lockTime += timer.split();
+
+					co_await inode->fs.assignDataBlocks(inode.get(), blockOffset, numBlocks);
+					assignTime = timer.split();
+					blockRanges = co_await inode->fs.lookupBlocks(inode.get(),
+							blockOffset, numBlocks);
+					lookupTime += timer.split();
+				}
+
+				// All budget acquisition and I/O happens under the shared lock (as in read case).
 
 				// Acquire servicing budget before importMemory().
 				budgetToken = co_await servicingBudget().acquire(true, manage.length());

@@ -425,10 +425,13 @@ struct Inode final : BaseInode, std::enable_shared_from_this<Inode> {
 	// blockMapMutex MUST be taken for all operations that access:
 	// - the direct pointers in the inode
 	// - the single/double/triple indirect blocks
+	// Mutations of the block map require the mutex exclusively. Lookups only require it shared.
 	// Ordered after inodeMutex.
-	async::mutex blockMapMutex;
+	async::shared_mutex blockMapMutex;
 
 	// Caches the runs of this inode's block map that were already resolved.
+	// Consistent with disk state while blockMapMutex is held (shared or exclusive),
+	// but both shared and exclusive locks of blockMapMutex can fill the cache.
 	BlockMapCache blockMapCache;
 
 	// page cache that stores the contents of this file
@@ -513,17 +516,17 @@ struct FileSystem final : BaseFileSystem {
 	async::result<std::vector<uint32_t>> allocateBlocks(size_t num, std::optional<uint32_t> ino = std::nullopt);
 	async::result<uint32_t> allocateInode(uint32_t parentIno = 0, bool directory = false);
 
-	// Callers must hold inode->blockMapMutex.
+	// Callers must hold inode->blockMapMutex (exclusive).
 	async::result<void> assignDataBlocks(Inode *inode,
 			uint64_t block_offset, size_t num_blocks);
 
 	// Resolves a range of file blocks to runs of disk blocks and holes.
-	// Callers must hold inode->blockMapMutex.
+	// Callers must hold inode->blockMapMutex (shared or exclusive).
 	async::result<std::vector<BlockRange>> lookupBlocks(Inode *inode,
 			uint64_t block_offset, size_t num_blocks);
 
 	// Resolves a range of file blocks by walking the on-disk block map.
-	// Callers must hold inode->blockMapMutex.
+	// Callers must hold inode->blockMapMutex (shared or exclusive).
 	async::result<std::vector<BlockRange>> lookupBlocksOnDisk(Inode *inode,
 			uint64_t block_offset, size_t num_blocks);
 
@@ -536,11 +539,11 @@ struct FileSystem final : BaseFileSystem {
 			arch::dma_buffer_view buf);
 
 
-	// Callers must hold inode->blockMapMutex.
+	// Callers must hold inode->blockMapMutex (shared or exclusive).
 	async::result<std::vector<BlockRange>> lookupBlocksUsingExtent(Inode *inode,
 			uint64_t block_offset, size_t num_blocks);
 
-	// Callers must hold inode->blockMapMutex.
+	// Callers must hold inode->blockMapMutex (exclusive).
 	async::result<void> assignDataBlocksUsingExtents(Inode *inode,
 			uint64_t block_offset, size_t num_blocks);
 
