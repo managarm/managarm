@@ -754,6 +754,8 @@ pub struct PciEntity {
     // IOMMU that translates the DMA requests of this entity, and the domain that it is bound to.
     pub associated_iommu: OnceLock<&'static iommu::IommuUnit>,
     pub dma_domain: OnceLock<&'static iommu::DmaDomain>,
+    // Stands in for the domain if no IOMMU translates the entity.
+    pub noop_dma_space: OnceLock<hel::Handle>,
 }
 
 impl PciEntity {
@@ -791,6 +793,7 @@ impl PciEntity {
             bars: Mutex::new(vec![PciBar::default(); n_bars]),
             associated_iommu: OnceLock::new(),
             dma_domain: OnceLock::new(),
+            noop_dma_space: OnceLock::new(),
         }
     }
 

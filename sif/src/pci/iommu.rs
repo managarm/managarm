@@ -76,6 +76,28 @@ pub async fn bind_device(
     bound
 }
 
+/// Returns the DMA space that the driver of an entity maps into, and whether an IOMMU
+/// translates it.
+///
+/// A driver may ask more than once and has to be handed the same space every time. An entity
+/// that no IOMMU translates gets a space of its own that does not translate, so that drivers
+/// cannot reach each other's mappings through a shared one.
+pub fn dma_space(entity: &'static PciEntity) -> hel::Result<(bool, hel::Handle)> {
+    if let Some(domain) = entity.dma_domain.get() {
+        return Ok((true, domain.handle().clone_handle()?));
+    }
+
+    let space = match entity.noop_dma_space.get() {
+        Some(space) => space,
+        None => {
+            // Two callers racing here each create a space; the loser's is closed right away.
+            let created = hel::create_dma_space(None, &[])?;
+            entity.noop_dma_space.get_or_init(|| created)
+        }
+    };
+    Ok((false, space.clone_handle()?))
+}
+
 /// The requester ID that a bridge tags the DMA requests that it forwards upstream with.
 enum BridgeAlias {
     /// PCI Express root ports and switch ports forward the requester ID unchanged.
