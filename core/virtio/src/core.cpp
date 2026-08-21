@@ -348,6 +348,7 @@ private:
 	arch::mem_space _deviceSpace() { return arch::mem_space{_deviceMapping.get()}; }
 
 	async::detached _processIrqs();
+	async::result<void> _processIrqsWithoutKernlet();
 	async::detached _processQueueMsi();
 
 	protocols::hw::Device _hwDevice;
@@ -532,7 +533,6 @@ void StandardPciTransport::runDevice() {
 }
 
 async::detached StandardPciTransport::_processIrqs() {
-#ifdef __x86_64__ // TODO: implement kernlet compilation for aarch64
 	co_await connectKernletCompiler();
 
 	std::vector<uint8_t> kernlet_program;
@@ -565,6 +565,12 @@ async::detached StandardPciTransport::_processIrqs() {
 	auto kernlet_object = co_await compile(kernlet_program.data(),
 			kernlet_program.size(), {BindType::memoryView, BindType::offset,
 			BindType::bitsetEvent});
+	if(!kernlet_object) {
+		std::cout << "core-virtio: Kernlets are unavailable,"
+				" acknowledging IRQs from user space" << std::endl;
+		co_await _processIrqsWithoutKernlet();
+		co_return;
+	}
 
 	HelHandle event_handle;
 	HEL_CHECK(helCreateBitsetEvent(&event_handle));
@@ -575,7 +581,7 @@ async::detached StandardPciTransport::_processIrqs() {
 	data[1].handle = _isrMapping.offset();
 	data[2].handle = event.getHandle();
 	HelHandle bound_handle;
-	HEL_CHECK(helBindKernlet(kernlet_object.getHandle(), data, 3, &bound_handle));
+	HEL_CHECK(helBindKernlet(kernlet_object->getHandle(), data, 3, &bound_handle));
 	HEL_CHECK(helAutomateIrq(_irq.getHandle(), 0, bound_handle));
 
 	co_await _hwDevice.enableBusIrq();
@@ -602,7 +608,9 @@ async::detached StandardPciTransport::_processIrqs() {
 			for(auto &queue : _queues)
 				queue->processInterrupt();
 	}
-#else
+}
+
+async::result<void> StandardPciTransport::_processIrqsWithoutKernlet() {
 	co_await _hwDevice.enableBusIrq();
 
 	// TODO: The kick here should not be required.
@@ -634,7 +642,6 @@ async::detached StandardPciTransport::_processIrqs() {
 			for(auto &queue : _queues)
 				queue->processInterrupt();
 	}
-#endif
 }
 
 async::detached StandardPciTransport::_processQueueMsi() {

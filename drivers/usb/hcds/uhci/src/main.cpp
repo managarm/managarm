@@ -12,6 +12,7 @@
 #include <arch/io_space.hpp>
 #include <arch/dma_pool.hpp>
 #include <async/result.hpp>
+#include <core/logging.hpp>
 #include <fafnir/dsl.hpp>
 #include <frg/list.hpp>
 #include <helix/ipc.hpp>
@@ -223,6 +224,8 @@ async::detached Controller::_handleIrqs() {
 
 	auto kernlet_object = co_await compile(kernlet_program.data(),
 			kernlet_program.size(), {BindType::offset, BindType::bitsetEvent});
+	if(!kernlet_object)
+		logPanic("uhci: Failed to compile the IRQ kernlet");
 
 	HelHandle event_handle;
 	HEL_CHECK(helCreateBitsetEvent(&event_handle));
@@ -232,7 +235,7 @@ async::detached Controller::_handleIrqs() {
 	data[0].handle = _ioBase;
 	data[1].handle = event.getHandle();
 	HelHandle bound_handle;
-	HEL_CHECK(helBindKernlet(kernlet_object.getHandle(), data, 2, &bound_handle));
+	HEL_CHECK(helBindKernlet(kernlet_object->getHandle(), data, 2, &bound_handle));
 	HEL_CHECK(helAutomateIrq(_irq.getHandle(), 0, bound_handle));
 
 	co_await _hwDevice.enableBusIrq();

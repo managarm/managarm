@@ -27,6 +27,9 @@ constexpr uint64_t pteAgeMask = UINT64_C(3) << pteAgeShift;
 
 inline int getLowerHalfBits() { return 12 + 9 * riscvConfigNote->numPtLevels - 1; }
 
+// TODO: fence.i only affects the local hart; remote harts need an SBI RFENCE.
+inline void syncInstructionCache(void *, size_t) { asm volatile("fence.i" ::: "memory"); }
+
 template <bool Kernel>
 struct RiscvCursorPolicy {
 	static inline constexpr size_t maxLevels = 4;

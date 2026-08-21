@@ -9,6 +9,7 @@
 
 #include <arch/dma_pool.hpp>
 #include <async/result.hpp>
+#include <core/logging.hpp>
 #include <fafnir/dsl.hpp>
 #include <helix/ipc.hpp>
 #include <protocols/hw/client.hpp>
@@ -466,6 +467,8 @@ async::detached Controller::handleIrqs() {
 	auto kernlet_object = co_await compile(kernlet_program.data(),
 			kernlet_program.size(), {BindType::memoryView, BindType::offset,
 			BindType::bitsetEvent});
+	if(!kernlet_object)
+		logPanic("ehci: Failed to compile the IRQ kernlet");
 
 	HelHandle event_handle;
 	HEL_CHECK(helCreateBitsetEvent(&event_handle));
@@ -476,7 +479,7 @@ async::detached Controller::handleIrqs() {
 	data[1].handle = _mapping.offset() + _space.load(cap_regs::caplength);
 	data[2].handle = event.getHandle();
 	HelHandle bound_handle;
-	HEL_CHECK(helBindKernlet(kernlet_object.getHandle(), data, 3, &bound_handle));
+	HEL_CHECK(helBindKernlet(kernlet_object->getHandle(), data, 3, &bound_handle));
 	HEL_CHECK(helAutomateIrq(_irq.getHandle(), 0, bound_handle));
 
 	co_await _hwDevice.enableBusIrq();
