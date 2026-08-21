@@ -512,30 +512,27 @@ struct FileSystem final : BaseFileSystem {
 	async::result<void> assignDataBlocks(Inode *inode,
 			uint64_t block_offset, size_t num_blocks);
 
+	// Resolves a range of file blocks to runs of disk blocks and holes.
 	// Callers must hold inode->blockMapMutex.
-	async::result<void>
-	readDataBlocks(std::shared_ptr<Inode> inode, uint64_t block_offset, arch::dma_buffer_view buf);
+	async::result<std::vector<BlockRange>> lookupBlocks(Inode *inode,
+			uint64_t block_offset, size_t num_blocks);
 
 	// Callers must hold inode->blockMapMutex.
-	async::result<void> writeDataBlocks(
-	    std::shared_ptr<Inode> inode, uint64_t block_offset, arch::dma_buffer_view view
-	);
+	async::result<void> readDataBlocks(const std::vector<BlockRange> &ranges,
+			arch::dma_buffer_view buf);
+
+	// Callers must hold inode->blockMapMutex.
+	async::result<void> writeDataBlocks(const std::vector<BlockRange> &ranges,
+			arch::dma_buffer_view buf);
 
 
 	// Callers must hold inode->blockMapMutex.
 	async::result<std::vector<BlockRange>> lookupBlocksUsingExtent(Inode *inode,
-			uint64_t block_offset, size_t num_blocks, bool errorIfNotFound);
+			uint64_t block_offset, size_t num_blocks);
 
 	// Callers must hold inode->blockMapMutex.
 	async::result<void> assignDataBlocksUsingExtents(Inode *inode,
 			uint64_t block_offset, size_t num_blocks);
-
-	// Callers must hold inode->blockMapMutex.
-	async::result<void> readDataBlocksUsingExtents(std::shared_ptr<Inode> inode, uint64_t block_offset,
-			arch::dma_buffer_view buf);
-	// Callers must hold inode->blockMapMutex.
-	async::result<void> writeDataBlocksUsingExtents(std::shared_ptr<Inode> inode, uint64_t block_offset,
-			arch::dma_buffer_view buf);
 
 	BlockDevice *device;
 	uint16_t inodeSize;
