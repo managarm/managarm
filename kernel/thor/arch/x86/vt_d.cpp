@@ -415,6 +415,9 @@ public:
 		return status;
 	}
 
+	// The IOMMU does not use caching modes; see pteBuild().
+	static inline constexpr uint64_t ptePageCachingMask = 0;
+
 	static uint64_t pteClean(uint64_t *ptePtr) {
 		return __atomic_fetch_and(ptePtr, ~iommuDirty, __ATOMIC_RELAXED);
 	}
@@ -481,7 +484,7 @@ struct IntelIommuOperations final : PageSpace, VirtualOperations {
 			uintptr_t offset, size_t size, PageFlags flags, CachingMode mode) override;
 
 	frg::expected<Error, PagesAffected> restrictPages(VirtualAddr va,
-			size_t size, PageFlags flags, CachingMode mode) override;
+			size_t size, PageFlags flags) override;
 
 	frg::expected<Error, PagesAffected> faultPage(VirtualAddr va, MemoryView *view,
 			uintptr_t offset, FetchFlags fetchFlags, PageFlags flags, CachingMode mode) override;
@@ -1732,9 +1735,9 @@ frg::expected<Error, PagesAffected> IntelIommuOperations::mapPresentPages(Virtua
 }
 
 frg::expected<Error, PagesAffected> IntelIommuOperations::restrictPages(VirtualAddr va,
-		size_t size, PageFlags flags, CachingMode mode) {
+		size_t size, PageFlags flags) {
 	IntelIommuCursorPolicy policy{iommu_->sagaw(), iommu_->pageWalkingCoherent()};
-	return restrictPagesByCursor<IntelIommuCursor>(this, va, size, flags, mode, policy);
+	return restrictPagesByCursor<IntelIommuCursor>(this, va, size, flags, policy);
 }
 
 frg::expected<Error, PagesAffected> IntelIommuOperations::faultPage(VirtualAddr va, MemoryView *view,

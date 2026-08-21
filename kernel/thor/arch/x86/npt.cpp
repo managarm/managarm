@@ -47,6 +47,9 @@ struct NptCursorPolicy {
 		return status;
 	}
 
+	// Guest memory is always mapped write-back; see pteBuild().
+	static inline constexpr uint64_t ptePageCachingMask = 0;
+
 	static uint64_t pteClean(uint64_t *ptePtr) {
 		return __atomic_fetch_and(ptePtr, ~nptDirty, __ATOMIC_RELAXED);
 	}
@@ -122,8 +125,8 @@ frg::expected<Error, PagesAffected> NptOperations::mapPresentPages(VirtualAddr v
 }
 
 frg::expected<Error, PagesAffected> NptOperations::restrictPages(VirtualAddr va,
-		size_t size, PageFlags flags, CachingMode mode) {
-	return restrictPagesByCursor<NptCursor>(pageSpace_, va, size, flags, mode);
+		size_t size, PageFlags flags) {
+	return restrictPagesByCursor<NptCursor>(pageSpace_, va, size, flags);
 }
 
 frg::expected<Error, PagesAffected> NptOperations::faultPage(VirtualAddr va, MemoryView *view,

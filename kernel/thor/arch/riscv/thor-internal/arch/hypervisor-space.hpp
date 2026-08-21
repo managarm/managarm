@@ -40,7 +40,7 @@ public:
 		) override;
 
 		frg::expected<Error, PagesAffected>
-		restrictPages(VirtualAddr va, size_t size, PageFlags flags, CachingMode mode) override;
+		restrictPages(VirtualAddr va, size_t size, PageFlags flags) override;
 
 		frg::expected<Error, PagesAffected> faultPage(
 		    VirtualAddr va,

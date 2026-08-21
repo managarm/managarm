@@ -74,6 +74,8 @@ struct X86CursorPolicy {
 		return status;
 	}
 
+	static inline constexpr uint64_t ptePageCachingMask = ptePwt | ptePcd | ptePat;
+
 	static uint64_t pteClean(uint64_t *ptePtr) {
 		return __atomic_fetch_and(ptePtr, ~pteDirty, __ATOMIC_RELAXED);
 	}

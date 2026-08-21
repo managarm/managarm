@@ -28,7 +28,7 @@ struct NptOperations final : VirtualOperations {
 			uintptr_t offset, size_t size, PageFlags flags, CachingMode mode) override;
 
 	frg::expected<Error, PagesAffected> restrictPages(VirtualAddr va,
-			size_t size, PageFlags flags, CachingMode mode) override;
+			size_t size, PageFlags flags) override;
 
 	frg::expected<Error, PagesAffected> faultPage(VirtualAddr va, MemoryView *view,
 			uintptr_t offset, FetchFlags fetchFlags, PageFlags flags, CachingMode mode) override;

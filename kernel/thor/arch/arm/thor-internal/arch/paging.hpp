@@ -31,6 +31,7 @@ inline constexpr uint64_t kPageWb = (0 << 2);
 inline constexpr uint64_t kPagenGnRnE = (2 << 2);
 inline constexpr uint64_t kPagenGnRE = (3 << 2);
 inline constexpr uint64_t kPageUc = (4 << 2);
+inline constexpr uint64_t kPageAttrIndx = (7 << 2);
 inline constexpr uint64_t kPageAddress = 0xFFFFFFFFF000;
 
 inline int getLowerHalfBits() {
@@ -107,6 +108,8 @@ struct ARMCursorPolicy {
 
 		return ps;
 	}
+
+	static inline constexpr uint64_t ptePageCachingMask = kPageAttrIndx;
 
 	static uint64_t pteClean(uint64_t *ptePtr) {
 		uint64_t pte = __atomic_fetch_or(ptePtr, kPageRO, __ATOMIC_RELAXED);

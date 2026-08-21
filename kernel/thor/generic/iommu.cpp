@@ -27,7 +27,7 @@ frg::expected<Error, PagesAffected> NoopDmaSpace::NoopVirtualOperations::mapPres
 }
 
 frg::expected<Error, PagesAffected>
-NoopDmaSpace::NoopVirtualOperations::restrictPages(VirtualAddr, size_t, PageFlags, CachingMode) {
+NoopDmaSpace::NoopVirtualOperations::restrictPages(VirtualAddr, size_t, PageFlags) {
 	return PagesAffected{};
 }
 

@@ -586,10 +586,6 @@ VirtualSpace::protect(VirtualAddr address, size_t length, uint32_t flags) {
 		if((actualMappingFlags & MappingFlags::permissionMask) & MappingFlags::protRead)
 			pageFlags |= page_access::read;
 
-		auto caching = CachingMode::null;
-		if(mapping->slice->getCachingFlags() == cacheWriteCombine)
-			caching = CachingMode::writeCombine;
-
 		co_await mapping->exposeRcu.barrier();
 
 		bool anyRevoked;
@@ -599,7 +595,7 @@ VirtualSpace::protect(VirtualAddr address, size_t length, uint32_t flags) {
 			// A present page is always readable, so dropping all access requires unmapping.
 			if(pageFlags) {
 				auto restrictOutcome = _ops->restrictPages(mapping->address,
-						mapping->length, pageFlags, caching);
+						mapping->length, pageFlags);
 				assert(restrictOutcome);
 				anyRevoked = restrictOutcome.value().anyRevoked;
 			}else{

@@ -30,6 +30,8 @@ concept CursorPolicy = requires (T policy, uint64_t pte, uint64_t *ptePtr,
 	{ T::ptePageAddress(pte) } -> std::same_as<PhysicalAddr>;
 	// Get the status (present, dirty) from the given PTE.
 	{ T::ptePageStatus(pte) } -> std::same_as<PageStatus>;
+	// Mask of the PTE bits that encode the caching mode.
+	{ T::ptePageCachingMask } -> std::convertible_to<uint64_t>;
 	// Clean the given PTE (remove the dirty status). Returns the previous PTE value.
 	{ T::pteClean(ptePtr) } -> std::same_as<uint64_t>;
 	// Age the given PTE. Returns the previous PTE value and whether the page was unmapped.
@@ -167,7 +169,7 @@ public:
 		return {Policy::ptePageStatus(ptEnt), Policy::ptePageAddress(ptEnt)};
 	}
 
-	std::tuple<PageStatus, PhysicalAddr, bool> restrict4k(PageFlags flags, CachingMode cachingMode) {
+	std::tuple<PageStatus, PhysicalAddr, bool> restrict4k(PageFlags flags) {
 		if(!accessors_[lastLevel])
 			return {0, PhysicalAddr(-1), false};
 
@@ -182,7 +184,10 @@ public:
 			if(!Policy::ptePageCanAccess(oldPte, page_access::execute))
 				effectiveFlags &= ~page_access::execute;
 
-			auto newPte = Policy::pteBuild(Policy::ptePageAddress(oldPte), effectiveFlags, cachingMode);
+			auto newPte = Policy::pteBuild(Policy::ptePageAddress(oldPte), effectiveFlags, CachingMode::null);
+			// Keep the caching mode of the page.
+			newPte &= ~Policy::ptePageCachingMask;
+			newPte |= (oldPte & Policy::ptePageCachingMask);
 			auto success = __atomic_compare_exchange_n(
 				currentPtePtr_(), &oldPte, newPte, false, __ATOMIC_RELAXED, __ATOMIC_RELAXED
 			);

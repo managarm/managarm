@@ -121,8 +121,7 @@ frg::expected<Error, PagesAffected> mapPresentPagesByCursor(PageSpace *ps, Virtu
 
 template<typename Cursor, typename PageSpace>
 frg::expected<Error, PagesAffected> restrictPagesByCursor(PageSpace *ps, VirtualAddr va,
-		size_t size, PageFlags flags, CachingMode mode,
-		typename Cursor::PolicyType policy) {
+		size_t size, PageFlags flags, typename Cursor::PolicyType policy) {
 	assert(!(va & (kPageSize - 1)));
 	assert(!(size & (kPageSize - 1)));
 	// At least one access bit is always set; see VirtualOperations.
@@ -131,7 +130,7 @@ frg::expected<Error, PagesAffected> restrictPagesByCursor(PageSpace *ps, Virtual
 	PagesAffected affected{};
 	Cursor c{ps, va, policy};
 	while(c.virtualAddress() < va + size) {
-		auto [status, physical, restricted] = c.restrict4k(flags, mode);
+		auto [status, physical, restricted] = c.restrict4k(flags);
 		if((status & page_status::present) && (status & page_status::dirty)) {
 			if(auto descriptor = globalPfnDb().find(physical))
 				markDirty(*descriptor);
@@ -145,8 +144,8 @@ frg::expected<Error, PagesAffected> restrictPagesByCursor(PageSpace *ps, Virtual
 
 template<typename Cursor, typename PageSpace>
 frg::expected<Error, PagesAffected> restrictPagesByCursor(PageSpace *ps, VirtualAddr va,
-		size_t size, PageFlags flags, CachingMode mode) {
-	return restrictPagesByCursor<Cursor>(ps, va, size, flags, mode,
+		size_t size, PageFlags flags) {
+	return restrictPagesByCursor<Cursor>(ps, va, size, flags,
 			typename Cursor::PolicyType{});
 }
 
@@ -292,9 +291,10 @@ struct VirtualOperations {
 	virtual frg::expected<Error, PagesAffected> mapPresentPages(VirtualAddr va, MemoryView *view,
 			uintptr_t offset, size_t size, PageFlags flags, CachingMode mode) = 0;
 
+	// Restricts the permissions of present pages; the caching mode of a page is preserved.
 	// Precondition: flags has at least one access bit (read/write/execute) set.
 	virtual frg::expected<Error, PagesAffected> restrictPages(VirtualAddr va,
-			size_t size, PageFlags flags, CachingMode mode) = 0;
+			size_t size, PageFlags flags) = 0;
 
 	// Precondition: flags has at least one access bit (read/write/execute) set.
 	virtual frg::expected<Error, PagesAffected> faultPage(VirtualAddr va, MemoryView *view,
@@ -832,9 +832,9 @@ public:
 		}
 
 		frg::expected<Error, PagesAffected> restrictPages(VirtualAddr va,
-				size_t size, PageFlags flags, CachingMode mode) override {
+				size_t size, PageFlags flags) override {
 			return restrictPagesByCursor<ClientPageSpace::Cursor>(&space_->pageSpace_,
-					va, size, flags, mode);
+					va, size, flags);
 		}
 
 		frg::expected<Error, PagesAffected> faultPage(VirtualAddr va, MemoryView *view,

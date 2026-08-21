@@ -7,6 +7,7 @@ namespace thor::vmx {
 constexpr uint64_t eptRead = UINT64_C(1) << 0;
 constexpr uint64_t eptWrite = UINT64_C(1) << 1;
 constexpr uint64_t eptExecute = UINT64_C(1) << 2;
+constexpr uint64_t eptCacheType = UINT64_C(7) << 3;
 constexpr uint64_t eptCacheWb = UINT64_C(6) << 3;
 constexpr uint64_t eptIgnorePat = UINT64_C(1) << 6;
 constexpr uint64_t eptDirty = UINT64_C(1) << 9;
@@ -49,6 +50,8 @@ struct EptCursorPolicy {
 			status |= page_status::dirty;
 		return status;
 	}
+
+	static inline constexpr uint64_t ptePageCachingMask = eptCacheType;
 
 	static uint64_t pteClean(uint64_t *ptePtr) {
 		return __atomic_fetch_and(ptePtr, ~eptDirty, __ATOMIC_RELAXED);
@@ -134,8 +137,8 @@ frg::expected<Error, PagesAffected> EptOperations::mapPresentPages(VirtualAddr v
 }
 
 frg::expected<Error, PagesAffected> EptOperations::restrictPages(VirtualAddr va,
-		size_t size, PageFlags flags, CachingMode mode) {
-	return restrictPagesByCursor<EptCursor>(pageSpace_, va, size, flags, mode);
+		size_t size, PageFlags flags) {
+	return restrictPagesByCursor<EptCursor>(pageSpace_, va, size, flags);
 }
 
 frg::expected<Error, PagesAffected> EptOperations::faultPage(VirtualAddr va, MemoryView *view,
