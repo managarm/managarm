@@ -47,7 +47,10 @@ struct PagesAffected {
 	// Number of bytes that were scanned by agePages().
 	ptrdiff_t scanned{0};
 	// Whether any page had its access rights revoked.
-	// This covers both pages that have their permission restricted and pages that are unmapped.
+	// This covers all of:
+	// - pages that are unmapped (and thus also pages that are remapped)
+	// - pages that have their permission restricted
+	// - pages that have their dirty bits cleared
 	bool anyRevoked{false};
 };
 
@@ -102,6 +105,7 @@ frg::expected<Error, PagesAffected> mapPresentPagesByCursor(PageSpace *ps, Virtu
 			affected.rssDecrease += kPageSize;
 			if(auto descriptor = globalPfnDb().find(oldPhysical))
 				decrementUses(*descriptor);
+			affected.anyRevoked = true;
 		}
 		c.advance4k();
 	}
@@ -177,6 +181,7 @@ frg::expected<Error, PagesAffected> faultPageByCursor(PageSpace *ps, VirtualAddr
 		if(auto descriptor = globalPfnDb().find(oldPhysical))
 			decrementUses(*descriptor);
 		affected.rssDecrease += kPageSize;
+		affected.anyRevoked = true;
 	}
 	affected.rssIncrease += kPageSize;
 
