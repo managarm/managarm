@@ -172,7 +172,11 @@ struct Context {
 
 	template<typename... Args>
 	void emit(const Event &event, Args... args) {
-		emitWithTimestamp(event, 0, std::forward<Args>(args)...);
+		if (!isActive())
+			return;
+		uint64_t ts;
+		HEL_CHECK(helGetClock(&ts));
+		emitWithTimestamp(event, ts, std::forward<Args>(args)...);
 	}
 
 private:
@@ -190,6 +194,7 @@ private:
 struct Timer {
 	Timer() {
 		HEL_CHECK(helGetClock(&_start));
+		_split = _start;
 	}
 
 	Timer(const Timer &) = delete;
@@ -201,8 +206,20 @@ struct Timer {
 		return now - _start;
 	}
 
+	// Ends the current phase of the timed operation and returns its duration.
+	// Storing the result in a zero-initialized variable keeps phases that an early return never
+	// reaches at zero, whereas subtracting stored timestamps would underflow.
+	uint64_t split() {
+		uint64_t now;
+		HEL_CHECK(helGetClock(&now));
+		auto duration = now - _split;
+		_split = now;
+		return duration;
+	}
+
 private:
 	uint64_t _start{0};
+	uint64_t _split{0};
 };
 
 } // namespace protocols::ostrace
