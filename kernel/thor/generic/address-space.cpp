@@ -668,6 +668,8 @@ VirtualSpace::synchronize(VirtualAddr address, size_t size) {
 			if(anyRevoked)
 				co_await _ops->shootdown(mapping->address + mappingOffset, mappingChunk);
 		}
+		if(!anyRevoked)
+			co_await mapping->revokeRcu.barrier();
 
 		overallProgress += mappingChunk;
 	}

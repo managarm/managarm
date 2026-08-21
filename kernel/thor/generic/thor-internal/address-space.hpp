@@ -200,11 +200,11 @@ frg::expected<Error, PagesAffected> cleanPagesByCursor(PageSpace *ps, VirtualAdd
 	Cursor c{ps, va, policy};
 	while(c.findDirty(va + size)) {
 		auto [status, physical] = c.clean4k();
-		assert(status & page_status::present);
-		assert(status & page_status::dirty);
-		if(auto descriptor = globalPfnDb().find(physical))
-			markDirty(*descriptor);
-		affected.anyRevoked = true;
+		if((status & page_status::present) && (status & page_status::dirty)) {
+			if(auto descriptor = globalPfnDb().find(physical))
+				markDirty(*descriptor);
+			affected.anyRevoked = true;
+		}
 		c.advance4k();
 	}
 	return affected;
@@ -225,15 +225,16 @@ frg::expected<Error, PagesAffected> unmapPagesByCursor(PageSpace *ps, VirtualAdd
 	Cursor c{ps, va, policy};
 	while(c.findPresent(va + size)) {
 		auto [status, physical] = c.unmap4k();
-		assert(status & page_status::present);
-		if(status & page_status::dirty) {
+		if(status & page_status::present) {
+			if(status & page_status::dirty) {
+				if(auto descriptor = globalPfnDb().find(physical))
+					markDirty(*descriptor);
+			}
 			if(auto descriptor = globalPfnDb().find(physical))
-				markDirty(*descriptor);
+				decrementUses(*descriptor);
+			affected.rssDecrease += kPageSize;
+			affected.anyRevoked = true;
 		}
-		if(auto descriptor = globalPfnDb().find(physical))
-			decrementUses(*descriptor);
-		affected.rssDecrease += kPageSize;
-		affected.anyRevoked = true;
 
 		c.advance4k();
 	}
