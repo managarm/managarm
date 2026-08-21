@@ -103,6 +103,7 @@ enum {
 	kHelCallAcknowledgeIrq = 81,
 	kHelCallSubmitAwaitEvent = 82,
 	kHelCallAutomateIrq = 94,
+	kHelCallQueryMsiInfo = 6,
 
 	kHelCallAccessIo = 11,
 	kHelCallEnableIo = 12,
@@ -269,6 +270,7 @@ static const HelRights kHelRightSignal = UINT32_C(1) << 12;
 // - Thread: required to resume.
 // - Thread: required to kill.
 // - IRQ pin: required to configure the IRQ.
+// - IRQ pin: required to obtain MSI address and data words.
 static const HelRights kHelRightManage = UINT32_C(1) << 13;
 // All rights (even unspecified ones). Easier to recognize in code than a literal.
 static const HelRights kHelRightsMax = ~UINT32_C(0);
@@ -1066,6 +1068,12 @@ enum HelLogSeverity {
 enum {
 	kHelAccessIrqByGsi = 1,
 	kHelAccessIrqByPhandle = 2,
+	kHelAccessIrqAllocateMsi = 3,
+};
+
+//! Size of the buffer that ::helAccessIrq reads an IRQ name from.
+enum {
+	kHelIrqNameSize = 32,
 };
 
 enum {
@@ -1078,6 +1086,12 @@ enum {
 	kHelIrqPolarityNull = 0,
 	kHelIrqPolarityHigh = 1,
 	kHelIrqPolarityLow = 2
+};
+
+//! Message address / data pair that raises an MSI (see ::helQueryMsiInfo).
+struct HelMsiInfo {
+	uint64_t address;
+	uint32_t data;
 };
 
 //! @name Logging
@@ -1574,20 +1588,28 @@ HEL_C_LINKAGE HelError helCreateBitsetEvent(HelHandle *handle);
 HEL_C_LINKAGE HelError helRaiseEvent(HelHandle handle);
 
 //! Access the IRQ pin that an IRQ is attached to.
+//! For ::kHelAccessIrqAllocateMsi, allocate a fresh MSI pin from the system's
+//! MSI controller instead of accessing an existing IRQ.
 //! @param[in] mode
 //!     Determines how the IRQ is identified (e.g., ::kHelAccessIrqByGsi).
 //! @param[in] controller
 //!     Identifies the interrupt controller that the IRQ belongs to.
-//!     Unused for ::kHelAccessIrqByGsi.
+//!     Unused for ::kHelAccessIrqByGsi and ::kHelAccessIrqAllocateMsi.
 //!     For ::kHelAccessIrqByPhandle, this is the device tree phandle of the controller.
 //! @param[in] index
 //!     Identifies the IRQ within the interrupt controller.
 //!     For ::kHelAccessIrqByGsi, this is the global system interrupt number.
 //!     For ::kHelAccessIrqByPhandle, this is a controller-specific IRQ index.
+//!     Unused for ::kHelAccessIrqAllocateMsi.
+//! @param[in] name
+//!     Names the pin in kernel diagnostics. The kernel reads ::kHelIrqNameSize bytes from
+//!     this buffer and stops at the first null byte, if any.
+//!     Only used for ::kHelAccessIrqAllocateMsi, which requires it to be non-null.
 //! @param[out] handle
 //!     Handle to the IRQ pin.
 HEL_C_LINKAGE HelError helAccessIrq(
-	HelHandle accessHandle, uint32_t mode, uint64_t controller, uint64_t index, HelHandle *handle
+	HelHandle accessHandle, uint32_t mode, uint64_t controller, uint64_t index,
+	const char *name, HelHandle *handle
 );
 
 //! Install an IRQ handler on an IRQ pin.
@@ -1609,6 +1631,14 @@ HEL_C_LINKAGE HelError helHandleIrq(HelHandle pinHandle, HelHandle *handle);
 //!     ::kHelIrqPolarityNull states that the interrupt controller has no configurable
 //!     polarity.
 HEL_C_LINKAGE HelError helConfigureIrq(HelHandle pinHandle, uint32_t trigger, uint32_t polarity);
+
+//! Retrieves the message address and data of an MSI pin.
+//! @param[in] pinHandle
+//!     Handle to the IRQ pin. The pin must be message-signaled
+//!     (e.g., allocated via ::kHelAccessIrqAllocateMsi).
+//! @param[out] info
+//!     Message address / data pair that raises the MSI.
+HEL_C_LINKAGE HelError helQueryMsiInfo(HelHandle pinHandle, struct HelMsiInfo *info);
 
 HEL_C_LINKAGE HelError helAcknowledgeIrq(HelHandle handle, uint32_t flags, uint64_t sequence);
 
