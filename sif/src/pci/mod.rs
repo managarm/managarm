@@ -2,6 +2,7 @@ pub mod acpi;
 pub mod config;
 pub mod discover;
 pub mod dtb;
+pub mod iommu;
 pub mod quirks;
 pub mod serve;
 
@@ -740,7 +741,8 @@ pub struct PciEntity {
     pub interface: u8,
 
     pub is_pcie: AtomicBool,
-    pub is_downstream_port: AtomicBool,
+    // Device/port type of the PCI Express capability. Only meaningful if is_pcie is set.
+    pub pcie_port_type: AtomicU8,
 
     pub caps: Mutex<Vec<Capability>>,
     pub extended_caps: Mutex<Vec<ExtendedCapability>>,
@@ -748,6 +750,10 @@ pub struct PciEntity {
     pub expansion_rom: OnceLock<PciExpansionRom>,
 
     pub bars: Mutex<Vec<PciBar>>,
+
+    // IOMMU that translates the DMA requests of this entity, and the domain that it is bound to.
+    pub associated_iommu: OnceLock<&'static iommu::IommuUnit>,
+    pub dma_domain: OnceLock<&'static iommu::DmaDomain>,
 }
 
 impl PciEntity {
@@ -778,12 +784,23 @@ impl PciEntity {
             sub_class,
             interface,
             is_pcie: AtomicBool::new(false),
-            is_downstream_port: AtomicBool::new(false),
+            pcie_port_type: AtomicU8::new(0),
             caps: Mutex::new(Vec::new()),
             extended_caps: Mutex::new(Vec::new()),
             expansion_rom: OnceLock::new(),
             bars: Mutex::new(vec![PciBar::default(); n_bars]),
+            associated_iommu: OnceLock::new(),
+            dma_domain: OnceLock::new(),
         }
+    }
+
+    /// Whether the entity is a PCIe port that can only have a single device attached to it.
+    pub fn is_downstream_port(&self) -> bool {
+        self.is_pcie.load(Ordering::Relaxed)
+            && matches!(
+                self.pcie_port_type.load(Ordering::Relaxed),
+                PCIE_TYPE_ROOT_PORT | PCIE_TYPE_DOWNSTREAM_PORT | PCIE_TYPE_PCI_TO_PCIE_BRIDGE
+            )
     }
 
     pub fn enable_busmaster(&self) {
@@ -1012,6 +1029,13 @@ pub const PCI_REGULAR_EXPANSION_ROM_BASE_ADDRESS: u16 = 0x30;
 pub const PCI_REGULAR_CAPABILITIES: u16 = 0x34;
 pub const PCI_REGULAR_INTERRUPT_PIN: u16 = 0x3D;
 
+// Device/port types of the PCI Express capability.
+pub const PCIE_TYPE_ROOT_PORT: u8 = 0x4;
+pub const PCIE_TYPE_UPSTREAM_PORT: u8 = 0x5;
+pub const PCIE_TYPE_DOWNSTREAM_PORT: u8 = 0x6;
+pub const PCIE_TYPE_PCIE_TO_PCI_BRIDGE: u8 = 0x7;
+pub const PCIE_TYPE_PCI_TO_PCIE_BRIDGE: u8 = 0x8;
+
 // PCI-to-PCI bridge header fields
 pub const PCI_BRIDGE_EXPANSION_ROM_BASE_ADDRESS: u16 = 0x38;
 pub const PCI_BRIDGE_IO_BASE: u16 = 0x1C;
@@ -1034,6 +1058,9 @@ pub async fn publish_devices() -> Result<()> {
     }
 
     discover::enumerate_all();
+    // Every requester has to be bound before a device is published: a driver must not see a
+    // translated DMA space before the IOMMU translates.
+    iommu::configure().await;
     serve::publish_all().await?;
 
     Ok(())

@@ -1,3 +1,4 @@
+pub mod dmar;
 pub mod glue;
 pub mod ps2;
 
