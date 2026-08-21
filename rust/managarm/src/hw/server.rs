@@ -70,7 +70,7 @@ pub trait PciDevice {
         false
     }
     fn get_dma_space(&self) -> hel::Result<(bool, Handle)> {
-        Ok((false, hel::create_dma_space()?))
+        Ok((false, hel::create_dma_space(None, &[])?))
     }
     fn claim_device(&self) {}
 }

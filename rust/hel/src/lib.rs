@@ -14,6 +14,7 @@ pub mod queue;
 pub mod result;
 pub mod submission;
 
+use alloc::vec::Vec;
 use core::time::Duration;
 
 #[cfg(feature = "std")]
@@ -47,10 +48,89 @@ pub fn create_space() -> Result<Handle> {
     Ok(unsafe { Handle::from_raw(handle) })
 }
 
-/// Creates a new DMA space that memory can be mapped into for device DMA.
-pub fn create_dma_space() -> Result<Handle> {
+/// The firmware description that an IOMMU was discovered from.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum IommuKind {
+    IntelVtd,
+    AmdVi,
+}
+
+impl IommuKind {
+    fn to_raw(self) -> u32 {
+        match self {
+            Self::IntelVtd => hel_sys::kHelAccessIommuIntelVtd,
+            Self::AmdVi => hel_sys::kHelAccessIommuAmdVi,
+        }
+    }
+}
+
+/// A range of physical memory that a DMA space identity-maps.
+#[derive(Debug, Clone, Copy)]
+pub struct DmaReservedRegion {
+    pub base: u64,
+    pub size: u64,
+    pub readable: bool,
+    pub writable: bool,
+}
+
+/// The requester ID that a device issues DMA requests as.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct DmaDeviceId {
+    pub segment: u16,
+    pub bus: u8,
+    pub slot: u8,
+    pub function: u8,
+}
+
+impl DmaDeviceId {
+    fn to_raw(self) -> hel_sys::HelDmaDeviceId {
+        hel_sys::HelDmaDeviceId {
+            segment: self.segment.into(),
+            bus: self.bus,
+            slot: self.slot,
+            function: self.function,
+        }
+    }
+}
+
+/// Returns the IOMMU that the kernel discovered at the given register base.
+pub fn access_iommu(access_handle: &Handle, kind: IommuKind, base: u64) -> Result<Handle> {
     let mut handle = hel_sys::kHelNullHandle as hel_sys::HelHandle;
-    result::hel_check(unsafe { hel_sys::helCreateDmaSpace(0, &mut handle) })?;
+    result::hel_check(unsafe {
+        hel_sys::helAccessIommu(access_handle.handle(), kind.to_raw(), base, &mut handle)
+    })?;
+    Ok(unsafe { Handle::from_raw(handle) })
+}
+
+/// Creates a DMA space that memory can be mapped into for device DMA.
+///
+/// With an IOMMU, the space is one IOMMU domain that the unit translates; the reserved
+/// regions are identity-mapped and taken out of the range that the space allocates addresses
+/// from. `None` creates a space that does not translate and takes no reserved regions.
+pub fn create_dma_space(iommu: Option<&Handle>, regions: &[DmaReservedRegion]) -> Result<Handle> {
+    let regions: Vec<hel_sys::HelDmaReservedRegion> = regions
+        .iter()
+        .map(|region| {
+            let mut flags = 0;
+            if region.readable {
+                flags |= hel_sys::kHelDmaRegionRead;
+            }
+            if region.writable {
+                flags |= hel_sys::kHelDmaRegionWrite;
+            }
+            hel_sys::HelDmaReservedRegion {
+                base: region.base,
+                size: region.size,
+                flags,
+            }
+        })
+        .collect();
+
+    let iommu = iommu.map_or(hel_sys::kHelNullHandle as hel_sys::HelHandle, |i| i.handle());
+    let mut handle = hel_sys::kHelNullHandle as hel_sys::HelHandle;
+    result::hel_check(unsafe {
+        hel_sys::helCreateDmaSpace(iommu, regions.as_ptr(), regions.len(), 0, &mut handle)
+    })?;
     Ok(unsafe { Handle::from_raw(handle) })
 }
 
