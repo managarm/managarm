@@ -301,7 +301,7 @@ execute(ViewPath root, ViewPath workdir,
 	// Map the stack into the new process and set it up.
 	void *stackBase = FRG_CO_TRY(co_await vmContext->mapFile(0,
 			helix::UniqueDescriptor{stackHandle}, nullptr,
-			0, stackSize, true, kHelMapProtRead | kHelMapProtWrite));
+			0, stackSize, true, kHelMapProtRead | kHelMapProtWrite, true));
 
 	// the offset at which the stack image starts.
 	size_t d = stackSize;
