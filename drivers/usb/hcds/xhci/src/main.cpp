@@ -928,8 +928,7 @@ Device::enumerate(size_t rootPort, size_t port, uint32_t route, std::shared_ptr<
 	// For LS/FS devices, look for a TT in the path, and fill out the appropriate fields if one exists.
 	auto ttHub = nearestTTHub();
 	if (ttHub) {
-		auto hubDevice = std::static_pointer_cast<Device>(
-			ttHub->associatedDevice()->state());
+		auto hubDevice = std::static_pointer_cast<Device>(ttHub->associatedState());
 
 		assert(hubDevice->_speed == proto::DeviceSpeed::highSpeed);
 
