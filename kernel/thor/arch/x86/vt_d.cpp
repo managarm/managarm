@@ -548,6 +548,10 @@ struct IntelIommu final : Iommu, IrqSink {
 
 	static constexpr size_t invalidationQueueSize = 256;
 
+	// Domain that all passthrough devices are attached to. Domain id 0 is not usable since
+	// VT-d reserves it when Caching Mode is set.
+	static constexpr uint16_t passthroughDomainId = 1;
+
 	IntelIommu(uint64_t register_base, uint16_t segment)
 	: Iommu(nextIommuId++),
 	IrqSink(frg::string(*kernelAlloc, "iommu") +
@@ -1234,11 +1238,11 @@ struct IntelIommu final : Iommu, IrqSink {
 		bool oldPresent = contextEntry->low.load() & contextTable::present;
 		uint16_t oldDomainId = oldPresent ? (contextEntry->high.load() & contextTable::domainId) : 0;
 
-		int domainId = 1;
+		uint16_t domainId = passthroughDomainId;
 
 		if (!space) {
 			contextEntry->high.store(
-			    contextTable::addressWidth(sagaw_ - 2) | contextTable::domainId(1)
+			    contextTable::addressWidth(sagaw_ - 2) | contextTable::domainId(passthroughDomainId)
 			);
 
 			contextEntry->low.store(
@@ -1350,7 +1354,7 @@ private:
 	// value for the Context Entry Address Width (AW) field for the highest supported page table level
 	uint8_t sagaw_;
 
-	uint16_t hwDidAlloc_ = 1;
+	uint16_t hwDidAlloc_ = passthroughDomainId + 1;
 };
 
 bool IntelIommuOperations::submitShootdown(ShootNode *node) {
