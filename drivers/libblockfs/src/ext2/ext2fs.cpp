@@ -1589,9 +1589,9 @@ async::result<uint32_t> FileSystem::allocateInode(uint32_t parentIno, bool direc
 	co_return 0;
 }
 
-async::result<std::vector<ExtentBlockRange>> FileSystem::lookupBlocksUsingExtent(Inode *inode,
+async::result<std::vector<BlockRange>> FileSystem::lookupBlocksUsingExtent(Inode *inode,
 		uint64_t block_offset, size_t num_blocks, bool errorIfNotFound) {
-	std::vector<ExtentBlockRange> ranges;
+	std::vector<BlockRange> ranges;
 
 	ExtentWalker walker{this, inode, true};
 
@@ -1617,11 +1617,11 @@ async::result<std::vector<ExtentBlockRange>> FileSystem::lookupBlocksUsingExtent
 			uint64_t absoluteStartBlock = static_cast<uint64_t>(extent.startLow)
 					| (static_cast<uint64_t>(extent.startHigh) << 32);
 
-			ExtentBlockRange range{
+			BlockRange range{
 				.relativeStartBlock = index,
 				.absoluteStartBlock = absoluteStartBlock + startOffset,
 				.size = toAdd,
-				.found = true
+				.hole = false
 			};
 			ranges.push_back(range);
 
@@ -1634,14 +1634,14 @@ async::result<std::vector<ExtentBlockRange>> FileSystem::lookupBlocksUsingExtent
 				assert(!"Block was not found in extent tree");
 
 			if(!ranges.empty() && ranges.back().relativeStartBlock + ranges.back().size == index
-					&& !ranges.back().found) {
+					&& ranges.back().hole) {
 				ranges.back().size++;
 			} else {
-				ExtentBlockRange range{
+				BlockRange range{
 					.relativeStartBlock = index,
 					.absoluteStartBlock = 0,
 					.size = 1,
-					.found = false
+					.hole = true
 				};
 				ranges.push_back(range);
 			}
@@ -1661,7 +1661,7 @@ async::result<void> FileSystem::assignDataBlocksUsingExtents(Inode *inode,
 	auto blockRanges = co_await lookupBlocksUsingExtent(inode, block_offset, num_blocks, false);
 
 	for(auto &range : blockRanges) {
-		if(range.found)
+		if(!range.hole)
 			continue;
 
 		auto allocated = co_await allocateBlocks(range.size, inode->number);
@@ -1923,7 +1923,7 @@ async::result<void> FileSystem::readDataBlocksUsingExtents(std::shared_ptr<Inode
 	for(auto &range : blockRanges) {
 		assert(range.relativeStartBlock == block_offset + progress);
 
-		if(!range.found) {
+		if(range.hole) {
 			memset(buf.byte_data() + progress * blockSize, 0, range.size * blockSize);
 		}else {
 			assert(range.absoluteStartBlock);

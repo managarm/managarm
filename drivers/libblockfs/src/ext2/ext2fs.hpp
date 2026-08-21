@@ -328,14 +328,20 @@ struct DirEntry {
 };
 
 // --------------------------------------------------------
-// ExtentBlockRange
+// BlockRange
 // --------------------------------------------------------
 
-struct ExtentBlockRange {
+// Describes a mapping from per-file blocks to on-disk blocks.
+struct BlockRange {
+	// Offset of the range within the file.
 	uint64_t relativeStartBlock;
+	// Block number on the file system.
+	// Only meaningful if !hole.
 	uint64_t absoluteStartBlock;
+	// Number of blocks.
 	uint64_t size;
-	bool found;
+	// Whether the range represents a hole or not.
+	bool hole;
 };
 
 // --------------------------------------------------------
@@ -517,7 +523,7 @@ struct FileSystem final : BaseFileSystem {
 
 
 	// Callers must hold inode->blockMapMutex.
-	async::result<std::vector<ExtentBlockRange>> lookupBlocksUsingExtent(Inode *inode,
+	async::result<std::vector<BlockRange>> lookupBlocksUsingExtent(Inode *inode,
 			uint64_t block_offset, size_t num_blocks, bool errorIfNotFound);
 
 	// Callers must hold inode->blockMapMutex.
