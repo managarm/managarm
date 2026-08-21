@@ -1,5 +1,6 @@
 
 #include <assert.h>
+#include <atomic>
 #include <iostream>
 #include <unordered_map>
 #include <optional>
@@ -82,7 +83,8 @@ struct LegacyPciTransport : Transport {
 	friend struct LegacyPciQueue;
 
 	LegacyPciTransport(protocols::hw::Device hw_device,
-			arch::io_space legacy_space, helix::UniqueDescriptor irq, helix::UniqueDescriptor dmaSpace);
+			arch::io_space legacy_space, helix::UniqueDescriptor bar,
+			helix::UniqueDescriptor irq, helix::UniqueDescriptor dmaSpace);
 
 	bool isLegacy() override {
 		return true;
@@ -106,11 +108,17 @@ struct LegacyPciTransport : Transport {
 	void runDevice() override;
 
 private:
+	// Returns the I/O space, after enabling it on the current thread if necessary.
+	arch::io_space _io();
+
 	async::detached _processIrqs();
 
 	protocols::hw::Device _hwDevice;
 	arch::io_space _legacySpace;
+	helix::UniqueDescriptor _bar;
 	helix::UniqueDescriptor _irq;
+	// Identifies this device within the per-thread table of enabled devices.
+	unsigned int _ioIndex;
 
 	std::vector<std::unique_ptr<LegacyPciQueue>> _queues;
 };
@@ -131,24 +139,42 @@ private:
 	LegacyPciTransport *_transport;
 };
 
+std::atomic<unsigned int> nextIoIndex{0};
+
 LegacyPciTransport::LegacyPciTransport(
-    protocols::hw::Device hw_device, arch::io_space legacy_space, helix::UniqueDescriptor irq, helix::UniqueDescriptor dmaSpace
+    protocols::hw::Device hw_device, arch::io_space legacy_space, helix::UniqueDescriptor bar,
+    helix::UniqueDescriptor irq, helix::UniqueDescriptor dmaSpace
 )
 : Transport(std::move(dmaSpace), false),
   _hwDevice{std::move(hw_device)},
   _legacySpace{legacy_space},
-  _irq{std::move(irq)} {}
+  _bar{std::move(bar)},
+  _irq{std::move(irq)},
+  _ioIndex{nextIoIndex.fetch_add(1, std::memory_order_relaxed)} {}
+
+// Thor enables port I/O per-thread, hence every thread has to call helEnableIo() itself.
+arch::io_space LegacyPciTransport::_io() {
+	thread_local std::vector<bool> enabled;
+
+	if(enabled.size() <= _ioIndex)
+		enabled.resize(_ioIndex + 1);
+	if(!enabled[_ioIndex]) {
+		HEL_CHECK(helEnableIo(_bar.getHandle()));
+		enabled[_ioIndex] = true;
+	}
+	return _legacySpace;
+}
 
 uint8_t LegacyPciTransport::loadConfig8(size_t offset) {
-	return _legacySpace.subspace(20).load(arch::scalar_register<uint8_t>(offset));
+	return _io().subspace(20).load(arch::scalar_register<uint8_t>(offset));
 }
 
 uint16_t LegacyPciTransport::loadConfig16(size_t offset) {
-	return _legacySpace.subspace(20).load(arch::scalar_register<uint16_t>(offset));
+	return _io().subspace(20).load(arch::scalar_register<uint16_t>(offset));
 }
 
 uint32_t LegacyPciTransport::loadConfig32(size_t offset) {
-	return _legacySpace.subspace(20).load(arch::scalar_register<uint32_t>(offset));
+	return _io().subspace(20).load(arch::scalar_register<uint32_t>(offset));
 }
 
 bool LegacyPciTransport::checkDeviceFeature(unsigned int feature) {
@@ -157,13 +183,13 @@ bool LegacyPciTransport::checkDeviceFeature(unsigned int feature) {
 				" on legacy device" << std::endl;
 		return false;
 	}
-	return _legacySpace.load(PCI_L_DEVICE_FEATURES) & (1 << feature);
+	return _io().load(PCI_L_DEVICE_FEATURES) & (1 << feature);
 }
 
 void LegacyPciTransport::acknowledgeDriverFeature(unsigned int feature) {
 	assert(feature < 32);
-	auto current = _legacySpace.load(PCI_L_DRIVER_FEATURES);
-	_legacySpace.store(PCI_L_DRIVER_FEATURES, current | (1 << feature));
+	auto current = _io().load(PCI_L_DRIVER_FEATURES);
+	_io().store(PCI_L_DRIVER_FEATURES, current | (1 << feature));
 }
 
 void LegacyPciTransport::finalizeFeatures() {
@@ -178,8 +204,8 @@ async::result<Queue *> LegacyPciTransport::setupQueue(unsigned int queue_index) 
 	assert(queue_index < _queues.size());
 	assert(!_queues[queue_index]);
 
-	_legacySpace.store(PCI_L_QUEUE_SELECT, queue_index);
-	auto queue_size = _legacySpace.load(PCI_L_QUEUE_SIZE);
+	_io().store(PCI_L_QUEUE_SELECT, queue_index);
+	auto queue_size = _io().load(PCI_L_QUEUE_SIZE);
 	assert(queue_size);
 
 	// TODO: Ensure that the queue size is indeed a power of 2.
@@ -219,14 +245,14 @@ async::result<Queue *> LegacyPciTransport::setupQueue(unsigned int queue_index) 
 	// Hand the queue to the device.
 	uintptr_t table_physical;
 	HEL_CHECK(helPointerPhysical(kHelNullHandle, table, &table_physical));
-	_legacySpace.store(PCI_L_QUEUE_ADDRESS, table_physical >> 12);
+	_io().store(PCI_L_QUEUE_ADDRESS, table_physical >> 12);
 
 	co_return _queues[queue_index].get();
 }
 
 void LegacyPciTransport::runDevice() {
 	// Set the DRIVER_OK bit to finish the configuration.
-	_legacySpace.store(PCI_L_DEVICE_STATUS, _legacySpace.load(PCI_L_DEVICE_STATUS) | DRIVER_OK);
+	_io().store(PCI_L_DEVICE_STATUS, _io().load(PCI_L_DEVICE_STATUS) | DRIVER_OK);
 
 	_processIrqs();
 }
@@ -243,7 +269,7 @@ async::detached LegacyPciTransport::_processIrqs() {
 		HEL_CHECK(await.error());
 		sequence = await.sequence();
 
-		auto isr = _legacySpace.load(PCI_L_ISR_STATUS);
+		auto isr = _io().load(PCI_L_ISR_STATUS);
 
 		if(!(isr & 3)) {
 			HEL_CHECK(helAcknowledgeIrq(_irq.getHandle(), kHelAckNack, sequence));
@@ -254,7 +280,7 @@ async::detached LegacyPciTransport::_processIrqs() {
 
 		if(isr & 2) {
 			std::cout << "core-virtio: Configuration change" << std::endl;
-			auto status = _legacySpace.load(PCI_L_DEVICE_STATUS);
+			auto status = _io().load(PCI_L_DEVICE_STATUS);
 			assert(!(status & DEVICE_NEEDS_RESET));
 		}
 		if(isr & 1)
@@ -269,7 +295,7 @@ LegacyPciQueue::LegacyPciQueue(LegacyPciTransport *transport,
 : Queue{queue_index, queue_size, {}, table, available, used}, _transport{transport} { }
 
 void LegacyPciQueue::notifyTransport() {
-	_transport->_legacySpace.store(PCI_L_QUEUE_NOTIFY, queueIndex());
+	_transport->_io().store(PCI_L_QUEUE_NOTIFY, queueIndex());
 }
 
 } // anonymous namespace
@@ -773,7 +799,7 @@ discover(protocols::hw::Device hw_device, DiscoverMode mode) {
 
 			std::cout << "virtio: Using legacy PCI transport" << std::endl;
 			co_return std::make_unique<LegacyPciTransport>(std::move(hw_device),
-					legacy_space, std::move(irq), std::move(dmaSpace));
+					legacy_space, std::move(bar), std::move(irq), std::move(dmaSpace));
 		}
 #else
 		throw std::runtime_error("Legacy transports are unsupported on this architecture");

@@ -13,6 +13,7 @@
 #include <core/align.hpp>
 #include <core/clock.hpp>
 #include <core/logging.hpp>
+#include <helix/dispatcher-pool.hpp>
 #include <helix/ipc.hpp>
 #include <helix/memory.hpp>
 
@@ -965,7 +966,7 @@ auto FileSystem::accessInode(uint32_t number) -> std::shared_ptr<BaseInode> {
 		inode_slot = std::weak_ptr<Inode>(new_inode);
 	}
 
-	initiateInode(new_inode);
+	helix::DispatcherPool::global().detach(initiateInode(new_inode));
 
 	return new_inode;
 }
@@ -1103,7 +1104,7 @@ std::pair<uint64_t, size_t> FileSystem::locateDiskInode(uint32_t number) {
 			static_cast<size_t>(byteOffset & (blockSize - 1))};
 }
 
-async::detached FileSystem::initiateInode(std::shared_ptr<Inode> inode) {
+async::result<void> FileSystem::initiateInode(std::shared_ptr<Inode> inode) {
 	auto [inodeBlock, inodeOffset] = locateDiskInode(inode->number);
 	inode->diskInodeWindow = co_await metadataCache->access(inodeBlock, true);
 	inode->diskInodeOffset = inodeOffset;
@@ -1138,12 +1139,13 @@ async::detached FileSystem::initiateInode(std::shared_ptr<Inode> inode) {
 	if(disk_inode->flags & EXT4_EXTENTS_FL)
 		inode->usesExtents = true;
 
-	manageFileData(inode);
+	// Keep the servicer on the pool member that this inode was initiated on.
+	async::detach_on(helix::Dispatcher::global().runQueue(), manageFileData(inode));
 
 	inode->readyEvent.raise();
 }
 
-async::detached FileSystem::manageFileData(std::shared_ptr<Inode> inode) {
+async::result<void> FileSystem::manageFileData(std::shared_ptr<Inode> inode) {
 	while(true) {
 		helix::ManageMemory manage;
 		auto &&submit = helix::submitManageMemory(helix::BorrowedDescriptor(inode->backingMemory),

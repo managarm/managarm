@@ -4,6 +4,7 @@
 #include <protocols/mbus/client.hpp>
 #include <protocols/hw/client.hpp>
 
+#include <helix/dispatcher-pool.hpp>
 #include <helix/timer.hpp>
 
 #include "controller.hpp"
@@ -73,5 +74,8 @@ int main() {
 	std::cout << "block/ahci: Starting driver\n";
 
 	observeControllers();
-	async::run_forever(helix::currentDispatcher);
+	// This driver is not thread-safe yet; run the pool single threaded.
+	helix::DispatcherPool::global().setThreadCount(1);
+	helix::DispatcherPool::global().blockOn(
+			async::suspend_indefinitely(async::cancellation_token{}));
 }

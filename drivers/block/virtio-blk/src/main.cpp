@@ -12,6 +12,7 @@
 #include <async/result.hpp>
 #include <hel.h>
 #include <hel-syscalls.h>
+#include <helix/dispatcher-pool.hpp>
 #include <helix/ipc.hpp>
 #include <protocols/mbus/client.hpp>
 #include <protocols/hw/client.hpp>
@@ -75,6 +76,7 @@ int main() {
 //	HEL_CHECK(helSetPriority(kHelThisThread, 3));
 
 	observeDevices();
-	async::run_forever(helix::currentDispatcher);
+	helix::DispatcherPool::global().blockOn(
+			async::suspend_indefinitely(async::cancellation_token{}));
 }
 

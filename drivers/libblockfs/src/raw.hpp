@@ -18,7 +18,7 @@ struct RawFs {
 
 	async::result<void> init();
 
-	async::detached manageMapping();
+	async::result<void> manageMapping();
 
 	BlockDevice *device;
 	HelHandle backingMemory;

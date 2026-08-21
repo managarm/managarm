@@ -494,8 +494,8 @@ struct FileSystem final : BaseFileSystem {
 	// Returns the block containing the given on-disk inode and the offset within that block.
 	std::pair<uint64_t, size_t> locateDiskInode(uint32_t number);
 
-	async::detached initiateInode(std::shared_ptr<Inode> inode);
-	async::detached manageFileData(std::shared_ptr<Inode> inode);
+	async::result<void> initiateInode(std::shared_ptr<Inode> inode);
+	async::result<void> manageFileData(std::shared_ptr<Inode> inode);
 
 	// Allocate up to num blocks for the given inode.
 	// This function does not write back the BGDT, this is the caller's responsibility.

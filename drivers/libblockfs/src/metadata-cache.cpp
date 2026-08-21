@@ -1,6 +1,8 @@
 #include <bit>
 #include <string.h>
 
+#include <helix/dispatcher-pool.hpp>
+
 #include "metadata-cache.hpp"
 
 namespace blockfs {
@@ -61,11 +63,12 @@ async::detached MetadataCache::manage_(helix::UniqueDescriptor backing) {
 		co_await submitManage.async_wait();
 		HEL_CHECK(manage.error());
 
-		serviceRequest_(backing, manage.type(), manage.offset(), manage.length());
+		helix::DispatcherPool::global().detach(
+				serviceRequest_(backing, manage.type(), manage.offset(), manage.length()));
 	}
 }
 
-async::detached MetadataCache::serviceRequest_(helix::BorrowedDescriptor backing,
+async::result<void> MetadataCache::serviceRequest_(helix::BorrowedDescriptor backing,
 		int type, uintptr_t offset, size_t length) {
 	auto frameSize = size_t{1} << blockPagesShift_;
 	assert(!(offset & (frameSize - 1)));

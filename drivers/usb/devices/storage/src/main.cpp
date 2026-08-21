@@ -8,6 +8,7 @@
 #include <stdio.h>
 
 #include <async/result.hpp>
+#include <helix/dispatcher-pool.hpp>
 #include <protocols/mbus/client.hpp>
 #include <protocols/usb/usb.hpp>
 #include <protocols/usb/api.hpp>
@@ -205,7 +206,10 @@ int main() {
 	std::cout << "block-usb: Starting driver" << std::endl;
 
 	observeDevices();
-	async::run_forever(helix::currentDispatcher);
+	// This driver is not thread-safe yet; run the pool single threaded.
+	helix::DispatcherPool::global().setThreadCount(1);
+	helix::DispatcherPool::global().blockOn(
+			async::suspend_indefinitely(async::cancellation_token{}));
 
 	return 0;
 }
