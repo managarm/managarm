@@ -11,6 +11,7 @@
 #include <thor-internal/arch/cache.hpp>
 #include <thor-internal/arch/pic.hpp>
 #include <thor-internal/coroutine.hpp>
+#include <thor-internal/debug.hpp>
 #include <thor-internal/fiber.hpp>
 #include <thor-internal/main.hpp>
 #include <thor-internal/pci/pci.hpp>
@@ -546,7 +547,7 @@ struct IntelIommu final : Iommu, IrqSink {
 	static constexpr uint16_t passthroughDomainId = 1;
 
 	IntelIommu(uint64_t register_base, uint16_t segment)
-	: Iommu(nextIommuId++),
+	: Iommu(IommuKind::intelVtd, register_base, nextIommuId++),
 	IrqSink(frg::string(*kernelAlloc, "iommu") +
 		frg::to_allocated_string(*kernelAlloc, id())),
 	qi_{this},
@@ -1395,11 +1396,11 @@ IntelIommu *findIommu(pci::PciEntity *entity) {
 
 } // namespace
 
-IntelIommu *handleDrhd(frg::span<uint8_t> remappingStructureTypes) {
+smarter::shared_ptr<IntelIommu> handleDrhd(frg::span<uint8_t> remappingStructureTypes) {
 	DmarDrhd drhd;
 	memcpy(&drhd, remappingStructureTypes.data(), sizeof(drhd));
 
-	auto iommu = frg::construct<IntelIommu>(*kernelAlloc, drhd.register_base, drhd.segment);
+	auto iommu = smarter::allocate_shared<IntelIommu>(*kernelAlloc, drhd.register_base, drhd.segment);
 
 	if(!iommu->supportsPassthrough()) {
 		infoLogger() << "thor: IOMMU does not support passthrough, ignoring" << frg::endlog;
@@ -1411,6 +1412,10 @@ IntelIommu *handleDrhd(frg::span<uint8_t> remappingStructureTypes) {
 		return nullptr;
 	}
 
+	// Under sif, the device scopes are resolved against sif's PCI tree instead.
+	if(debugOptionsNote->useSif)
+		return iommu;
+
 	if(drhd.flags & dmarDrhdFlagsPciIncludeAll) {
 		// we need to allow matching multiple root buses, as the spec explicitly
 		// allows that to happen
@@ -1420,7 +1425,7 @@ IntelIommu *handleDrhd(frg::span<uint8_t> remappingStructureTypes) {
 
 			for(auto c : b->childDevices) {
 				if(!c->associatedIommu)
-					c->associatedIommu = iommu;
+					c->associatedIommu = iommu.get();
 			}
 
 			// we treat bridges on the root bus like 'PCI Sub-hierarchy' device scopes,
@@ -1428,7 +1433,7 @@ IntelIommu *handleDrhd(frg::span<uint8_t> remappingStructureTypes) {
 			// this allows us to avoid recursively set the associated IOMMU for the children
 			for(auto c : b->childBridges) {
 				if(!c->associatedIommu)
-					c->associatedIommu = iommu;
+					c->associatedIommu = iommu.get();
 			}
 
 			break;
@@ -1482,7 +1487,7 @@ IntelIommu *handleDrhd(frg::span<uint8_t> remappingStructureTypes) {
 					if(!pciDev)
 						return nullptr;
 
-					pciDev->associatedIommu = iommu;
+					pciDev->associatedIommu = iommu.get();
 					break;
 				}
 				case 2: {
@@ -1501,7 +1506,7 @@ IntelIommu *handleDrhd(frg::span<uint8_t> remappingStructureTypes) {
 							continue;
 
 						newbus = b->associatedBus;
-						b->associatedIommu = iommu;
+						b->associatedIommu = iommu.get();
 						break;
 					}
 
@@ -1813,7 +1818,7 @@ static initgraph::Task discoverConfigIoSpaces{&globalInitEngine, "x86.discover-i
 		infoLogger() << frg::fmt("thor: DMAR host address width {}", hdr->host_address_width + 1) << frg::endlog;
 
 		frg::span<uint8_t> remappingStructureTypes{reinterpret_cast<uint8_t *>(dmarTbl.virt_addr + sizeof(DmarHeader)), dmarTbl.hdr->length - sizeof(DmarHeader)};
-		frg::vector<IntelIommu *, KernelAlloc> iommus{*kernelAlloc};
+		frg::vector<smarter::shared_ptr<IntelIommu>, KernelAlloc> iommus{*kernelAlloc};
 		frg::vector<frg::span<uint8_t>, KernelAlloc> rmrrSpans{*kernelAlloc};
 
 		while(remappingStructureTypes.size()) {
@@ -1827,7 +1832,7 @@ static initgraph::Task discoverConfigIoSpaces{&globalInitEngine, "x86.discover-i
 				case DmarRemappingStructureTypes::Drhd: {
 					auto iommu = handleDrhd(remappingStructureTypes);
 					if(iommu)
-						iommus.push_back(iommu);
+						iommus.push_back(std::move(iommu));
 					else
 						warningLogger() << frg::fmt("thor: skipping IOMMU due to invalid DRHD") << frg::endlog;
 					break;
@@ -1927,7 +1932,11 @@ static initgraph::Task discoverConfigIoSpaces{&globalInitEngine, "x86.discover-i
 			}
 		};
 
-		if (!iommus.empty()) {
+		// Under sif, the domain policy and the RMRRs are resolved against sif's PCI tree, and
+		// sif binds the requesters via the kHelSubmitBindDmaDevice SQ operation.
+		bool useSif = debugOptionsNote->useSif;
+
+		if (!iommus.empty() && !useSif) {
 			for (auto rootBus : std::ranges::subrange(pci::allRootBuses->begin(), pci::allRootBuses->end())) {
 				walkBus(rootBus, true);
 			}
@@ -1980,20 +1989,26 @@ static initgraph::Task discoverConfigIoSpaces{&globalInitEngine, "x86.discover-i
 					self(bridge->associatedBus);
 			}
 		};
-		if (!iommus.empty()) {
+		if (!iommus.empty() && !useSif) {
 			for (auto rootBus : std::ranges::subrange(pci::allRootBuses->begin(), pci::allRootBuses->end())) {
 				walkSetupIommu(rootBus);
 			}
 		}
 
-		for(auto iommu : iommus) {
+		for(auto &iommu : iommus) {
 			auto res = KernelFiber::asyncBlockCurrent(iommu->init());
 			if (!res) {
-				warningLogger() << frg::fmt("thor: VT-d IOMMU {} failed to init, ignoring it", iommu->id());
+				warningLogger() << frg::fmt("thor: VT-d IOMMU {} failed to init, ignoring it", iommu->id())
+						<< frg::endlog;
 				continue;
 			}
 
-			KernelFiber::asyncBlockCurrent(iommu->enableTranslation());
+			// Until translation is enabled, the unit is transparent. Under sif, that only
+			// happens once sif has bound every requester that it enumerated.
+			if (!useSif)
+				KernelFiber::asyncBlockCurrent(iommu->enableTranslation());
+
+			registerIommu(std::move(iommu));
 		}
 	}
 };
