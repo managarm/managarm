@@ -70,6 +70,33 @@ impl managarm::hw::server::PciDevice for ServedEntity {
         out
     }
 
+    fn expansion_rom(&self) -> (u64, u64) {
+        match self.entity().expansion_rom.get() {
+            Some(rom) => (rom.address, rom.length),
+            None => (0, 0),
+        }
+    }
+
+    fn access_expansion_rom(&self) -> hel::Result<Option<hel::Handle>> {
+        let Some(rom) = self.entity().expansion_rom.get() else {
+            return Ok(None);
+        };
+        if rom.address == 0 {
+            return Ok(None);
+        }
+
+        let aligned = (rom.address as usize) & !PAGE_MASK;
+        let page_off = (rom.address as usize) & PAGE_MASK;
+        let span = ((rom.length as usize) + page_off + PAGE_MASK) & !PAGE_MASK;
+        // Some cards have problems with caching the expansion ROM.
+        Ok(Some(hel::access_physical(
+            hardware_access_handle(),
+            aligned,
+            span,
+            hel::CachingMode::Uncached,
+        )?))
+    }
+
     fn capabilities(&self) -> Vec<CapDescriptor> {
         self.entity()
             .caps
@@ -170,6 +197,27 @@ impl managarm::hw::server::PciDevice for ServedEntity {
             }
             BarType::None => Err(hel::Error::IllegalArgs),
         }
+    }
+
+    fn access_vbt(&self) -> hel::Result<Option<(u32, hel::Handle)>> {
+        let ServedEntity::Device(device) = self else {
+            return Ok(None);
+        };
+        let Some(&(address, size)) = device.igd_vbt.get() else {
+            return Ok(None);
+        };
+
+        let aligned = (address as usize) & !PAGE_MASK;
+        let span = ((size as usize) + PAGE_MASK) & !PAGE_MASK;
+        Ok(Some((
+            span as u32,
+            hel::access_physical(
+                hardware_access_handle(),
+                aligned,
+                span,
+                hel::CachingMode::Uncached,
+            )?,
+        )))
     }
 
     fn access_irq(&self, index: u64) -> hel::Result<Option<hel::Handle>> {
