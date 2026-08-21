@@ -7,11 +7,20 @@
 
 namespace thor {
 
-namespace pci {
+// Identifies the requester that a device issues DMA requests as.
+struct SourceId {
+	uint16_t segment;
+	uint8_t bus;
+	uint8_t slot;
+	uint8_t function;
+};
 
-struct PciEntity;
-
-}
+// A page space used specifically for DMA.
+struct DmaSpace : VirtualSpace, RcuProtected {
+protected:
+	DmaSpace(VirtualOperations *ops)
+	: VirtualSpace{ops} { }
+};
 
 struct Iommu {
 	Iommu(size_t id)
@@ -21,17 +30,11 @@ struct Iommu {
 		return id_;
 	}
 
-	virtual coroutine<void> enableDevice(pci::PciEntity *dev, bool passthrough = true) = 0;
+	// Attaches a device to a DMA space. A null space attaches the device in passthrough mode.
+	virtual coroutine<std::expected<void, Error>> attachDevice(SourceId source, DmaSpace *space) = 0;
 
 private:
 	const size_t id_;
-};
-
-// A page space used specifically for DMA.
-struct DmaSpace : VirtualSpace, RcuProtected {
-protected:
-	DmaSpace(VirtualOperations *ops)
-	: VirtualSpace{ops} { }
 };
 
 struct NoopDmaSpace final : DmaSpace {

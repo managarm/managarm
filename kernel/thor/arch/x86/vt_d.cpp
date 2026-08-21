@@ -105,44 +105,44 @@ namespace contextTable {
 	static_assert(sizeof(Entry) == 16);
 }
 
-namespace sourceIDMasks {
+namespace requesterIdMasks {
 	constexpr arch::field<uint16_t, uint8_t> function{0, 3};
 	constexpr arch::field<uint16_t, uint8_t> device{3, 5};
 	constexpr arch::field<uint16_t, uint8_t> bus{8, 8};
 }
 
-struct SourceID {
+struct RequesterId {
 	operator uint16_t() {
 		return uint16_t{data_.load()};
 	}
 
 	uint8_t bus() {
-		return data_.load() & sourceIDMasks::bus;
+		return data_.load() & requesterIdMasks::bus;
 	}
 
 	uint8_t device() {
-		return data_.load() & sourceIDMasks::device;
+		return data_.load() & requesterIdMasks::device;
 	}
 
 	uint8_t function() {
-		return data_.load() & sourceIDMasks::function;
+		return data_.load() & requesterIdMasks::function;
 	}
 
 	uint8_t devfn() {
 		return (device() << 3) | function();
 	}
 
-	SourceID(uint8_t bus, uint8_t slot, uint8_t function) :
-	data_{sourceIDMasks::function(function) | sourceIDMasks::device(slot) | sourceIDMasks::bus(bus)} {
+	RequesterId(uint8_t bus, uint8_t slot, uint8_t function) :
+	data_{requesterIdMasks::function(function) | requesterIdMasks::device(slot) | requesterIdMasks::bus(bus)} {
 	}
 
-	explicit SourceID(uint16_t val) :
+	explicit RequesterId(uint16_t val) :
 	data_{arch::bit_value{val}} { }
 
 private:
 	arch::bit_variable<uint16_t> data_;
 };
-static_assert(sizeof(SourceID) == 2);
+static_assert(sizeof(RequesterId) == 2);
 
 namespace qi {
 	[[maybe_unused]] constexpr arch::field<uint64_t, uint8_t> type{0, 4};
@@ -156,7 +156,7 @@ namespace qi {
 		};
 
 		[[maybe_unused]] constexpr arch::field<uint64_t, uint16_t> domainId{16, 16};
-		[[maybe_unused]] constexpr arch::field<uint64_t, SourceID> sourceId{32, 16};
+		[[maybe_unused]] constexpr arch::field<uint64_t, RequesterId> sourceId{32, 16};
 		[[maybe_unused]] constexpr arch::field<uint64_t, InvalidationGranularity> invalidationGranularity{4, 2};
 	} // namespace context_cache_invalidate
 
@@ -265,7 +265,7 @@ namespace contextCommand {
 	};
 
 	[[maybe_unused]] constexpr arch::field<uint64_t, uint16_t> domainId{0, 16};
-	[[maybe_unused]] constexpr arch::field<uint64_t, SourceID> sourceId{16, 16};
+	[[maybe_unused]] constexpr arch::field<uint64_t, RequesterId> sourceId{16, 16};
 	[[maybe_unused]] constexpr arch::field<uint64_t, InvalidationGranularity> invalidationGranularity{61, 2};
 	[[maybe_unused]] constexpr arch::field<uint64_t, bool> invalidateContextCache{63, 1};
 } // namespace contextCommand
@@ -331,7 +331,7 @@ namespace iotlbInvalidate {
 } // namespace iotlbInvalidate
 
 namespace faultRecording {
-	constexpr arch::field<uint64_t, SourceID> sourceIdentifier{0, 16};
+	constexpr arch::field<uint64_t, RequesterId> sourceIdentifier{0, 16};
 	constexpr arch::field<uint64_t, uint8_t> faultReason{32, 8};
 	[[maybe_unused]]
 	constexpr arch::field<uint64_t, uint8_t> addressType{60, 2};
@@ -720,7 +720,7 @@ struct IntelIommu final : Iommu, IrqSink {
 				range
 			} type;
 
-			using Data = std::variant<std::monostate, SourceID, ShootNode *>;
+			using Data = std::variant<std::monostate, RequesterId, ShootNode *>;
 
 			uint16_t domain;
 			Data data;
@@ -785,7 +785,7 @@ struct IntelIommu final : Iommu, IrqSink {
 			);
 		}
 
-		coroutine<void> invalidateDeviceContext(uint16_t domain, SourceID device) {
+		coroutine<void> invalidateDeviceContext(uint16_t domain, RequesterId device) {
 			return submitSyncInvalidation(
 			    InvalidationRequest::Type::deviceContext, [&](auto &entry) {
 				    entry.high = arch::bit_value<uint64_t>{0};
@@ -1039,7 +1039,7 @@ struct IntelIommu final : Iommu, IrqSink {
 								);
 								entry.low |= qi::context_cache_invalidate::domainId(req->domain);
 								entry.low |= qi::context_cache_invalidate::sourceId(
-								    std::get<SourceID>(req->data)
+								    std::get<RequesterId>(req->data)
 								);
 							} else if (req->type == InvalidationRequest::Type::globalIotlb) {
 								entry.low = qi::type(2);
@@ -1164,11 +1164,11 @@ struct IntelIommu final : Iommu, IrqSink {
 					break;
 
 				auto reason = flags & faultRecording::faultReason;
-				auto sourceId = SourceID{flags & faultRecording::sourceIdentifier};
+				auto requesterId = RequesterId{flags & faultRecording::sourceIdentifier};
 
 				warningLogger() << frg::fmt("thor: IOMMU fault {}, {} request from {:02x}:{:02x}:{:x} to 0x{:x}: {} (0x{:x})",
 					i, (flags & faultRecording::read) ? "Read" : "Write",
-					sourceId.bus(), sourceId.device(), sourceId.function(),
+					requesterId.bus(), requesterId.device(), requesterId.function(),
 					subspace.load(regs::faultRecordInfo),
 					decodeFaultReason(reason), reason) << frg::endlog;
 
@@ -1200,18 +1200,21 @@ struct IntelIommu final : Iommu, IrqSink {
 		return ecap_ & extendedCapability::queuedInvalidation;
 	}
 
-	coroutine<void> enableDevice(pci::PciEntity *dev, bool passthrough) override {
+	coroutine<std::expected<void, Error>> attachDevice(SourceId source, DmaSpace *space) override {
+		if(source.segment != segment_)
+			co_return std::unexpected{Error::illegalArgs};
+
 		co_await lock_.async_lock();
 		frg::unique_lock logGuard{frg::adopt_lock, lock_};
 
-		auto rootEntry = &rootTable_[static_cast<uint8_t>(dev->bus)];
+		auto rootEntry = &rootTable_[source.bus];
 		PageAccessor context;
 		frg::span<contextTable::Entry> contextTable{};
 
 		if(!(rootEntry->entry.load() & rootTable::present)) {
 			auto contextPhys = physicalAllocator->allocate(0x1000);
 			if (contextPhys == static_cast<PhysicalAddr>(-1))
-				panicLogger() << "thor: failed to allocate physical memory for IOMMU context table" << frg::endlog;
+				co_return std::unexpected{Error::noMemory};
 			context = {contextPhys};
 
 			memset(context.get(), 0, 0x1000);
@@ -1225,19 +1228,15 @@ struct IntelIommu final : Iommu, IrqSink {
 			contextTable = {reinterpret_cast<contextTable::Entry *>(context.get()), 256};
 		}
 
-		auto sourceId = SourceID{
-			static_cast<uint8_t>(dev->bus),
-			static_cast<uint8_t>(dev->slot),
-			static_cast<uint8_t>(dev->function),
-		};
+		auto requesterId = RequesterId{source.bus, source.slot, source.function};
 
-		auto contextEntry = &contextTable[sourceId.devfn()];
+		auto contextEntry = &contextTable[requesterId.devfn()];
 		bool oldPresent = contextEntry->low.load() & contextTable::present;
 		uint16_t oldDomainId = oldPresent ? (contextEntry->high.load() & contextTable::domainId) : 0;
 
 		int domainId = 1;
 
-		if (passthrough) {
+		if (!space) {
 			contextEntry->high.store(
 			    contextTable::addressWidth(sagaw_ - 2) | contextTable::domainId(1)
 			);
@@ -1247,15 +1246,15 @@ struct IntelIommu final : Iommu, IrqSink {
 			    | contextTable::translationType(contextTable::TranslationType::Passthrough)
 			);
 		} else {
-			auto space = smarter::static_pointer_cast<IntelIommuDmaSpace>(dev->dmaSpace);
-			domainId = space->intelIommuOps()->domainId();
+			auto intelSpace = static_cast<IntelIommuDmaSpace *>(space);
+			domainId = intelSpace->intelIommuOps()->domainId();
 			contextEntry->high.store(
 			    contextTable::addressWidth(sagaw_ - 2) | contextTable::domainId(domainId)
 			);
 
 			contextEntry->low.store(
 			    contextTable::present(true)
-			    | contextTable::ssptptr(space->intelIommuOps()->rootTable() >> 12)
+			    | contextTable::ssptptr(intelSpace->intelIommuOps()->rootTable() >> 12)
 			    | contextTable::translationType(contextTable::TranslationType::UntranslatedOnly)
 			);
 		}
@@ -1267,9 +1266,11 @@ struct IntelIommu final : Iommu, IrqSink {
 
 		if(do_invalidate) {
 			uint16_t invalidationDomainId = oldPresent ? oldDomainId : domainId;
-			co_await qi_.invalidateDeviceContext(invalidationDomainId, sourceId);
+			co_await qi_.invalidateDeviceContext(invalidationDomainId, requesterId);
 			co_await qi_.invalidateDomainIotlb(domainId);
 		}
+
+		co_return {};
 	}
 
 	uint8_t sagaw() const {
@@ -1907,13 +1908,23 @@ static initgraph::Task discoverConfigIoSpaces{&globalInitEngine, "x86.discover-i
 			for (auto device : bus->childDevices) {
 				auto iommu = findIommu(device);
 				if (iommu && device->dmaSpace) {
-					KernelFiber::asyncBlockCurrent(iommu->enableDevice(device, false));
+					auto res = KernelFiber::asyncBlockCurrent(
+					    iommu->attachDevice(device->sourceId(), device->dmaSpace.get())
+					);
+					if(!res)
+						warningLogger() << "thor: Failed to attach PCI device to its DMA space"
+								<< frg::endlog;
 				}
 			}
 			for (auto bridge : bus->childBridges) {
 				auto iommu = findIommu(bridge);
 				if (iommu && bridge->dmaSpace) {
-					KernelFiber::asyncBlockCurrent(iommu->enableDevice(bridge, false));
+					auto res = KernelFiber::asyncBlockCurrent(
+					    iommu->attachDevice(bridge->sourceId(), bridge->dmaSpace.get())
+					);
+					if(!res)
+						warningLogger() << "thor: Failed to attach PCI bridge to its DMA space"
+								<< frg::endlog;
 				}
 				if (bridge->associatedBus)
 					self(bridge->associatedBus);
