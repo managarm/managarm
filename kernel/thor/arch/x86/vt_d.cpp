@@ -1118,6 +1118,7 @@ struct IntelIommu final : Iommu, IrqSink {
 
 		if (auto res = qi_.init(); !res)
 			co_return res;
+		qiReady_ = true;
 
 		// needs to be done before enabling translation
 		writeBufferFlush();
@@ -1140,10 +1141,19 @@ struct IntelIommu final : Iommu, IrqSink {
 			while(regs_.load(regs::protectedMemoryEnable) & protectedMemoryEnable::prs);
 		}
 
+		co_return {};
+	}
+
+	// Until this is called, the unit is transparent and every requester DMAs untranslated.
+	// Succeeds if translation is already enabled.
+	coroutine<void> enableTranslation() {
+		co_await lock_.async_lock();
+		frg::unique_lock guard{frg::adopt_lock, lock_};
+
 		setGlobalBit(globalStatus::translationEnable(true));
 
-		initialized_ = true;
-		co_return {};
+		// The unit only blocks unbound requesters once it reports the bit back.
+		while(!(regs_.load(regs::globalStatus) & globalStatus::translationEnable));
 	}
 
 	IrqStatus raise() override {
@@ -1258,7 +1268,7 @@ struct IntelIommu final : Iommu, IrqSink {
 
 		flush(contextEntry);
 
-		bool do_invalidate = initialized_;
+		bool do_invalidate = qiReady_;
 		logGuard.unlock();
 
 		if(do_invalidate) {
@@ -1322,7 +1332,8 @@ private:
 		co_await qi_.invalidateGlobalIotlb();
 	}
 
-	bool initialized_ = false;
+	// Whether the invalidation queue is up, i.e., whether invalidations can be submitted.
+	bool qiReady_ = false;
 
 	async::mutex lock_;
 
@@ -1977,8 +1988,12 @@ static initgraph::Task discoverConfigIoSpaces{&globalInitEngine, "x86.discover-i
 
 		for(auto iommu : iommus) {
 			auto res = KernelFiber::asyncBlockCurrent(iommu->init());
-			if (!res)
+			if (!res) {
 				warningLogger() << frg::fmt("thor: VT-d IOMMU {} failed to init, ignoring it", iommu->id());
+				continue;
+			}
+
+			KernelFiber::asyncBlockCurrent(iommu->enableTranslation());
 		}
 	}
 };
