@@ -26,6 +26,10 @@ enum {
 };
 
 enum {
+	VIRTIO_BLK_F_FLUSH = 9
+};
+
+enum {
 	VIRTIO_BLK_S_OK = 0,
 	VIRTIO_BLK_S_IOERR = 1,
 	VIRTIO_BLK_S_UNSUPP = 2
@@ -84,6 +88,9 @@ private:
 
 	// The size of the disk
 	size_t _size;
+
+	// Whether the device supports VIRTIO_BLK_T_FLUSH.
+	bool _hasFlush = false;
 };
 
 } } // namespace block::virtio

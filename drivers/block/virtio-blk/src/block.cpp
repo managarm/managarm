@@ -31,6 +31,12 @@ Device::Device(std::unique_ptr<virtio_core::Transport> transport, int64_t parent
   _size{0} {}
 
 async::result<void> Device::runDevice() {
+	// Without VIRTIO_BLK_F_FLUSH, qemu disables its write cache and fdatasync()s on every write.
+	// Negotiate it to get writeback caching on the host side.
+	if(_transport->checkDeviceFeature(VIRTIO_BLK_F_FLUSH)) {
+		_transport->acknowledgeDriverFeature(VIRTIO_BLK_F_FLUSH);
+		_hasFlush = true;
+	}
 	_transport->finalizeFeatures();
 	_transport->claimQueues(1);
 	_requestQueue = co_await _transport->setupQueue(0);
