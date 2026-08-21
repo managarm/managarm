@@ -23,6 +23,9 @@ inline constinit protocols::ostrace::Event ostEvtExt2WritebackFile{"ext2.writeba
 inline constinit protocols::ostrace::Event ostEvtExt2AllocateBlocks{"ext2.allocateBlocks"};
 inline constinit protocols::ostrace::Event ostEvtExt2AllocateInode{"ext2.allocateInode"};
 inline constinit protocols::ostrace::Event ostEvtExt2BgdtWriteback{"ext2.bgdtWriteback"};
+inline constinit protocols::ostrace::Event ostEvtVirtioBlkReadSectors{"virtio-blk.readSectors"};
+inline constinit protocols::ostrace::Event ostEvtVirtioBlkWriteSectors{"virtio-blk.writeSectors"};
+inline constinit protocols::ostrace::Event ostEvtVirtioBlkRequest{"virtio-blk.request"};
 inline constinit protocols::ostrace::UintAttribute ostAttrTime{"time"};
 inline constinit protocols::ostrace::UintAttribute ostAttrNumBytes{"numBytes"};
 inline constinit protocols::ostrace::UintAttribute ostAttrNumRequested{"numRequested"};
@@ -44,6 +47,8 @@ inline constinit protocols::ostrace::UintAttribute ostAttrTimeResizeMemory{"time
 inline constinit protocols::ostrace::UintAttribute ostAttrTimeReady{"timeReady"};
 inline constinit protocols::ostrace::UintAttribute ostAttrTimeResize{"timeResize"};
 inline constinit protocols::ostrace::UintAttribute ostAttrTimeCopy{"timeCopy"};
+inline constinit protocols::ostrace::UintAttribute ostAttrTimeSetup{"timeSetup"};
+inline constinit protocols::ostrace::UintAttribute ostAttrTimeObtain{"timeObtain"};
 
 inline protocols::ostrace::Vocabulary ostVocabulary{
 	ostEvtGetLink,
@@ -65,6 +70,9 @@ inline protocols::ostrace::Vocabulary ostVocabulary{
 	ostEvtExt2AllocateBlocks,
 	ostEvtExt2AllocateInode,
 	ostEvtExt2BgdtWriteback,
+	ostEvtVirtioBlkReadSectors,
+	ostEvtVirtioBlkWriteSectors,
+	ostEvtVirtioBlkRequest,
 	ostAttrTime,
 	ostAttrNumBytes,
 	ostAttrNumRequested,
@@ -86,6 +94,8 @@ inline protocols::ostrace::Vocabulary ostVocabulary{
 	ostAttrTimeReady,
 	ostAttrTimeResize,
 	ostAttrTimeCopy,
+	ostAttrTimeSetup,
+	ostAttrTimeObtain,
 };
 
 inline protocols::ostrace::Context ostContext{ostVocabulary};
