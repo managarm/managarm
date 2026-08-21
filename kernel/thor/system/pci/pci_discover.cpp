@@ -792,11 +792,11 @@ coroutine<frg::expected<Error>> PciEntity::handleRequest(smarter::shared_ptr<Str
 		}
 
 		auto descriptor = AnyDescriptor::make<DescriptorType::dmaSpace>(*noopDmaSpace, kHelRightGrant | kHelRightProvision);
-		if (iommuDomain)
-			descriptor = AnyDescriptor::make<DescriptorType::dmaSpace>(iommuDomain->space_, kHelRightGrant | kHelRightProvision);
+		if (dmaSpace)
+			descriptor = AnyDescriptor::make<DescriptorType::dmaSpace>(dmaSpace, kHelRightGrant | kHelRightProvision);
 
 		managarm::hw::GetDmaSpaceResponse<KernelAlloc> resp{*kernelAlloc};
-		resp.set_iommu_active(iommuDomain != nullptr);
+		resp.set_iommu_active(static_cast<bool>(dmaSpace));
 
 		FRG_CO_TRY(co_await sendResponseHead(conversation, std::move(resp)));
 		auto descError = co_await pushDescriptor(conversation, std::move(descriptor));

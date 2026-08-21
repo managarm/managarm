@@ -543,17 +543,6 @@ private:
 	IntelIommuOperations iommuOps_;
 };
 
-struct IntelIommuDomain : IommuDomain {
-	IntelIommuDomain(uint16_t id, smarter::shared_ptr<IntelIommuDmaSpace> space)
-	: IommuDomain(std::move(space)),
-	  hwDid_{id} {}
-
-	uint16_t hwDomainId() const { return hwDid_; }
-
-private:
-	uint16_t hwDid_;
-};
-
 struct IntelIommu final : Iommu, IrqSink {
 	friend IntelIommuOperations;
 
@@ -1258,12 +1247,11 @@ struct IntelIommu final : Iommu, IrqSink {
 			    | contextTable::translationType(contextTable::TranslationType::Passthrough)
 			);
 		} else {
-			domainId = static_cast<IntelIommuDomain *>(dev->iommuDomain)->hwDomainId();
+			auto space = smarter::static_pointer_cast<IntelIommuDmaSpace>(dev->dmaSpace);
+			domainId = space->intelIommuOps()->domainId();
 			contextEntry->high.store(
 			    contextTable::addressWidth(sagaw_ - 2) | contextTable::domainId(domainId)
 			);
-
-			auto space = smarter::static_pointer_cast<IntelIommuDmaSpace>(dev->iommuDomain->space_);
 
 			contextEntry->low.store(
 			    contextTable::present(true)
@@ -1601,8 +1589,8 @@ bool handleRmrr(frg::span<uint8_t> remappingStructureTypes) {
 						break;
 					}
 
-					if (pciDev->iommuDomain) {
-						auto space = smarter::static_pointer_cast<IntelIommuDmaSpace>(pciDev->iommuDomain->space_);
+					if (pciDev->dmaSpace) {
+						auto space = smarter::static_pointer_cast<IntelIommuDmaSpace>(pciDev->dmaSpace);
 						// Only map the RMRR into an IOMMU domain once; a RMRR may legally refer
 						// to multiple devices, and they may share the IOMMU domain.
 						if (std::ranges::find(mappedSpaces, space.get()) == mappedSpaces.end()) {
@@ -1643,7 +1631,7 @@ bool handleRmrr(frg::span<uint8_t> remappingStructureTypes) {
 							mappedSpaces.push_back(space.get());
 						}
 					} else {
-						infoLogger() << frg::fmt("thor: PCI device {:04x}:{:02x}:{:02x}.{} has no IOMMU domain for RMRR",
+						infoLogger() << frg::fmt("thor: PCI device {:04x}:{:02x}:{:02x}.{} has no DMA space for RMRR",
 							rmrr.segment, dev.start_bus_number, slot, func) << frg::endlog;
 					}
 				} else if (dev.type == 2) {
@@ -1664,8 +1652,8 @@ bool handleRmrr(frg::span<uint8_t> remappingStructureTypes) {
 					while(bridge && bridge->parentBus && !bridge->associatedIommu)
 						bridge = bridge->parentBus->associatedBridge;
 
-					if (bridge && bridge->iommuDomain) {
-						auto space = smarter::static_pointer_cast<IntelIommuDmaSpace>(bridge->iommuDomain->space_);
+					if (bridge && bridge->dmaSpace) {
+						auto space = smarter::static_pointer_cast<IntelIommuDmaSpace>(bridge->dmaSpace);
 						// Only map the RMRR into an IOMMU domain once; a RMRR may legally refer
 						// to multiple devices, and they may share the IOMMU domain.
 						if (std::ranges::find(mappedSpaces, space.get()) == mappedSpaces.end()) {
@@ -1707,7 +1695,7 @@ bool handleRmrr(frg::span<uint8_t> remappingStructureTypes) {
 							mappedSpaces.push_back(space.get());
 						}
 					} else {
-						infoLogger() << frg::fmt("thor: PCI bridge {:04x}:{:02x}:{:02x}.{} has no IOMMU domain/associated IOMMU for RMRR",
+						infoLogger() << frg::fmt("thor: PCI bridge {:04x}:{:02x}:{:02x}.{} has no DMA space/associated IOMMU for RMRR",
 							rmrr.segment, dev.start_bus_number, slot, func) << frg::endlog;
 					}
 				} else {
@@ -1758,7 +1746,7 @@ frg::expected<Error, PagesAffected> IntelIommuOperations::unmapPages(VirtualAddr
 
 namespace {
 
-IommuDomain *newDomain(IntelIommu *iommu) {
+smarter::shared_ptr<DmaSpace> newDmaSpace(IntelIommu *iommu) {
 	if (!iommu)
 		return nullptr;
 
@@ -1767,7 +1755,7 @@ IommuDomain *newDomain(IntelIommu *iommu) {
 	auto spaceOutcome = IntelIommuDmaSpace::create(iommu, domainId);
 	if(!spaceOutcome)
 		panicLogger() << "thor: Failed to create DMA space" << frg::endlog;
-	return frg::construct<IntelIommuDomain>(*kernelAlloc, domainId, std::move(*spaceOutcome));
+	return std::move(*spaceOutcome);
 };
 
 }
@@ -1851,51 +1839,49 @@ static initgraph::Task discoverConfigIoSpaces{&globalInitEngine, "x86.discover-i
 				}
 			}
 
-			IommuDomain *commonDomain = nullptr;
+			smarter::shared_ptr<DmaSpace> commonDomain;
 			if (!splitDeviceDomains && bus->associatedBridge)
-				commonDomain = newDomain(findIommu(bus->associatedBridge));
+				commonDomain = newDmaSpace(findIommu(bus->associatedBridge));
 
-			std::array<IommuDomain *, 32> multifunctionDomains{};
+			std::array<smarter::shared_ptr<DmaSpace>, 32> multifunctionDomains{};
 
 			for (auto device : bus->childDevices) {
 				uint8_t header_type = bus->io->readConfigByte(bus, device->slot, 0, pci::kPciHeaderType);
 				bool multifunctionDevice = header_type & 0x80;
-				IommuDomain *domain = nullptr;
+				smarter::shared_ptr<DmaSpace> domain;
 
 				if (multifunctionDevice) {
-					if (multifunctionDomains[device->slot] == nullptr)
-						multifunctionDomains[device->slot] = newDomain(findIommu(device));
+					if (!multifunctionDomains[device->slot])
+						multifunctionDomains[device->slot] = newDmaSpace(findIommu(device));
 
 					domain = multifunctionDomains[device->slot];
 				} else if (splitDeviceDomains) {
-					domain = newDomain(findIommu(device));
+					domain = newDmaSpace(findIommu(device));
 				} else {
 					domain = commonDomain;
 				}
 
-				if (domain)
-					domain->addMember(device);
+				device->dmaSpace = std::move(domain);
 			}
 
 			for (auto bridge : bus->childBridges) {
 				uint8_t header_type = bus->io->readConfigByte(bus, bridge->slot, bridge->function, pci::kPciHeaderType);
 				bool multifunctionDevice = header_type & 0x80;
 
-				IommuDomain *domain = nullptr;
+				smarter::shared_ptr<DmaSpace> domain;
 
 				if (multifunctionDevice) {
-					if (multifunctionDomains[bridge->slot] == nullptr)
-						multifunctionDomains[bridge->slot] = newDomain(findIommu(bridge));
+					if (!multifunctionDomains[bridge->slot])
+						multifunctionDomains[bridge->slot] = newDmaSpace(findIommu(bridge));
 
 					domain = multifunctionDomains[bridge->slot];
 				} else if (splitDeviceDomains) {
-					domain = newDomain(findIommu(bridge));
+					domain = newDmaSpace(findIommu(bridge));
 				} else {
 					domain = commonDomain;
 				}
 
-				if (domain)
-					domain->addMember(bridge);
+				bridge->dmaSpace = std::move(domain);
 
 				if (bridge->associatedBus)
 					walkChildBus(bridge->associatedBus);
@@ -1920,13 +1906,13 @@ static initgraph::Task discoverConfigIoSpaces{&globalInitEngine, "x86.discover-i
 				return;
 			for (auto device : bus->childDevices) {
 				auto iommu = findIommu(device);
-				if (iommu && device->iommuDomain) {
+				if (iommu && device->dmaSpace) {
 					KernelFiber::asyncBlockCurrent(iommu->enableDevice(device, false));
 				}
 			}
 			for (auto bridge : bus->childBridges) {
 				auto iommu = findIommu(bridge);
-				if (iommu && bridge->iommuDomain) {
+				if (iommu && bridge->dmaSpace) {
 					KernelFiber::asyncBlockCurrent(iommu->enableDevice(bridge, false));
 				}
 				if (bridge->associatedBus)

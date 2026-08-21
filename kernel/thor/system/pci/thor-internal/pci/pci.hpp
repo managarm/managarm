@@ -19,7 +19,7 @@ namespace thor {
 struct MemoryView;
 struct IoSpace;
 struct Iommu;
-struct IommuDomain;
+struct DmaSpace;
 
 struct BootScreen;
 
@@ -356,7 +356,7 @@ struct PciEntity : protected KernelBusObject {
 	bool msiEnabled = false;
 	bool msiInstalled = false;
 
-	IommuDomain *iommuDomain = nullptr;
+	smarter::shared_ptr<DmaSpace> dmaSpace;
 
 private:
 	coroutine<frg::expected<Error>> handleRequest(smarter::shared_ptr<Stream, LanePolicy> lane) override;
