@@ -22,7 +22,8 @@ static_assert(sizeof(VirtRequest) == 16, "Bad sizeof(VirtRequest)");
 
 enum {
 	VIRTIO_BLK_T_IN = 0,
-	VIRTIO_BLK_T_OUT = 1
+	VIRTIO_BLK_T_OUT = 1,
+	VIRTIO_BLK_T_FLUSH = 4,
 };
 
 enum {
@@ -73,6 +74,8 @@ struct Device : blockfs::BlockDevice {
 
 	async::result<void> readSectors(uint64_t sector, arch::dma_buffer_view view) override;
 	async::result<void> writeSectors(uint64_t sector, arch::dma_buffer_view view) override;
+
+	async::result<void> flush() override;
 
 	async::result<size_t> getSize() override;
 

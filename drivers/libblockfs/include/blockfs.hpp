@@ -20,6 +20,13 @@ struct BlockDevice {
 		throw std::runtime_error("BlockDevice does not support writeSectors()");
 	}
 
+	// Flushes the device's write cache.
+	// flush() affects all write requests that have completed before flush() starts.
+	// When flush() returns, all these write requests will have made it to durable storage.
+	virtual async::result<void> flush() {
+		co_return;
+	}
+
 	virtual async::result<size_t> getSize() = 0;
 
 	virtual async::result<void> handleIoctl(managarm::fs::GenericIoctlRequest &req, helix::BorrowedDescriptor conversation) {
