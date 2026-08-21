@@ -215,7 +215,7 @@ public:
 
 	std::tuple<PageStatus, PhysicalAddr> unmap4k() {
 		if(!accessors_[lastLevel])
-			return {0, 0};
+			return {0, PhysicalAddr(-1)};
 
 		auto ptEnt = exchangeCurrentPte_(0);
 		policy_.pteWriteBarrier(currentPtePtr_());
