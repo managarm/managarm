@@ -15,6 +15,14 @@ struct SourceId {
 	uint8_t function;
 };
 
+// Range of physical memory that a DMA space identity-maps.
+struct DmaReservedRegion {
+	uint64_t base;
+	uint64_t size;
+	bool readable;
+	bool writable;
+};
+
 // A page space used specifically for DMA.
 struct DmaSpace : VirtualSpace, RcuProtected {
 protected:

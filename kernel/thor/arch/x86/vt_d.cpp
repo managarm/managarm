@@ -1,6 +1,7 @@
 #include <arch/bits.hpp>
 #include <arch/variable.hpp>
 #include <async/recurring-event.hpp>
+#include <frg/algorithm.hpp>
 #include <frg/cmdline.hpp>
 #include <frg/scope_exit.hpp>
 #include <frg/small_vector.hpp>
@@ -515,29 +516,21 @@ private:
 	struct CtorToken {};
 
 public:
+	// Addresses that the space translates. The first page is never handed out.
+	static constexpr uint64_t addressSpaceBase = 0x1000;
+	static constexpr uint64_t addressSpaceLimit = 1UL << 39;
+
 	IntelIommuDmaSpace(CtorToken, PhysicalAddr root, IntelIommu *iommu, uint16_t domainId)
 	: DmaSpace(&iommuOps_), iommuOps_{root, iommu, domainId} {}
 
-	static std::expected<smarter::shared_ptr<IntelIommuDmaSpace>, Error> create(
-			IntelIommu *iommu, uint16_t domainId) {
-		PhysicalAddr root = physicalAllocator->allocate(kPageSize);
-		if(root == static_cast<PhysicalAddr>(-1))
-			return std::unexpected{Error::noMemory};
-		PageAccessor accessor{root};
-		memset(accessor.get(), 0, kPageSize);
-
-		auto ptr = allocate_rcu_shared<IntelIommuDmaSpace>(
-				*kernelAlloc, CtorToken{}, root, iommu, domainId);
-		ptr->selfPtr = ptr;
-		ptr->setupInitialHole(0x1000, (1UL << 39) - 0x1000);
-		return ptr;
-	}
+	// The reserved regions are identity-mapped and cut out of the addresses that the space
+	// hands out, hence they have to be known before the space exists.
+	static std::expected<smarter::shared_ptr<IntelIommuDmaSpace>, Error>
+	create(IntelIommu *iommu, uint16_t domainId, frg::span<const DmaReservedRegion> regions);
 
 	IntelIommuOperations *intelIommuOps() {
 		return &iommuOps_;
 	}
-
-	frg::vector<smarter::shared_ptr<HardwareMemory>, KernelAlloc> reservedRegions_{*kernelAlloc};
 
 private:
 	IntelIommuOperations iommuOps_;
@@ -1523,14 +1516,100 @@ IntelIommu *handleDrhd(frg::span<uint8_t> remappingStructureTypes) {
 	return iommu;
 }
 
-bool handleRmrr(frg::span<uint8_t> remappingStructureTypes) {
+std::expected<smarter::shared_ptr<IntelIommuDmaSpace>, Error> IntelIommuDmaSpace::create(
+		IntelIommu *iommu, uint16_t domainId, frg::span<const DmaReservedRegion> regions) {
+	frg::vector<DmaReservedRegion, KernelAlloc> sorted{*kernelAlloc};
+	for(const auto &region : regions) {
+		if((region.base & (kPageSize - 1)) || !region.size || (region.size & (kPageSize - 1)))
+			return std::unexpected{Error::illegalArgs};
+		if(region.base < addressSpaceBase || region.base >= addressSpaceLimit
+				|| region.size > addressSpaceLimit - region.base)
+			return std::unexpected{Error::illegalArgs};
+		sorted.push_back(region);
+	}
+	frg::insertion_sort(sorted.begin(), sorted.end(),
+			[] (const DmaReservedRegion &a, const DmaReservedRegion &b) { return a.base > b.base; });
+	for(size_t i = 1; i < sorted.size(); ++i)
+		if(sorted[i].base < sorted[i - 1].base + sorted[i - 1].size)
+			return std::unexpected{Error::illegalArgs};
+
+	PhysicalAddr root = physicalAllocator->allocate(kPageSize);
+	if(root == static_cast<PhysicalAddr>(-1))
+		return std::unexpected{Error::noMemory};
+	PageAccessor accessor{root};
+	memset(accessor.get(), 0, kPageSize);
+
+	auto ptr = allocate_rcu_shared<IntelIommuDmaSpace>(
+			*kernelAlloc, CtorToken{}, root, iommu, domainId);
+	ptr->selfPtr = ptr;
+
+	// The reserved regions are identity-mapped for good, hence the holes are cut around them
+	// and the space never hands their addresses out.
+	uint64_t holeBase = addressSpaceBase;
+	for(const auto &region : sorted) {
+		if(region.base > holeBase)
+			ptr->setupInitialHole(holeBase, region.base - holeBase);
+		holeBase = region.base + region.size;
+	}
+	if(holeBase < addressSpaceLimit)
+		ptr->setupInitialHole(holeBase, addressSpaceLimit - holeBase);
+
+	IntelIommuCursorPolicy policy{iommu->sagaw(), iommu->pageWalkingCoherent()};
+	for(const auto &region : sorted) {
+		PageFlags flags = 0;
+		if(region.readable)
+			flags |= page_access::read;
+		if(region.writable)
+			flags |= page_access::write;
+
+		IntelIommuCursor cursor{&ptr->iommuOps_, region.base, policy};
+		for(size_t progress = 0; progress < region.size; progress += kPageSize) {
+			cursor.map4k(region.base + progress, flags, CachingMode::null);
+			cursor.advance4k();
+		}
+	}
+
+	return ptr;
+}
+
+// A domain that has been cut but whose DMA space is not created yet: the reserved regions have
+// to be known before the space exists.
+struct PendingDomain {
+	IntelIommu *iommu;
+	frg::vector<pci::PciEntity *, KernelAlloc> members{*kernelAlloc};
+	frg::vector<DmaReservedRegion, KernelAlloc> regions{*kernelAlloc};
+};
+
+PendingDomain *domainOfEntity(frg::vector<PendingDomain, KernelAlloc> &domains,
+		pci::PciEntity *entity) {
+	for(auto &domain : domains)
+		if(std::ranges::find(domain.members, entity) != domain.members.end())
+			return &domain;
+	return nullptr;
+}
+
+// Adds the reserved region of an RMRR to a domain. An RMRR may legally refer to multiple
+// devices, and they may share the domain.
+void addRmrrRegion(PendingDomain *domain, uint64_t base, uint64_t size) {
+	if(std::ranges::any_of(domain->regions, [&] (const DmaReservedRegion &region) {
+				return region.base == base;
+			}))
+		return;
+	domain->regions.push_back(DmaReservedRegion{base, size, true, true});
+}
+
+bool handleRmrr(frg::span<uint8_t> remappingStructureTypes,
+		frg::vector<PendingDomain, KernelAlloc> &domains) {
 	DmarRmrr rmrr;
 	memcpy(&rmrr, remappingStructureTypes.data(), sizeof(rmrr));
 
 	auto device_scope = remappingStructureTypes.subspan(sizeof(rmrr), rmrr.hdr.length - sizeof(rmrr));
 
-	// List of DMA spaces we already registered this RMRR range with
-	frg::small_vector<IntelIommuDmaSpace *, 4, KernelAlloc> mappedSpaces{*kernelAlloc};
+	// Firmware is not required to report page-aligned ranges, but a mapping is.
+	if(rmrr.memory_limit < rmrr.memory_base)
+		return false;
+	auto reservedBase = rmrr.memory_base & ~(kPageSize - 1);
+	auto reservedSize = (rmrr.memory_limit + 1 - reservedBase + kPageSize - 1) & ~(kPageSize - 1);
 
 	while(device_scope.size()) {
 		if(sizeof(DeviceScope) > device_scope.size())
@@ -1594,47 +1673,20 @@ bool handleRmrr(frg::span<uint8_t> remappingStructureTypes) {
 						break;
 					}
 
-					if (pciDev->dmaSpace) {
-						auto space = smarter::static_pointer_cast<IntelIommuDmaSpace>(pciDev->dmaSpace);
-						// Only map the RMRR into an IOMMU domain once; a RMRR may legally refer
-						// to multiple devices, and they may share the IOMMU domain.
-						if (std::ranges::find(mappedSpaces, space.get()) == mappedSpaces.end()) {
-							auto size = rmrr.memory_limit - rmrr.memory_base + 1;
-							infoLogger() << frg::fmt(
-							    "thor: punching through RMRR at 0x{:010x} (size 0x{:x}) for PCI "
-							    "device {:04x}:{:02x}:{:02x}.{}",
-							    rmrr.memory_base,
-							    size,
-							    rmrr.segment,
-							    dev.start_bus_number,
-							    slot,
-							    func
-							) << frg::endlog;
+					auto domain = domainOfEntity(domains, pciDev);
+					if (domain) {
+						infoLogger() << frg::fmt(
+						    "thor: punching through RMRR at 0x{:010x} (size 0x{:x}) for PCI "
+						    "device {:04x}:{:02x}:{:02x}.{}",
+						    reservedBase,
+						    reservedSize,
+						    rmrr.segment,
+						    dev.start_bus_number,
+						    slot,
+						    func
+						) << frg::endlog;
 
-							auto reservedMemoryOutcome = HardwareMemory::create(
-							    rmrr.memory_base, size, CachingMode::null
-							);
-							if(!reservedMemoryOutcome)
-								panicLogger() << "thor: Failed to create hardware memory" << frg::endlog;
-							space->reservedRegions_.push_back(std::move(*reservedMemoryOutcome));
-
-							auto sliceOutcome = MemorySlice::create(
-							    space->reservedRegions_.back(), 0, size
-							);
-							if(!sliceOutcome)
-								panicLogger() << "thor: Failed to create memory slice" << frg::endlog;
-							auto slice = std::move(*sliceOutcome);
-
-							auto res = KernelFiber::asyncBlockCurrent(space->map(
-							    std::move(slice),
-							    rmrr.memory_base,
-							    0,
-							    size,
-							    VirtualSpace::kMapFixed | VirtualSpace::kMapProtRead | VirtualSpace::kMapProtWrite | VirtualSpace::kMapPopulate
-							));
-							assert(res);
-							mappedSpaces.push_back(space.get());
-						}
+						addRmrrRegion(domain, reservedBase, reservedSize);
 					} else {
 						infoLogger() << frg::fmt("thor: PCI device {:04x}:{:02x}:{:02x}.{} has no DMA space for RMRR",
 							rmrr.segment, dev.start_bus_number, slot, func) << frg::endlog;
@@ -1657,48 +1709,20 @@ bool handleRmrr(frg::span<uint8_t> remappingStructureTypes) {
 					while(bridge && bridge->parentBus && !bridge->associatedIommu)
 						bridge = bridge->parentBus->associatedBridge;
 
-					if (bridge && bridge->dmaSpace) {
-						auto space = smarter::static_pointer_cast<IntelIommuDmaSpace>(bridge->dmaSpace);
-						// Only map the RMRR into an IOMMU domain once; a RMRR may legally refer
-						// to multiple devices, and they may share the IOMMU domain.
-						if (std::ranges::find(mappedSpaces, space.get()) == mappedSpaces.end()) {
-							auto size = rmrr.memory_limit - rmrr.memory_base + 1;
-							infoLogger() << frg::fmt(
-							    "thor: punching through RMRR at 0x{:010x} (size 0x{:x}) for PCI "
-							    "bridge {:04x}:{:02x}:{:02x}.{}",
-							    rmrr.memory_base,
-							    size,
-							    rmrr.segment,
-							    dev.start_bus_number,
-							    slot,
-							    func
-							) << frg::endlog;
+					auto domain = bridge ? domainOfEntity(domains, bridge) : nullptr;
+					if (domain) {
+						infoLogger() << frg::fmt(
+						    "thor: punching through RMRR at 0x{:010x} (size 0x{:x}) for PCI "
+						    "bridge {:04x}:{:02x}:{:02x}.{}",
+						    reservedBase,
+						    reservedSize,
+						    rmrr.segment,
+						    dev.start_bus_number,
+						    slot,
+						    func
+						) << frg::endlog;
 
-							auto reservedMemoryOutcome = HardwareMemory::create(
-							    rmrr.memory_base, size, CachingMode::null
-							);
-							if(!reservedMemoryOutcome)
-								panicLogger() << "thor: Failed to create hardware memory" << frg::endlog;
-							space->reservedRegions_.push_back(std::move(*reservedMemoryOutcome));
-
-							auto sliceOutcome = MemorySlice::create(
-							    space->reservedRegions_.back(), 0, size
-							);
-							if(!sliceOutcome)
-								panicLogger() << "thor: Failed to create memory slice" << frg::endlog;
-							auto slice = std::move(*sliceOutcome);
-
-							auto res = KernelFiber::asyncBlockCurrent(space->map(
-							    std::move(slice),
-							    rmrr.memory_base,
-							    0,
-							    size,
-							    VirtualSpace::kMapFixed | VirtualSpace::kMapProtRead | VirtualSpace::kMapProtWrite | VirtualSpace::kMapPopulate
-							));
-							assert(res);
-
-							mappedSpaces.push_back(space.get());
-						}
+						addRmrrRegion(domain, reservedBase, reservedSize);
 					} else {
 						infoLogger() << frg::fmt("thor: PCI bridge {:04x}:{:02x}:{:02x}.{} has no DMA space/associated IOMMU for RMRR",
 							rmrr.segment, dev.start_bus_number, slot, func) << frg::endlog;
@@ -1749,21 +1773,6 @@ frg::expected<Error, PagesAffected> IntelIommuOperations::unmapPages(VirtualAddr
 	return unmapPagesByCursor<IntelIommuCursor>(this, va, size, policy);
 }
 
-namespace {
-
-smarter::shared_ptr<DmaSpace> newDmaSpace(IntelIommu *iommu) {
-	if (!iommu)
-		return nullptr;
-
-	auto domainId = iommu->allocateHardwareDomainId();
-
-	auto spaceOutcome = IntelIommuDmaSpace::create(iommu, domainId);
-	if(!spaceOutcome)
-		panicLogger() << "thor: Failed to create DMA space" << frg::endlog;
-	return std::move(*spaceOutcome);
-};
-
-}
 
 static initgraph::Task discoverConfigIoSpaces{&globalInitEngine, "x86.discover-intel-iommu",
 	initgraph::Requires{acpi::getTablesDiscoveredStage(), pci::getDevicesEnumeratedStage()},
@@ -1828,7 +1837,19 @@ static initgraph::Task discoverConfigIoSpaces{&globalInitEngine, "x86.discover-i
 			remappingStructureTypes = remappingStructureTypes.subspan(hdr.length);
 		}
 
-		auto walkBus = [](this const auto &walkChildBus, pci::PciBus *bus, bool isRootBus = false) -> void {
+		// The domains are only cut here; their DMA spaces are created once the RMRRs that
+		// apply to them are known.
+		frg::vector<PendingDomain, KernelAlloc> pendingDomains{*kernelAlloc};
+
+		auto newPendingDomain = [&] (IntelIommu *iommu) -> std::optional<size_t> {
+			if (!iommu)
+				return std::nullopt;
+
+			pendingDomains.push_back(PendingDomain{iommu});
+			return pendingDomains.size() - 1;
+		};
+
+		auto walkBus = [&](this const auto &walkChildBus, pci::PciBus *bus, bool isRootBus = false) -> void {
 			if (!bus)
 				return;
 			bool splitDeviceDomains = false;
@@ -1844,49 +1865,51 @@ static initgraph::Task discoverConfigIoSpaces{&globalInitEngine, "x86.discover-i
 				}
 			}
 
-			smarter::shared_ptr<DmaSpace> commonDomain;
+			std::optional<size_t> commonDomain;
 			if (!splitDeviceDomains && bus->associatedBridge)
-				commonDomain = newDmaSpace(findIommu(bus->associatedBridge));
+				commonDomain = newPendingDomain(findIommu(bus->associatedBridge));
 
-			std::array<smarter::shared_ptr<DmaSpace>, 32> multifunctionDomains{};
+			std::array<std::optional<size_t>, 32> multifunctionDomains{};
 
 			for (auto device : bus->childDevices) {
 				uint8_t header_type = bus->io->readConfigByte(bus, device->slot, 0, pci::kPciHeaderType);
 				bool multifunctionDevice = header_type & 0x80;
-				smarter::shared_ptr<DmaSpace> domain;
+				std::optional<size_t> domain;
 
 				if (multifunctionDevice) {
 					if (!multifunctionDomains[device->slot])
-						multifunctionDomains[device->slot] = newDmaSpace(findIommu(device));
+						multifunctionDomains[device->slot] = newPendingDomain(findIommu(device));
 
 					domain = multifunctionDomains[device->slot];
 				} else if (splitDeviceDomains) {
-					domain = newDmaSpace(findIommu(device));
+					domain = newPendingDomain(findIommu(device));
 				} else {
 					domain = commonDomain;
 				}
 
-				device->dmaSpace = std::move(domain);
+				if (domain)
+					pendingDomains[*domain].members.push_back(device);
 			}
 
 			for (auto bridge : bus->childBridges) {
 				uint8_t header_type = bus->io->readConfigByte(bus, bridge->slot, bridge->function, pci::kPciHeaderType);
 				bool multifunctionDevice = header_type & 0x80;
 
-				smarter::shared_ptr<DmaSpace> domain;
+				std::optional<size_t> domain;
 
 				if (multifunctionDevice) {
 					if (!multifunctionDomains[bridge->slot])
-						multifunctionDomains[bridge->slot] = newDmaSpace(findIommu(bridge));
+						multifunctionDomains[bridge->slot] = newPendingDomain(findIommu(bridge));
 
 					domain = multifunctionDomains[bridge->slot];
 				} else if (splitDeviceDomains) {
-					domain = newDmaSpace(findIommu(bridge));
+					domain = newPendingDomain(findIommu(bridge));
 				} else {
 					domain = commonDomain;
 				}
 
-				bridge->dmaSpace = std::move(domain);
+				if (domain)
+					pendingDomains[*domain].members.push_back(bridge);
 
 				if (bridge->associatedBus)
 					walkChildBus(bridge->associatedBus);
@@ -1897,12 +1920,24 @@ static initgraph::Task discoverConfigIoSpaces{&globalInitEngine, "x86.discover-i
 			for (auto rootBus : std::ranges::subrange(pci::allRootBuses->begin(), pci::allRootBuses->end())) {
 				walkBus(rootBus, true);
 			}
-		}
 
-		for (auto rmrrSpan : rmrrSpans) {
-			if(!handleRmrr(rmrrSpan)) {
-				warningLogger() << frg::fmt("thor: skipping IOMMU setup due to invalid RMRR") << frg::endlog;
-				return;
+			for (auto rmrrSpan : rmrrSpans) {
+				if(!handleRmrr(rmrrSpan, pendingDomains)) {
+					warningLogger() << frg::fmt("thor: skipping IOMMU setup due to invalid RMRR") << frg::endlog;
+					return;
+				}
+			}
+
+			for (auto &pending : pendingDomains) {
+				auto domainId = pending.iommu->allocateHardwareDomainId();
+
+				auto spaceOutcome = IntelIommuDmaSpace::create(pending.iommu, domainId,
+						{pending.regions.data(), pending.regions.size()});
+				if(!spaceOutcome)
+					panicLogger() << "thor: Failed to create DMA space" << frg::endlog;
+
+				for (auto member : pending.members)
+					member->dmaSpace = *spaceOutcome;
 			}
 		}
 
