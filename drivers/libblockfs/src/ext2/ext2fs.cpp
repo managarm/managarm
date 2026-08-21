@@ -1711,6 +1711,15 @@ async::result<void> FileSystem::assignDataBlocksUsingExtents(Inode *inode,
 				.startLow = static_cast<uint32_t>(allocatedRange.first & 0xffffffff)
 			};
 
+			inode->blockMapCache.insert(
+				index,
+				{
+					.diskBlock = allocatedRange.first,
+					.size = allocatedRangeSize,
+					.hole = false
+				}
+			);
+
 			ExtentWalker walker{this, inode, false};
 			co_await walker.walk(index,
 				[](const ExtentWalkInfo &) -> async::result<void> { co_return; },
@@ -1945,6 +1954,41 @@ async::result<std::vector<BlockRange>> FileSystem::lookupBlocks(Inode *inode,
 		uint64_t block_offset, size_t num_blocks) {
 	co_await inode->readyEvent.wait();
 
+	std::vector<BlockRange> ranges;
+
+	size_t progress = 0;
+	while(progress < num_blocks) {
+		auto index = block_offset + progress;
+		auto [run, length] = inode->blockMapCache.probe(index, num_blocks - progress);
+		assert(length);
+
+		// Serve as much as possible from the per-inode cache.
+		if(run) {
+			mergeBlockRange(ranges, index, run->hole ? 0 : run->diskBlock, run->size);
+		}else{
+			// Resolve the gap from the on-disk block map and cache the result.
+			auto walked = co_await lookupBlocksOnDisk(inode, index, length);
+			for(auto &range : walked) {
+				inode->blockMapCache.insert(
+					range.relativeStartBlock,
+					{
+						.diskBlock = range.absoluteStartBlock,
+						.size = range.size,
+						.hole = range.hole
+					}
+				);
+				mergeBlockRange(ranges, range.relativeStartBlock,
+						range.hole ? 0 : range.absoluteStartBlock, range.size);
+			}
+		}
+		progress += length;
+	}
+
+	co_return ranges;
+}
+
+async::result<std::vector<BlockRange>> FileSystem::lookupBlocksOnDisk(Inode *inode,
+		uint64_t block_offset, size_t num_blocks) {
 	if(inode->usesExtents) {
 		auto blockRanges = co_await lookupBlocksUsingExtent(inode, block_offset, num_blocks);
 		co_await helix_ng::asyncNop();
@@ -2092,6 +2136,7 @@ async::result<void> FileSystem::assignDataBlocks(Inode *inode,
 				auto allocated = co_await allocateBlocks(range, inode->number);
 				for (auto const [blocknum, block] : std::views::enumerate(allocated))
 					disk_inode->data.blocks.direct[idx + blocknum] = block;
+				inode->blockMapCache.insertList(idx, allocated);
 
 				disk_inode->blocks += allocated.size() * (blockSize / 512);
 				prg += allocated.size();
@@ -2138,6 +2183,7 @@ async::result<void> FileSystem::assignDataBlocks(Inode *inode,
 				auto allocated = co_await allocateBlocks(range, inode->number);
 				for (auto const [blocknum, block] : std::views::enumerate(allocated))
 					window[idx + blocknum] = block;
+				inode->blockMapCache.insertList(block_offset + prg, allocated);
 
 				disk_inode->blocks += allocated.size() * (blockSize / 512);
 				prg += allocated.size();
@@ -2200,6 +2246,7 @@ async::result<void> FileSystem::assignDataBlocks(Inode *inode,
 				auto allocated = co_await allocateBlocks(range, inode->number);
 				for (auto const [blocknum, block] : std::views::enumerate(allocated))
 					window[indirect_index + blocknum] = block;
+				inode->blockMapCache.insertList(block_offset + prg, allocated);
 
 				disk_inode->blocks += allocated.size() * (blockSize / 512);
 				prg += allocated.size();

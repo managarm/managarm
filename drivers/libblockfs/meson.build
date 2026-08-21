@@ -4,6 +4,7 @@ src = [
 	'src/gpt.cpp',
 	'src/raw.cpp',
 	'src/scsi.cpp',
+	'src/ext2/block-map-cache.cpp',
 	'src/ext2/ext2fs.cpp',
 	'src/ext2/ops.cpp',
 	'src/btrfs/btrfs.cpp',

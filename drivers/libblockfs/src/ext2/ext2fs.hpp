@@ -23,6 +23,7 @@
 #include "fs.bragi.hpp"
 #include "../fs.hpp"
 #include "../metadata-cache.hpp"
+#include "block-map-cache.hpp"
 
 namespace blockfs {
 namespace ext2fs {
@@ -426,6 +427,9 @@ struct Inode final : BaseInode, std::enable_shared_from_this<Inode> {
 	// Ordered after inodeMutex.
 	async::mutex blockMapMutex;
 
+	// Caches the runs of this inode's block map that were already resolved.
+	BlockMapCache blockMapCache;
+
 	// page cache that stores the contents of this file
 	HelHandle backingMemory;
 	HelHandle frontalMemory;
@@ -515,6 +519,11 @@ struct FileSystem final : BaseFileSystem {
 	// Resolves a range of file blocks to runs of disk blocks and holes.
 	// Callers must hold inode->blockMapMutex.
 	async::result<std::vector<BlockRange>> lookupBlocks(Inode *inode,
+			uint64_t block_offset, size_t num_blocks);
+
+	// Resolves a range of file blocks by walking the on-disk block map.
+	// Callers must hold inode->blockMapMutex.
+	async::result<std::vector<BlockRange>> lookupBlocksOnDisk(Inode *inode,
 			uint64_t block_offset, size_t num_blocks);
 
 	// Callers must hold inode->blockMapMutex.
