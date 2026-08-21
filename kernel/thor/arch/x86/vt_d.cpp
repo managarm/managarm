@@ -229,6 +229,7 @@ namespace version {
 } // namespace version
 
 namespace capability {
+	constexpr arch::field<uint64_t, uint8_t> nd{0, 3};
 	constexpr arch::field<uint64_t, bool> rwbf{4, 1};
 	constexpr arch::field<uint64_t, bool> plmr{5, 1};
 	constexpr arch::field<uint64_t, bool> phmr{6, 1};
@@ -528,6 +529,8 @@ public:
 	// hands out, hence they have to be known before the space exists.
 	static std::expected<smarter::shared_ptr<IntelIommuDmaSpace>, Error>
 	create(IntelIommu *iommu, uint16_t domainId, frg::span<const DmaReservedRegion> regions);
+
+	Iommu *iommu() override;
 
 	IntelIommuOperations *intelIommuOps() {
 		return &iommuOps_;
@@ -1147,7 +1150,7 @@ struct IntelIommu final : Iommu, IrqSink {
 
 	// Until this is called, the unit is transparent and every requester DMAs untranslated.
 	// Succeeds if translation is already enabled.
-	coroutine<void> enableTranslation() {
+	coroutine<void> enableTranslation() override {
 		co_await lock_.async_lock();
 		frg::unique_lock guard{frg::adopt_lock, lock_};
 
@@ -1208,8 +1211,22 @@ struct IntelIommu final : Iommu, IrqSink {
 		return ecap_ & extendedCapability::queuedInvalidation;
 	}
 
+	std::expected<smarter::shared_ptr<DmaSpace>, Error>
+	createDmaSpace(frg::span<const DmaReservedRegion> regions) override {
+		auto domainId = allocateHardwareDomainId();
+		if(!domainId)
+			return std::unexpected{Error::noMemory};
+
+		auto spaceOutcome = IntelIommuDmaSpace::create(this, *domainId, regions);
+		if(!spaceOutcome)
+			return std::unexpected{spaceOutcome.error()};
+		return std::move(*spaceOutcome);
+	}
+
 	coroutine<std::expected<void, Error>> attachDevice(SourceId source, DmaSpace *space) override {
 		if(source.segment != segment_)
+			co_return std::unexpected{Error::illegalArgs};
+		if(space && space->iommu() != this)
 			co_return std::unexpected{Error::illegalArgs};
 
 		co_await lock_.async_lock();
@@ -1281,12 +1298,62 @@ struct IntelIommu final : Iommu, IrqSink {
 		co_return {};
 	}
 
+	coroutine<std::expected<void, Error>> detachDevice(SourceId source) override {
+		if(source.segment != segment_)
+			co_return std::unexpected{Error::illegalArgs};
+
+		co_await lock_.async_lock();
+		frg::unique_lock logGuard{frg::adopt_lock, lock_};
+
+		auto rootEntry = &rootTable_[source.bus];
+		if(!(rootEntry->entry.load() & rootTable::present))
+			co_return {};
+
+		PageAccessor context{(rootEntry->entry.load() & rootTable::contextEntry) << 12};
+		frg::span<contextTable::Entry> contextTable{
+			reinterpret_cast<contextTable::Entry *>(context.get()), 256};
+
+		auto requesterId = RequesterId{source.bus, source.slot, source.function};
+
+		auto contextEntry = &contextTable[requesterId.devfn()];
+		if(!(contextEntry->low.load() & contextTable::present))
+			co_return {};
+		uint16_t domainId = contextEntry->high.load() & contextTable::domainId;
+
+		contextEntry->low.store(arch::bit_value<uint64_t>{0});
+		contextEntry->high.store(arch::bit_value<uint64_t>{0});
+
+		flush(contextEntry);
+
+		bool do_invalidate = qiReady_;
+		logGuard.unlock();
+
+		if(do_invalidate) {
+			co_await qi_.invalidateDeviceContext(domainId, requesterId);
+			co_await qi_.invalidateDomainIotlb(domainId);
+		}
+
+		co_return {};
+	}
+
 	uint8_t sagaw() const {
 		return sagaw_;
 	}
 
-	uint16_t allocateHardwareDomainId() {
-		return hwDidAlloc_++;
+	// Number of domain ids that the unit supports (VT-d specification rev 4.1, 11.4.2).
+	size_t numDomainIds() const {
+		return 1uz << (4 + 2 * (cap_ & capability::nd));
+	}
+
+	// Domain ids are handed out to userspace via helCreateDmaSpace(), hence this runs
+	// concurrently and cannot rely on the boot path's single-threadedness.
+	std::optional<uint16_t> allocateHardwareDomainId() {
+		auto did = hwDidAlloc_.load(std::memory_order_relaxed);
+		do {
+			if(did >= numDomainIds())
+				return std::nullopt;
+		} while(!hwDidAlloc_.compare_exchange_weak(did, did + 1, std::memory_order_relaxed));
+		return did;
 	}
 
 private:
@@ -1359,7 +1426,7 @@ private:
 	// value for the Context Entry Address Width (AW) field for the highest supported page table level
 	uint8_t sagaw_;
 
-	uint16_t hwDidAlloc_ = passthroughDomainId + 1;
+	std::atomic<uint32_t> hwDidAlloc_ = passthroughDomainId + 1;
 };
 
 bool IntelIommuOperations::submitShootdown(ShootNode *node) {
@@ -1400,7 +1467,7 @@ smarter::shared_ptr<IntelIommu> handleDrhd(frg::span<uint8_t> remappingStructure
 	DmarDrhd drhd;
 	memcpy(&drhd, remappingStructureTypes.data(), sizeof(drhd));
 
-	auto iommu = smarter::allocate_shared<IntelIommu>(*kernelAlloc, drhd.register_base, drhd.segment);
+	auto iommu = allocate_rcu_shared<IntelIommu>(*kernelAlloc, drhd.register_base, drhd.segment);
 
 	if(!iommu->supportsPassthrough()) {
 		infoLogger() << "thor: IOMMU does not support passthrough, ignoring" << frg::endlog;
@@ -1530,6 +1597,10 @@ smarter::shared_ptr<IntelIommu> handleDrhd(frg::span<uint8_t> remappingStructure
 	}
 
 	return iommu;
+}
+
+Iommu *IntelIommuDmaSpace::iommu() {
+	return iommuOps_.iommu();
 }
 
 std::expected<smarter::shared_ptr<IntelIommuDmaSpace>, Error> IntelIommuDmaSpace::create(
@@ -1950,8 +2021,10 @@ static initgraph::Task discoverConfigIoSpaces{&globalInitEngine, "x86.discover-i
 
 			for (auto &pending : pendingDomains) {
 				auto domainId = pending.iommu->allocateHardwareDomainId();
+				if(!domainId)
+					panicLogger() << "thor: IOMMU ran out of domain ids" << frg::endlog;
 
-				auto spaceOutcome = IntelIommuDmaSpace::create(pending.iommu, domainId,
+				auto spaceOutcome = IntelIommuDmaSpace::create(pending.iommu, *domainId,
 						{pending.regions.data(), pending.regions.size()});
 				if(!spaceOutcome)
 					panicLogger() << "thor: Failed to create DMA space" << frg::endlog;

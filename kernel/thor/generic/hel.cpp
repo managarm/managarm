@@ -1130,24 +1130,220 @@ HelError helCreateSpace(HelHandle *handle) {
 	return kHelErrNone;
 }
 
-HelError helCreateDmaSpace(uint32_t flags, HelHandle *handle) {
-	// There are no flags defined yet.
-	if (flags != 0)
+namespace {
+
+std::optional<IommuKind> translateIommuMode(uint32_t mode) {
+	switch(mode) {
+	case kHelAccessIommuIntelVtd: return IommuKind::intelVtd;
+	case kHelAccessIommuAmdVi: return IommuKind::amdVi;
+	default: return std::nullopt;
+	}
+}
+
+// Bounds the number of reserved regions such that a single call cannot exhaust kernel memory.
+constexpr size_t maxDmaReservedRegions = 64;
+
+std::optional<SourceId> translateDmaDeviceId(const HelDmaDeviceId &id) {
+	if(id.segment > 0xFFFF || id.slot >= 32 || id.function >= 8)
+		return std::nullopt;
+	return SourceId{static_cast<uint16_t>(id.segment), id.bus, id.slot, id.function};
+}
+
+} // namespace
+
+HelError helAccessIommu(HelHandle accessHandle, uint32_t mode, uint64_t base, HelHandle *handle) {
+	auto thisThread = getCurrentThread();
+	auto thisUniverse = thisThread->getUniverse();
+
+	// Require the hardware access token to proceed.
+	auto accessOutcome = thisUniverse->resolveObject<DescriptorType::token>(accessHandle, kHelRightInvoke);
+	if(!accessOutcome)
+		return translateError(accessOutcome.error());
+	if(accessOutcome->get() != hardwareAccessToken().get())
+		return kHelErrIllegalObject;
+
+	auto kind = translateIommuMode(mode);
+	if(!kind)
 		return kHelErrIllegalArgs;
 
-	auto this_thread = getCurrentThread();
-	auto this_universe = this_thread->getUniverse();
+	// The unit is looked up in the kernel's own DMAR parse: userspace names a unit but it
+	// never gets to point a register window at an address that firmware did not report.
+	auto iommu = lookupIommu(*kind, base);
+	if(!iommu)
+		return kHelErrIllegalArgs;
 
-	auto space = NoopDmaSpace::create();
-	if(!space)
-		return translateError(space.error());
+	*handle = thisUniverse->attachDescriptor(
+		AnyDescriptor::make<DescriptorType::iommu>(std::move(iommu), kHelRightManage)
+	);
 
-	*handle = this_universe->attachDescriptor(
+	return kHelErrNone;
+}
+
+HelError helCreateDmaSpace(HelHandle iommuHandle, const HelDmaReservedRegion *regions,
+		size_t numRegions, uint32_t flags, HelHandle *handle) {
+	// There are no flags defined yet.
+	if(flags != 0)
+		return kHelErrIllegalArgs;
+	if(numRegions > maxDmaReservedRegions)
+		return kHelErrIllegalArgs;
+	// Without an IOMMU there is nothing that could enforce a reserved region.
+	if(iommuHandle == kHelNullHandle && numRegions)
+		return kHelErrIllegalArgs;
+
+	auto thisThread = getCurrentThread();
+	auto thisUniverse = thisThread->getUniverse();
+
+	// A null IOMMU creates a space that does not translate.
+	smarter::shared_ptr<Iommu> iommu;
+	if(iommuHandle != kHelNullHandle) {
+		auto iommuOutcome = thisUniverse->resolveObject<DescriptorType::iommu>(iommuHandle,
+				kHelRightManage);
+		if(!iommuOutcome)
+			return translateError(iommuOutcome.error());
+		iommu = std::move(*iommuOutcome);
+	}
+
+	frg::small_vector<DmaReservedRegion, 4, KernelAlloc> reserved{*kernelAlloc};
+	for(size_t i = 0; i < numRegions; i++) {
+		HelDmaReservedRegion region;
+		if(!readUserObject(regions + i, region))
+			return kHelErrFault;
+		if(region.flags & ~(kHelDmaRegionRead | kHelDmaRegionWrite))
+			return kHelErrIllegalArgs;
+		if(!(region.flags & (kHelDmaRegionRead | kHelDmaRegionWrite)))
+			return kHelErrIllegalArgs;
+		if(!region.size || (region.base & (kPageSize - 1)) || (region.size & (kPageSize - 1)))
+			return kHelErrIllegalArgs;
+		reserved.push_back(DmaReservedRegion{
+			region.base,
+			region.size,
+			static_cast<bool>(region.flags & kHelDmaRegionRead),
+			static_cast<bool>(region.flags & kHelDmaRegionWrite)
+		});
+	}
+
+	smarter::shared_ptr<DmaSpace> space;
+	if(iommu) {
+		auto spaceOutcome = iommu->createDmaSpace({reserved.data(), reserved.size()});
+		if(!spaceOutcome)
+			return translateError(spaceOutcome.error());
+		space = std::move(*spaceOutcome);
+	} else {
+		auto spaceOutcome = NoopDmaSpace::create();
+		if(!spaceOutcome)
+			return translateError(spaceOutcome.error());
+		space = std::move(*spaceOutcome);
+	}
+
+	*handle = thisUniverse->attachDescriptor(
 		AnyDescriptor::make<DescriptorType::dmaSpace>(
-			std::move(*space),
+			std::move(space),
 			kHelRightGrant | kHelRightProvision
 		)
 	);
+
+	return kHelErrNone;
+}
+
+HelError doSubmitBindDmaDevice(HelHandle iommuHandle, HelHandle dmaSpaceHandle,
+		const HelDmaDeviceId &userId, smarter::shared_ptr<IpcQueue> queue, uintptr_t context) {
+	auto thisThread = getCurrentThread();
+	auto thisUniverse = thisThread->getUniverse();
+
+	auto iommuOutcome = thisUniverse->resolveObject<DescriptorType::iommu>(iommuHandle, kHelRightManage);
+	if(!iommuOutcome)
+		return translateError(iommuOutcome.error());
+	auto iommu = std::move(*iommuOutcome);
+
+	// A null DMA space binds the device in passthrough mode.
+	smarter::shared_ptr<DmaSpace> space;
+	if(dmaSpaceHandle != kHelNullHandle) {
+		auto spaceOutcome = thisUniverse->resolveObject<DescriptorType::dmaSpace>(dmaSpaceHandle,
+				kHelRightGrant);
+		if(!spaceOutcome)
+			return translateError(spaceOutcome.error());
+		space = std::move(*spaceOutcome);
+	}
+
+	auto id = translateDmaDeviceId(userId);
+	if(!id)
+		return kHelErrIllegalArgs;
+
+	if(!queue->validSize(ipcSourceSize(sizeof(HelSimpleResult))))
+		return kHelErrQueueTooSmall;
+
+	[](smarter::shared_ptr<Iommu> iommu, smarter::shared_ptr<DmaSpace> space, SourceId id,
+			smarter::shared_ptr<IpcQueue> queue, uintptr_t context,
+			enable_detached_coroutine) -> void {
+		auto outcome = co_await iommu->attachDevice(id, space.get());
+
+		HelSimpleResult helResult{.error = kHelErrNone, .reserved = {}};
+		if(!outcome)
+			helResult.error = translateError(outcome.error());
+
+		QueueSource ipcSource{&helResult, sizeof(HelSimpleResult), nullptr};
+		co_await queue->submit(&ipcSource, context);
+	}(std::move(iommu), std::move(space), *id, std::move(queue), context,
+		enable_detached_coroutine{thisThread->mainWorkQueue().lock()});
+
+	return kHelErrNone;
+}
+
+HelError doSubmitUnbindDmaDevice(HelHandle iommuHandle, const HelDmaDeviceId &userId,
+		smarter::shared_ptr<IpcQueue> queue, uintptr_t context) {
+	auto thisThread = getCurrentThread();
+	auto thisUniverse = thisThread->getUniverse();
+
+	auto iommuOutcome = thisUniverse->resolveObject<DescriptorType::iommu>(iommuHandle, kHelRightManage);
+	if(!iommuOutcome)
+		return translateError(iommuOutcome.error());
+	auto iommu = std::move(*iommuOutcome);
+
+	auto id = translateDmaDeviceId(userId);
+	if(!id)
+		return kHelErrIllegalArgs;
+
+	if(!queue->validSize(ipcSourceSize(sizeof(HelSimpleResult))))
+		return kHelErrQueueTooSmall;
+
+	[](smarter::shared_ptr<Iommu> iommu, SourceId id, smarter::shared_ptr<IpcQueue> queue,
+			uintptr_t context, enable_detached_coroutine) -> void {
+		auto outcome = co_await iommu->detachDevice(id);
+
+		HelSimpleResult helResult{.error = kHelErrNone, .reserved = {}};
+		if(!outcome)
+			helResult.error = translateError(outcome.error());
+
+		QueueSource ipcSource{&helResult, sizeof(HelSimpleResult), nullptr};
+		co_await queue->submit(&ipcSource, context);
+	}(std::move(iommu), *id, std::move(queue), context,
+		enable_detached_coroutine{thisThread->mainWorkQueue().lock()});
+
+	return kHelErrNone;
+}
+
+HelError doSubmitActivateIommu(HelHandle iommuHandle, smarter::shared_ptr<IpcQueue> queue,
+		uintptr_t context) {
+	auto thisThread = getCurrentThread();
+	auto thisUniverse = thisThread->getUniverse();
+
+	auto iommuOutcome = thisUniverse->resolveObject<DescriptorType::iommu>(iommuHandle, kHelRightManage);
+	if(!iommuOutcome)
+		return translateError(iommuOutcome.error());
+	auto iommu = std::move(*iommuOutcome);
+
+	if(!queue->validSize(ipcSourceSize(sizeof(HelSimpleResult))))
+		return kHelErrQueueTooSmall;
+
+	[](smarter::shared_ptr<Iommu> iommu, smarter::shared_ptr<IpcQueue> queue, uintptr_t context,
+			enable_detached_coroutine) -> void {
+		co_await iommu->enableTranslation();
+
+		HelSimpleResult helResult{.error = kHelErrNone, .reserved = {}};
+		QueueSource ipcSource{&helResult, sizeof(HelSimpleResult), nullptr};
+		co_await queue->submit(&ipcSource, context);
+	}(std::move(iommu), std::move(queue), context,
+		enable_detached_coroutine{thisThread->mainWorkQueue().lock()});
 
 	return kHelErrNone;
 }
@@ -4566,6 +4762,40 @@ void thor::submitFromSq(smarter::shared_ptr<IpcQueue> queue, uint32_t opcode,
 		memcpy(&sqData, sqSpan.data(), sizeof(sqData));
 		error = doSubmitUnmapMemory(sqData.spaceHandle, queue,
 				sqData.pointer, sqData.size, context);
+		break;
+	}
+	case kHelSubmitBindDmaDevice: {
+		if(sqSpan.size() < sizeof(HelSqBindDmaDevice)) {
+			infoLogger() << "Bad length for kHelSubmitBindDmaDevice" << frg::endlog;
+			error = kHelErrBufferTooSmall;
+			break;
+		}
+		HelSqBindDmaDevice sqData;
+		memcpy(&sqData, sqSpan.data(), sizeof(sqData));
+		error = doSubmitBindDmaDevice(sqData.iommuHandle, sqData.dmaSpaceHandle, sqData.id,
+				queue, context);
+		break;
+	}
+	case kHelSubmitUnbindDmaDevice: {
+		if(sqSpan.size() < sizeof(HelSqUnbindDmaDevice)) {
+			infoLogger() << "Bad length for kHelSubmitUnbindDmaDevice" << frg::endlog;
+			error = kHelErrBufferTooSmall;
+			break;
+		}
+		HelSqUnbindDmaDevice sqData;
+		memcpy(&sqData, sqSpan.data(), sizeof(sqData));
+		error = doSubmitUnbindDmaDevice(sqData.iommuHandle, sqData.id, queue, context);
+		break;
+	}
+	case kHelSubmitActivateIommu: {
+		if(sqSpan.size() < sizeof(HelSqActivateIommu)) {
+			infoLogger() << "Bad length for kHelSubmitActivateIommu" << frg::endlog;
+			error = kHelErrBufferTooSmall;
+			break;
+		}
+		HelSqActivateIommu sqData;
+		memcpy(&sqData, sqSpan.data(), sizeof(sqData));
+		error = doSubmitActivateIommu(sqData.iommuHandle, queue, context);
 		break;
 	}
 	default:

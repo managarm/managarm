@@ -197,9 +197,21 @@ extern inline __attribute__ (( always_inline )) HelError helCreateSpace(HelHandl
 	return error;
 };
 
-extern inline __attribute__ (( always_inline )) HelError helCreateDmaSpace(uint32_t flags, HelHandle *handle) {
+extern inline __attribute__ (( always_inline )) HelError helAccessIommu(HelHandle accessHandle,
+		uint32_t mode, uint64_t base, HelHandle *handle) {
 	HelWord handle_word;
-	HelError error = helSyscall1_1(kHelCallCreateDmaSpace, flags, &handle_word);
+	HelError error = helSyscall3_1(kHelCallAccessIommu, (HelWord)accessHandle, (HelWord)mode,
+			(HelWord)base, &handle_word);
+	*handle = (HelHandle)handle_word;
+	return error;
+};
+
+extern inline __attribute__ (( always_inline )) HelError helCreateDmaSpace(
+		HelHandle iommuHandle, const struct HelDmaReservedRegion *regions, size_t numRegions,
+		uint32_t flags, HelHandle *handle) {
+	HelWord handle_word;
+	HelError error = helSyscall4_1(kHelCallCreateDmaSpace, (HelWord)iommuHandle,
+			(HelWord)regions, (HelWord)numRegions, (HelWord)flags, &handle_word);
 	*handle = (HelHandle)handle_word;
 	return error;
 };

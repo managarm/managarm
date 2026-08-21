@@ -712,7 +712,13 @@ void handleSyscall(SyscallImageAccessor image) {
 	} break;
 	case kHelCallCreateDmaSpace: {
 		HelHandle handle;
-		*image.error() = helCreateDmaSpace((uint32_t)arg0, &handle);
+		*image.error() = helCreateDmaSpace((HelHandle)arg0,
+				(const HelDmaReservedRegion *)arg1, (size_t)arg2, (uint32_t)arg3, &handle);
+		*image.out0() = handle;
+	} break;
+	case kHelCallAccessIommu: {
+		HelHandle handle;
+		*image.error() = helAccessIommu((HelHandle)arg0, (uint32_t)arg1, (uint64_t)arg2, &handle);
 		*image.out0() = handle;
 	} break;
 	case kHelCallConfigureIrq: {

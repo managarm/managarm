@@ -1,6 +1,7 @@
 #pragma once
 
 #include <frg/manual_box.hpp>
+#include <frg/span.hpp>
 #include <frg/vector.hpp>
 #include <thor-internal/address-space.hpp>
 #include <thor-internal/coroutine.hpp>
@@ -32,14 +33,21 @@ struct DmaReservedRegion {
 	bool writable;
 };
 
+struct Iommu;
+
 // A page space used specifically for DMA.
 struct DmaSpace : VirtualSpace, RcuProtected {
+	// Non-null iff an IOMMU translates this space.
+	virtual Iommu *iommu() {
+		return nullptr;
+	}
+
 protected:
 	DmaSpace(VirtualOperations *ops)
 	: VirtualSpace{ops} { }
 };
 
-struct Iommu {
+struct Iommu : RcuProtected {
 	Iommu(IommuKind kind, uint64_t registerBase, size_t id)
 	: kind_{kind}, registerBase_{registerBase}, id_{id} {}
 
@@ -55,8 +63,20 @@ struct Iommu {
 		return id_;
 	}
 
+	// Creates a DMA space (i.e., one IOMMU domain) that this IOMMU translates. The reserved
+	// regions are identity-mapped and taken out of the range that the space allocates from.
+	virtual std::expected<smarter::shared_ptr<DmaSpace>, Error>
+	createDmaSpace(frg::span<const DmaReservedRegion> regions) = 0;
+
 	// Attaches a device to a DMA space. A null space attaches the device in passthrough mode.
 	virtual coroutine<std::expected<void, Error>> attachDevice(SourceId source, DmaSpace *space) = 0;
+
+	// Detaches a device such that its DMA requests are blocked again.
+	virtual coroutine<std::expected<void, Error>> detachDevice(SourceId source) = 0;
+
+	// Enables translation. Until this is called, the unit is transparent and every requester
+	// DMAs untranslated. Succeeds if translation is already enabled.
+	virtual coroutine<void> enableTranslation() = 0;
 
 private:
 	const IommuKind kind_;

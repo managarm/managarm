@@ -66,6 +66,8 @@ enum {
 	kHelCallAllocateSwappableMemory = 111,
 	kHelCallSetSwapBudget = 112,
 
+	kHelCallAccessIommu = 13,
+
 	kHelCallCreateThread = 67,
 	kHelCallQueryThreadStats = 95,
 	kHelCallSetPriority = 85,
@@ -761,6 +763,31 @@ static const int kHelKernelNotifySupplyCqChunks = (1 << 1);
 //! Flag for helDriveQueue: wait until userNotify has any bits not in notifyMask set.
 static const uint32_t kHelDriveWait = (1 << 0);
 
+enum {
+	kHelAccessIommuIntelVtd = 1,
+	kHelAccessIommuAmdVi = 2,
+};
+
+enum {
+	kHelDmaRegionRead = 1,
+	kHelDmaRegionWrite = 2,
+};
+
+//! Range of physical memory that a DMA space identity-maps (see ::helCreateDmaSpace).
+struct HelDmaReservedRegion {
+	uint64_t base;
+	uint64_t size;
+	uint32_t flags;
+};
+
+//! Requester ID that a device issues DMA requests as (see ::kHelSubmitBindDmaDevice).
+struct HelDmaDeviceId {
+	uint32_t segment;
+	uint8_t bus;
+	uint8_t slot;
+	uint8_t function;
+};
+
 //! SQ opcode: cancel an asynchronous operation.
 static const uint32_t kHelSubmitCancel = 256;
 //! SQ opcode: asynchronous no-op (for testing/profiling).
@@ -799,6 +826,12 @@ static const uint32_t kHelSubmitPopulateSpace = 16;
 static const uint32_t kHelSubmitMapMemory = 17;
 //! SQ opcode: unmap memory.
 static const uint32_t kHelSubmitUnmapMemory = 18;
+//! SQ opcode: bind a device to a DMA space.
+static const uint32_t kHelSubmitBindDmaDevice = 19;
+//! SQ opcode: block the DMA requests of a device.
+static const uint32_t kHelSubmitUnbindDmaDevice = 20;
+//! SQ opcode: activate translation on an IOMMU.
+static const uint32_t kHelSubmitActivateIommu = 21;
 
 //! In-memory kernel/user-space queue.
 struct HelQueue {
@@ -1031,6 +1064,38 @@ struct HelSqUnmapMemory {
 	void *pointer;
 	//! Size of the mapping.
 	size_t size;
+};
+
+//! SQ data for kHelSubmitBindDmaDevice.
+//!
+//! Programs an IOMMU to translate the DMA requests of a device through a DMA space.
+struct HelSqBindDmaDevice {
+	//! Handle to the IOMMU (see ::helAccessIommu).
+	HelHandle iommuHandle;
+	//! Handle to a DMA space of that IOMMU (see ::helCreateDmaSpace).
+	//! kHelNullHandle binds the device in passthrough mode.
+	HelHandle dmaSpaceHandle;
+	//! Requester ID of the device.
+	struct HelDmaDeviceId id;
+};
+
+//! SQ data for kHelSubmitUnbindDmaDevice.
+//!
+//! Programs an IOMMU to block the DMA requests of a device.
+struct HelSqUnbindDmaDevice {
+	//! Handle to the IOMMU (see ::helAccessIommu).
+	HelHandle iommuHandle;
+	//! Requester ID of the device.
+	struct HelDmaDeviceId id;
+};
+
+//! SQ data for kHelSubmitActivateIommu.
+//!
+//! Until an IOMMU is activated, the unit is transparent and every requester DMAs untranslated.
+//! Succeeds if the IOMMU is already active.
+struct HelSqActivateIommu {
+	//! Handle to the IOMMU (see ::helAccessIommu).
+	HelHandle iommuHandle;
 };
 
 struct HelSimpleResult {
@@ -1461,12 +1526,40 @@ HEL_C_LINKAGE HelError helForkMemory(HelHandle handle, HelHandle *forkedHandle);
 //!     Handle to the new address space.
 HEL_C_LINKAGE HelError helCreateSpace(HelHandle *handle);
 
+//! Access an IOMMU that the kernel discovered from firmware.
+//! @param[in] accessHandle
+//!     Handle to the hardware access token.
+//! @param[in] mode
+//!     Determines how the IOMMU is identified (e.g., ::kHelAccessIommuIntelVtd).
+//! @param[in] base
+//!     Identifies the unit within that mode, i.e., its register base.
+//! @param[out] handle
+//!     Handle to the IOMMU.
+HEL_C_LINKAGE HelError helAccessIommu(HelHandle accessHandle, uint32_t mode, uint64_t base,
+		HelHandle *handle);
+
 //! Creates a DMA space that memory can be mapped into for device DMA.
+//!
+//! With an IOMMU, the space is one IOMMU domain that the unit translates. The reserved
+//! regions are identity-mapped and removed from the range that the space allocates addresses
+//! from, such that the space is never observable without them.
+//!
+//! Without one, the space does not translate: it hands out the physical addresses of the
+//! memory that is mapped into it, and reserved regions are rejected.
+//! @param[in] iommuHandle
+//!     Handle to the IOMMU (see ::helAccessIommu), or ::kHelNullHandle for a space that
+//!     does not translate.
+//! @param[in] regions
+//!     Pointer to an array of physical ranges to identity-map.
+//! @param[in] numRegions
+//!     Number of ranges in @p regions.
 //! @param[in] flags
 //!     Flags for the creation of the DMA space.
 //! @param[out] handle
 //!     Handle to the new DMA space.
-HEL_C_LINKAGE HelError helCreateDmaSpace(uint32_t flags, HelHandle *handle);
+HEL_C_LINKAGE HelError helCreateDmaSpace(HelHandle iommuHandle,
+		const struct HelDmaReservedRegion *regions, size_t numRegions,
+		uint32_t flags, HelHandle *handle);
 
 //! Maps memory objects into an address space.
 //! @param[in] memoryHandle
