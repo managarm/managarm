@@ -83,6 +83,18 @@ private:
 		return __atomic_exchange_n(currentPtePtr_(), value, __ATOMIC_RELAXED);
 	}
 
+	// Advances by the size of an entry in the deepest page table that is present.
+	// Precondition: the last level is not present.
+	void advancePastAbsentTable_(uintptr_t limit) {
+		assert(!accessors_[lastLevel]);
+		size_t level = initialLevel_;
+		while(level + 1 < Policy::maxLevels && accessors_[level + 1])
+			++level;
+
+		auto next = (va_ | ((uintptr_t{1} << levelShift(level)) - 1)) + 1;
+		moveTo(!next || next > limit ? limit : next);
+	}
+
 public:
 	uintptr_t virtualAddress() {
 		return va_;
@@ -109,7 +121,7 @@ public:
 	bool findPresent(uintptr_t limit) {
 		while(va_ < limit) {
 			if(!accessors_[lastLevel]) {
-				advance4k();
+				advancePastAbsentTable_(limit);
 				continue;
 			}
 
@@ -126,7 +138,7 @@ public:
 	bool findDirty(uintptr_t limit) {
 		while(va_ < limit) {
 			if(!accessors_[lastLevel]) {
-				advance4k();
+				advancePastAbsentTable_(limit);
 				continue;
 			}
 
