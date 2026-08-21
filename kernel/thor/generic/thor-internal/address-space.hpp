@@ -128,7 +128,7 @@ frg::expected<Error, PagesAffected> restrictPagesByCursor(PageSpace *ps, Virtual
 
 	PagesAffected affected{};
 	Cursor c{ps, va, policy};
-	while(c.virtualAddress() < va + size) {
+	while(c.findPresent(va + size)) {
 		auto [status, physical, restricted] = c.restrict4k(flags);
 		if((status & page_status::present) && (status & page_status::dirty)) {
 			if(auto descriptor = globalPfnDb().find(physical))
