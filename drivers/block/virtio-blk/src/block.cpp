@@ -31,6 +31,12 @@ Device::Device(std::unique_ptr<virtio_core::Transport> transport, int64_t parent
   _size{0} {}
 
 async::result<void> Device::runDevice() {
+	// Without VIRTIO_BLK_F_FLUSH, qemu disables its write cache and fdatasync()s on every write.
+	// Negotiate it to get writeback caching on the host side.
+	if(_transport->checkDeviceFeature(VIRTIO_BLK_F_FLUSH)) {
+		_transport->acknowledgeDriverFeature(VIRTIO_BLK_F_FLUSH);
+		_hasFlush = true;
+	}
 	_transport->finalizeFeatures();
 	_transport->claimQueues(1);
 	_requestQueue = co_await _transport->setupQueue(0);
@@ -106,6 +112,38 @@ async::result<void> Device::writeSectors(uint64_t sector, arch::dma_buffer_view 
 					<< static_cast<unsigned int>(*request.status) << std::endl;
 			abort();
 		}
+	}
+}
+
+async::result<void> Device::flush() {
+	if(!_hasFlush)
+		co_return;
+
+	UserRequest request{false, 0, {}, pagePool};
+
+	std::array<virtio_core::Handle, 2> handles;
+	co_await _requestQueue->obtainDescriptors(handles);
+	handles[0].setupLink(handles[1]);
+
+	request.header->type = VIRTIO_BLK_T_FLUSH;
+	request.header->reserved = 0;
+	request.header->sector = 0;
+
+	co_await handles[0].setupBuffer(virtio_core::hostToDevice, request.header.view_buffer());
+	co_await handles[1].setupBuffer(virtio_core::deviceToHost, request.status.view_buffer());
+
+	_requestQueue->postDescriptor(handles.front(), &request,
+			[] (virtio_core::Request *base_request) {
+		auto request = static_cast<UserRequest *>(base_request);
+		request->event.raise();
+	});
+	_requestQueue->notify();
+
+	co_await request.event.wait();
+	if(*request.status != VIRTIO_BLK_S_OK) {
+		std::cout << "virtio: Device signaled an error for flush, status "
+				<< static_cast<unsigned int>(*request.status) << std::endl;
+		abort();
 	}
 }
 

@@ -22,7 +22,12 @@ static_assert(sizeof(VirtRequest) == 16, "Bad sizeof(VirtRequest)");
 
 enum {
 	VIRTIO_BLK_T_IN = 0,
-	VIRTIO_BLK_T_OUT = 1
+	VIRTIO_BLK_T_OUT = 1,
+	VIRTIO_BLK_T_FLUSH = 4,
+};
+
+enum {
+	VIRTIO_BLK_F_FLUSH = 9
 };
 
 enum {
@@ -70,6 +75,8 @@ struct Device : blockfs::BlockDevice {
 	async::result<void> readSectors(uint64_t sector, arch::dma_buffer_view view) override;
 	async::result<void> writeSectors(uint64_t sector, arch::dma_buffer_view view) override;
 
+	async::result<void> flush() override;
+
 	async::result<size_t> getSize() override;
 
 private:
@@ -84,6 +91,9 @@ private:
 
 	// The size of the disk
 	size_t _size;
+
+	// Whether the device supports VIRTIO_BLK_T_FLUSH.
+	bool _hasFlush = false;
 };
 
 } } // namespace block::virtio
