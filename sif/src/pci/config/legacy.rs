@@ -1,17 +1,23 @@
+use arch::{PioSpace, scalar_register};
 use std::sync::Mutex;
 
 use super::{ConfigIoError, PciConfigIo, Result, check_offset};
-use crate::io;
 
 const CONFIG_SPACE_SIZE: u16 = 0x100;
 
+scalar_register!(ConfigAddress @ 0x00: u32);
+const DATA: usize = 4;
+
 pub struct LegacyPciConfigIo {
+    space: PioSpace,
     mutex: Mutex<()>,
 }
 
 impl LegacyPciConfigIo {
     pub const fn new() -> Self {
         Self {
+            // The ports of the config window are enabled before we are constructed.
+            space: unsafe { PioSpace::new(0xCF8) },
             mutex: Mutex::new(()),
         }
     }
@@ -54,8 +60,8 @@ impl PciConfigIo for LegacyPciConfigIo {
             .lock()
             .expect("sif: legacy config space mutex was poisoned");
         Ok(unsafe {
-            io::outl(0xCF8, address);
-            io::inb(0xCFC + (offset & 3))
+            self.space.store(ConfigAddress, address);
+            self.space.scalar_load::<u8>(DATA + (offset & 3) as usize)
         })
     }
 
@@ -75,8 +81,8 @@ impl PciConfigIo for LegacyPciConfigIo {
             .lock()
             .expect("sif: legacy config space mutex was poisoned");
         Ok(unsafe {
-            io::outl(0xCF8, address);
-            io::inw(0xCFC + (offset & 3))
+            self.space.store(ConfigAddress, address);
+            self.space.scalar_load::<u16>(DATA + (offset & 3) as usize)
         })
     }
 
@@ -96,8 +102,8 @@ impl PciConfigIo for LegacyPciConfigIo {
             .lock()
             .expect("sif: legacy config space mutex was poisoned");
         Ok(unsafe {
-            io::outl(0xCF8, address);
-            io::inl(0xCFC)
+            self.space.store(ConfigAddress, address);
+            self.space.scalar_load::<u32>(DATA)
         })
     }
 
@@ -118,8 +124,9 @@ impl PciConfigIo for LegacyPciConfigIo {
             .lock()
             .expect("sif: legacy config space mutex was poisoned");
         unsafe {
-            io::outl(0xCF8, address);
-            io::outb(0xCFC + (offset & 3), value);
+            self.space.store(ConfigAddress, address);
+            self.space
+                .scalar_store::<u8>(DATA + (offset & 3) as usize, value);
         }
         Ok(())
     }
@@ -141,8 +148,9 @@ impl PciConfigIo for LegacyPciConfigIo {
             .lock()
             .expect("sif: legacy config space mutex was poisoned");
         unsafe {
-            io::outl(0xCF8, address);
-            io::outw(0xCFC + (offset & 3), value);
+            self.space.store(ConfigAddress, address);
+            self.space
+                .scalar_store::<u16>(DATA + (offset & 3) as usize, value);
         }
         Ok(())
     }
@@ -164,8 +172,8 @@ impl PciConfigIo for LegacyPciConfigIo {
             .lock()
             .expect("sif: legacy config space mutex was poisoned");
         unsafe {
-            io::outl(0xCF8, address);
-            io::outl(0xCFC, value);
+            self.space.store(ConfigAddress, address);
+            self.space.scalar_store::<u32>(DATA, value);
         }
         Ok(())
     }
