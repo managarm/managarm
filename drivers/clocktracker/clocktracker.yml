@@ -1,0 +1,4 @@
+name: clocktracker
+exec: /usr/bin/clocktracker
+files:
+  - /usr/bin/clocktracker

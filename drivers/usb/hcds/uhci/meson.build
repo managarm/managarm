@@ -6,3 +6,11 @@ executable('uhci', 'src/main.cpp',
 	dependencies : [ libarch, hw_proto_dep, kernlet_proto_dep, mbus_proto_dep, usb_proto_dep ],
 	install : true
 )
+
+custom_target('uhci-server',
+	command : [bakesvr, '-o', '@OUTPUT@', '@INPUT@'],
+	output : 'uhci.bin',
+	input : 'uhci.yml',
+	install : true,
+	install_dir : server
+)

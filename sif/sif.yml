@@ -1,0 +1,4 @@
+name: sif
+exec: /usr/bin/sif
+files:
+  - /usr/bin/sif

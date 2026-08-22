@@ -1,0 +1,4 @@
+name: usb-storage
+exec: /usr/bin/storage
+files:
+  - /usr/bin/storage

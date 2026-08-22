@@ -81,3 +81,11 @@ executable('posix-subsystem', src,
 	dependencies : [ mbus_proto_dep, fs_proto_dep, posix_extra_dep, clock_proto_dep, kerncfg_proto_dep, hw_proto_dep, ostrace_proto_dep, usb_proto_dep, frigg, core_dep ],
 	install : true
 )
+
+custom_target('posix-subsystem-server',
+	command : [bakesvr, '-o', '@OUTPUT@', '@INPUT@'],
+	output : 'posix-subsystem.bin',
+	input : 'posix-subsystem.yml',
+	install : true,
+	install_dir : server
+)

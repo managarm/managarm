@@ -1,0 +1,4 @@
+name: kernletcc
+exec: /usr/bin/kernletcc
+files:
+  - /usr/bin/kernletcc

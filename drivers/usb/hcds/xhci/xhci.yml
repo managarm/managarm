@@ -1,0 +1,4 @@
+name: xhci
+exec: /usr/bin/xhci
+files:
+  - /usr/bin/xhci
