@@ -182,7 +182,7 @@ int main() {
 #if defined (__x86_64__)
 	auto uart = fork();
 	if(!uart) {
-		execl("/usr/bin/runsvr", "/usr/bin/runsvr", "runsvr", "/usr/bin/uart", nullptr);
+		execl("/usr/bin/runsvr", "/usr/bin/runsvr", "run", "/usr/lib/managarm/server/uart.bin", nullptr);
 	}else assert(uart != -1);
 #endif
 
@@ -190,24 +190,24 @@ int main() {
 #if defined (__x86_64__)
 	auto ehci = fork();
 	if(!ehci) {
-		execl("/usr/bin/runsvr", "/usr/bin/runsvr", "runsvr", "/usr/bin/ehci", nullptr);
+		execl("/usr/bin/runsvr", "/usr/bin/runsvr", "run", "/usr/lib/managarm/server/ehci.bin", nullptr);
 	}else assert(ehci != -1);
 #endif
 
 	auto xhci = fork();
 	if(!xhci) {
-		execl("/usr/bin/runsvr", "/usr/bin/runsvr", "runsvr", "/usr/bin/xhci", nullptr);
+		execl("/usr/bin/runsvr", "/usr/bin/runsvr", "run", "/usr/lib/managarm/server/xhci.bin", nullptr);
 	}else assert(xhci != -1);
 
 	auto virtio = fork();
 	if(!virtio) {
-		execl("/usr/bin/runsvr", "/usr/bin/runsvr", "runsvr", "/usr/bin/virtio-block", nullptr);
+		execl("/usr/bin/runsvr", "/usr/bin/runsvr", "run", "/usr/lib/managarm/server/virtio-block.bin", nullptr);
 	}else assert(virtio != -1);
 
 #if defined (__x86_64__)
 	auto block_ata = fork();
 	if(!block_ata) {
-		execl("/usr/bin/runsvr", "/usr/bin/runsvr", "runsvr", "/usr/bin/block-ata", nullptr);
+		execl("/usr/bin/runsvr", "/usr/bin/runsvr", "run", "/usr/lib/managarm/server/block-ata.bin", nullptr);
 	}else assert(block_ata != -1);
 #endif
 
@@ -218,17 +218,17 @@ int main() {
 
 	auto block_nvme = fork();
 	if(!block_nvme) {
-		execl("/usr/bin/runsvr", "/usr/bin/runsvr", "runsvr", "/usr/bin/block-nvme", nullptr);
+		execl("/usr/bin/runsvr", "/usr/bin/runsvr", "run", "/usr/lib/managarm/server/block-nvme.bin", nullptr);
 	}else assert(block_nvme != -1);
 
 	auto block_usb = fork();
 	if(!block_usb) {
-		execl("/usr/bin/runsvr", "/usr/bin/runsvr", "runsvr", "/usr/bin/storage", nullptr);
+		execl("/usr/bin/runsvr", "/usr/bin/runsvr", "run", "/usr/lib/managarm/server/usb-storage.bin", nullptr);
 	}else assert(block_usb != -1);
 
 	auto snd_hda = fork();
 	if(!snd_hda) {
-		execl("/usr/bin/runsvr", "/usr/bin/runsvr", "runsvr", "/usr/bin/snd-hda", nullptr);
+		execl("/usr/bin/runsvr", "/usr/bin/runsvr", "run", "/usr/lib/managarm/server/snd-hda.bin", nullptr);
 	}else assert(snd_hda != -1);
 
 	Cmdline cmdlineHelper{};
@@ -333,7 +333,7 @@ int main() {
 	// Hack: Start UHCI only after EHCI devices are ready.
 	auto uhci = fork();
 	if(!uhci) {
-		execl("/usr/bin/runsvr", "/usr/bin/runsvr", "runsvr", "/usr/bin/uhci", nullptr);
+		execl("/usr/bin/runsvr", "/usr/bin/runsvr", "run", "/usr/lib/managarm/server/uhci.bin", nullptr);
 	}else assert(uhci != -1);
 #endif
 
