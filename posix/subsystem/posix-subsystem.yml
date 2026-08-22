@@ -1,0 +1,4 @@
+name: posix-subsystem
+exec: /usr/bin/posix-subsystem
+files:
+  - /usr/bin/posix-subsystem
