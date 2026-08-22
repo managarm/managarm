@@ -191,20 +191,13 @@ async::result<int> bindServer(helix::UniqueLane &lane, int mbusId) {
 // ----------------------------------------------------------------
 
 enum class action {
-	runsvr, run, bind, upload
+	run, bind, upload
 };
 
 async::result<int> asyncMain(action act, std::string path) {
 	co_await enumerateSvrctl();
 
 	switch (act) {
-		case action::runsvr: {
-			log("runsvr: Running %s\n", path.c_str());
-			co_await runServer(path.c_str());
-
-			break;
-		}
-
 		case action::run: {
 			auto buffer = readEntireFile(path.c_str());
 
@@ -269,9 +262,6 @@ int main(int argc, const char **argv) {
 	CLI::App app{"runsvr"};
 	app.add_flag("-f,--fork", do_fork, "Fork off before continuing");
 
-	CLI::App *sub_runsvr = app.add_subcommand("runsvr", "Run a server (deprecated)");
-	sub_runsvr->add_option("path", path, "Path to executable")->required();
-
 	CLI::App *sub_run = app.add_subcommand("run", "Run a server (used in conjunction with bind)");
 	sub_run->add_option("path", path, "Path to description")->required();
 
@@ -285,9 +275,7 @@ int main(int argc, const char **argv) {
 
 	CLI11_PARSE(app, argc, argv);
 
-	if (*sub_runsvr)
-		act = action::runsvr;
-	else if (*sub_run)
+	if (*sub_run)
 		act = action::run;
 	else if (*sub_bind)
 		act = action::bind;
