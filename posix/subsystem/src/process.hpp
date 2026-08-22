@@ -1,5 +1,6 @@
 #pragma once
 
+#include <limits>
 #include <map>
 #include <memory>
 #include <sys/signalfd.h>
@@ -793,6 +794,24 @@ struct ThreadGroup : std::enable_shared_from_this<ThreadGroup> {
 	static std::shared_ptr<ThreadGroup> findThreadGroup(ProcessId pid);
 	std::shared_ptr<Process> findThread(pid_t tid);
 
+	template<typename Id>
+	static bool isNoChangeId(uint64_t requested) {
+		return requested == static_cast<uint64_t>(-1)
+			|| requested == static_cast<uint64_t>(std::numeric_limits<Id>::max());
+	}
+
+	template<typename Id>
+	static Error resolveId(uint64_t requested, Id current, Id &result) {
+		if(isNoChangeId<Id>(requested)) {
+			result = current;
+			return Error::success;
+		}
+		if(requested > static_cast<uint64_t>(std::numeric_limits<Id>::max()))
+			return Error::illegalArguments;
+		result = static_cast<Id>(requested);
+		return Error::success;
+	}
+
 	Error setUid(uid_t uid) {
 		if(uid < 0) {
 			return Error::illegalArguments;
@@ -806,6 +825,138 @@ struct ThreadGroup : std::enable_shared_from_this<ThreadGroup> {
 			return Error::success;
 		}
 		return Error::accessDenied;
+	}
+
+	Error setResuid(uint64_t ruid, uint64_t euid, uint64_t suid) {
+		const auto oldUid = _uid;
+		const auto oldEuid = _euid;
+		const auto oldSuid = _suid;
+
+		uid_t newUid = oldUid;
+		uid_t newEuid = oldEuid;
+		uid_t newSuid = oldSuid;
+
+		if(auto error = resolveId(ruid, oldUid, newUid); error != Error::success)
+			return error;
+		if(auto error = resolveId(euid, oldEuid, newEuid); error != Error::success)
+			return error;
+		if(auto error = resolveId(suid, oldSuid, newSuid); error != Error::success)
+			return error;
+
+		if(!isRoot()) {
+			auto permitted = [&](uid_t id) {
+				return id == oldUid || id == oldEuid || id == oldSuid;
+			};
+			if((!isNoChangeId<uid_t>(ruid) && !permitted(newUid))
+					|| (!isNoChangeId<uid_t>(euid) && !permitted(newEuid))
+					|| (!isNoChangeId<uid_t>(suid) && !permitted(newSuid)))
+				return Error::insufficientPermissions;
+		}
+
+		_uid = newUid;
+		_euid = newEuid;
+		_suid = newSuid;
+		return Error::success;
+	}
+
+	Error setResgid(uint64_t rgid, uint64_t egid, uint64_t sgid) {
+		const auto oldGid = _gid;
+		const auto oldEgid = _egid;
+		const auto oldSgid = _sgid;
+
+		gid_t newGid = oldGid;
+		gid_t newEgid = oldEgid;
+		gid_t newSgid = oldSgid;
+
+		if(auto error = resolveId(rgid, oldGid, newGid); error != Error::success)
+			return error;
+		if(auto error = resolveId(egid, oldEgid, newEgid); error != Error::success)
+			return error;
+		if(auto error = resolveId(sgid, oldSgid, newSgid); error != Error::success)
+			return error;
+
+		if(!isRoot()) {
+			auto permitted = [&](gid_t id) {
+				return id == oldGid || id == oldEgid || id == oldSgid;
+			};
+			if((!isNoChangeId<gid_t>(rgid) && !permitted(newGid))
+					|| (!isNoChangeId<gid_t>(egid) && !permitted(newEgid))
+					|| (!isNoChangeId<gid_t>(sgid) && !permitted(newSgid)))
+				return Error::insufficientPermissions;
+		}
+
+		_gid = newGid;
+		_egid = newEgid;
+		_sgid = newSgid;
+		return Error::success;
+	}
+
+	Error setReuid(uint64_t ruid, uint64_t euid) {
+		const auto oldUid = _uid;
+		const auto oldEuid = _euid;
+		const auto oldSuid = _suid;
+		const bool changeUid = !isNoChangeId<uid_t>(ruid);
+		const bool changeEuid = !isNoChangeId<uid_t>(euid);
+
+		uid_t newUid = oldUid;
+		uid_t newEuid = oldEuid;
+		if(auto error = resolveId(ruid, oldUid, newUid); error != Error::success)
+			return error;
+		if(auto error = resolveId(euid, oldEuid, newEuid); error != Error::success)
+			return error;
+
+		if(!isRoot()) {
+			// Linux permits an unprivileged real-ID change to the old real or
+			// effective ID; POSIX leaves this case unspecified.
+			if(changeUid && newUid != oldUid && newUid != oldEuid)
+				return Error::insufficientPermissions;
+			if(changeEuid && newEuid != oldUid && newEuid != oldEuid
+					&& newEuid != oldSuid)
+				return Error::insufficientPermissions;
+		}
+
+		uid_t newSuid = oldSuid;
+		if(changeUid || (changeEuid && newEuid != oldUid))
+			newSuid = newEuid;
+
+		_uid = newUid;
+		_euid = newEuid;
+		_suid = newSuid;
+		return Error::success;
+	}
+
+	Error setRegid(uint64_t rgid, uint64_t egid) {
+		const auto oldGid = _gid;
+		const auto oldEgid = _egid;
+		const auto oldSgid = _sgid;
+		const bool changeGid = !isNoChangeId<gid_t>(rgid);
+		const bool changeEgid = !isNoChangeId<gid_t>(egid);
+
+		gid_t newGid = oldGid;
+		gid_t newEgid = oldEgid;
+		if(auto error = resolveId(rgid, oldGid, newGid); error != Error::success)
+			return error;
+		if(auto error = resolveId(egid, oldEgid, newEgid); error != Error::success)
+			return error;
+
+		if(!isRoot()) {
+			// Linux permits the same real-ID choices as setreuid; POSIX leaves
+			// this real-ID case unspecified.
+			if(changeGid && newGid != oldGid && newGid != oldEgid)
+				return Error::insufficientPermissions;
+			if(changeEgid && newEgid != oldGid && newEgid != oldEgid
+					&& newEgid != oldSgid)
+				return Error::insufficientPermissions;
+		}
+
+		gid_t newSgid = oldSgid;
+		if(changeGid || (changeEgid && newEgid != oldGid))
+			newSgid = newEgid;
+
+		_gid = newGid;
+		_egid = newEgid;
+		_sgid = newSgid;
+		return Error::success;
 	}
 
 	uid_t uid() {
@@ -825,17 +976,6 @@ struct ThreadGroup : std::enable_shared_from_this<ThreadGroup> {
 
 	uid_t euid() {
 		return _euid;
-	}
-
-	Error setSuid(uid_t suid) {
-		if(suid < 0) {
-			return Error::illegalArguments;
-		}
-		if(isRoot() || suid == _uid || suid == _euid) {
-			_suid = suid;
-			return Error::success;
-		}
-		return Error::accessDenied;
 	}
 
 	uid_t suid() {
@@ -874,17 +1014,6 @@ struct ThreadGroup : std::enable_shared_from_this<ThreadGroup> {
 
 	gid_t egid() {
 		return _egid;
-	}
-
-	Error setSgid(gid_t sgid) {
-		if(sgid < 0) {
-			return Error::illegalArguments;
-		}
-		if(isRoot() || _gid == sgid || _egid == sgid) {
-			_sgid = sgid;
-			return Error::success;
-		}
-		return Error::accessDenied;
 	}
 
 	gid_t sgid() {
