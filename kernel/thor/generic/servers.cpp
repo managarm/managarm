@@ -11,9 +11,9 @@
 #include <thor-internal/fiber.hpp>
 #include <thor-internal/module.hpp>
 #include <thor-internal/stream.hpp>
+#include <thor-internal/servers.hpp>
 #include <thor-internal/thread.hpp>
 #include <thor-internal/mbus.hpp>
-#include "svrctl.frigg_bragi.hpp"
 
 namespace thor {
 
@@ -408,40 +408,42 @@ coroutine<void> runMbus() {
 	if(debugLaunch)
 		infoLogger() << "thor: Launching mbus" << frg::endlog;
 
+	auto desc = co_await parseServerFromInitrd("usr/lib/managarm/server/mbus.bin");
+
 	frg::tuple<smarter::shared_ptr<Stream, LanePolicy>, smarter::shared_ptr<Stream, LanePolicy>> controlStream;
 	{
 		auto lock = frg::guard(&allServersMutex);
 
-		frg::string<KernelAlloc> nameStr{*kernelAlloc, "/usr/bin/mbus"};
-		assert(!allServers->get(nameStr));
+		assert(!allServers->get(desc.name()));
 
 		auto controlStreamOutcome = createStream();
 		if(!controlStreamOutcome)
 			panicLogger() << "thor: Failed to create stream" << frg::endlog;
 		controlStream = std::move(*controlStreamOutcome);
-		allServers->insert(nameStr, controlStream.get<1>());
+		allServers->insert(desc.name(), controlStream.get<1>());
 	}
 
-	auto module = resolveModule("/usr/bin/mbus");
+	auto module = resolveModule(desc.exec());
 	assert(module && module->type == MfsType::regular);
-	co_await executeModule("/usr/bin/mbus", static_cast<MfsRegular *>(module),
+	co_await executeModule(desc.exec(), static_cast<MfsRegular *>(module),
 			controlStream.get<0>(),
 			std::move(*futureMbusServer), &localScheduler.get());
 }
 
-coroutine<smarter::shared_ptr<Stream, LanePolicy>> runServer(frg::string_view name) {
+coroutine<smarter::shared_ptr<Stream, LanePolicy>> runServer(
+	managarm::svrctl::Description<KernelAlloc> &desc
+) {
 	if(debugLaunch)
-		infoLogger() << "thor: Launching server " << name << frg::endlog;
+		infoLogger() << "thor: Launching server " << desc.name() << frg::endlog;
 
 	frg::tuple<smarter::shared_ptr<Stream, LanePolicy>, smarter::shared_ptr<Stream, LanePolicy>> controlStream;
 	{
 		auto lock = frg::guard(&allServersMutex);
 
-		frg::string<KernelAlloc> nameStr{*kernelAlloc, name.data(), name.size()};
-		if(auto server = allServers->get(nameStr); server) {
+		if(auto server = allServers->get(desc.name()); server) {
 			if(debugLaunch)
 				infoLogger() << "thor: Server "
-						<< name << " is already running" << frg::endlog;
+						<< desc.name() << " is already running" << frg::endlog;
 			co_return *server;
 		}
 
@@ -449,19 +451,44 @@ coroutine<smarter::shared_ptr<Stream, LanePolicy>> runServer(frg::string_view na
 		if(!controlStreamOutcome)
 			panicLogger() << "thor: Failed to create stream" << frg::endlog;
 		controlStream = std::move(*controlStreamOutcome);
-		allServers->insert(nameStr, controlStream.get<1>());
+		allServers->insert(desc.name(), controlStream.get<1>());
 	}
 
-	auto module = resolveModule(name);
+	auto module = resolveModule(desc.exec());
 	if(!module)
-		panicLogger() << "thor: Could not find module " << name << frg::endlog;
+		panicLogger() << "thor: Could not find module " << desc.exec() << frg::endlog;
 	assert(module->type == MfsType::regular);
 
-	co_await executeModule(name, static_cast<MfsRegular *>(module),
+	co_await executeModule(desc.exec(), static_cast<MfsRegular *>(module),
 			controlStream.get<0>(),
 			smarter::shared_ptr<Stream, LanePolicy>{}, &localScheduler.get());
 
 	co_return controlStream.get<1>();
+}
+
+coroutine<managarm::svrctl::Description<KernelAlloc>> parseServerFromInitrd(frg::string_view path) {
+	auto module = resolveModule(path);
+	if(!module)
+		panicLogger() << "thor: Could not find server description " << path << frg::endlog;
+	assert(module->type == MfsType::regular);
+	auto file = static_cast<MfsRegular *>(module);
+
+	frg::unique_memory<KernelAlloc> buffer{*kernelAlloc, file->size()};
+	auto copyOutcome = co_await file->getMemory()->copyFrom(0, buffer.data(), file->size());
+	assert(copyOutcome);
+
+	managarm::svrctl::Description<KernelAlloc> desc(*kernelAlloc);
+	bragi::limited_reader rd{buffer.data(), buffer.size()};
+	bragi::deserializer de;
+	if(!desc.decode_body(rd, de))
+		panicLogger() << "thor: Failed to parse server description " << path << frg::endlog;
+
+	co_return desc;
+}
+
+coroutine<smarter::shared_ptr<Stream, LanePolicy>> runServerFromInitrd(frg::string_view path) {
+	auto desc = co_await parseServerFromInitrd(path);
+	co_return co_await runServer(desc);
 }
 
 // ------------------------------------------------------------------------
@@ -528,7 +555,7 @@ private:
 			if(!req)
 				co_return Error::protocolViolation;
 
-			auto controlLane = co_await runServer(req->name());
+			auto controlLane = co_await runServer(req->description());
 
 			managarm::svrctl::RunServerResponse<KernelAlloc> resp(*kernelAlloc);
 			resp.set_error(managarm::svrctl::Errors::SUCCESS);

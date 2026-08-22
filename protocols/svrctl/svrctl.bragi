@@ -37,7 +37,7 @@ head(128):
 
 message RunServerRequest 3 {
 head(128):
-	string name;
+	Description description;
 }
 
 message RunServerResponse 4 {

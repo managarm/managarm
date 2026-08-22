@@ -94,9 +94,9 @@ async::result<void> enumerateSvrctl() {
 	svrctlLane = (co_await entity.getRemoteLane()).unwrap();
 }
 
-async::result<helix::UniqueLane> runServer(const char *name) {
+async::result<helix::UniqueLane> runServer(const managarm::svrctl::Description &desc) {
 	managarm::svrctl::RunServerRequest req;
-	req.set_name(name);
+	req.set_description(desc);
 
 	auto [offer, send_req, recv_resp, pull_server] = co_await helix_ng::exchangeMsgs(
 		svrctlLane,
@@ -211,7 +211,7 @@ async::result<int> asyncMain(action act, std::string path) {
 			for(auto &file : desc.files())
 				co_await uploadFile(file.path().c_str());
 
-			co_await runServer(desc.exec().c_str());
+			co_await runServer(desc);
 
 			break;
 		}
@@ -230,7 +230,7 @@ async::result<int> asyncMain(action act, std::string path) {
 			for(auto &file : desc.files())
 				co_await uploadFile(file.path().c_str());
 
-			auto lane = co_await runServer(desc.exec().c_str());
+			auto lane = co_await runServer(desc);
 			co_await bindServer(lane, std::stoi(id_str));
 
 			break;
