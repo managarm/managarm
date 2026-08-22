@@ -2,3 +2,6 @@ name: sif
 exec: /usr/bin/sif
 files:
   - /usr/bin/sif
+owned_tokens:
+  # sif owns the platform devices.
+  - 'access:thor.hardware'

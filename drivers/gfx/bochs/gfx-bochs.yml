@@ -3,3 +3,6 @@ exec: /usr/bin/gfx_bochs
 files:
   - /usr/bin/gfx_bochs
   - /usr/lib/libdrm_core.so
+owned_tokens:
+  # The Bochs graphics adapter uses a PIO region that is not exposed as a PCI BAR.
+  - 'access:thor.hardware'

@@ -25,6 +25,11 @@ int main(int argc, char **argv) {
 		f.set_path(config["files"][i].as<std::string>());
 		data.add_files(f);
 	}
+	for(size_t i = 0; i < config["owned_tokens"].size(); i++) {
+		managarm::svrctl::Token token{};
+		token.set_identifier(config["owned_tokens"][i].as<std::string>());
+		data.add_owned_tokens(token);
+	}
 
 	std::vector<char> buf(data.size_of_body());
 	bragi::limited_writer wr{buf.data(), data.size_of_body()};

@@ -39,8 +39,11 @@ static frg::manual_box<
 > allServers;
 
 // TODO: move this declaration to a header file
-void runService(frg::string<KernelAlloc> desc, smarter::shared_ptr<Stream, LanePolicy> control_lane,
-		smarter::shared_ptr<Thread, ActiveHandle> thread);
+void runService(
+	managarm::svrctl::Description<KernelAlloc> desc,
+	smarter::shared_ptr<Stream, LanePolicy> control_lane,
+	smarter::shared_ptr<Thread, ActiveHandle> thread
+);
 
 // ------------------------------------------------------------------------
 // File management.
@@ -269,7 +272,7 @@ uintptr_t copyToStack(frg::string<KernelAlloc> &stack_image, const T &data) {
 	return offset;
 }
 
-coroutine<void> executeModule(frg::string_view name, MfsRegular *module,
+coroutine<void> executeModule(managarm::svrctl::Description<KernelAlloc> &desc, MfsRegular *module,
 		smarter::shared_ptr<Stream, LanePolicy> control_lane,
 		smarter::shared_ptr<Stream, LanePolicy> xpipe_lane,
 		Scheduler *scheduler) {
@@ -391,9 +394,7 @@ coroutine<void> executeModule(frg::string_view name, MfsRegular *module,
 
 	// Listen to POSIX calls from the thread.
 	// Call this after resumeOther() to ensure that we do not see the initial interrupt.
-	runService(frg::string<KernelAlloc>{*kernelAlloc, name.data(), name.size()},
-			control_lane,
-			thread);
+	runService(desc, control_lane, thread);
 }
 
 void initializeMbusStream() {
@@ -425,7 +426,7 @@ coroutine<void> runMbus() {
 
 	auto module = resolveModule(desc.exec());
 	assert(module && module->type == MfsType::regular);
-	co_await executeModule(desc.exec(), static_cast<MfsRegular *>(module),
+	co_await executeModule(desc, static_cast<MfsRegular *>(module),
 			controlStream.get<0>(),
 			std::move(*futureMbusServer), &localScheduler.get());
 }
@@ -459,7 +460,7 @@ coroutine<smarter::shared_ptr<Stream, LanePolicy>> runServer(
 		panicLogger() << "thor: Could not find module " << desc.exec() << frg::endlog;
 	assert(module->type == MfsType::regular);
 
-	co_await executeModule(desc.exec(), static_cast<MfsRegular *>(module),
+	co_await executeModule(desc, static_cast<MfsRegular *>(module),
 			controlStream.get<0>(),
 			smarter::shared_ptr<Stream, LanePolicy>{}, &localScheduler.get());
 
