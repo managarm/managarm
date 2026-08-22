@@ -9,6 +9,7 @@ hel.workspace = true
 hel-sys.workspace = true
 lock_api = "0.4"
 managarm.workspace = true
+managarm-arch.workspace = true
 parking_lot = "0.12"
 thiserror = "2.0"
 uacpi-sys.workspace = true

@@ -1,3 +1,4 @@
+use arch::{PioAccess, PioSpace};
 use managarm::svrctl::hardware_access_handle;
 use std::collections::{BTreeMap, VecDeque};
 use std::ffi::{CStr, c_void};
@@ -15,7 +16,6 @@ use uacpi_sys::{
 };
 
 use super::{PAGE_MASK, RSDP};
-use crate::io;
 use crate::pci::config;
 
 const UACPI_MAP_FAILED: *mut c_void = (-1isize) as *mut c_void;
@@ -288,6 +288,15 @@ pub unsafe extern "C" fn uacpi_kernel_io_map(
     len: uacpi_size,
     out: *mut uacpi_handle,
 ) -> uacpi_status {
+    // The window is named by AML, hence it can lie outside of the 16-bit port space entirely.
+    let fits = usize::try_from(base)
+        .ok()
+        .and_then(|base| base.checked_add(len))
+        .is_some_and(|end| end <= 1 << 16);
+    if !fits {
+        return uacpi_sys::UACPI_STATUS_INVALID_ARGUMENT;
+    }
+
     #[cfg(target_arch = "x86_64")]
     {
         let mut ports = Vec::with_capacity(len);
@@ -309,13 +318,27 @@ pub unsafe extern "C" fn uacpi_kernel_io_map(
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn uacpi_kernel_io_unmap(_handle: uacpi_handle) {}
 
+/// The handle that `uacpi_kernel_io_map` hands out is the base of the mapped window.
+///
+/// The offset is named by AML, so it is checked against the port space rather than trusted.
+fn pio_space<T: PioAccess>(handle: uacpi_handle, offset: uacpi_size) -> Option<PioSpace> {
+    // uacpi_kernel_io_map rejects a base that does not fit, and enables the ports of the window.
+    let space = unsafe { PioSpace::new(handle as usize as u16) };
+
+    space.access_ok::<T>(offset).then_some(space)
+}
+
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn uacpi_kernel_io_read8(
     handle: uacpi_handle,
     offset: uacpi_size,
     out: *mut uacpi_u8,
 ) -> uacpi_status {
-    unsafe { *out = io::inb((handle as usize + offset) as u16) };
+    let Some(space) = pio_space::<u8>(handle, offset) else {
+        return uacpi_sys::UACPI_STATUS_INVALID_ARGUMENT;
+    };
+
+    unsafe { *out = space.scalar_load::<u8>(offset) };
     uacpi_sys::UACPI_STATUS_OK
 }
 
@@ -325,7 +348,11 @@ pub unsafe extern "C" fn uacpi_kernel_io_read16(
     offset: uacpi_size,
     out: *mut uacpi_u16,
 ) -> uacpi_status {
-    unsafe { *out = io::inw((handle as usize + offset) as u16) };
+    let Some(space) = pio_space::<u16>(handle, offset) else {
+        return uacpi_sys::UACPI_STATUS_INVALID_ARGUMENT;
+    };
+
+    unsafe { *out = space.scalar_load::<u16>(offset) };
     uacpi_sys::UACPI_STATUS_OK
 }
 
@@ -335,7 +362,11 @@ pub unsafe extern "C" fn uacpi_kernel_io_read32(
     offset: uacpi_size,
     out: *mut uacpi_u32,
 ) -> uacpi_status {
-    unsafe { *out = io::inl((handle as usize + offset) as u16) };
+    let Some(space) = pio_space::<u32>(handle, offset) else {
+        return uacpi_sys::UACPI_STATUS_INVALID_ARGUMENT;
+    };
+
+    unsafe { *out = space.scalar_load::<u32>(offset) };
     uacpi_sys::UACPI_STATUS_OK
 }
 
@@ -345,7 +376,11 @@ pub unsafe extern "C" fn uacpi_kernel_io_write8(
     offset: uacpi_size,
     value: uacpi_u8,
 ) -> uacpi_status {
-    unsafe { io::outb((handle as usize + offset) as u16, value) };
+    let Some(space) = pio_space::<u8>(handle, offset) else {
+        return uacpi_sys::UACPI_STATUS_INVALID_ARGUMENT;
+    };
+
+    unsafe { space.scalar_store::<u8>(offset, value) };
     uacpi_sys::UACPI_STATUS_OK
 }
 
@@ -355,7 +390,11 @@ pub unsafe extern "C" fn uacpi_kernel_io_write16(
     offset: uacpi_size,
     value: uacpi_u16,
 ) -> uacpi_status {
-    unsafe { io::outw((handle as usize + offset) as u16, value) };
+    let Some(space) = pio_space::<u16>(handle, offset) else {
+        return uacpi_sys::UACPI_STATUS_INVALID_ARGUMENT;
+    };
+
+    unsafe { space.scalar_store::<u16>(offset, value) };
     uacpi_sys::UACPI_STATUS_OK
 }
 
@@ -365,7 +404,11 @@ pub unsafe extern "C" fn uacpi_kernel_io_write32(
     offset: uacpi_size,
     value: uacpi_u32,
 ) -> uacpi_status {
-    unsafe { io::outl((handle as usize + offset) as u16, value) };
+    let Some(space) = pio_space::<u32>(handle, offset) else {
+        return uacpi_sys::UACPI_STATUS_INVALID_ARGUMENT;
+    };
+
+    unsafe { space.scalar_store::<u32>(offset, value) };
     uacpi_sys::UACPI_STATUS_OK
 }
 
