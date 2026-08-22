@@ -1,0 +1,4 @@
+name: uhci
+exec: /usr/bin/uhci
+files:
+  - /usr/bin/uhci

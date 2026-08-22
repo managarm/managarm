@@ -1,0 +1,4 @@
+name: uart
+exec: /usr/bin/uart
+files:
+  - /usr/bin/uart

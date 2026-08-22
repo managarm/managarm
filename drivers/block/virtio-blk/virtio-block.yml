@@ -1,0 +1,4 @@
+name: virtio-block
+exec: /usr/bin/virtio-block
+files:
+  - /usr/bin/virtio-block

@@ -1,0 +1,4 @@
+name: block-ata
+exec: /usr/bin/block-ata
+files:
+  - /usr/bin/block-ata

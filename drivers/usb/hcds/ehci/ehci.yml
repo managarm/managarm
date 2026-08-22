@@ -1,0 +1,4 @@
+name: ehci
+exec: /usr/bin/ehci
+files:
+  - /usr/bin/ehci
