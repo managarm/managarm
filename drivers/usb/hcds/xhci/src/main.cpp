@@ -656,7 +656,7 @@ async::result<frg::expected<proto::UsbError, proto::DeviceSpeed>> Port::querySpe
 // ------------------------------------------------------------------------
 
 RootHub::RootHub(Controller *controller, SupportedProtocol &proto, arch::mem_space portSpace, mbus_ng::EntityManager entity)
-: Hub{nullptr, 0}, _controller{controller}, _proto{&proto}, _entity{std::move(entity)} {
+: Hub{nullptr}, _controller{controller}, _proto{&proto}, _entity{std::move(entity)} {
 	for (size_t i = 0; i < proto.compatiblePortCount; i++) {
 		_ports.push_back(std::make_unique<Port>(
 					i + proto.compatiblePortStart,
@@ -854,13 +854,13 @@ Device::initialize() {
 	// For LS/FS devices, look for a TT in the path, and fill out the appropriate fields if one exists.
 	auto ttHub = nearestTTHub();
 	if (ttHub) {
-		auto hubDevice = std::static_pointer_cast<Device>(ttHub->associatedState());
+		auto hubDevice = std::static_pointer_cast<Device>(ttHub->state());
 
 		assert(hubDevice->speed() == proto::DeviceSpeed::highSpeed);
 
 		// We need to fill these fields out for split transactions.
-		slotCtx |= SlotFields::parentHubPort(ttHub->port());
-		slotCtx |= SlotFields::parentHubSlot(hubDevice->_slotId);
+		slotCtx |= SlotFields::parentHubPort(hubDevice->port());
+		slotCtx |= SlotFields::parentHubSlot(hubDevice->slot());
 	}
 
 	slotCtx |= SlotFields::rootHubPort(rootPort);
