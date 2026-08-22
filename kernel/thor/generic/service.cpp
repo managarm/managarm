@@ -30,7 +30,11 @@ coroutine<bool> createMfsFile(frg::string_view path, const void *buffer, size_t 
 
 static MfsRegular *urandomNode = nullptr;
 
-void runService(frg::string<KernelAlloc> name, smarter::shared_ptr<Stream, LanePolicy> controlLane, smarter::shared_ptr<Thread, ActiveHandle> thread);
+void runService(
+	managarm::svrctl::Description<KernelAlloc> desc,
+	smarter::shared_ptr<Stream, LanePolicy> controlLane,
+	smarter::shared_ptr<Thread, ActiveHandle> thread
+);
 
 struct OpenFile {
 	OpenFile()
@@ -1223,9 +1227,10 @@ coroutine<void> initPosixEmulation() {
 	co_await createMfsFile("/dev/urandom", nullptr, 0, &urandomNode);
 }
 
-void runService(frg::string<KernelAlloc> name, smarter::shared_ptr<Stream, LanePolicy> controlLane,
+void runService(managarm::svrctl::Description<KernelAlloc> desc,
+		smarter::shared_ptr<Stream, LanePolicy> controlLane,
 		smarter::shared_ptr<Thread, ActiveHandle> thread) {
-	KernelFiber::run([name, thread, controlLane = std::move(controlLane)] () mutable {
+	KernelFiber::run([desc, thread, controlLane = std::move(controlLane)] () mutable {
 		auto stdioStreamOutcome = createStream();
 		if(!stdioStreamOutcome)
 			panicLogger() << "thor: Failed to create stream" << frg::endlog;
@@ -1236,11 +1241,21 @@ void runService(frg::string<KernelAlloc> name, smarter::shared_ptr<Stream, LaneP
 		spawnOnWorkQueue(*kernelAlloc, WorkQueue::generalQueue().lock(),
 				stdio::runStdioRequests(stdioStream.get<0>()));
 
-		auto process = frg::construct<posix::Process>(*kernelAlloc, std::move(name));
-		KernelFiber::asyncBlockCurrent(process->setupAddressSpace(thread));
-		process->hardwareAccessHandle = thread->getUniverse()->attachDescriptor(
-			AnyDescriptor::make<DescriptorType::token>(hardwareAccessToken(), kHelRightInvoke)
+		bool hasHardwareAccess = std::any_of(
+			desc.owned_tokens().begin(),
+			desc.owned_tokens().end(),
+			[] (auto &token) {
+				return token.identifier() == "access:thor.hardware";
+			}
 		);
+
+		auto process = frg::construct<posix::Process>(*kernelAlloc, desc.exec());
+		KernelFiber::asyncBlockCurrent(process->setupAddressSpace(thread));
+		if (hasHardwareAccess) {
+			process->hardwareAccessHandle = thread->getUniverse()->attachDescriptor(
+				AnyDescriptor::make<DescriptorType::token>(hardwareAccessToken(), kHelRightInvoke)
+			);
+		}
 		process->attachControl(thread, std::move(controlLane));
 		process->attachMbus(thread);
 		KernelFiber::asyncBlockCurrent(process->attachFile(thread, stdioFile));
