@@ -10,9 +10,13 @@ pub(crate) mod sealed {
 }
 
 mod bits;
+mod domain;
+mod mem_space;
 mod register;
 mod scalar;
 
 pub use bits::{BitConvertible, BitValue, Field};
+pub use domain::{Domain, IoMemDomain, MainMemDomain};
+pub use mem_space::{BaseMemSpace, IoMemSpace, MainMemSpace, MemAccess};
 pub use register::Register;
 pub use scalar::Scalar;
