@@ -6,5 +6,6 @@ members = ["sif", "servers/kernletcc", "utils/hello-rs"]
 hel = { path = "rust/hel" }
 hel-sys = { path = "rust/hel-sys" }
 managarm = { path = "rust/managarm" }
+managarm-arch = { path = "rust/arch" }
 uacpi-sys = { path = "rust/uacpi-sys" }
 zerocopy = { version = "0.8", features = ["derive"] }

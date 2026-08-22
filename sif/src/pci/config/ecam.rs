@@ -1,3 +1,4 @@
+use arch::IoMemSpace;
 use managarm::svrctl::hardware_access_handle;
 use std::collections::BTreeMap;
 use std::sync::Mutex;
@@ -42,17 +43,18 @@ impl EcamPcieConfigIo {
         Ok(())
     }
 
-    // Mappings are never removed, hence the returned pointer stays valid after we drop the lock.
-    fn space_for_bus(&self, bus: u8) -> Result<*mut u8> {
+    // Mappings are never removed, hence the returned space stays valid after we drop the lock.
+    fn space_for_bus(&self, bus: u8) -> Result<IoMemSpace> {
+        const SIZE: usize = 1 << 20;
+
         let mut mappings = self
             .bus_mappings
             .lock()
             .expect("sif: ECAM window mutex was poisoned");
         if let Some(mapping) = mappings.get(&bus) {
-            return Ok(unsafe { mapping.as_ptr() }.unwrap().as_ptr());
+            return Ok(unsafe { IoMemSpace::new(mapping.as_ptr().unwrap().as_ptr(), SIZE) });
         }
 
-        const SIZE: usize = 1 << 20;
         let offset = ((bus - self.bus_start) as u64) << 20;
 
         let handle = hel::access_physical(
@@ -81,9 +83,9 @@ impl EcamPcieConfigIo {
             source,
         })?;
 
-        let ptr = unsafe { mapping.as_ptr() }.unwrap().as_ptr();
+        let space = unsafe { IoMemSpace::new(mapping.as_ptr().unwrap().as_ptr(), SIZE) };
         mappings.insert(bus, mapping);
-        Ok(ptr)
+        Ok(space)
     }
 
     fn calculate_offset(slot: u8, function: u8, offset: u16) -> usize {
@@ -104,7 +106,7 @@ impl PciConfigIo for EcamPcieConfigIo {
         check_offset(offset, 1, CONFIG_SPACE_SIZE)?;
         let space = self.space_for_bus(bus)?;
         let space_offset = Self::calculate_offset(slot, function, offset);
-        Ok(unsafe { core::ptr::read_volatile(space.add(space_offset)) })
+        Ok(unsafe { space.scalar_load::<u8>(space_offset) })
     }
 
     unsafe fn read_config_half(
@@ -119,7 +121,7 @@ impl PciConfigIo for EcamPcieConfigIo {
         check_offset(offset, 2, CONFIG_SPACE_SIZE)?;
         let space = self.space_for_bus(bus)?;
         let space_offset = Self::calculate_offset(slot, function, offset);
-        Ok(unsafe { core::ptr::read_volatile(space.add(space_offset) as *const u16) })
+        Ok(unsafe { space.scalar_load::<u16>(space_offset) })
     }
 
     unsafe fn read_config_word(
@@ -134,7 +136,7 @@ impl PciConfigIo for EcamPcieConfigIo {
         check_offset(offset, 4, CONFIG_SPACE_SIZE)?;
         let space = self.space_for_bus(bus)?;
         let space_offset = Self::calculate_offset(slot, function, offset);
-        Ok(unsafe { core::ptr::read_volatile(space.add(space_offset) as *const u32) })
+        Ok(unsafe { space.scalar_load::<u32>(space_offset) })
     }
 
     unsafe fn write_config_byte(
@@ -150,7 +152,7 @@ impl PciConfigIo for EcamPcieConfigIo {
         check_offset(offset, 1, CONFIG_SPACE_SIZE)?;
         let space = self.space_for_bus(bus)?;
         let space_offset = Self::calculate_offset(slot, function, offset);
-        unsafe { core::ptr::write_volatile(space.add(space_offset), value) };
+        unsafe { space.scalar_store::<u8>(space_offset, value) };
         Ok(())
     }
 
@@ -167,7 +169,7 @@ impl PciConfigIo for EcamPcieConfigIo {
         check_offset(offset, 2, CONFIG_SPACE_SIZE)?;
         let space = self.space_for_bus(bus)?;
         let space_offset = Self::calculate_offset(slot, function, offset);
-        unsafe { core::ptr::write_volatile(space.add(space_offset) as *mut u16, value) };
+        unsafe { space.scalar_store::<u16>(space_offset, value) };
         Ok(())
     }
 
@@ -184,7 +186,7 @@ impl PciConfigIo for EcamPcieConfigIo {
         check_offset(offset, 4, CONFIG_SPACE_SIZE)?;
         let space = self.space_for_bus(bus)?;
         let space_offset = Self::calculate_offset(slot, function, offset);
-        unsafe { core::ptr::write_volatile(space.add(space_offset) as *mut u32, value) };
+        unsafe { space.scalar_store::<u32>(space_offset, value) };
         Ok(())
     }
 
