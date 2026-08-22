@@ -1,0 +1,4 @@
+name: mbus
+exec: /usr/bin/mbus
+files:
+  - /usr/bin/mbus
