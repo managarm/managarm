@@ -2,3 +2,6 @@ name: uart
 exec: /usr/bin/uart
 files:
   - /usr/bin/uart
+owned_tokens:
+  # UART access does not go through ACPI yet.
+  - 'access:thor.hardware'
