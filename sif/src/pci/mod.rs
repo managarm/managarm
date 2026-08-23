@@ -16,9 +16,7 @@ use hel::{IrqPolarity, IrqTrigger};
 
 use config::PciConfigIo;
 
-pub(crate) fn leak<T>(value: T) -> &'static T {
-    Box::leak(Box::new(value))
-}
+pub(crate) use crate::leak;
 
 // The PCI tree is only locked for the duration of a single operation, none of which can panic.
 pub(crate) const EXPECT_LOCK: &str = "sif: PCI tree mutex was poisoned";

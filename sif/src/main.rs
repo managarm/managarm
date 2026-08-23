@@ -2,11 +2,16 @@ use anyhow::{Result, bail};
 
 mod acpi;
 mod dt;
+mod entity;
 // Only x86 has an ISA bus (and hence ISA IRQs).
 #[cfg(target_arch = "x86_64")]
 mod isa;
 mod pci;
 mod uacpi;
+
+pub(crate) fn leak<T>(value: T) -> &'static T {
+    Box::leak(Box::new(value))
+}
 
 fn main() -> Result<()> {
     hel::block_on(async {
