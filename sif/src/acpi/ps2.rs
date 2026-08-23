@@ -10,7 +10,7 @@ use managarm::hw::server::{AcpiObject, AcpiResources, serve_acpi_object};
 use managarm::mbus::create_entity;
 use managarm::svrctl::hardware_access_handle;
 
-use crate::entity::{serve_entity_lanes, string};
+use crate::entity::{dismiss_requests, serve_entity_lanes, string};
 use crate::leak;
 use crate::uacpi::namespace::{self, IterationDecision, NamespaceNode};
 use crate::uacpi::resources::Resource;
@@ -189,10 +189,27 @@ async fn publish_devices(hids: &[&CStr]) -> Result<()> {
     Ok(())
 }
 
+// Notifies listeners that all PS/2 objects of the ACPI namespace have been published,
+// so that they can stop running mbus filters indefinitely.
+async fn publish_status() -> Result<()> {
+    let mut props = HashMap::new();
+    props.insert("unix.subsystem".into(), string("acpi"));
+    props.insert("acpi.status".into(), string("ps2.init_complete"));
+
+    let manager = leak(create_entity("acpi-status", &props).await?);
+    hel::spawn(serve_entity_lanes(manager, |lane| {
+        hel::spawn(dismiss_requests(lane));
+    }));
+
+    Ok(())
+}
+
 /// Publishes the acpi-object entities of all PS/2 keyboards and mice.
 pub async fn publish() -> Result<()> {
     publish_devices(ACPI_HID_PS2_KEYBOARDS).await?;
     publish_devices(ACPI_HID_PS2_MICE).await?;
+
+    publish_status().await?;
 
     Ok(())
 }

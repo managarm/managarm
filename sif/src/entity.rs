@@ -14,6 +14,18 @@ pub fn decimal(value: i64) -> Item {
     Item::String(format!("{value}"))
 }
 
+/// Serves a lane of an entity that exists only for its properties by dismissing every request.
+pub async fn dismiss_requests(lane: hel::Handle) {
+    loop {
+        if hel::submit_async(&lane, hel::Accept::new(hel::Dismiss))
+            .await
+            .is_err()
+        {
+            return;
+        }
+    }
+}
+
 /// Keeps stream lanes queued on the entity so that each connecting client obtains one.
 pub async fn serve_entity_lanes(manager: &'static EntityManager, serve_lane: impl Fn(hel::Handle)) {
     let id = manager.id();
