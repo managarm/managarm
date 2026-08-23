@@ -1,3 +1,5 @@
+use std::sync::OnceLock;
+
 use hel::{IrqPolarity, IrqTrigger};
 use managarm::svrctl::hardware_access_handle;
 use uacpi_sys::acpi_madt_interrupt_source_override;
@@ -15,10 +17,10 @@ const PRECONFIGURED_ISA_IRQS: [u8; 5] = [0, 1, 4, 12, 14];
 
 /// The GSI that an ISA IRQ is wired to, and how the interrupt controller drives it.
 #[derive(Clone, Copy)]
-struct IsaIrq {
-    gsi: u32,
-    trigger: IrqTrigger,
-    polarity: IrqPolarity,
+pub struct IsaIrq {
+    pub gsi: u32,
+    pub trigger: IrqTrigger,
+    pub polarity: IrqPolarity,
 }
 
 impl IsaIrq {
@@ -94,13 +96,23 @@ fn read_isa_overrides() -> IsaOverrides {
     overrides
 }
 
+static ISA_OVERRIDES: OnceLock<IsaOverrides> = OnceLock::new();
+
+/// Resolves an ISA IRQ to the GSI that it is wired to.
+pub fn resolve_isa_irq(irq: u8) -> IsaIrq {
+    let overrides = ISA_OVERRIDES.get_or_init(read_isa_overrides);
+    overrides
+        .get(usize::from(irq))
+        .copied()
+        .flatten()
+        .unwrap_or_else(|| IsaIrq::identity(irq))
+}
+
 /// Configures the ISA IRQs of devices whose drivers cannot resolve them themselves.
 pub fn configure_isa_irqs() {
-    let overrides = read_isa_overrides();
-
     println!("sif: Configuring ISA IRQs");
     for irq in PRECONFIGURED_ISA_IRQS {
-        let line = overrides[usize::from(irq)].unwrap_or_else(|| IsaIrq::identity(irq));
+        let line = resolve_isa_irq(irq);
         let pin = match hel::access_irq_by_gsi(hardware_access_handle(), line.gsi as u64) {
             Ok(pin) => pin,
             Err(err) => {

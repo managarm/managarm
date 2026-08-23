@@ -1,7 +1,10 @@
 use std::marker::PhantomData;
 use std::ptr::NonNull;
 
-use uacpi_sys::{uacpi_resource, uacpi_resource_extended_irq, uacpi_resource_irq, uacpi_resources};
+use uacpi_sys::{
+    uacpi_resource, uacpi_resource_extended_irq, uacpi_resource_fixed_io, uacpi_resource_io,
+    uacpi_resource_irq, uacpi_resource_type, uacpi_resources,
+};
 
 use super::namespace::NamespaceNode;
 use super::{Result, check};
@@ -88,12 +91,46 @@ impl<'a> ExtendedIrq<'a> {
     }
 }
 
+/// An IO port range resource, i.e., a resource of type UACPI_RESOURCE_TYPE_IO.
+#[derive(Clone, Copy)]
+pub struct Io<'a> {
+    io: &'a uacpi_resource_io,
+}
+
+impl Io<'_> {
+    pub fn minimum(self) -> u16 {
+        self.io.minimum
+    }
+
+    pub fn maximum(self) -> u16 {
+        self.io.maximum
+    }
+}
+
+/// A fixed IO port range resource, i.e., a resource of type UACPI_RESOURCE_TYPE_FIXED_IO.
+#[derive(Clone, Copy)]
+pub struct FixedIo<'a> {
+    io: &'a uacpi_resource_fixed_io,
+}
+
+impl FixedIo<'_> {
+    pub fn address(self) -> u16 {
+        self.io.address
+    }
+
+    pub fn length(self) -> u8 {
+        self.io.length
+    }
+}
+
 /// A single resource of a [`Resources`] list.
 pub enum Resource<'a> {
     Irq(Irq<'a>),
     ExtendedIrq(ExtendedIrq<'a>),
-    /// A resource of a type that we do not wrap yet.
-    Other,
+    Io(Io<'a>),
+    FixedIo(FixedIo<'a>),
+    /// A resource of a type that we do not wrap yet, i.e., a UACPI_RESOURCE_TYPE_* value.
+    Other(uacpi_resource_type),
 }
 
 /// A list of resources that uACPI allocated for us.
@@ -180,7 +217,13 @@ impl<'a> Iterator for ResourceIter<'a> {
                 uacpi_sys::UACPI_RESOURCE_TYPE_EXTENDED_IRQ => Resource::ExtendedIrq(ExtendedIrq {
                     irq: &*payload.cast::<uacpi_resource_extended_irq>(),
                 }),
-                _ => Resource::Other,
+                uacpi_sys::UACPI_RESOURCE_TYPE_IO => Resource::Io(Io {
+                    io: &*payload.cast::<uacpi_resource_io>(),
+                }),
+                uacpi_sys::UACPI_RESOURCE_TYPE_FIXED_IO => Resource::FixedIo(FixedIo {
+                    io: &*payload.cast::<uacpi_resource_fixed_io>(),
+                }),
+                _ => Resource::Other(type_),
             }
         };
 

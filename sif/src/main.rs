@@ -46,6 +46,10 @@ fn main() -> Result<()> {
 
         println!("sif: published PCI devices");
 
+        if acpi::has_rsdp() {
+            acpi::ps2::publish().await?;
+        }
+
         std::future::pending::<Result<()>>().await
     })?
 }
