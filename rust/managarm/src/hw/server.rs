@@ -463,3 +463,139 @@ pub async fn serve_acpi_object<D: AcpiObject + 'static>(lane: Handle, object: Ar
     })
     .await
 }
+
+/// A register range of a device tree node's reg property.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct DtRegisterDescriptor {
+    pub address: u64,
+    pub length: u64,
+    pub offset: u32,
+}
+
+pub trait DtNode {
+    fn regs(&self) -> Vec<DtRegisterDescriptor>;
+    fn num_irqs(&self) -> u32;
+    fn path(&self) -> String;
+    fn property(&self, name: &str) -> Option<Vec<u8>>;
+    fn properties(&self) -> Vec<(String, Vec<u8>)>;
+
+    /// Returns a memory view of the index-th register range.
+    fn access_register(&self, index: usize) -> super::Result<Handle>;
+    /// Returns the IRQ object for the index-th interrupt of the node.
+    fn install_irq(&self, index: usize) -> super::Result<&Handle>;
+    /// Configures all interrupts of the node.
+    fn enable_irqs(&self);
+}
+
+async fn handle_one_dt<D: DtNode>(lane: &Handle, request: &[u8], node: &D) -> hel::Result<()> {
+    let preamble = match bragi::preamble_from_bytes(request) {
+        Ok(p) => p,
+        Err(_) => return Ok(()),
+    };
+
+    match preamble.id() {
+        bindings::GetDtInfoRequest::MESSAGE_ID => {
+            let mut resp = bindings::SvrResponse::default();
+            resp.set_error(Errors::Success);
+            resp.set_num_dt_irqs(node.num_irqs());
+            let regs = node
+                .regs()
+                .iter()
+                .map(|reg| {
+                    let mut msg = bindings::DtRegister::default();
+                    msg.set_address(reg.address);
+                    msg.set_length(reg.length);
+                    msg.set_offset(reg.offset);
+                    msg
+                })
+                .collect();
+            resp.set_dt_regs(regs);
+            send_response(lane, &resp).await?;
+        }
+        bindings::AccessDtRegisterRequest::MESSAGE_ID => {
+            let req: bindings::AccessDtRegisterRequest =
+                bragi::head_from_bytes(request).map_err(|_| hel::Error::IllegalArgs)?;
+            match node.access_register(req.index() as usize) {
+                Ok(handle) => {
+                    send_response_with_push(
+                        lane,
+                        &error_response(Errors::Success),
+                        &handle,
+                        hel_sys::kHelRightRead
+                            | hel_sys::kHelRightWrite
+                            | hel_sys::kHelRightAssign
+                            | hel_sys::kHelRightProvision
+                            | hel_sys::kHelRightPin,
+                    )
+                    .await?
+                }
+                Err(err) => send_response(lane, &error_response(encode_hw_error(&err))).await?,
+            }
+        }
+        bindings::InstallDtIrqRequest::MESSAGE_ID => {
+            let req: bindings::InstallDtIrqRequest =
+                bragi::head_from_bytes(request).map_err(|_| hel::Error::IllegalArgs)?;
+            match node.install_irq(req.index() as usize) {
+                Ok(handle) => {
+                    send_response_with_push(
+                        lane,
+                        &error_response(Errors::Success),
+                        handle,
+                        hel_sys::kHelRightWait | hel_sys::kHelRightSignal,
+                    )
+                    .await?
+                }
+                Err(err) => send_response(lane, &error_response(encode_hw_error(&err))).await?,
+            }
+        }
+        bindings::EnableBusIrqRequest::MESSAGE_ID => {
+            node.enable_irqs();
+            send_response(lane, &error_response(Errors::Success)).await?;
+        }
+        bindings::GetDtPropertyRequest::MESSAGE_ID => {
+            let req: bindings::GetDtPropertyRequest =
+                bragi::head_from_bytes(request).map_err(|_| hel::Error::IllegalArgs)?;
+            let mut resp = bindings::GetDtPropertyResponse::default();
+            match node.property(req.name()) {
+                Some(data) => {
+                    resp.set_error(Errors::Success);
+                    resp.set_data(data);
+                }
+                None => resp.set_error(Errors::PropertyNotFound),
+            }
+            send_response(lane, &resp).await?;
+        }
+        bindings::GetDtPropertiesRequest::MESSAGE_ID => {
+            let mut resp = bindings::GetDtPropertiesResponse::default();
+            resp.set_error(Errors::Success);
+            let properties = node
+                .properties()
+                .into_iter()
+                .map(|(name, data)| {
+                    let mut msg = bindings::DtProperty::default();
+                    msg.set_name(name);
+                    msg.set_data(data);
+                    msg
+                })
+                .collect();
+            resp.set_properties(properties);
+            send_response(lane, &resp).await?;
+        }
+        bindings::GetDtPathRequest::MESSAGE_ID => {
+            let mut resp = bindings::GetDtPathResponse::default();
+            resp.set_error(Errors::Success);
+            resp.set_path(node.path());
+            send_response(lane, &resp).await?;
+        }
+        _ => send_response(lane, &error_response(Errors::DeviceError)).await?,
+    }
+
+    Ok(())
+}
+
+pub async fn serve_dt_node<D: DtNode + 'static>(lane: Handle, node: Arc<D>) {
+    serve_requests(lane, async |conversation: &Handle, request: &[u8]| {
+        handle_one_dt(conversation, request, node.as_ref()).await
+    })
+    .await
+}
