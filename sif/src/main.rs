@@ -3,6 +3,7 @@ use anyhow::{Result, bail};
 mod acpi;
 mod dt;
 mod entity;
+mod irq;
 // Only x86 has an ISA bus (and hence ISA IRQs).
 #[cfg(target_arch = "x86_64")]
 mod isa;
