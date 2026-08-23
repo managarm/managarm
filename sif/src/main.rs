@@ -24,6 +24,17 @@ fn main() -> Result<()> {
         println!("sif: enabled");
 
         let rsdp = managarm::kerncfg::get_acpi_rsdp().await?;
+        let (dt_address, dt_size) = managarm::kerncfg::get_device_tree().await?;
+        if rsdp == 0 && dt_address == 0 {
+            bail!("sif: kernel reported neither an ACPI RSDP nor a device tree");
+        }
+
+        // thor publishes dt-node objects whenever a device tree exists, even on ACPI systems.
+        if dt_address != 0 {
+            dt::node::init(dt_address, dt_size)?;
+            dt::irq::init();
+        }
+
         if rsdp != 0 {
             acpi::set_rsdp(rsdp);
             acpi::configure_log_level(&cmdline);
@@ -34,13 +45,6 @@ fn main() -> Result<()> {
             // Configure the ISA IRQs before the PCI links to match thor's ordering.
             #[cfg(target_arch = "x86_64")]
             isa::configure_isa_irqs();
-        } else {
-            let (address, size) = managarm::kerncfg::get_device_tree().await?;
-            if address == 0 {
-                bail!("sif: kernel reported neither an ACPI RSDP nor a device tree");
-            }
-            dt::node::init(address, size)?;
-            dt::irq::init();
         }
 
         pci::publish_devices().await?;
@@ -50,6 +54,8 @@ fn main() -> Result<()> {
         if acpi::has_rsdp() {
             acpi::ps2::publish().await?;
         }
+
+        dt::serve::publish_all().await?;
 
         std::future::pending::<Result<()>>().await
     })?

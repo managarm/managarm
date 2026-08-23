@@ -340,6 +340,18 @@ impl DeviceTreeNode {
         self.name
     }
 
+    pub fn parent(&self) -> Option<&'static DeviceTreeNode> {
+        self.parent
+    }
+
+    pub fn compatible(&self) -> &[&'static str] {
+        &self.compatible
+    }
+
+    pub fn interrupt_parent(&self) -> Option<&'static DeviceTreeNode> {
+        self.interrupt_parent.get().copied()
+    }
+
     pub fn path(&self) -> &str {
         &self.path
     }
@@ -487,6 +499,48 @@ pub fn init(address: u64, size: u64) -> Result<()> {
     root.finalize_init();
 
     Ok(())
+}
+
+/// Walks the "interrupts" property of a node; port of thor's dt::walkInterrupts().
+/// Returns None if the node has no interrupts property.
+pub fn walk_interrupts(
+    f: &mut impl FnMut(&'static DeviceTreeNode, fdt::Cells<'static>),
+    node: &'static DeviceTreeNode,
+) -> Option<bool> {
+    let prop = node.dt_node.find_property("interrupts")?;
+
+    let Some(parent) = node.interrupt_parent() else {
+        println!(
+            "sif: {}: interrupts property without an interrupt parent",
+            node.path()
+        );
+        return Some(false);
+    };
+    let parent_interrupt_cells = parent.interrupt_cells;
+    if parent_interrupt_cells == 0 {
+        println!(
+            "sif: {}: interrupt parent {} has no #interrupt-cells",
+            node.path(),
+            parent.path()
+        );
+        return Some(false);
+    }
+
+    let mut it = prop.access();
+    while !it.at_end_of_property() {
+        let Some(parent_irq) = it.into_cells(parent_interrupt_cells) else {
+            println!(
+                "sif: {}: failed to read parent IRQ from interrupts",
+                node.path()
+            );
+            return Some(false);
+        };
+        it.advance(parent_interrupt_cells * size_of::<u32>());
+
+        f(parent, parent_irq);
+    }
+
+    Some(true)
 }
 
 pub fn walk_interrupt_map(

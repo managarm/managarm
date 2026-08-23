@@ -1026,9 +1026,12 @@ pub const PCI_BRIDGE_SECONDARY: u16 = 0x19;
 pub const PCI_BRIDGE_SUBORDINATE: u16 = 0x1A;
 
 pub async fn publish_devices() -> Result<()> {
-    // Each discovery source no-ops if its firmware interface is absent.
+    // Each discovery source no-ops if its firmware interface is absent. ACPI systems
+    // describe PCI via the MCFG even when a device tree is also present.
     acpi::discover_root_buses();
-    dtb::discover_root_buses();
+    if !crate::acpi::has_rsdp() {
+        dtb::discover_root_buses();
+    }
 
     discover::enumerate_all();
     serve::publish_all().await?;
