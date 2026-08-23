@@ -8,6 +8,16 @@ use crate::hw::bindings::Errors;
 use super::bindings;
 use super::pci::IoType;
 
+fn encode_hw_error(err: &super::Error) -> Errors {
+    match err {
+        super::Error::OutOfBounds => Errors::OutOfBounds,
+        super::Error::IllegalArguments => Errors::IllegalArguments,
+        super::Error::ResourceExhaustion => Errors::ResourceExhaustion,
+        super::Error::PropertyNotFound => Errors::PropertyNotFound,
+        _ => Errors::DeviceError,
+    }
+}
+
 #[derive(Debug, Clone, Copy, Default)]
 pub struct BarDescriptor {
     pub io_type: IoType,
@@ -358,6 +368,98 @@ async fn serve_requests(lane: Handle, handler: impl AsyncFn(&Handle, &[u8]) -> h
 pub async fn serve_pci_device<D: PciDevice + 'static>(lane: Handle, device: Arc<D>) {
     serve_requests(lane, async |conversation: &Handle, request: &[u8]| {
         handle_one(conversation, request, device.as_ref()).await
+    })
+    .await
+}
+
+/// The IO ports and IRQs that an ACPI object's _CRS describes.
+#[derive(Debug, Default)]
+pub struct AcpiResources {
+    pub io_ports: Vec<u16>,
+    pub fixed_io_ports: Vec<u16>,
+    pub irqs: Vec<u8>,
+}
+
+pub trait AcpiObject {
+    /// Returns the resources of the object's _CRS, or None if evaluation fails.
+    fn resources(&self) -> Option<AcpiResources>;
+    /// Returns an IO-space handle covering the ports of the index-th port resource of _CRS.
+    fn access_ports(&self, index: usize) -> super::Result<Handle>;
+    /// Returns the IRQ object for the index-th interrupt of _CRS.
+    fn access_irq(&self, index: usize) -> super::Result<&Handle>;
+}
+
+async fn handle_one_acpi<D: AcpiObject>(
+    lane: &Handle,
+    request: &[u8],
+    object: &D,
+) -> hel::Result<()> {
+    let preamble = match bragi::preamble_from_bytes(request) {
+        Ok(p) => p,
+        Err(_) => return Ok(()),
+    };
+
+    match preamble.id() {
+        bindings::AcpiGetResourcesRequest::MESSAGE_ID => {
+            let mut resp = bindings::AcpiGetResourcesReply::default();
+            match object.resources() {
+                Some(resources) => {
+                    resp.set_error(Errors::Success);
+                    resp.set_io_ports(resources.io_ports);
+                    resp.set_fixed_io_ports(resources.fixed_io_ports);
+                    resp.set_irqs(resources.irqs);
+                }
+                None => resp.set_error(Errors::DeviceError),
+            }
+            send_response(lane, &resp).await?;
+        }
+        bindings::AccessBarRequest::MESSAGE_ID => {
+            let req: bindings::AccessBarRequest =
+                bragi::head_from_bytes(request).map_err(|_| hel::Error::IllegalArgs)?;
+            let index = usize::try_from(req.index()).map_err(|_| hel::Error::IllegalArgs)?;
+            match object.access_ports(index) {
+                Ok(handle) => {
+                    send_response_with_push(
+                        lane,
+                        &error_response(Errors::Success),
+                        &handle,
+                        hel_sys::kHelRightRead
+                            | hel_sys::kHelRightWrite
+                            | hel_sys::kHelRightAssign
+                            | hel_sys::kHelRightProvision
+                            | hel_sys::kHelRightPin,
+                    )
+                    .await?
+                }
+                Err(err) => send_response(lane, &error_response(encode_hw_error(&err))).await?,
+            }
+        }
+        bindings::AccessIrqRequest::MESSAGE_ID => {
+            let req: bindings::AccessIrqRequest =
+                bragi::head_from_bytes(request).map_err(|_| hel::Error::IllegalArgs)?;
+            let index = usize::try_from(req.index()).map_err(|_| hel::Error::IllegalArgs)?;
+            match object.access_irq(index) {
+                Ok(handle) => {
+                    send_response_with_push(
+                        lane,
+                        &error_response(Errors::Success),
+                        handle,
+                        hel_sys::kHelRightWait | hel_sys::kHelRightSignal,
+                    )
+                    .await?
+                }
+                Err(err) => send_response(lane, &error_response(encode_hw_error(&err))).await?,
+            }
+        }
+        _ => send_response(lane, &error_response(Errors::DeviceError)).await?,
+    }
+
+    Ok(())
+}
+
+pub async fn serve_acpi_object<D: AcpiObject + 'static>(lane: Handle, object: Arc<D>) {
+    serve_requests(lane, async |conversation: &Handle, request: &[u8]| {
+        handle_one_acpi(conversation, request, object.as_ref()).await
     })
     .await
 }
