@@ -121,7 +121,7 @@ fn build_pci_info<D: PciDevice>(device: &D) -> bindings::SvrResponse {
     resp
 }
 
-async fn send_response(lane: &Handle, resp: &bindings::SvrResponse) -> hel::Result<()> {
+async fn send_response<M: Message>(lane: &Handle, resp: &M) -> hel::Result<()> {
     let (head, tail) = bragi::head_tail_to_bytes(resp).expect("failed to encode hw response");
     let (head, tail) = submit_async(lane, (SendBuffer::new(&head), SendBuffer::new(&tail))).await?;
     head?;
@@ -129,9 +129,9 @@ async fn send_response(lane: &Handle, resp: &bindings::SvrResponse) -> hel::Resu
     Ok(())
 }
 
-async fn send_response_with_push(
+async fn send_response_with_push<M: Message>(
     lane: &Handle,
-    resp: &bindings::SvrResponse,
+    resp: &M,
     push: &Handle,
     rights: u32,
 ) -> hel::Result<()> {
@@ -149,12 +149,10 @@ async fn send_response_with_push(
     Ok(())
 }
 
-impl Into<bindings::SvrResponse> for Errors {
-    fn into(self) -> bindings::SvrResponse {
-        let mut resp = bindings::SvrResponse::default();
-        resp.set_error(self);
-        resp
-    }
+fn error_response(error: Errors) -> bindings::SvrResponse {
+    let mut resp = bindings::SvrResponse::default();
+    resp.set_error(error);
+    resp
 }
 
 async fn handle_one<D: PciDevice>(lane: &Handle, request: &[u8], device: &D) -> hel::Result<()> {
@@ -176,7 +174,7 @@ async fn handle_one<D: PciDevice>(lane: &Handle, request: &[u8], device: &D) -> 
                 Ok(handle) => {
                     send_response_with_push(
                         lane,
-                        &Errors::Success.into(),
+                        &error_response(Errors::Success),
                         &handle,
                         hel_sys::kHelRightRead
                             | hel_sys::kHelRightWrite
@@ -186,7 +184,7 @@ async fn handle_one<D: PciDevice>(lane: &Handle, request: &[u8], device: &D) -> 
                     )
                     .await?
                 }
-                Err(_) => send_response(lane, &Errors::OutOfBounds.into()).await?,
+                Err(_) => send_response(lane, &error_response(Errors::OutOfBounds)).await?,
             }
         }
         bindings::AccessIrqRequest::MESSAGE_ID => {
@@ -196,20 +194,20 @@ async fn handle_one<D: PciDevice>(lane: &Handle, request: &[u8], device: &D) -> 
                 Ok(Some(handle)) => {
                     send_response_with_push(
                         lane,
-                        &Errors::Success.into(),
+                        &error_response(Errors::Success),
                         &handle,
                         hel_sys::kHelRightWait | hel_sys::kHelRightSignal,
                     )
                     .await?
                 }
-                _ => send_response(lane, &Errors::IllegalArguments.into()).await?,
+                _ => send_response(lane, &error_response(Errors::IllegalArguments)).await?,
             }
         }
         bindings::AccessExpansionRomRequest::MESSAGE_ID => match device.access_expansion_rom() {
             Ok(Some(handle)) => {
                 send_response_with_push(
                     lane,
-                    &Errors::Success.into(),
+                    &error_response(Errors::Success),
                     &handle,
                     hel_sys::kHelRightRead
                         | hel_sys::kHelRightAssign
@@ -218,7 +216,7 @@ async fn handle_one<D: PciDevice>(lane: &Handle, request: &[u8], device: &D) -> 
                 )
                 .await?
             }
-            _ => send_response(lane, &Errors::DeviceError.into()).await?,
+            _ => send_response(lane, &error_response(Errors::DeviceError)).await?,
         },
         bindings::GetVbtRequest::MESSAGE_ID => match device.access_vbt() {
             Ok(Some((size, handle))) => {
@@ -236,7 +234,7 @@ async fn handle_one<D: PciDevice>(lane: &Handle, request: &[u8], device: &D) -> 
                 )
                 .await?
             }
-            _ => send_response(lane, &Errors::IllegalArguments.into()).await?,
+            _ => send_response(lane, &error_response(Errors::IllegalArguments)).await?,
         },
         bindings::LoadPciSpaceRequest::MESSAGE_ID => {
             let req: bindings::LoadPciSpaceRequest =
@@ -259,7 +257,7 @@ async fn handle_one<D: PciDevice>(lane: &Handle, request: &[u8], device: &D) -> 
             } else {
                 Errors::IllegalArguments
             };
-            send_response(lane, &error.into()).await?;
+            send_response(lane, &error_response(error)).await?;
         }
         bindings::LoadPciCapabilityRequest::MESSAGE_ID => {
             let req: bindings::LoadPciCapabilityRequest =
@@ -276,11 +274,11 @@ async fn handle_one<D: PciDevice>(lane: &Handle, request: &[u8], device: &D) -> 
         }
         bindings::EnableBusmasterRequest::MESSAGE_ID => {
             device.enable_busmaster();
-            send_response(lane, &Errors::Success.into()).await?;
+            send_response(lane, &error_response(Errors::Success)).await?;
         }
         bindings::EnableBusIrqRequest::MESSAGE_ID => {
             device.enable_irq();
-            send_response(lane, &Errors::Success.into()).await?;
+            send_response(lane, &error_response(Errors::Success)).await?;
         }
         bindings::InstallMsiRequest::MESSAGE_ID => {
             let req: bindings::InstallMsiRequest =
@@ -289,21 +287,21 @@ async fn handle_one<D: PciDevice>(lane: &Handle, request: &[u8], device: &D) -> 
                 Ok(Some(handle)) => {
                     send_response_with_push(
                         lane,
-                        &Errors::Success.into(),
+                        &error_response(Errors::Success),
                         &handle,
                         hel_sys::kHelRightWait | hel_sys::kHelRightSignal,
                     )
                     .await?
                 }
-                Ok(None) => send_response(lane, &Errors::IllegalArguments.into()).await?,
-                Err(_) => send_response(lane, &Errors::ResourceExhaustion.into()).await?,
+                Ok(None) => send_response(lane, &error_response(Errors::IllegalArguments)).await?,
+                Err(_) => send_response(lane, &error_response(Errors::ResourceExhaustion)).await?,
             }
         }
         bindings::EnableMsiRequest::MESSAGE_ID => {
             if device.enable_msi() {
-                send_response(lane, &Errors::Success.into()).await?;
+                send_response(lane, &error_response(Errors::Success)).await?;
             } else {
-                send_response(lane, &Errors::IllegalArguments.into()).await?;
+                send_response(lane, &error_response(Errors::IllegalArguments)).await?;
             }
         }
         bindings::GetDmaSpaceRequest::MESSAGE_ID => {
@@ -326,15 +324,15 @@ async fn handle_one<D: PciDevice>(lane: &Handle, request: &[u8], device: &D) -> 
         }
         bindings::ClaimDeviceRequest::MESSAGE_ID => {
             device.claim_device();
-            send_response(lane, &Errors::Success.into()).await?;
+            send_response(lane, &error_response(Errors::Success)).await?;
         }
-        _ => send_response(lane, &Errors::DeviceError.into()).await?,
+        _ => send_response(lane, &error_response(Errors::DeviceError)).await?,
     }
 
     Ok(())
 }
 
-pub async fn serve_pci_device<D: PciDevice + 'static>(lane: Handle, device: Arc<D>) {
+async fn serve_requests(lane: Handle, handler: impl AsyncFn(&Handle, &[u8]) -> hel::Result<()>) {
     loop {
         let (conversation, request) = match submit_async(&lane, Accept::new(ReceiveInline)).await {
             Ok((conversation, request)) => (conversation, request),
@@ -351,11 +349,15 @@ pub async fn serve_pci_device<D: PciDevice + 'static>(lane: Handle, device: Arc<
             Err(_) => continue,
         };
 
-        if handle_one(&conversation, &request, device.as_ref())
-            .await
-            .is_err()
-        {
+        if handler(&conversation, &request).await.is_err() {
             continue;
         }
     }
+}
+
+pub async fn serve_pci_device<D: PciDevice + 'static>(lane: Handle, device: Arc<D>) {
+    serve_requests(lane, async |conversation: &Handle, request: &[u8]| {
+        handle_one(conversation, request, device.as_ref()).await
+    })
+    .await
 }
