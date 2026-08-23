@@ -837,7 +837,8 @@ void handleSyscall(SyscallImageAccessor image) {
 	} break;
 	case kHelCallAccessIrq: {
 		HelHandle handle;
-		*image.error() = helAccessIrq((HelHandle)arg0, (uint32_t)arg1, (uint64_t)arg2, (uint64_t)arg3, &handle);
+		*image.error() = helAccessIrq((HelHandle)arg0, (uint32_t)arg1, (uint64_t)arg2, (uint64_t)arg3,
+				(const char *)arg4, &handle);
 		*image.out0() = handle;
 	} break;
 	case kHelCallHandleIrq: {
@@ -850,6 +851,9 @@ void handleSyscall(SyscallImageAccessor image) {
 	} break;
 	case kHelCallAutomateIrq: {
 		*image.error() = helAutomateIrq((HelHandle)arg0, (uint32_t)arg1, (HelHandle)arg2);
+	} break;
+	case kHelCallQueryMsiInfo: {
+		*image.error() = helQueryMsiInfo((HelHandle)arg0, (HelMsiInfo *)arg1);
 	} break;
 
 	case kHelCallAccessIo: {

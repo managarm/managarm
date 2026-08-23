@@ -1,8 +1,10 @@
 use std::sync::Mutex;
 use std::sync::atomic::Ordering;
 
+use managarm::svrctl::hardware_access_handle;
+
 use super::{
-    BarType, Capability, EXPECT_LOCK, ExtendedCapability, IrqIndex,
+    BarType, Capability, EXPECT_LOCK, ExtendedCapability, IrqIndex, MsixTable,
     PCI_BRIDGE_EXPANSION_ROM_BASE_ADDRESS, PCI_REGULAR_BAR0,
     PCI_REGULAR_EXPANSION_ROM_BASE_ADDRESS, PciBridge, PciBus, PciBusResource, PciDevice,
     PciEntity, PciExpansionRom, name_of_capability, name_of_extended_capability,
@@ -345,6 +347,95 @@ fn find_pci_caps(entity: &PciEntity) {
     }
 }
 
+// Setup MSI / MSI-X. This needs to happen after BARs are already allocated.
+fn setup_msis(device: &'static PciDevice) {
+    let entity = &device.entity;
+    let bus = entity.parent_bus;
+    let slot = entity.slot;
+    let function = entity.function;
+
+    let msix_index = device.msix_index.load(Ordering::Relaxed);
+    let msi_index = device.msi_index.load(Ordering::Relaxed);
+    if msix_index >= 0 {
+        let offset = entity.caps.lock().expect(EXPECT_LOCK)[msix_index as usize].offset;
+
+        let msg_control = unsafe { bus.read_config_half(slot, function, offset + 2) };
+        let num_msis = ((msg_control & 0x7FF) + 1) as u32;
+        println!(
+            "sif: {num_msis} MSI-X vectors available for PCI device {:04x}:{:02x}:{:02x}.{:x}",
+            entity.seg, entity.bus, slot, function
+        );
+
+        // Map the MSI-X BAR.
+        let table_info = unsafe { bus.read_config_word(slot, function, offset + 4) };
+        let table_bar = (table_info & 0x7) as usize;
+        let table_offset = table_info & 0xFFFF_FFF8;
+        assert!(table_bar < 6);
+
+        let bar = {
+            let bars = entity.bars.lock().expect(EXPECT_LOCK);
+            assert!(bars[table_bar].type_ == BarType::Memory);
+            bars[table_bar]
+        };
+        let table_address = (bar.host_address + table_offset as u64) as usize;
+        let mapping_disp = table_address & PAGE_MASK;
+        let mapping_size = (mapping_disp + num_msis as usize * 16 + PAGE_MASK) & !PAGE_MASK;
+
+        let handle = match hel::access_physical(
+            hardware_access_handle(),
+            table_address & !PAGE_MASK,
+            mapping_size,
+            hel::CachingMode::Mmio,
+        ) {
+            Ok(handle) => handle,
+            Err(err) => {
+                println!("sif: Failed to access the MSI-X table: {err}");
+                return;
+            }
+        };
+        let mapping = match unsafe {
+            hel::Mapping::<u8>::new(
+                &handle,
+                None,
+                0,
+                mapping_size,
+                hel::MappingFlags::READ | hel::MappingFlags::WRITE,
+            )
+        } {
+            Ok(mapping) => mapping,
+            Err(err) => {
+                println!("sif: Failed to map the MSI-X table: {err}");
+                return;
+            }
+        };
+        let table = MsixTable::new(mapping, mapping_disp);
+
+        // Mask all MSIs.
+        for i in 0..num_msis as usize {
+            table.set_masked(i, true);
+        }
+
+        *device.msix_mapping.lock().expect(EXPECT_LOCK) = Some(table);
+        device.num_msis.store(num_msis, Ordering::Relaxed);
+        device.msis_usable.store(true, Ordering::Relaxed);
+    } else if msi_index >= 0 {
+        let offset = entity.caps.lock().expect(EXPECT_LOCK)[msi_index as usize].offset;
+
+        let mut msg_control = unsafe { bus.read_config_half(slot, function, offset + 2) };
+        let num_msis = 1; // TODO(qookie): 1 << ((msg_control >> 1) & 0b111)
+        println!(
+            "sif: {num_msis} MSI vectors available for PCI device {:04x}:{:02x}:{:02x}.{:x}",
+            entity.seg, entity.bus, slot, function
+        );
+
+        msg_control &= !0x0001; // Disable MSI
+
+        unsafe { bus.write_config_half(slot, function, offset + 2, msg_control) };
+        device.num_msis.store(num_msis, Ordering::Relaxed);
+        device.msis_usable.store(true, Ordering::Relaxed);
+    }
+}
+
 fn check_pci_function(
     bus: &'static PciBus,
     slot: u8,
@@ -418,6 +509,22 @@ fn check_pci_function(
         );
 
         find_pci_caps(&device.entity);
+
+        for (i, cap) in device
+            .entity
+            .caps
+            .lock()
+            .expect(EXPECT_LOCK)
+            .iter()
+            .enumerate()
+        {
+            if cap.type_ == 0x5 {
+                device.msi_index.store(i as i32, Ordering::Relaxed);
+            }
+            if cap.type_ == 0x11 {
+                device.msix_index.store(i as i32, Ordering::Relaxed);
+            }
+        }
 
         read_entity_bars(&device.entity, 6);
         parse_expansion_rom(&device.entity, PCI_REGULAR_EXPANSION_ROM_BASE_ADDRESS);
@@ -1180,6 +1287,8 @@ fn configure_device(device: &'static PciDevice) {
         decode_bits |= 0x02;
     }
     enable_decodes_in_chain(decode_bits, &device.entity);
+
+    setup_msis(device);
 
     println!(
         "sif: Applying quirks for PCI device {:04x}:{:02x}:{:02x}.{:x}",

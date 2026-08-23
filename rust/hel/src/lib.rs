@@ -125,6 +125,7 @@ pub fn access_irq_by_gsi(access_handle: &Handle, gsi: u64) -> Result<Handle> {
             hel_sys::kHelAccessIrqByGsi as u32,
             0,
             gsi,
+            std::ptr::null(),
             &mut handle,
         )
     })?;
@@ -140,10 +141,55 @@ pub fn access_irq_by_phandle(access_handle: &Handle, phandle: u64, index: u64) -
             hel_sys::kHelAccessIrqByPhandle as u32,
             phandle,
             index,
+            std::ptr::null(),
             &mut handle,
         )
     })?;
     Ok(unsafe { Handle::from_raw(handle) })
+}
+
+/// Allocates a fresh MSI pin from the system's MSI controller.
+/// The name identifies the pin in kernel diagnostics.
+pub fn allocate_msi(access_handle: &Handle, name: &str) -> Result<Handle> {
+    // The kernel reads the whole buffer, hence pass one of exactly that size.
+    // Names that do not fit are truncated.
+    let mut buffer = [0 as std::ffi::c_char; hel_sys::kHelIrqNameSize as usize];
+    for (slot, &byte) in buffer.iter_mut().zip(name.as_bytes()) {
+        *slot = byte as std::ffi::c_char;
+    }
+
+    let mut handle = hel_sys::kHelNullHandle as hel_sys::HelHandle;
+    result::hel_check(unsafe {
+        hel_sys::helAccessIrq(
+            access_handle.handle(),
+            hel_sys::kHelAccessIrqAllocateMsi as u32,
+            0,
+            0,
+            buffer.as_ptr(),
+            &mut handle,
+        )
+    })?;
+    Ok(unsafe { Handle::from_raw(handle) })
+}
+
+/// Message address / data pair that raises an MSI.
+#[derive(Debug, Clone, Copy)]
+pub struct MsiInfo {
+    pub address: u64,
+    pub data: u32,
+}
+
+/// Queries the message address and data of an MSI pin.
+pub fn query_msi_info(pin: &Handle) -> Result<MsiInfo> {
+    let mut info = hel_sys::HelMsiInfo {
+        address: 0,
+        data: 0,
+    };
+    result::hel_check(unsafe { hel_sys::helQueryMsiInfo(pin.handle(), &mut info) })?;
+    Ok(MsiInfo {
+        address: info.address,
+        data: info.data,
+    })
 }
 
 /// Returns an IRQ object that handles interrupts of the given IRQ pin.

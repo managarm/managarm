@@ -7,10 +7,11 @@ pub mod serve;
 
 use managarm::svrctl::hardware_access_handle;
 use std::collections::BTreeMap;
-use std::sync::atomic::{AtomicBool, AtomicI64, AtomicU8};
+use std::sync::atomic::{AtomicBool, AtomicI32, AtomicI64, AtomicU8, AtomicU32, Ordering};
 use std::sync::{Mutex, OnceLock};
 
 use anyhow::Result;
+use arch::{IoMemSpace, bit_register, scalar_register};
 use hel::{IrqPolarity, IrqTrigger};
 
 use config::PciConfigIo;
@@ -41,6 +42,12 @@ impl IrqPin {
 }
 
 static IRQ_PINS: Mutex<BTreeMap<u32, &'static IrqPin>> = Mutex::new(BTreeMap::new());
+
+// thor only implements MSI allocation on x86-64 (LAPIC MSIs); mirror that here
+// until the kernel can report MSI availability.
+pub fn msi_controller_available() -> bool {
+    cfg!(target_arch = "x86_64")
+}
 
 // Configures a GSI and returns its pin, sharing pins between users of the same GSI.
 pub fn system_irq(gsi: u32, trigger: IrqTrigger, polarity: IrqPolarity) -> Option<&'static IrqPin> {
@@ -710,6 +717,54 @@ pub struct Capability {
     pub length: Option<u64>,
 }
 
+// Entry of the MSI-X vector table, from the PCI specification.
+const MSIX_ENTRY_SIZE: usize = 16;
+scalar_register!(MsixMessageAddress @ 0: u64);
+scalar_register!(MsixMessageData @ 8: u32);
+bit_register! {
+    MsixVectorControl @ 12: u32 {
+        MASK @ 0, 1: bool;
+    }
+}
+
+// MSI-X vector table of a device, mapped from the BAR named by the MSI-X capability.
+pub struct MsixTable {
+    mapping: hel::Mapping<u8>,
+    disp: usize,
+}
+
+impl MsixTable {
+    pub fn new(mapping: hel::Mapping<u8>, disp: usize) -> MsixTable {
+        MsixTable { mapping, disp }
+    }
+
+    // Returns the window of the vector table entry at `index`.
+    fn entry(&self, index: usize) -> IoMemSpace {
+        let space =
+            unsafe { IoMemSpace::new(self.mapping.as_ptr().unwrap().as_ptr(), self.mapping.len()) };
+        space.subspace(self.disp + index * MSIX_ENTRY_SIZE)
+    }
+
+    pub fn store_message_address(&self, index: usize, value: u64) {
+        unsafe { self.entry(index).store(MsixMessageAddress, value) };
+    }
+
+    pub fn store_message_data(&self, index: usize, value: u32) {
+        unsafe { self.entry(index).store(MsixMessageData, value) };
+    }
+
+    pub fn set_masked(&self, index: usize, masked: bool) {
+        let entry = self.entry(index);
+        let control = unsafe { entry.load(MsixVectorControl) };
+        unsafe {
+            entry.store(
+                MsixVectorControl,
+                control.with(MsixVectorControl::MASK, masked),
+            )
+        };
+    }
+}
+
 // Not consumed yet; kept to match the information thor collects.
 #[allow(dead_code)]
 pub struct ExtendedCapability {
@@ -847,6 +902,16 @@ pub struct PciDevice {
 
     // Physical address and size of the Intel IGD VBT, if any.
     pub igd_vbt: OnceLock<(u64, u64)>,
+
+    // MSI / MSI-X support.
+    // Only set once the vectors were fully set up (e.g. the MSI-X table could be mapped).
+    pub msis_usable: AtomicBool,
+    pub num_msis: AtomicU32,
+    pub msix_index: AtomicI32,
+    pub msix_mapping: Mutex<Option<MsixTable>>,
+    pub msi_index: AtomicI32,
+    pub msi_enabled: AtomicBool,
+    pub msi_installed: AtomicBool,
 }
 
 impl PciDevice {
@@ -873,6 +938,13 @@ impl PciDevice {
             subsystem_device,
             interrupt: OnceLock::new(),
             igd_vbt: OnceLock::new(),
+            msis_usable: AtomicBool::new(false),
+            num_msis: AtomicU32::new(0),
+            msix_index: AtomicI32::new(-1),
+            msix_mapping: Mutex::new(None),
+            msi_index: AtomicI32::new(-1),
+            msi_enabled: AtomicBool::new(false),
+            msi_installed: AtomicBool::new(false),
         })
     }
 
@@ -881,6 +953,99 @@ impl PciDevice {
 
         let command = bus.command(self.entity.slot, self.entity.function);
         bus.set_command(self.entity.slot, self.entity.function, command & !0x400);
+    }
+
+    pub fn setup_msi(&self, msi: &hel::MsiInfo, index: usize) {
+        let bus = self.entity.parent_bus;
+        let slot = self.entity.slot;
+        let function = self.entity.function;
+
+        if self.msix_index.load(Ordering::Relaxed) >= 0 {
+            // Setup the MSI-X table.
+            let msix_mapping = self.msix_mapping.lock().expect(EXPECT_LOCK);
+            let table = msix_mapping
+                .as_ref()
+                .expect("sif: MSI-X table is not mapped");
+            table.store_message_address(index, msi.address);
+            table.store_message_data(index, msi.data);
+            table.set_masked(index, false);
+        } else {
+            let msi_index = self.msi_index.load(Ordering::Relaxed);
+            assert!(msi_index >= 0);
+
+            // TODO(qookie): support non-zero indices
+            assert!(index == 0);
+            let offset = self.entity.caps.lock().expect(EXPECT_LOCK)[msi_index as usize].offset;
+
+            let mut msg_control = unsafe { bus.read_config_half(slot, function, offset + 2) };
+
+            let is_64_capable = msg_control & (1 << 7) != 0;
+
+            unsafe { bus.write_config_word(slot, function, offset + 4, msi.address as u32) };
+
+            if is_64_capable {
+                unsafe {
+                    bus.write_config_word(slot, function, offset + 8, (msi.address >> 32) as u32)
+                };
+                unsafe { bus.write_config_half(slot, function, offset + 12, msi.data as u16) };
+            } else {
+                assert!(msi.address >> 32 == 0);
+                unsafe { bus.write_config_half(slot, function, offset + 8, msi.data as u16) };
+            }
+
+            if self.msi_enabled.load(Ordering::Relaxed) {
+                // Enable MSI
+                msg_control |= 0x0001;
+
+                unsafe { bus.write_config_half(slot, function, offset + 2, msg_control) };
+            }
+
+            self.msi_installed.store(true, Ordering::Relaxed);
+        }
+    }
+
+    // Unlike thor, this does not unmask INTx: clients that use INTx alongside MSIs
+    // (e.g. virtio for configuration changes) enable it explicitly via EnableBusIrq.
+    pub fn enable_msi(&self) {
+        let bus = self.entity.parent_bus;
+        let slot = self.entity.slot;
+        let function = self.entity.function;
+
+        let msix_index = self.msix_index.load(Ordering::Relaxed);
+        if msix_index >= 0 {
+            let offset = self.entity.caps.lock().expect(EXPECT_LOCK)[msix_index as usize].offset;
+
+            let mut msg_control = unsafe { bus.read_config_half(slot, function, offset + 2) };
+
+            msg_control |= 0x8000; // Enable MSI-X.
+
+            msg_control &= !0x4000; // Disable the overall mask.
+            unsafe { bus.write_config_half(slot, function, offset + 2, msg_control) };
+        } else {
+            let msi_index = self.msi_index.load(Ordering::Relaxed);
+            assert!(msi_index >= 0);
+
+            let offset = self.entity.caps.lock().expect(EXPECT_LOCK)[msi_index as usize].offset;
+
+            let mut msg_control = unsafe { bus.read_config_half(slot, function, offset + 2) };
+
+            if !self.msi_installed.load(Ordering::Relaxed) {
+                // Disable MSI by default, configure to only 1 message
+                // MSIs will be reenabled once one is installed in setup_msi, since
+                // we may not have a way to mask it otherwise (mask register only
+                // exists if MSIs are 64-bit).
+                msg_control &= !0x0071;
+            } else {
+                // setup_msi was called before enable_msi, so we can enable them
+                // without worrying about needing the MSI to be masked.
+                msg_control &= !0x0070; // Only one message
+                msg_control |= 0x0001; // Enable MSI
+            }
+
+            unsafe { bus.write_config_half(slot, function, offset + 2, msg_control) };
+
+            self.msi_enabled.store(true, Ordering::Relaxed);
+        }
     }
 }
 

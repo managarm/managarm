@@ -53,6 +53,7 @@ private:
 // ----------------------------------------------------------------------------
 
 struct IrqPin;
+struct MsiPin;
 
 // null is used for interrupt controllers that do not implement configurable trigger modes.
 enum class TriggerMode {
@@ -201,6 +202,9 @@ public:
 
 	virtual void dumpHardwareState();
 
+	// Non-null iff this pin is message-signaled.
+	virtual MsiPin *asMsiPin() { return nullptr; }
+
 protected:
 	virtual IrqStrategy program(TriggerMode mode, Polarity polarity) = 0;
 
@@ -267,6 +271,8 @@ private:
 struct MsiPin : IrqPin {
 	MsiPin(frg::string<KernelAlloc> name)
 	: IrqPin{std::move(name)} { }
+
+	MsiPin *asMsiPin() override { return this; }
 
 	virtual uint64_t getMessageAddress() = 0;
 	virtual uint32_t getMessageData() = 0;

@@ -3532,7 +3532,8 @@ HelError helRaiseEvent(HelHandle handle) {
 }
 
 HelError helAccessIrq(
-	HelHandle accessHandle, uint32_t mode, uint64_t controller, uint64_t index, HelHandle *handle
+	HelHandle accessHandle, uint32_t mode, uint64_t controller, uint64_t index,
+	const char *name, HelHandle *handle
 ) {
 	auto this_thread = getCurrentThread();
 	auto this_universe = this_thread->getUniverse();
@@ -3564,6 +3565,21 @@ HelError helAccessIrq(
 		if(!irqController)
 			return kHelErrIllegalArgs;
 		pin = irqController->resolveIrqIndex(index);
+#else
+		return kHelErrUnsupportedOperation;
+#endif
+	}else if(mode == kHelAccessIrqAllocateMsi) {
+		// kHelAccessIrqAllocateMsi allocates from the system's default MSI controller.
+		if (controller || index)
+			return kHelErrIllegalArgs;
+		if (!name)
+			return kHelErrIllegalArgs;
+#ifdef __x86_64__
+		char nameBuffer[kHelIrqNameSize];
+		if(!readUserArray(name, nameBuffer, kHelIrqNameSize))
+			return kHelErrFault;
+		pin = allocateApicMsi(frg::string<KernelAlloc>{*kernelAlloc, nameBuffer,
+				strnlen(nameBuffer, kHelIrqNameSize)});
 #else
 		return kHelErrUnsupportedOperation;
 #endif
@@ -3627,6 +3643,30 @@ HelError helConfigureIrq(HelHandle pinHandle, uint32_t trigger, uint32_t polarit
 		return translateError(pinOutcome.error());
 
 	(*pinOutcome)->configure(IrqConfiguration{triggerMode, irqPolarity});
+
+	return kHelErrNone;
+}
+
+HelError helQueryMsiInfo(HelHandle pinHandle, HelMsiInfo *info) {
+	auto this_thread = getCurrentThread();
+	auto this_universe = this_thread->getUniverse();
+
+	auto pinOutcome = this_universe->resolveObject<DescriptorType::irqPin>(pinHandle,
+			kHelRightManage);
+	if(!pinOutcome)
+		return translateError(pinOutcome.error());
+
+	auto *msiPin = (*pinOutcome)->asMsiPin();
+	if(!msiPin)
+		return kHelErrUnsupportedOperation;
+
+	HelMsiInfo outInfo;
+	memset(&outInfo, 0, sizeof(HelMsiInfo));
+	outInfo.address = msiPin->getMessageAddress();
+	outInfo.data = msiPin->getMessageData();
+
+	if(!writeUserObject(info, outInfo))
+		return kHelErrFault;
 
 	return kHelErrNone;
 }
