@@ -533,7 +533,11 @@ async fn dispatch_request(lane: &hel::Handle, file: &Rc<dyn File>) -> Result<(),
             parse_and_spawn(&head, conversation, handle_cancel)?;
         }
         // A decodable but unhandled message ID: unsupported rather than malformed.
-        id => eprintln!("managarm/fs: dropping request with unexpected message ID {id}"),
+        // Dismiss so that the client observes an error instead of hanging.
+        id => {
+            eprintln!("managarm/fs: dismissing request with unexpected message ID {id}");
+            hel::spawn(log_errors(dismiss(conversation)));
+        }
     }
     Ok(())
 }
@@ -1030,7 +1034,10 @@ async fn dispatch_node_request(
         bindings::ChownRequest::MESSAGE_ID => {
             parse_and_spawn(&head, conversation, handle_chown)?;
         }
-        id => eprintln!("managarm/fs: dropping node request with unexpected message ID {id}"),
+        id => {
+            eprintln!("managarm/fs: dismissing node request with unexpected message ID {id}");
+            hel::spawn(log_errors(dismiss(conversation)));
+        }
     }
     Ok(())
 }
