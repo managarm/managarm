@@ -109,13 +109,13 @@ NptOperations::NptOperations(NptPageSpace *pageSpace)
 
 void NptOperations::retire(RetireNode *node) {
 	// TODO: Shootdown needs to be implemented for NPT.
-	(void)node;
+	node->complete();
 }
 
 bool NptOperations::submitShootdown(ShootNode *node) {
 	// TODO: Shootdown needs to be implemented for NPT.
 	(void)node;
-	return false;
+	return true;
 }
 
 frg::expected<Error, PagesAffected> NptOperations::mapPresentPages(VirtualAddr va, MemoryView *view,
