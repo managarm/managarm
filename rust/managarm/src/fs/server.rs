@@ -97,8 +97,34 @@ pub trait File {
         Err(Error::IllegalOperationTarget)
     }
 
+    /// Reads at most `buffer.len()` bytes at the given offset, without
+    /// affecting the file offset.
+    async fn pread(
+        &self,
+        credentials: Credentials,
+        offset: i64,
+        buffer: &mut [u8],
+    ) -> Result<usize, Error> {
+        Err(Error::IllegalOperationTarget)
+    }
+
     /// Writes the bytes in `buffer` and returns the number of bytes written.
     async fn write(&self, credentials: Credentials, buffer: &[u8]) -> Result<usize, Error> {
+        Err(Error::IllegalOperationTarget)
+    }
+
+    /// Writes the bytes in `buffer` at the given offset, without affecting
+    /// the file offset.
+    async fn pwrite(
+        &self,
+        credentials: Credentials,
+        offset: i64,
+        buffer: &[u8],
+    ) -> Result<usize, Error> {
+        Err(Error::IllegalOperationTarget)
+    }
+
+    async fn truncate(&self, size: u64) -> Result<(), Error> {
         Err(Error::IllegalOperationTarget)
     }
 
@@ -276,6 +302,37 @@ async fn handle_read(
     Ok(())
 }
 
+async fn handle_pread(
+    conversation: hel::Handle,
+    file: Rc<dyn File>,
+    req: bindings::PreadRequest,
+) -> Result<(), ServeError> {
+    let credentials = extract_credentials(&conversation).await?;
+
+    let mut buffer = vec![0u8; req.size() as usize];
+
+    // On success the client expects the data after the response; on error it
+    // expects the response alone.
+    match file.pread(credentials, req.offset(), &mut buffer).await {
+        Ok(size) => {
+            assert!(size <= buffer.len());
+            let resp = bindings::SvrResponse::new(Error::Success);
+            let head = bragi::head_to_bytes(&resp)?;
+            let (send_head, send_data) = hel::submit_async(
+                &conversation,
+                (
+                    hel::SendBuffer::new(&head),
+                    hel::SendBuffer::new(&buffer[..size]),
+                ),
+            )
+            .await?;
+            send_head.and(send_data)?;
+            Ok(())
+        }
+        Err(e) => send_response(&conversation, &bindings::SvrResponse::new(e)).await,
+    }
+}
+
 async fn handle_write(
     conversation: hel::Handle,
     file: Rc<dyn File>,
@@ -299,6 +356,49 @@ async fn handle_write(
             resp.set_size(size as i64);
             resp
         }
+        Err(e) => bindings::SvrResponse::new(e),
+    };
+    send_response(&conversation, &resp).await
+}
+
+async fn handle_pwrite(
+    conversation: hel::Handle,
+    file: Rc<dyn File>,
+    req: bindings::PwriteRequest,
+) -> Result<(), ServeError> {
+    let mut buffer = vec![0u8; req.size() as usize];
+    let (credentials, received) = hel::submit_async(
+        &conversation,
+        (
+            hel::ExtractCredentials,
+            hel::ReceiveBuffer::new(&mut buffer),
+        ),
+    )
+    .await?;
+    let credentials = credentials?;
+    let received = received?;
+
+    let resp = match file
+        .pwrite(credentials, req.offset(), &buffer[..received])
+        .await
+    {
+        Ok(size) => {
+            let mut resp = bindings::SvrResponse::new(Error::Success);
+            resp.set_size(size as i64);
+            resp
+        }
+        Err(e) => bindings::SvrResponse::new(e),
+    };
+    send_response(&conversation, &resp).await
+}
+
+async fn handle_truncate(
+    conversation: hel::Handle,
+    file: Rc<dyn File>,
+    req: bindings::TruncateRequest,
+) -> Result<(), ServeError> {
+    let resp = match file.truncate(req.size()).await {
+        Ok(()) => bindings::SvrResponse::new(Error::Success),
         Err(e) => bindings::SvrResponse::new(e),
     };
     send_response(&conversation, &resp).await
@@ -399,10 +499,28 @@ async fn dispatch_request(lane: &hel::Handle, file: &Rc<dyn File>) -> Result<(),
                 handle_read(conversation, file, req)
             })?;
         }
+        bindings::PreadRequest::MESSAGE_ID => {
+            let file = file.clone();
+            parse_and_spawn(&head, conversation, move |conversation, req| {
+                handle_pread(conversation, file, req)
+            })?;
+        }
         bindings::WriteRequest::MESSAGE_ID => {
             let file = file.clone();
             parse_and_spawn(&head, conversation, move |conversation, req| {
                 handle_write(conversation, file, req)
+            })?;
+        }
+        bindings::PwriteRequest::MESSAGE_ID => {
+            let file = file.clone();
+            parse_and_spawn(&head, conversation, move |conversation, req| {
+                handle_pwrite(conversation, file, req)
+            })?;
+        }
+        bindings::TruncateRequest::MESSAGE_ID => {
+            let file = file.clone();
+            parse_and_spawn(&head, conversation, move |conversation, req| {
+                handle_truncate(conversation, file, req)
             })?;
         }
         bindings::ReadEntriesRequest::MESSAGE_ID => {
