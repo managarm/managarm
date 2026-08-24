@@ -1,6 +1,6 @@
 use managarm::svrctl::hardware_access_handle;
 use std::collections::HashMap;
-use std::rc::Rc;
+use std::sync::Arc;
 use std::sync::atomic::Ordering;
 
 use anyhow::Result;
@@ -304,7 +304,7 @@ impl managarm::hw::server::PciDevice for ServedEntity {
 
 async fn serve_entity(manager: &'static EntityManager, served: ServedEntity) {
     let id = manager.id();
-    let device = Rc::new(served);
+    let device = Arc::new(served);
 
     loop {
         let (local, remote) = match hel::create_stream() {
