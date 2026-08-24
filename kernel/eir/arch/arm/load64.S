@@ -17,7 +17,9 @@ eirStackTop:
 	cmp x0, x1
 	b.lo 1b
 	// Ensure that the cache flush is finished.
-	dsb ish
+	// This must be a full-system dsb: after the MMU is disabled,
+	// this CPU's accesses are Device-nGnRnE and bypass Inner Shareable coherency.
+	dsb sy
 	isb
 .endm
 
