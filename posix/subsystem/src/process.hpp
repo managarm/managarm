@@ -793,20 +793,14 @@ struct ThreadGroup : std::enable_shared_from_this<ThreadGroup> {
 	static std::shared_ptr<ThreadGroup> findThreadGroup(ProcessId pid);
 	std::shared_ptr<Process> findThread(pid_t tid);
 
-	Error setUid(uid_t uid) {
-		if(uid < 0) {
-			return Error::illegalArguments;
-		}
-		if(isRoot()) {
-			_uid = uid;
-			_euid = uid;
-			return Error::success;
-		} else if(uid == _uid) {
-			_uid = uid;
-			return Error::success;
-		}
-		return Error::accessDenied;
-	}
+	Error setUid(uid_t uid);
+
+	Error setResuid(uint64_t ruid, uint64_t euid, uint64_t suid);
+	Error setResgid(uint64_t rgid, uint64_t egid, uint64_t sgid);
+
+	Error setReuid(uint64_t ruid, uint64_t euid);
+
+	Error setRegid(uint64_t rgid, uint64_t egid);
 
 	uid_t uid() {
 		return _uid;
@@ -842,20 +836,7 @@ struct ThreadGroup : std::enable_shared_from_this<ThreadGroup> {
 		return _suid;
 	}
 
-	Error setGid(gid_t gid) {
-		if(gid < 0) {
-			return Error::illegalArguments;
-		}
-		if(isRoot()) {
-			_gid = gid;
-			_egid = gid;
-			return Error::success;
-		} else if(gid == _gid) {
-			_egid = gid;
-			return Error::success;
-		}
-		return Error::accessDenied;
-	}
+	Error setGid(gid_t gid);
 
 	gid_t gid() {
 		return _gid;

@@ -30,6 +30,7 @@ src = [
 	'src/segfault.cpp',
 	'src/pthread-timeouts.cpp',
 	'src/split-mappings.cpp',
+	'src/uid-gid.cpp',
 ]
 
 executable('posix-tests', src, dependencies: [cli11_dep, frigg], install : true)

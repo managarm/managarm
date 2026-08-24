@@ -1,6 +1,7 @@
 
 #include <signal.h>
 #include <string.h>
+#include <limits>
 #include <print>
 
 #include "common.hpp"
@@ -20,6 +21,28 @@ static bool logCleanup_ = false;
 async::result<void> serve(std::shared_ptr<Process> self, std::shared_ptr<Generation> generation);
 
 std::shared_ptr<ThreadGroup> initThreadGroup = nullptr;
+
+namespace {
+
+template<typename Id>
+bool isNoChangeSetIdRequest(uint64_t requested) {
+	return requested == static_cast<uint64_t>(-1)
+		|| requested == static_cast<uint64_t>(std::numeric_limits<Id>::max());
+}
+
+template<typename Id>
+Error resolveSetIdRequest(uint64_t requested, Id current, Id &result) {
+	if(isNoChangeSetIdRequest<Id>(requested)) {
+		result = current;
+		return Error::success;
+	}
+	if(requested > static_cast<uint64_t>(std::numeric_limits<Id>::max()))
+		return Error::illegalArguments;
+	result = static_cast<Id>(requested);
+	return Error::success;
+}
+
+} // namespace
 
 // ----------------------------------------------------------------------------
 // VmContext.
@@ -1813,6 +1836,172 @@ ThreadGroup *ThreadGroup::create(std::shared_ptr<PidHull> hull, ThreadGroup *par
 	auto tg = std::make_shared<ThreadGroup>(std::move(hull), parent);
 	parent->_children.push_back(tg);
 	return tg.get();
+}
+
+Error ThreadGroup::setUid(uid_t uid) {
+	if(uid < 0)
+		return Error::illegalArguments;
+
+	if(isRoot()) {
+		_uid = uid;
+		_euid = uid;
+		_suid = uid;
+		return Error::success;
+	}
+	if(uid == _uid || uid == _suid) {
+		_euid = uid;
+		return Error::success;
+	}
+	return Error::accessDenied;
+}
+
+Error ThreadGroup::setGid(gid_t gid) {
+	if(gid < 0)
+		return Error::illegalArguments;
+
+	if(isRoot()) {
+		_gid = gid;
+		_egid = gid;
+		_sgid = gid;
+		return Error::success;
+	}
+	if(gid == _gid || gid == _sgid) {
+		_egid = gid;
+		return Error::success;
+	}
+	return Error::accessDenied;
+}
+
+Error ThreadGroup::setResuid(uint64_t ruid, uint64_t euid, uint64_t suid) {
+	const auto oldUid = _uid;
+	const auto oldEuid = _euid;
+	const auto oldSuid = _suid;
+
+	uid_t newUid = oldUid;
+	uid_t newEuid = oldEuid;
+	uid_t newSuid = oldSuid;
+
+	if(auto error = resolveSetIdRequest(ruid, oldUid, newUid); error != Error::success)
+		return error;
+	if(auto error = resolveSetIdRequest(euid, oldEuid, newEuid); error != Error::success)
+		return error;
+	if(auto error = resolveSetIdRequest(suid, oldSuid, newSuid); error != Error::success)
+		return error;
+
+	if(!isRoot()) {
+		auto permitted = [&](uid_t id) {
+			return id == oldUid || id == oldEuid || id == oldSuid;
+		};
+		if((!isNoChangeSetIdRequest<uid_t>(ruid) && !permitted(newUid))
+				|| (!isNoChangeSetIdRequest<uid_t>(euid) && !permitted(newEuid))
+				|| (!isNoChangeSetIdRequest<uid_t>(suid) && !permitted(newSuid)))
+			return Error::insufficientPermissions;
+	}
+
+	_uid = newUid;
+	_euid = newEuid;
+	_suid = newSuid;
+	return Error::success;
+}
+
+Error ThreadGroup::setResgid(uint64_t rgid, uint64_t egid, uint64_t sgid) {
+	const auto oldGid = _gid;
+	const auto oldEgid = _egid;
+	const auto oldSgid = _sgid;
+
+	gid_t newGid = oldGid;
+	gid_t newEgid = oldEgid;
+	gid_t newSgid = oldSgid;
+
+	if(auto error = resolveSetIdRequest(rgid, oldGid, newGid); error != Error::success)
+		return error;
+	if(auto error = resolveSetIdRequest(egid, oldEgid, newEgid); error != Error::success)
+		return error;
+	if(auto error = resolveSetIdRequest(sgid, oldSgid, newSgid); error != Error::success)
+		return error;
+
+	if(!isRoot()) {
+		auto permitted = [&](gid_t id) {
+			return id == oldGid || id == oldEgid || id == oldSgid;
+		};
+		if((!isNoChangeSetIdRequest<gid_t>(rgid) && !permitted(newGid))
+				|| (!isNoChangeSetIdRequest<gid_t>(egid) && !permitted(newEgid))
+				|| (!isNoChangeSetIdRequest<gid_t>(sgid) && !permitted(newSgid)))
+			return Error::insufficientPermissions;
+	}
+
+	_gid = newGid;
+	_egid = newEgid;
+	_sgid = newSgid;
+	return Error::success;
+}
+
+Error ThreadGroup::setReuid(uint64_t ruid, uint64_t euid) {
+	const auto oldUid = _uid;
+	const auto oldEuid = _euid;
+	const auto oldSuid = _suid;
+	const bool changeUid = !isNoChangeSetIdRequest<uid_t>(ruid);
+	const bool changeEuid = !isNoChangeSetIdRequest<uid_t>(euid);
+
+	uid_t newUid = oldUid;
+	uid_t newEuid = oldEuid;
+	if(auto error = resolveSetIdRequest(ruid, oldUid, newUid); error != Error::success)
+		return error;
+	if(auto error = resolveSetIdRequest(euid, oldEuid, newEuid); error != Error::success)
+		return error;
+
+	if(!isRoot()) {
+		// Linux permits an unprivileged real-ID change to the old real or
+		// effective ID; POSIX leaves this case unspecified.
+		if(changeUid && newUid != oldUid && newUid != oldEuid)
+			return Error::insufficientPermissions;
+		if(changeEuid && newEuid != oldUid && newEuid != oldEuid
+				&& newEuid != oldSuid)
+			return Error::insufficientPermissions;
+	}
+
+	uid_t newSuid = oldSuid;
+	if(changeUid || (changeEuid && newEuid != oldUid))
+		newSuid = newEuid;
+
+	_uid = newUid;
+	_euid = newEuid;
+	_suid = newSuid;
+	return Error::success;
+}
+
+Error ThreadGroup::setRegid(uint64_t rgid, uint64_t egid) {
+	const auto oldGid = _gid;
+	const auto oldEgid = _egid;
+	const auto oldSgid = _sgid;
+	const bool changeGid = !isNoChangeSetIdRequest<gid_t>(rgid);
+	const bool changeEgid = !isNoChangeSetIdRequest<gid_t>(egid);
+
+	gid_t newGid = oldGid;
+	gid_t newEgid = oldEgid;
+	if(auto error = resolveSetIdRequest(rgid, oldGid, newGid); error != Error::success)
+		return error;
+	if(auto error = resolveSetIdRequest(egid, oldEgid, newEgid); error != Error::success)
+		return error;
+
+	if(!isRoot()) {
+		// Linux permits the same real-ID choices as setreuid; POSIX leaves
+		// this real-ID case unspecified.
+		if(changeGid && newGid != oldGid && newGid != oldEgid)
+			return Error::insufficientPermissions;
+		if(changeEgid && newEgid != oldGid && newEgid != oldEgid
+				&& newEgid != oldSgid)
+			return Error::insufficientPermissions;
+	}
+
+	gid_t newSgid = oldSgid;
+	if(changeGid || (changeEgid && newEgid != oldGid))
+		newSgid = newEgid;
+
+	_gid = newGid;
+	_egid = newEgid;
+	_sgid = newSgid;
+	return Error::success;
 }
 
 async::result<void> ThreadGroup::terminateGroup(TerminationState state) {
