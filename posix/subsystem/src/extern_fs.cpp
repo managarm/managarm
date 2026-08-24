@@ -348,14 +348,16 @@ private:
 		HEL_CHECK(offer.error());
 		HEL_CHECK(send_req.error());
 		HEL_CHECK(recv_resp.error());
-		HEL_CHECK(pull_ctrl.error());
-		HEL_CHECK(pull_passthrough.error());
 
 		managarm::fs::NodeOpenResponse resp;
 		resp.ParseFromArray(recv_resp.data(), recv_resp.length());
 		recv_resp.reset();
+		// The lanes are only pushed if the open succeeded.
 		if(resp.error() != managarm::fs::Errors::SUCCESS)
 			co_return resp.error() | toPosixError;
+
+		HEL_CHECK(pull_ctrl.error());
+		HEL_CHECK(pull_passthrough.error());
 
 		auto file = smarter::make_shared<OpenFile>(pull_ctrl.descriptor(),
 				pull_passthrough.descriptor(), std::move(mount), std::move(link));
@@ -885,14 +887,16 @@ private:
 		HEL_CHECK(offer.error());
 		HEL_CHECK(send_req.error());
 		HEL_CHECK(recv_resp.error());
-		HEL_CHECK(pull_ctrl.error());
-		HEL_CHECK(pull_passthrough.error());
 
 		managarm::fs::NodeOpenResponse resp;
 		resp.ParseFromArray(recv_resp.data(), recv_resp.length());
 		recv_resp.reset();
+		// The lanes are only pushed if the open succeeded.
 		if(resp.error() != managarm::fs::Errors::SUCCESS)
 			co_return resp.error() | toPosixError;
+
+		HEL_CHECK(pull_ctrl.error());
+		HEL_CHECK(pull_passthrough.error());
 
 		auto file = smarter::make_shared<OpenFile>(pull_ctrl.descriptor(),
 				pull_passthrough.descriptor(), std::move(mount), std::move(link));
