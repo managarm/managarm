@@ -5,7 +5,7 @@ use std::rc::Rc;
 use async_trait::async_trait;
 use bragi::Message;
 
-bragi::include_binding!(pub mod bindings = "fs.rs");
+use super::bindings;
 
 pub use bindings::Errors as Error;
 
