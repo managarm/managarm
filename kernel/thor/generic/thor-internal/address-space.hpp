@@ -133,6 +133,7 @@ frg::expected<Error, PagesAffected> restrictPagesByCursor(PageSpace *ps, Virtual
 		if((status & page_status::present) && (status & page_status::dirty)) {
 			if(auto descriptor = globalPfnDb().find(physical))
 				markDirty(*descriptor);
+			affected.anyRevoked = true;
 		}
 		if(restricted)
 			affected.anyRevoked = true;
