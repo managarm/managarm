@@ -1,4 +1,4 @@
-//! The fs passthrough protocol.
+//! The fs node and passthrough protocols.
 
 pub mod server;
 
