@@ -141,6 +141,55 @@ DEFINE_TEST(getresgid, ([] {
 	assert(state.effective == effective);
 }))
 
+DEFINE_TEST(setuid_drops_saved_uid, ([] {
+	const auto before = get_uid_state();
+	if(before.effective != 0)
+		skip_test("requires effective UID 0");
+
+	uid_t other;
+	if(!choose_other("/proc/self/uid_map", before.real, before.effective,
+			before.saved, other))
+		skip_test("no alternative mapped UID");
+
+	run_in_child([=] {
+		const auto setUidResult = setuid(other);
+		assert(setUidResult == 0);
+		assert_uid_state({other, other, other});
+		errno = 0;
+		const auto setReuidResult = setreuid(no_change_id<uid_t>(), 0);
+		assert_permission_failure(setReuidResult);
+		assert_uid_state({other, other, other});
+	});
+}))
+
+DEFINE_TEST(setgid_drops_saved_gid, ([] {
+	const auto before = get_gid_state();
+	const auto uidState = get_uid_state();
+	if(uidState.effective != 0)
+		skip_test("requires effective UID 0");
+
+	gid_t other;
+	if(!choose_other("/proc/self/gid_map", before.real, before.effective,
+			before.saved, other))
+		skip_test("no alternative mapped GID");
+	uid_t dropUid;
+	if(!choose_other("/proc/self/uid_map", uidState.real, uidState.effective,
+			uidState.saved, dropUid))
+		skip_test("no alternative mapped UID");
+
+	run_in_child([=] {
+		const auto setGidResult = setgid(other);
+		assert(setGidResult == 0);
+		assert_gid_state({other, other, other});
+		const auto setUidResult = setuid(dropUid);
+		assert(setUidResult == 0);
+		errno = 0;
+		const auto setRegidResult = setregid(no_change_id<gid_t>(), 0);
+		assert_permission_failure(setRegidResult);
+		assert_gid_state({other, other, other});
+	});
+}))
+
 DEFINE_TEST(setreuid, ([] {
 	const auto before = get_uid_state();
 	uid_t other;

@@ -1838,6 +1838,40 @@ ThreadGroup *ThreadGroup::create(std::shared_ptr<PidHull> hull, ThreadGroup *par
 	return tg.get();
 }
 
+Error ThreadGroup::setUid(uid_t uid) {
+	if(uid < 0)
+		return Error::illegalArguments;
+
+	if(isRoot()) {
+		_uid = uid;
+		_euid = uid;
+		_suid = uid;
+		return Error::success;
+	}
+	if(uid == _uid || uid == _suid) {
+		_euid = uid;
+		return Error::success;
+	}
+	return Error::accessDenied;
+}
+
+Error ThreadGroup::setGid(gid_t gid) {
+	if(gid < 0)
+		return Error::illegalArguments;
+
+	if(isRoot()) {
+		_gid = gid;
+		_egid = gid;
+		_sgid = gid;
+		return Error::success;
+	}
+	if(gid == _gid || gid == _sgid) {
+		_egid = gid;
+		return Error::success;
+	}
+	return Error::accessDenied;
+}
+
 Error ThreadGroup::setResuid(uint64_t ruid, uint64_t euid, uint64_t suid) {
 	const auto oldUid = _uid;
 	const auto oldEuid = _euid;
