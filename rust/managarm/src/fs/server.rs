@@ -1,7 +1,7 @@
 //! Server-side implementation of the fs node and passthrough protocols.
 
 use std::pin::Pin;
-use std::rc::Rc;
+use std::sync::Arc;
 
 use async_trait::async_trait;
 use bragi::Message;
@@ -51,7 +51,7 @@ pub struct NodeStats {
 /// A link to a child node, as resolved by [`Node::get_link`] or created by
 /// [`Node::mkdir`] and friends.
 pub struct Child {
-    pub node: Rc<dyn Node>,
+    pub node: Arc<dyn Node>,
     pub id: i64,
     pub file_type: FileType,
 }
@@ -59,7 +59,7 @@ pub struct Child {
 /// Result of a successful [`Node::traverse_links`].
 pub struct TraverseResult {
     /// (node, id) of every path component that was resolved, in path order.
-    pub nodes: Vec<(Rc<dyn Node>, i64)>,
+    pub nodes: Vec<(Arc<dyn Node>, i64)>,
     /// File type of the last resolved component.
     pub file_type: FileType,
     /// Number of path components that were consumed.
@@ -154,7 +154,7 @@ pub trait Node {
         Err(Error::IllegalOperationTarget)
     }
 
-    async fn open(&self, read: bool, write: bool, append: bool) -> Result<Rc<dyn File>, Error> {
+    async fn open(&self, read: bool, write: bool, append: bool) -> Result<Arc<dyn File>, Error> {
         Err(Error::IllegalOperationTarget)
     }
 
@@ -235,7 +235,7 @@ async fn extract_credentials(conversation: &hel::Handle) -> Result<Credentials, 
 
 async fn handle_seek(
     conversation: hel::Handle,
-    file: Rc<dyn File>,
+    file: Arc<dyn File>,
     req: bindings::CntRequest,
 ) -> Result<(), ServeError> {
     let offset = req.rel_offset().unwrap_or(0);
@@ -259,7 +259,7 @@ async fn handle_seek(
 
 async fn handle_cnt_request(
     conversation: hel::Handle,
-    file: Rc<dyn File>,
+    file: Arc<dyn File>,
     req: bindings::CntRequest,
 ) -> Result<(), ServeError> {
     match req.req_type() {
@@ -275,7 +275,7 @@ async fn handle_cnt_request(
 
 async fn handle_read(
     conversation: hel::Handle,
-    file: Rc<dyn File>,
+    file: Arc<dyn File>,
     req: bindings::ReadRequest,
 ) -> Result<(), ServeError> {
     let credentials = extract_credentials(&conversation).await?;
@@ -304,7 +304,7 @@ async fn handle_read(
 
 async fn handle_pread(
     conversation: hel::Handle,
-    file: Rc<dyn File>,
+    file: Arc<dyn File>,
     req: bindings::PreadRequest,
 ) -> Result<(), ServeError> {
     let credentials = extract_credentials(&conversation).await?;
@@ -335,7 +335,7 @@ async fn handle_pread(
 
 async fn handle_write(
     conversation: hel::Handle,
-    file: Rc<dyn File>,
+    file: Arc<dyn File>,
     req: bindings::WriteRequest,
 ) -> Result<(), ServeError> {
     let mut buffer = vec![0u8; req.size() as usize];
@@ -363,7 +363,7 @@ async fn handle_write(
 
 async fn handle_pwrite(
     conversation: hel::Handle,
-    file: Rc<dyn File>,
+    file: Arc<dyn File>,
     req: bindings::PwriteRequest,
 ) -> Result<(), ServeError> {
     let mut buffer = vec![0u8; req.size() as usize];
@@ -394,7 +394,7 @@ async fn handle_pwrite(
 
 async fn handle_truncate(
     conversation: hel::Handle,
-    file: Rc<dyn File>,
+    file: Arc<dyn File>,
     req: bindings::TruncateRequest,
 ) -> Result<(), ServeError> {
     let resp = match file.truncate(req.size()).await {
@@ -406,7 +406,7 @@ async fn handle_truncate(
 
 async fn handle_read_entries(
     conversation: hel::Handle,
-    file: Rc<dyn File>,
+    file: Arc<dyn File>,
     _req: bindings::ReadEntriesRequest,
 ) -> Result<(), ServeError> {
     let resp = match file.read_entries().await {
@@ -471,7 +471,7 @@ where
 ///
 /// Returns [`ServeError::Shutdown`] once the lane has been shut down; every other
 /// error is a per-request failure that leaves the serve loop able to continue.
-async fn dispatch_request(lane: &hel::Handle, file: &Rc<dyn File>) -> Result<(), ServeError> {
+async fn dispatch_request(lane: &hel::Handle, file: &Arc<dyn File>) -> Result<(), ServeError> {
     let (accept, (head,)) =
         hel::submit_async(lane, hel::Accept::new((hel::ReceiveInline,))).await?;
 
@@ -546,7 +546,7 @@ async fn dispatch_request(lane: &hel::Handle, file: &Rc<dyn File>) -> Result<(),
 ///
 /// Each request is handled on a detached task so that a blocking operation
 /// (e.g. a read that waits for data) does not stall subsequent requests.
-pub async fn serve_passthrough(lane: hel::Handle, file: Rc<dyn File>) {
+pub async fn serve_passthrough(lane: hel::Handle, file: Arc<dyn File>) {
     loop {
         match dispatch_request(&lane, &file).await {
             Ok(()) => {}
@@ -585,13 +585,13 @@ async fn serve_control(lane: hel::Handle) {
 }
 
 /// Serves the fs node protocol on the given lane on a detached task.
-pub fn serve_node(lane: hel::Handle, node: Rc<dyn Node>) {
+pub fn serve_node(lane: hel::Handle, node: Arc<dyn Node>) {
     // Box the future: serve_node() is invoked recursively from its own handlers.
     let fut: Pin<Box<dyn Future<Output = ()>>> = Box::pin(serve_node_loop(lane, node));
     hel::spawn(fut);
 }
 
-async fn serve_node_loop(lane: hel::Handle, node: Rc<dyn Node>) {
+async fn serve_node_loop(lane: hel::Handle, node: Arc<dyn Node>) {
     loop {
         match dispatch_node_request(&lane, &node).await {
             Ok(()) => {}
@@ -602,7 +602,7 @@ async fn serve_node_loop(lane: hel::Handle, node: Rc<dyn Node>) {
 }
 
 /// Creates a fresh lane pair whose local end serves `node` and returns the remote end.
-fn serve_new_node_lane(node: Rc<dyn Node>) -> Result<hel::Handle, ServeError> {
+fn serve_new_node_lane(node: Arc<dyn Node>) -> Result<hel::Handle, ServeError> {
     let (local, remote) = hel::create_stream()?;
     serve_node(local, node);
     Ok(remote)
@@ -610,7 +610,7 @@ fn serve_new_node_lane(node: Rc<dyn Node>) -> Result<hel::Handle, ServeError> {
 
 async fn handle_node_cnt_request(
     conversation: hel::Handle,
-    node: Rc<dyn Node>,
+    node: Arc<dyn Node>,
     req: bindings::CntRequest,
 ) -> Result<(), ServeError> {
     match req.req_type() {
@@ -703,7 +703,7 @@ async fn handle_node_cnt_request(
 
 async fn handle_get_link(
     conversation: hel::Handle,
-    node: Rc<dyn Node>,
+    node: Arc<dyn Node>,
     head: Vec<u8>,
     tail_size: usize,
 ) -> Result<(), ServeError> {
@@ -736,7 +736,7 @@ async fn handle_get_link(
 
 async fn handle_traverse_links(
     conversation: hel::Handle,
-    node: Rc<dyn Node>,
+    node: Arc<dyn Node>,
     head: Vec<u8>,
     tail_size: usize,
 ) -> Result<(), ServeError> {
@@ -785,7 +785,7 @@ async fn handle_traverse_links(
 
 async fn handle_node_open(
     conversation: hel::Handle,
-    node: Rc<dyn Node>,
+    node: Arc<dyn Node>,
     req: bindings::NodeOpenRequest,
 ) -> Result<(), ServeError> {
     match node.open(req.read() != 0, req.write() != 0, req.append() != 0).await {
@@ -815,7 +815,7 @@ async fn handle_node_open(
 
 async fn handle_mkdir(
     conversation: hel::Handle,
-    node: Rc<dyn Node>,
+    node: Arc<dyn Node>,
     head: Vec<u8>,
     tail_size: usize,
 ) -> Result<(), ServeError> {
@@ -846,7 +846,7 @@ async fn handle_mkdir(
 
 async fn handle_unlink(
     conversation: hel::Handle,
-    node: Rc<dyn Node>,
+    node: Arc<dyn Node>,
     head: Vec<u8>,
     tail_size: usize,
 ) -> Result<(), ServeError> {
@@ -863,7 +863,7 @@ async fn handle_unlink(
 
 async fn handle_rmdir(
     conversation: hel::Handle,
-    node: Rc<dyn Node>,
+    node: Arc<dyn Node>,
     head: Vec<u8>,
     tail_size: usize,
 ) -> Result<(), ServeError> {
@@ -880,7 +880,7 @@ async fn handle_rmdir(
 
 async fn handle_obstruct_link(
     conversation: hel::Handle,
-    node: Rc<dyn Node>,
+    node: Arc<dyn Node>,
     head: Vec<u8>,
     tail_size: usize,
 ) -> Result<(), ServeError> {
@@ -957,7 +957,7 @@ fn spawn_tailed<F, Fut>(
 /// dispatches it to a detached handler task.
 async fn dispatch_node_request(
     lane: &hel::Handle,
-    node: &Rc<dyn Node>,
+    node: &Arc<dyn Node>,
 ) -> Result<(), ServeError> {
     let (accept, (head,)) =
         hel::submit_async(lane, hel::Accept::new((hel::ReceiveInline,))).await?;

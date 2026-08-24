@@ -1,4 +1,4 @@
-use std::rc::Rc;
+use std::sync::Arc;
 
 use bragi::Message;
 use hel::{Accept, Handle, PushDescriptor, ReceiveInline, SendBuffer, submit_async};
@@ -334,7 +334,7 @@ async fn handle_one<D: PciDevice>(lane: &Handle, request: &[u8], device: &D) -> 
     Ok(())
 }
 
-pub async fn serve_pci_device<D: PciDevice + 'static>(lane: Handle, device: Rc<D>) {
+pub async fn serve_pci_device<D: PciDevice + 'static>(lane: Handle, device: Arc<D>) {
     loop {
         let (conversation, request) = match submit_async(&lane, Accept::new(ReceiveInline)).await {
             Ok((conversation, request)) => (conversation, request),
