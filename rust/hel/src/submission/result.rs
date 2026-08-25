@@ -1,3 +1,5 @@
+use alloc::{borrow::ToOwned, vec::Vec};
+
 use crate::{
     handle::Handle,
     queue::QueueElement,
@@ -153,7 +155,7 @@ impl FromQueueElement for InlineResult {
         // SAFETY: The data after the [`hel_sys::HelInlineResult`] is guaranteed
         // to be valid for up to `result.length` bytes.
         let inline_data = unsafe {
-            std::slice::from_raw_parts(inline_data.as_ptr() as *const u8, inline_data.len())
+            core::slice::from_raw_parts(inline_data.as_ptr() as *const u8, inline_data.len())
         };
 
         element.advance(size_of::<hel_sys::HelInlineResult>());

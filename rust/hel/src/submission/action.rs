@@ -1,4 +1,4 @@
-use std::mem::MaybeUninit;
+use core::mem::MaybeUninit;
 
 use crate::handle::Handle;
 use crate::submission::result::{
@@ -7,7 +7,7 @@ use crate::submission::result::{
 
 const fn default_hel_action() -> hel_sys::HelAction {
     hel_sys::HelAction {
-        type_: hel_sys::kHelActionNone as std::ffi::c_int,
+        type_: hel_sys::kHelActionNone as core::ffi::c_int,
         flags: 0,
         __bindgen_anon_1: hel_sys::HelAction__bindgen_ty_1 { word0: 0 },
         __bindgen_anon_2: hel_sys::HelAction__bindgen_ty_2 { word1: 0 },

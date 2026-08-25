@@ -1,10 +1,14 @@
-use std::{
-    cell::{Cell, RefCell},
+use alloc::{
+    boxed::Box,
     collections::VecDeque,
+    rc::{Rc, Weak},
+    task::LocalWake,
+};
+use core::{
+    cell::{Cell, RefCell},
     future::Future,
     pin::Pin,
-    rc::{Rc, Weak},
-    task::{ContextBuilder, LocalWake, LocalWaker, Waker},
+    task::{ContextBuilder, LocalWaker, Waker},
 };
 
 use crate::{handle::Handle, queue::Queue, result::Result, submission::OperationState};
@@ -205,7 +209,7 @@ pub fn current_executor() -> Executor {
 }
 
 #[cfg(feature = "std")]
-thread_local! {
+std::thread_local! {
     /// The current executor for the thread.
     pub(crate) static EXECUTOR: RefCell<Executor>
         = RefCell::new(Executor::new().expect("Failed to create executor"));

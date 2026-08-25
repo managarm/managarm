@@ -1,10 +1,10 @@
 pub mod action;
 pub mod result;
 
-use std::{
+use alloc::rc::Rc;
+use core::{
     cell::Cell,
     mem::{MaybeUninit, size_of},
-    rc::Rc,
     task::{LocalWaker, Poll},
     time::Duration,
 };
@@ -124,7 +124,7 @@ pub fn sleep_until_with_executor(
                 cancellationTag: 0, // No cancellation needed
             };
             let header_bytes: &[u8] = unsafe {
-                std::slice::from_raw_parts(
+                core::slice::from_raw_parts(
                     &header as *const _ as *const u8,
                     size_of::<hel_sys::HelSqAwaitClock>(),
                 )
@@ -164,7 +164,7 @@ pub fn sleep_for_with_executor(
                 cancellationTag: 0, // No cancellation needed
             };
             let header_bytes: &[u8] = unsafe {
-                std::slice::from_raw_parts(
+                core::slice::from_raw_parts(
                     &header as *const _ as *const u8,
                     size_of::<hel_sys::HelSqAwaitClock>(),
                 )
@@ -212,13 +212,13 @@ where
                 flags: 0,
             };
             let header_bytes: &[u8] = unsafe {
-                std::slice::from_raw_parts(
+                core::slice::from_raw_parts(
                     &header as *const _ as *const u8,
                     size_of::<hel_sys::HelSqExchangeMsgs>(),
                 )
             };
             let actions_bytes: &[u8] = unsafe {
-                std::slice::from_raw_parts(
+                core::slice::from_raw_parts(
                     actions.as_ptr() as *const u8,
                     actions.len() * size_of::<hel_sys::HelAction>(),
                 )
