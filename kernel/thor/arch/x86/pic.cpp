@@ -168,6 +168,10 @@ void setTimerDeadline(frg::optional<uint64_t> deadline) {
 			ticks = localApicContext()->lapicTickFreq * (*deadline - now);
 			if(!ticks)
 				ticks = 1;
+			// lApicInitCount is only 32 bits wide. A clamped timer fires early but
+			// handleTimerInterrupt() reprograms it since its deadline is not reached yet.
+			if(ticks > UINT32_MAX)
+				ticks = UINT32_MAX;
 		}
 		picBase.store(lApicInitCount, ticks);
 	}
