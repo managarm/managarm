@@ -1007,9 +1007,7 @@ coroutine<void> ManagedSpace::_runReclaimLoop() {
 					// The frame is being discarded so it doesn't need to be written back.
 					page->stillDirty = false;
 					page->transactionState = TxState::none;
-					auto disposition = _disposeDiscarded(page);
-					anyDiscardQueued |= disposition.queued;
-					anyDiscardErased |= disposition.erased;
+					anyDiscardQueued |= _disposeDiscarded(page);
 					continue;
 				}
 
@@ -1150,8 +1148,7 @@ coroutine<void> ManagedSpace::_runDrainLoop() {
 					// The page was discarded while we were waiting for the fence.
 					// Note that claimSwapBudget() already ran for this page - _pageDiscarded() undoes the claim.
 					page->transactionState = TxState::none;
-					// .erased is ignored - the drain re-checks its predicate on loop-around.
-					if(_disposeDiscarded(page).queued)
+					if(_disposeDiscarded(page))
 						anyDiscardQueued = true;
 					continue;
 				}
@@ -1237,7 +1234,7 @@ void ManagedSpace::discardPage(uint64_t index) {
 				_pageDiscarded(pit);
 				pages.erase(index);
 			} else {
-				raiseDiscard = _disposeDiscarded(pit).queued;
+				raiseDiscard = _disposeDiscarded(pit);
 			}
 		}
 	}
@@ -1247,16 +1244,15 @@ void ManagedSpace::discardPage(uint64_t index) {
 		_discardEvent.raise();
 }
 
-ManagedSpace::DiscardDisposition ManagedSpace::_disposeDiscarded(ManagedPage *page) {
+bool ManagedSpace::_disposeDiscarded(ManagedPage *page) {
 	assert(page->discarded);
 	assert(page->transactionState == TxState::none);
 	assert(!page->monitor);
-	if(page->lockCount || page->cachePage.useCount.load(std::memory_order_relaxed)) {
-		return {};
-	}
+	if(page->lockCount || page->cachePage.useCount.load(std::memory_order_relaxed))
+		return false;
 	page->transactionState = TxState::discardQueued;
 	_discardList.push_back(&page->cachePage);
-	return {.queued = true};
+	return true;
 }
 
 void ManagedSpace::_pageDiscarded(ManagedPage *) {}
@@ -1368,7 +1364,6 @@ Error ManagedSpace::lockPages(uintptr_t offset, size_t size) {
 // Note: Neither offset nor size are necessarily multiples of the page size.
 void ManagedSpace::unlockPages(uintptr_t offset, size_t size) {
 	bool raiseDiscard = false;
-	bool raiseDirty = false;
 	{
 		auto irq_lock = frg::guard(&irqMutex());
 		auto lock = frg::guard(&mutex);
@@ -1383,11 +1378,8 @@ void ManagedSpace::unlockPages(uintptr_t offset, size_t size) {
 				if(pit->discarded) {
 					// If a transaction is still in flight, the page stays owned by it;
 					// the transaction's completion path disposes of the page instead.
-					if(pit->transactionState == TxState::none) {
-						auto disposition = _disposeDiscarded(pit);
-						raiseDiscard |= disposition.queued;
-						raiseDirty |= disposition.erased;
-					}
+					if(pit->transactionState == TxState::none)
+						raiseDiscard |= _disposeDiscarded(pit);
 				} else if(pit->loadState == LoadState::present
 						&& pit->transactionState == TxState::none
 						&& !pit->cachePage.useCount.load(std::memory_order_relaxed)) {
@@ -1399,8 +1391,6 @@ void ManagedSpace::unlockPages(uintptr_t offset, size_t size) {
 	}
 	if(raiseDiscard)
 		_discardEvent.raise();
-	if(raiseDirty)
-		_dirtyEvent.raise();
 }
 
 void ManagedSpace::submitManagement(ManageNode *node) {
@@ -1496,7 +1486,6 @@ void ManagedSpace::incrementUses(CachePage *cachePage) {
 
 void ManagedSpace::decrementUses(CachePage *cachePage) {
 	bool raiseDiscard = false;
-	bool raiseDirty = false;
 	{
 		auto irqLock = frg::guard(&irqMutex());
 		auto lock = frg::guard(&mutex);
@@ -1509,11 +1498,8 @@ void ManagedSpace::decrementUses(CachePage *cachePage) {
 			if(page->discarded) {
 				// If a transaction is still in flight, the page stays owned by it;
 				// the transaction's completion path disposes of the page instead.
-				if(page->transactionState == TxState::none) {
-					auto disposition = _disposeDiscarded(page);
-					raiseDiscard = disposition.queued;
-					raiseDirty = disposition.erased;
-				}
+				if(page->transactionState == TxState::none)
+					raiseDiscard = _disposeDiscarded(page);
 			} else if(page->loadState == LoadState::present
 					&& page->transactionState == TxState::none
 					&& !page->lockCount) {
@@ -1524,8 +1510,6 @@ void ManagedSpace::decrementUses(CachePage *cachePage) {
 	}
 	if(raiseDiscard)
 		_discardEvent.raise();
-	if(raiseDirty)
-		_dirtyEvent.raise();
 }
 
 void ManagedSpace::markDirty(CachePage *cachePage) {
@@ -1707,7 +1691,6 @@ Error BackingMemory::updateRange(ManageRequest type, size_t offset, size_t lengt
 		>
 	> pendingMonitors;
 	bool raiseDiscard = false;
-	bool raiseDirty = false;
 	{
 		auto irqLock = frg::guard(&irqMutex());
 		auto lock = frg::guard(&_managed->mutex);
@@ -1759,9 +1742,7 @@ Error BackingMemory::updateRange(ManageRequest type, size_t offset, size_t lengt
 					// The frame is being discarded so it doesn't need to be written back.
 					pit->stillDirty = false;
 					pit->transactionState = ManagedSpace::TxState::none;
-					auto disposition = _managed->_disposeDiscarded(pit);
-					raiseDiscard |= disposition.queued;
-					raiseDirty |= disposition.erased;
+					raiseDiscard |= _managed->_disposeDiscarded(pit);
 					continue;
 				}
 				if(!pit->stillDirty) {
@@ -1791,8 +1772,6 @@ Error BackingMemory::updateRange(ManageRequest type, size_t offset, size_t lengt
 
 	if(raiseDiscard)
 		_managed->_discardEvent.raise();
-	if(raiseDirty)
-		_managed->_dirtyEvent.raise();
 
 	while(!pendingMonitors.empty()) {
 		frg::intrusive_shared_ptr<ManagedSpace::TransactionMonitor, Allocator> monitor{
@@ -2155,7 +2134,6 @@ coroutine<frg::expected<Error>> SwappableMemory::resize(size_t newSize) {
 
 Error SwappableMemory::lockRange(uintptr_t offset, size_t size) {
 	bool raiseDiscard = false;
-	bool raiseDirty = false;
 	Error result = Error::success;
 	{
 		auto irqLock = frg::guard(&irqMutex());
@@ -2169,7 +2147,7 @@ Error SwappableMemory::lockRange(uintptr_t offset, size_t size) {
 			auto swapOffset = _translate(index);
 			if(!swapOffset) {
 				// The swap space is exhausted, unwind the locks we already took.
-				_unlockPagesLocked(offset, pg, raiseDiscard, raiseDirty);
+				_unlockPagesLocked(offset, pg, raiseDiscard);
 				result = Error::noMemory;
 				break;
 			}
@@ -2188,13 +2166,10 @@ Error SwappableMemory::lockRange(uintptr_t offset, size_t size) {
 	}
 	if(raiseDiscard)
 		_space->_discardEvent.raise();
-	if(raiseDirty)
-		_space->_dirtyEvent.raise();
 	return result;
 }
 
-void SwappableMemory::_unlockPagesLocked(uintptr_t offset, size_t size,
-		bool &raiseDiscard, bool &raiseDirty) {
+void SwappableMemory::_unlockPagesLocked(uintptr_t offset, size_t size, bool &raiseDiscard) {
 	for(size_t pg = 0; pg < size; pg += kPageSize) {
 		auto index = (offset + pg) >> kPageShift;
 		auto tit = _table.find(index);
@@ -2205,11 +2180,8 @@ void SwappableMemory::_unlockPagesLocked(uintptr_t offset, size_t size,
 		pit->lockCount--;
 		if(!pit->lockCount) {
 			if(pit->discarded) {
-				if(pit->transactionState == ManagedSpace::TxState::none) {
-					auto disposition = _space->_disposeDiscarded(pit);
-					raiseDiscard |= disposition.queued;
-					raiseDirty |= disposition.erased;
-				}
+				if(pit->transactionState == ManagedSpace::TxState::none)
+					raiseDiscard |= _space->_disposeDiscarded(pit);
 			} else if(pit->loadState == ManagedSpace::LoadState::present
 					&& pit->transactionState == ManagedSpace::TxState::none
 					&& !pit->cachePage.useCount.load(std::memory_order_relaxed)) {
@@ -2222,18 +2194,15 @@ void SwappableMemory::_unlockPagesLocked(uintptr_t offset, size_t size,
 
 void SwappableMemory::unlockRange(uintptr_t offset, size_t size) {
 	bool raiseDiscard = false;
-	bool raiseDirty = false;
 	{
 		auto irqLock = frg::guard(&irqMutex());
 		auto lock = frg::guard(&_space->mutex);
 
 		assert(offset + size <= _length);
-		_unlockPagesLocked(offset, size, raiseDiscard, raiseDirty);
+		_unlockPagesLocked(offset, size, raiseDiscard);
 	}
 	if(raiseDiscard)
 		_space->_discardEvent.raise();
-	if(raiseDirty)
-		_space->_dirtyEvent.raise();
 }
 
 PhysicalRange SwappableMemory::peekRange(uintptr_t offset, FetchFlags) {

@@ -753,17 +753,10 @@ struct ManagedSpace : CacheBundle {
 	// After a batch of discards the caller must call _wakeDrain() as discards may release swap budget.
 	void discardPage(uint64_t index);
 
-	// Events that _disposeDiscarded()'s caller must raise after dropping the mutex.
-	struct [[nodiscard]] DiscardDisposition {
-		// Queued onto _discardList, raise _discardEvent.
-		bool queued{false};
-		// Entry erased, raise _dirtyEvent as swap budget may have been released.
-		bool erased{false};
-	};
-
 	// Queues a discarded page for the reclamation coroutine, which erases its entry.
 	// Must be called under mutex with transactionState == TxState::none.
-	DiscardDisposition _disposeDiscarded(ManagedPage *page);
+	// Returns whether the caller must raise _discardEvent after dropping the mutex.
+	[[nodiscard]] bool _disposeDiscarded(ManagedPage *page);
 
 	// Notifies the subclass that a discarded page's entry is about to be erased.
 	// Called under mutex.
@@ -972,8 +965,7 @@ private:
 
 	// Unlock counterpart of lockRange().
 	// Must be called under the SwapSpace mutex.
-	void _unlockPagesLocked(uintptr_t offset, size_t size,
-			bool &raiseDiscard, bool &raiseDirty);
+	void _unlockPagesLocked(uintptr_t offset, size_t size, bool &raiseDiscard);
 
 	smarter::shared_ptr<SwapSpace> _space;
 	size_t _length;
