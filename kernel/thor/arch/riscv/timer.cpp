@@ -17,9 +17,11 @@ namespace thor {
 
 namespace {
 
-// Frequency and inverse frequency of the CPU timer in nHz and ns, respectively.
-constinit FreqFraction freq;
-constinit FreqFraction inverseFreq;
+// Timer tick duration stored in ns, and its reciprocal (= its frequency).
+constinit Pow2Fraction<Rounding::down> tickDuration;
+// The frequency is used to program the timer based on a deadline in ns.
+// Round up such that the timer fires after the deadline, not before.
+constinit Pow2Fraction<Rounding::up> tickFreq;
 
 initgraph::Task initTimerAcpi{
     &globalInitEngine,
@@ -50,8 +52,8 @@ initgraph::Task initTimerAcpi{
 
 	    // Frequency is given in Hz. Hence, we need to divide by 10^9 to convert to nHz.
 	    uint64_t divisor = 1'000'000'000;
-	    freq = computeFreqFraction(freqSeconds, divisor);
-	    inverseFreq = computeFreqFraction(divisor, freqSeconds);
+	    tickDuration = computePow2Fraction<Rounding::down>(divisor, freqSeconds);
+	    tickFreq = computeReciprocal(tickDuration);
     }
 };
 
@@ -87,8 +89,8 @@ initgraph::Task initTimer{
 
 	    // Frequency is given in Hz. Hence, we need to divide by 10^9 to convert to nHz.
 	    uint64_t divisor = 1'000'000'000;
-	    freq = computeFreqFraction(freqSeconds, divisor);
-	    inverseFreq = computeFreqFraction(divisor, freqSeconds);
+	    tickDuration = computePow2Fraction<Rounding::down>(divisor, freqSeconds);
+	    tickFreq = computeReciprocal(tickDuration);
     }
 };
 
@@ -100,14 +102,14 @@ uint64_t getRawTimestampCounter() {
 	return v;
 }
 
-uint64_t getClockNanos() { return inverseFreq * getRawTimestampCounter(); }
+uint64_t getClockNanos() { return tickDuration * getRawTimestampCounter(); }
 
 void setTimerDeadline(frg::optional<uint64_t> deadline) {
 	assert(!intsAreEnabled());
 
 	uint64_t rawDeadline = ~UINT64_C(0);
 	if (deadline)
-		rawDeadline = freq * (*deadline);
+		rawDeadline = tickFreq * *deadline;
 
 	if (riscvHartCapsNote->hasExtension(RiscvExtension::sstc)) {
 		riscv::writeCsr<riscv::Csr::stimecmp>(rawDeadline);
@@ -116,6 +118,11 @@ void setTimerDeadline(frg::optional<uint64_t> deadline) {
 	}
 }
 
-bool haveTimer() { return static_cast<bool>(freq); }
+bool timerDisarmsItself() {
+	// STIP stays pending while time is past stimecmp.
+	return false;
+}
+
+bool haveTimer() { return static_cast<bool>(tickDuration); }
 
 } // namespace thor

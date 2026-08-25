@@ -11,11 +11,17 @@ namespace thor {
 
 inline int ceil_log2(unsigned long x) { return 8 * sizeof(unsigned long) - __builtin_clzl(x); }
 
-// Helper class to store the frequency or inverse frequency (= tick duration) of a timer.
-// Designed to support the conversion of ticks into durations and vice versa with high accuracy.
-// The fraction is represented as (f / 2^s) where f is a 64-bit factor and s is a scaling exponent.
+// Direction in which a Pow2Fraction rounds the value that it represents.
+enum class Rounding { down, up };
+
+// Helper class to store a fraction as (f / 2^s) where f is a 64-bit factor and s is a scaling
+// exponent. Used for the frequency and inverse frequency (= tick duration) of timers, i.e. to
+// convert ticks into durations and vice versa with high accuracy.
 // When doing conversions, the multiplication is done in 128-bit to avoid loss of precision.
-struct FreqFraction {
+// Both the representation and the multiplication round towards R,
+// i.e. conversions yield an lower/upper bound on the true value.
+template<Rounding R>
+struct Pow2Fraction {
 	explicit operator bool () {
 		return f;
 	}
@@ -27,24 +33,66 @@ struct FreqFraction {
 	// Clamping is usually not an issue when converting ticks (since boot) to nanoseconds
 	// as the system will not be up for 2^64 nanoseconds.
 	uint64_t operator*(uint64_t rhs) {
-		auto product = (static_cast<__uint128_t>(f) * static_cast<__uint128_t>(rhs)) >> s;
-		if (product >> 64)
+		auto product = static_cast<__uint128_t>(f) * static_cast<__uint128_t>(rhs);
+		auto quotient = product >> s;
+		if constexpr (R == Rounding::up) {
+			if (product & ((static_cast<__uint128_t>(1) << s) - 1))
+				++quotient;
+		}
+		if (quotient >> 64)
 			return UINT64_MAX;
-		return static_cast<uint64_t>(product);
+		return static_cast<uint64_t>(quotient);
 	}
 
 	uint64_t f{0};
 	int s{0};
 };
 
-// Converts the fraction (num / denom) to a FreqFraction.
-inline FreqFraction computeFreqFraction(uint64_t num, uint64_t denom) {
+// Converts the fraction (num / denom) to a Pow2Fraction, rounding the representation towards R.
+template<Rounding R>
+inline Pow2Fraction<R> computePow2Fraction(uint64_t num, uint64_t denom) {
 	// TODO: We could use a higher shift (i.e., subtract floor_log2(denom))
 	//       since the division by denom would bring the number back below 64-bit.
 	//       For now, we do not use this fact as it requires a 128-bit division.
 	auto s = 63 - ceil_log2(num);
-	auto f = (num << s) / denom;
-	return FreqFraction{f, s};
+	auto scaled = num << s;
+	auto f = scaled / denom;
+	if constexpr (R == Rounding::up) {
+		if (scaled % denom)
+			++f;
+	}
+	return Pow2Fraction<R>{f, s};
+}
+
+// Computes ceil(2^exp / divisor) using only 64-bit divisions, i.e. by long division.
+// The caller picks exp such that the quotient fits into 64 bits.
+inline uint64_t ceilPow2Divide(int exp, uint64_t divisor) {
+	assert(divisor > 1);
+
+	// Consume the leading one of the dividend, then shift in its zeros one at a time.
+	uint64_t quotient = 0;
+	uint64_t remainder = 1;
+	for (int i = 0; i < exp; ++i) {
+		// The doubled remainder does not fit into 64 bits iff it exceeds the divisor anyway.
+		bool overflow = remainder >> 63;
+		remainder <<= 1;
+		quotient <<= 1;
+		if (overflow || remainder >= divisor) {
+			remainder -= divisor;
+			quotient |= 1;
+		}
+	}
+	return remainder ? quotient + 1 : quotient;
+}
+
+// Computes the reciprocal of the given fraction such that
+// (fraction * (computeReciprocal(fraction) * value)) >= value for all values.
+// Timers need this direction: converting a deadline to ticks and back must not land before the
+// deadline, or the timer fires before the deadline is considered to be reached.
+inline Pow2Fraction<Rounding::up> computeReciprocal(Pow2Fraction<Rounding::down> fraction) {
+	// The reciprocal is 2^fraction.s / fraction.f. Scale it such that it keeps 63 bits.
+	auto exp = 62 + ceil_log2(fraction.f);
+	return Pow2Fraction<Rounding::up>{ceilPow2Divide(exp, fraction.f), exp - fraction.s};
 }
 
 template <size_t Mod = std::dynamic_extent>

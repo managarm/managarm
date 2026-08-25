@@ -10,6 +10,11 @@ uint64_t getClockNanos();
 // Schedules an interrupt to fire once the monotonic clock reaches the
 // deadline, or disarms the interrupt if deadline is frg::null_opt.
 void setTimerDeadline(frg::optional<uint64_t> deadline);
+
+// Returns whether the timer disarms itself once it reaches the deadline.
+// This is true for edge-triggered timers. Level triggered timers keep asserting the interrupt until they are disarmed.
+bool timerDisarmsItself();
+
 // Returns whether timers are available and ready to use.
 bool haveTimer();
 // Get the raw timestamp in preemption timer ticks.
