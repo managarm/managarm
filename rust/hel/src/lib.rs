@@ -12,18 +12,18 @@ pub mod submission;
 
 use std::time::Duration;
 
+#[cfg(feature = "std")]
 pub use executor::{block_on, spawn};
 pub use handle::Handle;
 pub use mapping::{Mapping, MappingFlags};
 pub use queue::Queue;
 pub use result::{Error, Result};
-pub use submission::{
-    action::{
-        Accept, Dismiss, ExtractCredentials, Offer, PullDescriptor, PushDescriptor, ReceiveBuffer,
-        ReceiveInline, SendBuffer,
-    },
-    sleep_for, sleep_until, submit_async,
+pub use submission::action::{
+    Accept, Dismiss, ExtractCredentials, Offer, PullDescriptor, PushDescriptor, ReceiveBuffer,
+    ReceiveInline, SendBuffer,
 };
+#[cfg(feature = "std")]
+pub use submission::{sleep_for, sleep_until, submit_async};
 
 /// Creates a pair of connected lanes that can be used to communicate.
 pub fn create_stream() -> Result<(Handle, Handle)> {

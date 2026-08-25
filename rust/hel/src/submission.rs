@@ -12,9 +12,11 @@ use std::{
 use action::Action;
 use result::{FromQueueElement, SimpleResult};
 
+#[cfg(feature = "std")]
+use crate::executor::current_executor;
 use crate::{
     Time,
-    executor::{Executor, ExecutorInner, current_executor},
+    executor::{Executor, ExecutorInner},
     handle::Handle,
     queue::QueueElement,
     result::Result,
@@ -139,6 +141,7 @@ pub fn sleep_until_with_executor(
 
 /// Returns a future that will be completed when the system clock
 /// reaches the given time value.
+#[cfg(feature = "std")]
 pub fn sleep_until(time: Time) -> impl Future<Output = Result<()>> {
     sleep_until_with_executor(current_executor(), time)
 }
@@ -179,6 +182,7 @@ pub fn sleep_for_with_executor(
 /// Returns a future that will be completed after the given duration
 /// has passed. This is equivalent to calling `sleep_until` with the
 /// current time plus the given duration.
+#[cfg(feature = "std")]
 pub fn sleep_for(duration: Duration) -> impl Future<Output = Result<()>> {
     sleep_for_with_executor(current_executor(), duration)
 }
@@ -229,6 +233,7 @@ where
     )
 }
 
+#[cfg(feature = "std")]
 pub fn submit_async<T: Action>(
     lane: &Handle,
     action: T,
