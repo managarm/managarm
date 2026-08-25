@@ -18,10 +18,15 @@ struct File {
 	string path;
 }
 
+struct Token {
+	string identifier;
+}
+
 struct Description {
 	string name;
 	string exec;
 	File[] files;
+	Token[] owned_tokens;
 }
 
 message FileUploadRequest 1 {
@@ -37,7 +42,7 @@ head(128):
 
 message RunServerRequest 3 {
 head(128):
-	string name;
+	Description description;
 }
 
 message RunServerResponse 4 {

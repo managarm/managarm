@@ -350,11 +350,11 @@ extern "C" void thorMain() {
 		infoLogger() << "thor: Launching user space." << frg::endlog;
 		KernelFiber::asyncBlockCurrent(runMbus());
 		initializeKernletCtl();
-		KernelFiber::asyncBlockCurrent(runServer("usr/bin/sif"));
-		KernelFiber::asyncBlockCurrent(runServer("usr/bin/kernletcc"));
-		KernelFiber::asyncBlockCurrent(runServer("usr/bin/clocktracker"));
-		KernelFiber::asyncBlockCurrent(runServer("usr/bin/posix-subsystem"));
-		KernelFiber::asyncBlockCurrent(runServer("usr/bin/virtio-console"));
+		KernelFiber::asyncBlockCurrent(runServerFromInitrd("usr/lib/managarm/server/sif.bin"));
+		KernelFiber::asyncBlockCurrent(runServerFromInitrd("usr/lib/managarm/server/kernletcc.bin"));
+		KernelFiber::asyncBlockCurrent(runServerFromInitrd("usr/lib/managarm/server/clocktracker.bin"));
+		KernelFiber::asyncBlockCurrent(runServerFromInitrd("usr/lib/managarm/server/posix-subsystem.bin"));
+		KernelFiber::asyncBlockCurrent(runServerFromInitrd("usr/lib/managarm/server/tty-virtio-console.bin"));
 	});
 
 	Scheduler::resume(getCpuData()->wqFiber);
