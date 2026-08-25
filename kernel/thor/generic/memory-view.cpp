@@ -1189,26 +1189,26 @@ void ManagedSpace::discardPage(uint64_t index) {
 		assert(!pit->discarded);
 		pit->discarded = true;
 
-		// .erased is ignored - the caller wakes the drain once per discard batch.
+		bool dispose = false;
 		switch(pit->transactionState) {
 		case TxState::none:
-			raiseDiscard = _disposeDiscarded(pit).queued;
+			dispose = true;
 			break;
 		case TxState::inReclaimer:
 			globalReclaimer->removePage(&pit->cachePage);
 			pit->transactionState = TxState::none;
-			raiseDiscard = _disposeDiscarded(pit).queued;
+			dispose = true;
 			break;
 		case TxState::dirty:
 			_dirtyList.erase(_dirtyList.iterator_to(&pit->cachePage));
 			pit->transactionState = TxState::none;
-			raiseDiscard = _disposeDiscarded(pit).queued;
+			dispose = true;
 			break;
 		case TxState::wantWriteback:
 			_writebackList.erase(_writebackList.iterator_to(&pit->cachePage));
 			writebackMonitor = std::move(pit->monitor);
 			pit->transactionState = TxState::none;
-			raiseDiscard = _disposeDiscarded(pit).queued;
+			dispose = true;
 			break;
 		case TxState::pendingWriteback:
 			// The drain coroutine completes the discard, the page is on
@@ -1226,6 +1226,20 @@ void ManagedSpace::discardPage(uint64_t index) {
 			// Initialization is only entered by fetches, which hold view references.
 			assert(!"discardPage() on page under initialization");
 		}
+
+		// Erases entries without a frame right away instead of paying for a fenceEphemeral().
+		if(dispose) {
+			assert(pit->transactionState == TxState::none);
+			assert(!pit->monitor);
+			if(pit->physical == PhysicalAddr(-1)
+					&& !pit->lockCount
+					&& !pit->cachePage.useCount.load(std::memory_order_relaxed)) {
+				_pageDiscarded(pit);
+				pages.erase(index);
+			} else {
+				raiseDiscard = _disposeDiscarded(pit).queued;
+			}
+		}
 	}
 	if(writebackMonitor)
 		writebackMonitor->event.raise();
@@ -1239,13 +1253,6 @@ ManagedSpace::DiscardDisposition ManagedSpace::_disposeDiscarded(ManagedPage *pa
 	assert(!page->monitor);
 	if(page->lockCount || page->cachePage.useCount.load(std::memory_order_relaxed)) {
 		return {};
-	}
-	if(page->physical == PhysicalAddr(-1)) {
-		// No frame was allocated, the entry can be erased directly.
-		auto index = page->cachePage.identity;
-		_pageDiscarded(page);
-		pages.erase(index);
-		return {.erased = true};
 	}
 	page->transactionState = TxState::discardQueued;
 	_discardList.push_back(&page->cachePage);

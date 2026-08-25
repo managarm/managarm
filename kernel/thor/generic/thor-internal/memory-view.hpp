@@ -678,7 +678,7 @@ struct ManagedSpace : CacheBundle {
 		// Page is in _discardList or the reclamation coroutine's local discard batch,
 		// awaiting fenceEphemeral() before its entry is erased.
 		// Page is owned by the ManagedSpace reclamation logic.
-		// Valid whenever the page holds a frame (even in LoadState::missing).
+		// Valid in any LoadState, with or without a frame.
 		discardQueued,
 	};
 
@@ -761,8 +761,7 @@ struct ManagedSpace : CacheBundle {
 		bool erased{false};
 	};
 
-	// Erases a discarded page's entry directly if it holds no frame, otherwise
-	// queues it for the reclamation coroutine.
+	// Queues a discarded page for the reclamation coroutine, which erases its entry.
 	// Must be called under mutex with transactionState == TxState::none.
 	DiscardDisposition _disposeDiscarded(ManagedPage *page);
 
