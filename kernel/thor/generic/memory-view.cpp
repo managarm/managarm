@@ -1072,16 +1072,18 @@ coroutine<void> ManagedSpace::_runReclaimLoop() {
 				}
 
 				physical = page->physical;
-				assert(physical != PhysicalAddr(-1));
 
-				globalPfnDb().erase(physical);
+				if(physical != PhysicalAddr(-1))
+					globalPfnDb().erase(physical);
 				_pageDiscarded(page);
 				pages.erase(cachePage->identity);
 			}
 
-			physicalAllocator->free(physical, kPageSize);
+			if(physical != PhysicalAddr(-1)) {
+				physicalAllocator->free(physical, kPageSize);
+				sizeFreed += kPageSize;
+			}
 			anyDiscardErased = true;
-			sizeFreed += kPageSize;
 		}
 
 		if(anyDirty || anyDiscardErased)

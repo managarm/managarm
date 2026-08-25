@@ -823,7 +823,7 @@ struct ManagedSpace : CacheBundle {
 		>
 	> _writebackList;
 
-	// Discarded pages whose frames await a fenceEphemeral().
+	// Discarded pages awaiting a fenceEphemeral() before their entries are erased.
 	// Protected by mutex.
 	CachePagesList _discardList;
 
