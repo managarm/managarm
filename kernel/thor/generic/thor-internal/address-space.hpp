@@ -47,7 +47,10 @@ struct PagesAffected {
 	// Number of bytes that were scanned by agePages().
 	ptrdiff_t scanned{0};
 	// Whether any page had its access rights revoked.
-	// This covers both pages that have their permission restricted and pages that are unmapped.
+	// This covers all of:
+	// - pages that are unmapped (and thus also pages that are remapped)
+	// - pages that have their permission restricted
+	// - pages that have their dirty bits cleared
 	bool anyRevoked{false};
 };
 
@@ -93,15 +96,15 @@ frg::expected<Error, PagesAffected> mapPresentPagesByCursor(PageSpace *ps, Virtu
 			incrementUses(*descriptor);
 		auto [status, oldPhysical] = c.map4k(physicalRange.physical, effectiveFlags,
 			determineCachingMode(physicalRange.cachingMode, mode));
-		if((status & page_status::present) && (status & page_status::dirty)) {
-			if(auto descriptor = globalPfnDb().find(oldPhysical))
-				markDirty(*descriptor);
-		}
 		affected.rssIncrease += kPageSize;
 		if(status & page_status::present) {
-			affected.rssDecrease += kPageSize;
-			if(auto descriptor = globalPfnDb().find(oldPhysical))
+			if(auto descriptor = globalPfnDb().find(oldPhysical)) {
+				if(status & page_status::dirty)
+					markDirty(*descriptor);
 				decrementUses(*descriptor);
+			}
+			affected.rssDecrease += kPageSize;
+			affected.anyRevoked = true;
 		}
 		c.advance4k();
 	}
@@ -117,8 +120,7 @@ frg::expected<Error, PagesAffected> mapPresentPagesByCursor(PageSpace *ps, Virtu
 
 template<typename Cursor, typename PageSpace>
 frg::expected<Error, PagesAffected> restrictPagesByCursor(PageSpace *ps, VirtualAddr va,
-		size_t size, PageFlags flags, CachingMode mode,
-		typename Cursor::PolicyType policy) {
+		size_t size, PageFlags flags, typename Cursor::PolicyType policy) {
 	assert(!(va & (kPageSize - 1)));
 	assert(!(size & (kPageSize - 1)));
 	// At least one access bit is always set; see VirtualOperations.
@@ -126,11 +128,12 @@ frg::expected<Error, PagesAffected> restrictPagesByCursor(PageSpace *ps, Virtual
 
 	PagesAffected affected{};
 	Cursor c{ps, va, policy};
-	while(c.virtualAddress() < va + size) {
-		auto [status, physical, restricted] = c.restrict4k(flags, mode);
+	while(c.findPresent(va + size)) {
+		auto [status, physical, restricted] = c.restrict4k(flags);
 		if((status & page_status::present) && (status & page_status::dirty)) {
 			if(auto descriptor = globalPfnDb().find(physical))
 				markDirty(*descriptor);
+			affected.anyRevoked = true;
 		}
 		if(restricted)
 			affected.anyRevoked = true;
@@ -141,8 +144,8 @@ frg::expected<Error, PagesAffected> restrictPagesByCursor(PageSpace *ps, Virtual
 
 template<typename Cursor, typename PageSpace>
 frg::expected<Error, PagesAffected> restrictPagesByCursor(PageSpace *ps, VirtualAddr va,
-		size_t size, PageFlags flags, CachingMode mode) {
-	return restrictPagesByCursor<Cursor>(ps, va, size, flags, mode,
+		size_t size, PageFlags flags) {
+	return restrictPagesByCursor<Cursor>(ps, va, size, flags,
 			typename Cursor::PolicyType{});
 }
 
@@ -170,13 +173,13 @@ frg::expected<Error, PagesAffected> faultPageByCursor(PageSpace *ps, VirtualAddr
 	auto [status, oldPhysical] = c.remap4k(physicalRange.physical, effectiveFlags,
 		determineCachingMode(physicalRange.cachingMode, mode));
 	if(status & page_status::present) {
-		if(status & page_status::dirty) {
-			if(auto descriptor = globalPfnDb().find(oldPhysical))
+		if(auto descriptor = globalPfnDb().find(oldPhysical)) {
+			if(status & page_status::dirty)
 				markDirty(*descriptor);
-		}
-		if(auto descriptor = globalPfnDb().find(oldPhysical))
 			decrementUses(*descriptor);
+		}
 		affected.rssDecrease += kPageSize;
+		affected.anyRevoked = true;
 	}
 	affected.rssIncrease += kPageSize;
 
@@ -200,11 +203,11 @@ frg::expected<Error, PagesAffected> cleanPagesByCursor(PageSpace *ps, VirtualAdd
 	Cursor c{ps, va, policy};
 	while(c.findDirty(va + size)) {
 		auto [status, physical] = c.clean4k();
-		assert(status & page_status::present);
-		assert(status & page_status::dirty);
-		if(auto descriptor = globalPfnDb().find(physical))
-			markDirty(*descriptor);
-		affected.anyRevoked = true;
+		if((status & page_status::present) && (status & page_status::dirty)) {
+			if(auto descriptor = globalPfnDb().find(physical))
+				markDirty(*descriptor);
+			affected.anyRevoked = true;
+		}
 		c.advance4k();
 	}
 	return affected;
@@ -225,15 +228,15 @@ frg::expected<Error, PagesAffected> unmapPagesByCursor(PageSpace *ps, VirtualAdd
 	Cursor c{ps, va, policy};
 	while(c.findPresent(va + size)) {
 		auto [status, physical] = c.unmap4k();
-		assert(status & page_status::present);
-		if(status & page_status::dirty) {
-			if(auto descriptor = globalPfnDb().find(physical))
-				markDirty(*descriptor);
+		if(status & page_status::present) {
+			if(auto descriptor = globalPfnDb().find(physical)) {
+				if(status & page_status::dirty)
+					markDirty(*descriptor);
+				decrementUses(*descriptor);
+			}
+			affected.rssDecrease += kPageSize;
+			affected.anyRevoked = true;
 		}
-		if(auto descriptor = globalPfnDb().find(physical))
-			decrementUses(*descriptor);
-		affected.rssDecrease += kPageSize;
-		affected.anyRevoked = true;
 
 		c.advance4k();
 	}
@@ -257,12 +260,11 @@ frg::expected<Error, PagesAffected> agePagesByCursor(PageSpace *ps, VirtualAddr 
 		affected.scanned += kPageSize;
 		auto [status, physical, unmapped] = c.age4k(vacate);
 		if(unmapped) {
-			if(status & page_status::dirty) {
-				if(auto descriptor = globalPfnDb().find(physical))
+			if(auto descriptor = globalPfnDb().find(physical)) {
+				if(status & page_status::dirty)
 					markDirty(*descriptor);
-			}
-			if(auto descriptor = globalPfnDb().find(physical))
 				decrementUses(*descriptor);
+			}
 			affected.rssDecrease += kPageSize;
 			affected.anyRevoked = true;
 		}
@@ -286,9 +288,10 @@ struct VirtualOperations {
 	virtual frg::expected<Error, PagesAffected> mapPresentPages(VirtualAddr va, MemoryView *view,
 			uintptr_t offset, size_t size, PageFlags flags, CachingMode mode) = 0;
 
+	// Restricts the permissions of present pages; the caching mode of a page is preserved.
 	// Precondition: flags has at least one access bit (read/write/execute) set.
 	virtual frg::expected<Error, PagesAffected> restrictPages(VirtualAddr va,
-			size_t size, PageFlags flags, CachingMode mode) = 0;
+			size_t size, PageFlags flags) = 0;
 
 	// Precondition: flags has at least one access bit (read/write/execute) set.
 	virtual frg::expected<Error, PagesAffected> faultPage(VirtualAddr va, MemoryView *view,
@@ -826,9 +829,9 @@ public:
 		}
 
 		frg::expected<Error, PagesAffected> restrictPages(VirtualAddr va,
-				size_t size, PageFlags flags, CachingMode mode) override {
+				size_t size, PageFlags flags) override {
 			return restrictPagesByCursor<ClientPageSpace::Cursor>(&space_->pageSpace_,
-					va, size, flags, mode);
+					va, size, flags);
 		}
 
 		frg::expected<Error, PagesAffected> faultPage(VirtualAddr va, MemoryView *view,

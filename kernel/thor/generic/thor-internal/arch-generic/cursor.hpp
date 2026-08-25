@@ -30,6 +30,8 @@ concept CursorPolicy = requires (T policy, uint64_t pte, uint64_t *ptePtr,
 	{ T::ptePageAddress(pte) } -> std::same_as<PhysicalAddr>;
 	// Get the status (present, dirty) from the given PTE.
 	{ T::ptePageStatus(pte) } -> std::same_as<PageStatus>;
+	// Mask of the PTE bits that encode the caching mode.
+	{ T::ptePageCachingMask } -> std::convertible_to<uint64_t>;
 	// Clean the given PTE (remove the dirty status). Returns the previous PTE value.
 	{ T::pteClean(ptePtr) } -> std::same_as<uint64_t>;
 	// Age the given PTE. Returns the previous PTE value and whether the page was unmapped.
@@ -81,14 +83,27 @@ private:
 		return __atomic_exchange_n(currentPtePtr_(), value, __ATOMIC_RELAXED);
 	}
 
+	// Advances by the size of an entry in the deepest page table that is present.
+	// Precondition: the last level is not present.
+	void advancePastAbsentTable_(uintptr_t limit) {
+		assert(!accessors_[lastLevel]);
+		size_t level = initialLevel_;
+		while(level + 1 < Policy::maxLevels && accessors_[level + 1])
+			++level;
+
+		auto next = (va_ | ((uintptr_t{1} << levelShift(level)) - 1)) + 1;
+		moveTo(!next || next > limit ? limit : next);
+	}
+
 public:
 	uintptr_t virtualAddress() {
 		return va_;
 	}
 
 	void moveTo(uintptr_t va) {
+		// The table at level i is selected by the index that level i - 1 resolves.
 		for(size_t i = initialLevel_ + 1; i < Policy::maxLevels; i++) {
-			if((va_ ^ va) & (levelMask << levelShift(i))) {
+			if((va_ ^ va) & (levelMask << levelShift(i - 1))) {
 				for(size_t j = i; j < Policy::maxLevels; j++) {
 					accessors_[j] = {};
 				}
@@ -107,7 +122,7 @@ public:
 	bool findPresent(uintptr_t limit) {
 		while(va_ < limit) {
 			if(!accessors_[lastLevel]) {
-				advance4k();
+				advancePastAbsentTable_(limit);
 				continue;
 			}
 
@@ -124,7 +139,7 @@ public:
 	bool findDirty(uintptr_t limit) {
 		while(va_ < limit) {
 			if(!accessors_[lastLevel]) {
-				advance4k();
+				advancePastAbsentTable_(limit);
 				continue;
 			}
 
@@ -167,7 +182,7 @@ public:
 		return {Policy::ptePageStatus(ptEnt), Policy::ptePageAddress(ptEnt)};
 	}
 
-	std::tuple<PageStatus, PhysicalAddr, bool> restrict4k(PageFlags flags, CachingMode cachingMode) {
+	std::tuple<PageStatus, PhysicalAddr, bool> restrict4k(PageFlags flags) {
 		if(!accessors_[lastLevel])
 			return {0, PhysicalAddr(-1), false};
 
@@ -182,7 +197,10 @@ public:
 			if(!Policy::ptePageCanAccess(oldPte, page_access::execute))
 				effectiveFlags &= ~page_access::execute;
 
-			auto newPte = Policy::pteBuild(Policy::ptePageAddress(oldPte), effectiveFlags, cachingMode);
+			auto newPte = Policy::pteBuild(Policy::ptePageAddress(oldPte), effectiveFlags, CachingMode::null);
+			// Keep the caching mode of the page.
+			newPte &= ~Policy::ptePageCachingMask;
+			newPte |= (oldPte & Policy::ptePageCachingMask);
 			auto success = __atomic_compare_exchange_n(
 				currentPtePtr_(), &oldPte, newPte, false, __ATOMIC_RELAXED, __ATOMIC_RELAXED
 			);
@@ -210,7 +228,7 @@ public:
 
 	std::tuple<PageStatus, PhysicalAddr> unmap4k() {
 		if(!accessors_[lastLevel])
-			return {0, 0};
+			return {0, PhysicalAddr(-1)};
 
 		auto ptEnt = exchangeCurrentPte_(0);
 		policy_.pteWriteBarrier(currentPtePtr_());

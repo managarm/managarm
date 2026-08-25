@@ -51,8 +51,8 @@ frg::expected<Error, PagesAffected> Operations::mapPresentPages(
 }
 
 frg::expected<Error, PagesAffected>
-Operations::restrictPages(VirtualAddr va, size_t size, PageFlags flags, CachingMode mode) {
-	return restrictPagesByCursor<HypervisorCursor>(pageSpace_, va, size, flags, mode);
+Operations::restrictPages(VirtualAddr va, size_t size, PageFlags flags) {
+	return restrictPagesByCursor<HypervisorCursor>(pageSpace_, va, size, flags);
 }
 
 frg::expected<Error, PagesAffected> Operations::faultPage(

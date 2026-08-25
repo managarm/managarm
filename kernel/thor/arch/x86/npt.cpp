@@ -8,7 +8,7 @@ constexpr uint64_t nptPresent = UINT64_C(1) << 0;
 constexpr uint64_t nptWrite = UINT64_C(1) << 1;
 constexpr uint64_t nptUser = UINT64_C(1) << 2;
 constexpr uint64_t nptDirty = UINT64_C(1) << 6;
-constexpr uint64_t nptXd = UINT64_C(1) << 6;
+constexpr uint64_t nptXd = UINT64_C(1) << 63;
 constexpr uint64_t nptAddress = 0x000F'FFFF'FFFF'F000;
 
 struct NptCursorPolicy {
@@ -46,6 +46,9 @@ struct NptCursorPolicy {
 			status |= page_status::dirty;
 		return status;
 	}
+
+	// Guest memory is always mapped write-back; see pteBuild().
+	static inline constexpr uint64_t ptePageCachingMask = 0;
 
 	static uint64_t pteClean(uint64_t *ptePtr) {
 		return __atomic_fetch_and(ptePtr, ~nptDirty, __ATOMIC_RELAXED);
@@ -106,13 +109,13 @@ NptOperations::NptOperations(NptPageSpace *pageSpace)
 
 void NptOperations::retire(RetireNode *node) {
 	// TODO: Shootdown needs to be implemented for NPT.
-	(void)node;
+	node->complete();
 }
 
 bool NptOperations::submitShootdown(ShootNode *node) {
 	// TODO: Shootdown needs to be implemented for NPT.
 	(void)node;
-	return false;
+	return true;
 }
 
 frg::expected<Error, PagesAffected> NptOperations::mapPresentPages(VirtualAddr va, MemoryView *view,
@@ -122,8 +125,8 @@ frg::expected<Error, PagesAffected> NptOperations::mapPresentPages(VirtualAddr v
 }
 
 frg::expected<Error, PagesAffected> NptOperations::restrictPages(VirtualAddr va,
-		size_t size, PageFlags flags, CachingMode mode) {
-	return restrictPagesByCursor<NptCursor>(pageSpace_, va, size, flags, mode);
+		size_t size, PageFlags flags) {
+	return restrictPagesByCursor<NptCursor>(pageSpace_, va, size, flags);
 }
 
 frg::expected<Error, PagesAffected> NptOperations::faultPage(VirtualAddr va, MemoryView *view,

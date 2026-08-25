@@ -67,6 +67,9 @@ struct RiscvCursorPolicy {
 		return status;
 	}
 
+	// Caching modes are not supported yet; see pteBuild().
+	static inline constexpr uint64_t ptePageCachingMask = 0;
+
 	static uint64_t pteClean(uint64_t *ptePtr) {
 		return __atomic_fetch_and(ptePtr, ~pteDirty, __ATOMIC_RELAXED);
 	}
