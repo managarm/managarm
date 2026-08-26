@@ -44,48 +44,90 @@ inline constinit protocols::ostrace::Event ostEvtExt2BgdtWriteback{"ext2.bgdtWri
 inline constinit protocols::ostrace::Event ostEvtVirtioBlkReadSectors{"virtio-blk.readSectors"};
 inline constinit protocols::ostrace::Event ostEvtVirtioBlkWriteSectors{"virtio-blk.writeSectors"};
 inline constinit protocols::ostrace::Event ostEvtVirtioBlkRequest{"virtio-blk.request"};
+
+// Attributes. Every time* attribute is in nanoseconds and measures a phase of the event it is attached to.
+// The phases of one event do not overlap, so they can be stacked against `time`.
+//
+// Wall-clock duration of the whole traced operation, in nanoseconds.
+// All other time* attributes are disjoint sub-intervals of it.
 inline constinit protocols::ostrace::UintAttribute ostAttrTime{"time"};
+// Bytes actually moved or examined by the operation (not the size requested).
 inline constinit protocols::ostrace::UintAttribute ostAttrNumBytes{"numBytes"};
+// Bytes the caller asked for; exceeds numBytes on a short read at EOF.
 inline constinit protocols::ostrace::UintAttribute ostAttrNumRequested{"numRequested"};
+// Filesystem block number the operation acted on.
 inline constinit protocols::ostrace::UintAttribute ostAttrBlock{"block"};
+// Number of filesystem blocks allocated, assigned or cleaned.
 inline constinit protocols::ostrace::UintAttribute ostAttrNumBlocks{"numBlocks"};
+// Block groups whose bitmap was consulted before the search succeeded.
 inline constinit protocols::ostrace::UintAttribute ostAttrNumGroups{"numGroups"};
+// Writeback requests merged into this one device write. 1 means no coalescing.
 inline constinit protocols::ostrace::UintAttribute ostAttrNumCoalesced{"numCoalesced"};
-inline constinit protocols::ostrace::UintAttribute ostAttrNumWindows{"numWindows"};
+// markDirty() calls since the last batch that hit an already queued block.
 inline constinit protocols::ostrace::UintAttribute ostAttrNumRedundant{"numRedundant"};
+// Inode number the operation acted on; 0 if allocation failed.
 inline constinit protocols::ostrace::UintAttribute ostAttrIno{"ino"};
+// Whether the looked-up name or block was already present (1) or not (0).
 inline constinit protocols::ostrace::UintAttribute ostAttrFound{"found"};
+// Whether the access was for writing (1) or reading (0).
 inline constinit protocols::ostrace::UintAttribute ostAttrIsWrite{"isWrite"};
+// Waiting to acquire mutexes. Excludes page pinning, which is timePin.
 inline constinit protocols::ostrace::UintAttribute ostAttrTimeLock{"timeLock"};
+// Pinning pages into memory via LockMemoryView, i.e. faulting them in if absent.
 inline constinit protocols::ostrace::UintAttribute ostAttrTimePin{"timePin"};
+// Importing the managed memory range into the DMA pool.
 inline constinit protocols::ostrace::UintAttribute ostAttrTimeImport{"timeImport"};
+// Reading file data blocks off the device.
 inline constinit protocols::ostrace::UintAttribute ostAttrTimeRead{"timeRead"};
+// Assigning disk blocks to the file range that is being written back.
 inline constinit protocols::ostrace::UintAttribute ostAttrTimeAssign{"timeAssign"};
+// Writing file data blocks to the device.
 inline constinit protocols::ostrace::UintAttribute ostAttrTimeWrite{"timeWrite"};
+// Time spent inside device read/writeSectors calls, summed over all of them.
 inline constinit protocols::ostrace::UintAttribute ostAttrTimeDevice{"timeDevice"};
+// Obtaining MetadataCache windows, summed over all accesses in the operation.
 inline constinit protocols::ostrace::UintAttribute ostAttrTimeAccess{"timeAccess"};
+// Allocating and assigning the blocks that back a file growth.
 inline constinit protocols::ostrace::UintAttribute ostAttrTimeEnsureBlocks{"timeEnsureBlocks"};
+// Resizing the page cache backing the file.
 inline constinit protocols::ostrace::UintAttribute ostAttrTimeResizeMemory{"timeResizeMemory"};
+// Waiting for readyEvent, i.e. for the inode to finish being initiated.
 inline constinit protocols::ostrace::UintAttribute ostAttrTimeReady{"timeReady"};
+// Growing the file so that the write fits.
 inline constinit protocols::ostrace::UintAttribute ostAttrTimeResize{"timeResize"};
+// Copying payload between the caller buffer and the page cache. Includes the
+// page faults that this triggers, and hence the I/O to service them.
 inline constinit protocols::ostrace::UintAttribute ostAttrTimeCopy{"timeCopy"};
+// Building the request descriptors before handing them to the device. Excludes timeObtain.
 inline constinit protocols::ostrace::UintAttribute ostAttrTimeSetup{"timeSetup"};
+// Obtaining descriptors from the virtqueue, i.e. waiting for a free slot.
 inline constinit protocols::ostrace::UintAttribute ostAttrTimeObtain{"timeObtain"};
+// Clearing dirty page table entries so that the page cache takes the pages over for
+// writeback. Includes the TLB shootdown but no device access; see libblockfs.metadataWriteback.
 inline constinit protocols::ostrace::UintAttribute ostAttrTimeCleanPages{"timeCleanPages"};
+// Walking the directory entries in the page cache. Free of I/O, but a scan through a mapping
+// that was just established also faults in its page table entries.
 inline constinit protocols::ostrace::UintAttribute ostAttrTimeScan{"timeScan"};
+// Establishing the address-space mapping of an already pinned range.
 inline constinit protocols::ostrace::UintAttribute ostAttrTimeMap{"timeMap"};
+// Extending a directory by one block when no entry slot was free.
 inline constinit protocols::ostrace::UintAttribute ostAttrTimeGrow{"timeGrow"};
+// Clearing the dirty page table entries of the whole directory file after modifying an entry.
 inline constinit protocols::ostrace::UintAttribute ostAttrTimeCleanDir{"timeCleanDir"};
+// Looking up the name before deciding whether to create it.
 inline constinit protocols::ostrace::UintAttribute ostAttrTimeFind{"timeFind"};
+// Allocating and initializing a new inode, including its mode update.
 inline constinit protocols::ostrace::UintAttribute ostAttrTimeCreate{"timeCreate"};
+// Inserting the directory entry that publishes an inode under a name.
 inline constinit protocols::ostrace::UintAttribute ostAttrTimeLink{"timeLink"};
-inline constinit protocols::ostrace::UintAttribute ostAttrTimeUpdateTimes{"timeUpdateTimes"};
-inline constinit protocols::ostrace::UintAttribute ostAttrTimeCreateStreams{"timeCreateStreams"};
+// Walking .. links to reject a rename that would create a directory cycle.
 inline constinit protocols::ostrace::UintAttribute ostAttrTimeLoopCheck{"timeLoopCheck"};
+// Removing directory entries, summed over both parents in a rename.
 inline constinit protocols::ostrace::UintAttribute ostAttrTimeRemove{"timeRemove"};
+// Reading the superblock off the device.
 inline constinit protocols::ostrace::UintAttribute ostAttrTimeSuperblock{"timeSuperblock"};
+// Reading the block group descriptor table off the device.
 inline constinit protocols::ostrace::UintAttribute ostAttrTimeBgdt{"timeBgdt"};
-inline constinit protocols::ostrace::UintAttribute ostAttrTimeCreateMemory{"timeCreateMemory"};
 
 inline protocols::ostrace::Vocabulary ostVocabulary{
 	ostEvtGetLink,
@@ -135,7 +177,6 @@ inline protocols::ostrace::Vocabulary ostVocabulary{
 	ostAttrNumBlocks,
 	ostAttrNumGroups,
 	ostAttrNumCoalesced,
-	ostAttrNumWindows,
 	ostAttrNumRedundant,
 	ostAttrIno,
 	ostAttrFound,
@@ -163,13 +204,10 @@ inline protocols::ostrace::Vocabulary ostVocabulary{
 	ostAttrTimeFind,
 	ostAttrTimeCreate,
 	ostAttrTimeLink,
-	ostAttrTimeUpdateTimes,
-	ostAttrTimeCreateStreams,
 	ostAttrTimeLoopCheck,
 	ostAttrTimeRemove,
 	ostAttrTimeSuperblock,
 	ostAttrTimeBgdt,
-	ostAttrTimeCreateMemory,
 };
 
 inline protocols::ostrace::Context ostContext{ostVocabulary};
