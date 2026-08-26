@@ -23,6 +23,7 @@
 #include "ext2fs.hpp"
 #include "extents.hpp"
 #include "../checksums.hpp"
+#include "../trace.hpp"
 
 namespace blockfs {
 namespace ext2fs {
@@ -1132,6 +1133,7 @@ async::result<void> FileSystem::manageFileData(std::shared_ptr<Inode> inode) {
 		auto fileView = pool->importMemory(
 		    helix::BorrowedDescriptor{inode->backingMemory}, manage.offset(), manage.length()
 		);
+		uint64_t importDone = timer.elapsed();
 
 		if(manage.type() == kHelManageInitialize) {
 			assert(!(manage.offset() % inode->fs.blockSize));
@@ -1139,14 +1141,27 @@ async::result<void> FileSystem::manageFileData(std::shared_ptr<Inode> inode) {
 			size_t num_blocks = (backed_size + (inode->fs.blockSize - 1)) / inode->fs.blockSize;
 			assert(num_blocks * inode->fs.blockSize <= manage.length());
 
+			uint64_t lockDone;
+			uint64_t readDone;
 			{
 				co_await inode->blockMapMutex.async_lock();
 				frg::unique_lock blockMapLock{frg::adopt_lock, inode->blockMapMutex};
+				lockDone = timer.elapsed();
 				co_await inode->fs.readDataBlocks(inode, manage.offset() / inode->fs.blockSize, fileView);
+				readDone = timer.elapsed();
 			}
 
 			HEL_CHECK(helUpdateMemory(inode->backingMemory, kHelManageInitialize,
 					manage.offset(), manage.length()));
+
+			ostContext.emit(
+				ostEvtExt2InitializeFile,
+				ostAttrTime(timer.elapsed()),
+				ostAttrNumBytes(manage.length()),
+				ostAttrTimeImport(importDone),
+				ostAttrTimeLock(lockDone - importDone),
+				ostAttrTimeRead(readDone - lockDone)
+			);
 		}else{
 			assert(manage.type() == kHelManageWriteback);
 
@@ -1157,21 +1172,32 @@ async::result<void> FileSystem::manageFileData(std::shared_ptr<Inode> inode) {
 
 			assert(numBlocks * inode->fs.blockSize <= manage.length());
 
+			uint64_t lockDone;
+			uint64_t assignDone;
+			uint64_t writeDone;
 			{
 				co_await inode->blockMapMutex.async_lock();
 				frg::unique_lock blockMapLock{frg::adopt_lock, inode->blockMapMutex};
+				lockDone = timer.elapsed();
 				co_await inode->fs.assignDataBlocks(inode.get(), blockOffset, numBlocks);
+				assignDone = timer.elapsed();
 				co_await inode->fs.writeDataBlocks(inode, blockOffset, fileView);
+				writeDone = timer.elapsed();
 			}
 
 			HEL_CHECK(helUpdateMemory(inode->backingMemory, kHelManageWriteback,
 					manage.offset(), manage.length()));
-		}
 
-		ostContext.emit(
-			ostEvtExt2ManageFile,
-			ostAttrTime(timer.elapsed())
-		);
+			ostContext.emit(
+				ostEvtExt2WritebackFile,
+				ostAttrTime(timer.elapsed()),
+				ostAttrNumBytes(manage.length()),
+				ostAttrTimeImport(importDone),
+				ostAttrTimeLock(lockDone - importDone),
+				ostAttrTimeAssign(assignDone - lockDone),
+				ostAttrTimeWrite(writeDone - assignDone)
+			);
+		}
 	}
 }
 

@@ -58,8 +58,6 @@ extern protocols::ostrace::Event ostEvtTraverseLinks;
 extern protocols::ostrace::Event ostEvtRead;
 extern protocols::ostrace::Event ostEvtRawRead;
 extern protocols::ostrace::Event ostEvtExt2AssignDataBlocks;
-extern protocols::ostrace::Event ostEvtExt2InitiateInode;
-extern protocols::ostrace::Event ostEvtExt2ManageFile;
 extern protocols::ostrace::Event ostEvtExt2AllocateBlocks;
 extern protocols::ostrace::Event ostEvtExt2AllocateInode;
 extern protocols::ostrace::UintAttribute ostAttrTime;
