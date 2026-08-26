@@ -763,11 +763,29 @@ Inode::resizeFile(size_t newSize) {
 	auto oldSize = fileSize();
 	auto newMappingSize = (newSize + 0xFFF) & ~size_t(0xFFF);
 
+	protocols::ostrace::Timer timer;
+	uint64_t timeEnsureBlocks = 0;
+	uint64_t timeResizeMemory = 0;
+	auto emitEvent = [&] {
+		ostContext.emit(
+			ostEvtExt2ResizeFile,
+			ostAttrTime(timer.elapsed()),
+			ostAttrNumBytes(newSize > oldSize ? newSize - oldSize : 0),
+			ostAttrTimeEnsureBlocks(timeEnsureBlocks),
+			ostAttrTimeResizeMemory(timeResizeMemory)
+		);
+	};
+
 	if (newSize > oldSize) {
 		// TODO(qookie): Technically we only need to assign 0
 		// blocks here, not allocate new ones. We also should
 		// zero out the new blocks.
-		FRG_CO_TRY(co_await ensureBackingBlocks(oldSize, newSize - oldSize));
+		auto ensureResult = co_await ensureBackingBlocks(oldSize, newSize - oldSize);
+		timeEnsureBlocks = timer.split();
+		if (!ensureResult) {
+			emitEvent();
+			co_return ensureResult.error();
+		}
 
 		// Grow fileSize() first so the backing memory never covers a page beyond EOF.
 		setFileSize(newSize);
@@ -776,6 +794,7 @@ Inode::resizeFile(size_t newSize) {
 		auto resizeResult = co_await helix_ng::resizeMemory(
 				helix::BorrowedDescriptor{backingMemory}, newMappingSize);
 		HEL_CHECK(resizeResult.error());
+		timeResizeMemory = timer.split();
 	} else if (newSize < oldSize) {
 		// TODO(qookie): Deallocate blocks if they're no longer within the file.
 		std::println("libblockfs: Shrinking an Ext2 file does not free data blocks!");
@@ -796,14 +815,18 @@ Inode::resizeFile(size_t newSize) {
 
 		// Shrink fileSize() last (after no initialization/writeback is in flight anymore).
 		setFileSize(newSize);
+		timeResizeMemory = timer.split();
 	} else {
 		// Nothing to do.
+		emitEvent();
 		co_return frg::success;
 	}
 
 	updateInodeChecksum(fs, diskInode(), number);
 
 	diskInodeWindow.markDirty();
+
+	emitEvent();
 
 	co_return frg::success;
 }

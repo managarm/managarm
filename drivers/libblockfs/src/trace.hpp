@@ -17,6 +17,7 @@ inline constinit protocols::ostrace::Event ostEvtMetadataUnmap{"libblockfs.metad
 inline constinit protocols::ostrace::Event ostEvtExt2AssignDataBlocks{"ext2.assignDataBlocks"};
 inline constinit protocols::ostrace::Event ostEvtExt2ReadDataBlocks{"ext2.readDataBlocks"};
 inline constinit protocols::ostrace::Event ostEvtExt2WriteDataBlocks{"ext2.writeDataBlocks"};
+inline constinit protocols::ostrace::Event ostEvtExt2ResizeFile{"ext2.resizeFile"};
 inline constinit protocols::ostrace::Event ostEvtExt2InitializeFile{"ext2.initializeFile"};
 inline constinit protocols::ostrace::Event ostEvtExt2WritebackFile{"ext2.writebackFile"};
 inline constinit protocols::ostrace::Event ostEvtExt2AllocateBlocks{"ext2.allocateBlocks"};
@@ -35,6 +36,8 @@ inline constinit protocols::ostrace::UintAttribute ostAttrTimeAssign{"timeAssign
 inline constinit protocols::ostrace::UintAttribute ostAttrTimeWrite{"timeWrite"};
 inline constinit protocols::ostrace::UintAttribute ostAttrTimeDevice{"timeDevice"};
 inline constinit protocols::ostrace::UintAttribute ostAttrTimeAccess{"timeAccess"};
+inline constinit protocols::ostrace::UintAttribute ostAttrTimeEnsureBlocks{"timeEnsureBlocks"};
+inline constinit protocols::ostrace::UintAttribute ostAttrTimeResizeMemory{"timeResizeMemory"};
 
 inline protocols::ostrace::Vocabulary ostVocabulary{
 	ostEvtGetLink,
@@ -50,6 +53,7 @@ inline protocols::ostrace::Vocabulary ostVocabulary{
 	ostEvtExt2AssignDataBlocks,
 	ostEvtExt2ReadDataBlocks,
 	ostEvtExt2WriteDataBlocks,
+	ostEvtExt2ResizeFile,
 	ostEvtExt2InitializeFile,
 	ostEvtExt2WritebackFile,
 	ostEvtExt2AllocateBlocks,
@@ -68,6 +72,8 @@ inline protocols::ostrace::Vocabulary ostVocabulary{
 	ostAttrTimeWrite,
 	ostAttrTimeDevice,
 	ostAttrTimeAccess,
+	ostAttrTimeEnsureBlocks,
+	ostAttrTimeResizeMemory,
 };
 
 inline protocols::ostrace::Context ostContext{ostVocabulary};
