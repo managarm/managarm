@@ -1702,6 +1702,8 @@ std::expected<smarter::shared_ptr<BackingMemory>, Error> BackingMemory::create(
 }
 
 // Note: This resizes the ManagedSpace but it does not affect BackingMemory::getLength().
+// On shrink, the caller is responsible for discarding the truncated pages
+// (e.g., via invalidateRange()) before it reuses their backing store.
 coroutine<frg::expected<Error>> BackingMemory::resize(size_t newSize) {
 	assert(currentIpl() == ipl::exceptionalWork);
 	if(_managed->isSwapSpace)
@@ -1712,21 +1714,11 @@ coroutine<frg::expected<Error>> BackingMemory::resize(size_t newSize) {
 		co_return Error::illegalArgs;
 	auto newPages = newSize >> kPageShift;
 
-	size_t oldPages;
 	{
 		auto irqLock = frg::guard(&irqMutex());
 		auto lock = frg::guard(&_managed->mutex);
 
-		oldPages = _managed->numPages;
 		_managed->numPages = newPages;
-	}
-
-	if(newPages > oldPages) {
-		// Do nothing for now.
-	}else if(newPages < oldPages) {
-		// TODO: also free the affected pages!
-		co_await _managed->_evictQueue.breakRange(newPages << kPageShift,
-				(oldPages - newPages) << kPageShift);
 	}
 
 	co_return {};
