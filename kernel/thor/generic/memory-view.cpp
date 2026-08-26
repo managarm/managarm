@@ -979,6 +979,15 @@ coroutine<void> ManagedSpace::_runReclaimLoop() {
 			}
 
 			discardBatch.splice(discardBatch.end(), _discardList);
+
+			for(auto cachePage : discardBatch) {
+				auto *page = frg::container_of(cachePage, &ManagedPage::cachePage);
+				assert(page->discarded);
+				assert(page->transactionState == TxState::discardQueued
+						|| page->transactionState == TxState::avertDiscard);
+				if(page->transactionState == TxState::discardQueued)
+					page->transactionState = TxState::performDiscard;
+			}
 		}
 
 		if(batch.empty() && discardBatch.empty())
@@ -1060,15 +1069,17 @@ coroutine<void> ManagedSpace::_runReclaimLoop() {
 				auto cachePage = discardBatch.pop_front();
 				auto *page = frg::container_of(cachePage, &ManagedPage::cachePage);
 				assert(page->discarded);
-				assert(page->transactionState == TxState::discardQueued);
+				assert(page->transactionState == TxState::performDiscard
+						|| page->transactionState == TxState::avertDiscard);
 
-				// Re-check the counts in case the page has been locked/re-used.
-				if(page->lockCount
-						|| page->cachePage.useCount.load(std::memory_order_relaxed)) {
+				if(page->transactionState == TxState::avertDiscard) {
 					page->transactionState = TxState::none;
+					anyDiscardQueued |= _disposeDiscarded(page);
 					continue;
 				}
 
+				assert(!page->lockCount);
+				assert(!page->cachePage.useCount.load(std::memory_order_relaxed));
 				physical = page->physical;
 
 				if(physical != PhysicalAddr(-1))
@@ -1355,6 +1366,11 @@ Error ManagedSpace::lockPages(uintptr_t offset, size_t size) {
 				pit->transactionState = TxState::none;
 			}else if(pit->transactionState == TxState::performReclaim) {
 				pit->transactionState = TxState::avertReclaim;
+			}else if(pit->transactionState == TxState::discardQueued
+					|| pit->transactionState == TxState::performDiscard) {
+				// Handle discardQueued pages by moving them into avertDiscard.
+				// This avoids raising monitors on this code path.
+				pit->transactionState = TxState::avertDiscard;
 			}
 		}
 	}
@@ -1480,6 +1496,11 @@ void ManagedSpace::incrementUses(CachePage *cachePage) {
 			page->transactionState = TxState::none;
 		} else if(page->transactionState == TxState::performReclaim) {
 			page->transactionState = TxState::avertReclaim;
+		} else if(page->transactionState == TxState::discardQueued
+				|| page->transactionState == TxState::performDiscard) {
+			// Handle discardQueued pages by moving them into avertDiscard.
+			// This avoids raising monitors on this code path.
+			page->transactionState = TxState::avertDiscard;
 		}
 	}
 }
@@ -1625,6 +1646,12 @@ PhysicalRange BackingMemory::peekRange(uintptr_t offset, FetchFlags) {
 	if(!pit)
 		return PhysicalRange{};
 
+	if(pit->transactionState == ManagedSpace::TxState::performReclaim) {
+		pit->transactionState = ManagedSpace::TxState::avertReclaim;
+	} else if(pit->transactionState == ManagedSpace::TxState::performDiscard) {
+		pit->transactionState = ManagedSpace::TxState::avertDiscard;
+	}
+
 	return PhysicalRange{
 		.physical = pit->physical + misalign,
 		.size = kPageSize - misalign,
@@ -1648,6 +1675,12 @@ BackingMemory::touchRange(uintptr_t offset, size_t, FetchFlags) {
 
 	auto [pit, wasInserted] = _managed->pages.find_or_insert(index, _managed.get(), index);
 	assert(pit);
+
+	if(pit->transactionState == ManagedSpace::TxState::performReclaim) {
+		pit->transactionState = ManagedSpace::TxState::avertReclaim;
+	} else if(pit->transactionState == ManagedSpace::TxState::performDiscard) {
+		pit->transactionState = ManagedSpace::TxState::avertDiscard;
+	}
 
 	if(pit->physical == PhysicalAddr(-1)) {
 		PhysicalAddr physical = physicalAllocator->allocate(kPageSize);
@@ -1973,6 +2006,8 @@ PhysicalRange FrontalMemory::peekRange(uintptr_t offset, FetchFlags) {
 
 		if(pit->transactionState == ManagedSpace::TxState::performReclaim) {
 			pit->transactionState = ManagedSpace::TxState::avertReclaim;
+		} else if(pit->transactionState == ManagedSpace::TxState::performDiscard) {
+			pit->transactionState = ManagedSpace::TxState::avertDiscard;
 		}
 
 		return PhysicalRange{
@@ -2013,6 +2048,8 @@ FrontalMemory::touchRange(uintptr_t offset, size_t, FetchFlags flags) {
 				globalReclaimer->bumpPage(&pit->cachePage);
 			}else if(pit->transactionState == ManagedSpace::TxState::performReclaim) {
 				pit->transactionState = ManagedSpace::TxState::avertReclaim;
+			}else if(pit->transactionState == ManagedSpace::TxState::performDiscard) {
+				pit->transactionState = ManagedSpace::TxState::avertDiscard;
 			}
 
 			co_return kPageSize - misalign;
@@ -2160,6 +2197,11 @@ Error SwappableMemory::lockRange(uintptr_t offset, size_t size) {
 					pit->transactionState = ManagedSpace::TxState::none;
 				}else if(pit->transactionState == ManagedSpace::TxState::performReclaim) {
 					pit->transactionState = ManagedSpace::TxState::avertReclaim;
+				}else if(pit->transactionState == ManagedSpace::TxState::discardQueued
+						|| pit->transactionState == ManagedSpace::TxState::performDiscard) {
+					// Handle discardQueued pages by moving them into avertDiscard.
+					// This avoids raising monitors on this code path.
+					pit->transactionState = ManagedSpace::TxState::avertDiscard;
 				}
 			}
 		}
@@ -2227,6 +2269,8 @@ PhysicalRange SwappableMemory::peekRange(uintptr_t offset, FetchFlags) {
 
 		if(pit->transactionState == ManagedSpace::TxState::performReclaim) {
 			pit->transactionState = ManagedSpace::TxState::avertReclaim;
+		} else if(pit->transactionState == ManagedSpace::TxState::performDiscard) {
+			pit->transactionState = ManagedSpace::TxState::avertDiscard;
 		}
 
 		return PhysicalRange{
@@ -2280,6 +2324,8 @@ SwappableMemory::touchRange(uintptr_t offset, size_t, FetchFlags flags) {
 					globalReclaimer->bumpPage(&pit->cachePage);
 				}else if(pit->transactionState == ManagedSpace::TxState::performReclaim) {
 					pit->transactionState = ManagedSpace::TxState::avertReclaim;
+				}else if(pit->transactionState == ManagedSpace::TxState::performDiscard) {
+					pit->transactionState = ManagedSpace::TxState::avertDiscard;
 				}
 
 				co_return kPageSize - misalign;
