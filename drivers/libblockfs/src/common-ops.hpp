@@ -274,20 +274,24 @@ async::result<frg::expected<protocols::fs::Error>> doTruncate(void *object, size
 	auto inode = std::static_pointer_cast<Inode>(self->inode);
 
 	protocols::ostrace::Timer timer;
-	uint64_t lockDone = 0;
+	uint64_t timeReady = 0;
+	uint64_t timeLock = 0;
 	frg::scope_exit evtOnExit{[&] {
 		ostContext.emit(
 			ostEvtTruncate,
 			ostAttrTime(timer.elapsed()),
 			ostAttrNumBytes(size),
-			ostAttrTimeLock(lockDone)
+			ostAttrTimeReady(timeReady),
+			ostAttrTimeLock(timeLock)
 		);
 	}};
 
 	co_await self->mutex.async_lock_shared();
 	frg::shared_lock lock{frg::adopt_lock, self->mutex};
+	timeLock += timer.split();
 
 	co_await inode->readyEvent.wait();
+	timeReady = timer.split();
 
 	// Directories cannot be truncated.
 	if (inode->fileType == FileType::kTypeDirectory)
@@ -295,7 +299,7 @@ async::result<frg::expected<protocols::fs::Error>> doTruncate(void *object, size
 
 	co_await inode->inodeMutex.async_lock();
 	frg::unique_lock inodeLock{frg::adopt_lock, inode->inodeMutex};
-	lockDone = timer.elapsed();
+	timeLock += timer.split();
 
 	FRG_CO_TRY(co_await inode->resizeFile(size));
 
@@ -437,29 +441,30 @@ doOpen(std::shared_ptr<void> object, bool write, bool read, bool append) {
 	auto self = std::static_pointer_cast<Inode>(object);
 
 	protocols::ostrace::Timer timer;
-	uint64_t lockDone = 0;
-	uint64_t updateTimesDone = 0;
+	uint64_t timeReady = 0;
+	uint64_t timeLock = 0;
 	frg::scope_exit evtOnExit{[&] {
 		ostContext.emit(
 			ostEvtOpen,
 			ostAttrTime(timer.elapsed()),
-			ostAttrTimeLock(lockDone),
-			ostAttrTimeUpdateTimes(updateTimesDone - lockDone)
+			ostAttrTimeReady(timeReady),
+			ostAttrTimeLock(timeLock)
 		);
 	}};
 
 	auto file = smarter::make_shared<File>(self, write, read, append);
 	co_await self->readyEvent.wait();
+	timeReady = timer.split();
 
 	auto [localCtrl, remoteCtrl] = helix::createStream();
 	auto [localPt, remotePt] = helix::createStream();
 
 	{
+		protocols::ostrace::Timer lockTimer;
 		co_await self->inodeMutex.async_lock();
 		frg::unique_lock inodeLock{frg::adopt_lock, self->inodeMutex};
-		lockDone = timer.elapsed();
+		timeLock = lockTimer.elapsed();
 		co_await self->updateTimes(clk::getRealtime(), std::nullopt, std::nullopt);
-		updateTimesDone = timer.elapsed();
 	}
 
 	helix::DispatcherPool::global().detach([] (smarter::shared_ptr<File> file, BaseFileSystem &fs,

@@ -138,21 +138,25 @@ void Inode::setFileSize(size_t size) {
 async::result<frg::expected<protocols::fs::Error, std::optional<DirEntry>>>
 Inode::findEntry(std::string name) {
 	protocols::ostrace::Timer timer;
-	uint64_t pinDone = 0;
+	uint64_t timeReady = 0;
+	uint64_t timePin = 0;
 	uint64_t scanned = 0;
 	bool found = false;
 	frg::scope_exit evtOnExit{[&] {
+		auto timeScan = timer.split();
 		ostContext.emit(
 			ostEvtExt2FindEntry,
 			ostAttrTime(timer.elapsed()),
 			ostAttrNumBytes(scanned),
-			ostAttrTimePin(pinDone),
-			ostAttrTimeScan(timer.elapsed() - pinDone),
+			ostAttrTimeReady(timeReady),
+			ostAttrTimePin(timePin),
+			ostAttrTimeScan(timeScan),
 			ostAttrFound(found)
 		);
 	}};
 
 	co_await readyEvent.wait();
+	timeReady = timer.split();
 
 	if(fileType != kTypeDirectory)
 		co_return protocols::fs::Error::notDirectory;
@@ -166,7 +170,7 @@ Inode::findEntry(std::string name) {
 			0, map_size, helix::Dispatcher::global());
 	co_await submit.async_wait();
 	HEL_CHECK(lock_memory.error());
-	pinDone = timer.elapsed();
+	timePin = timer.split();
 
 	// Read the directory structure.
 	uintptr_t offset = 0;
@@ -214,8 +218,9 @@ Inode::insertEntry(std::string name, int64_t ino, blockfs::FileType type) {
 	assert(ino);
 
 	protocols::ostrace::Timer timer;
-	uint64_t pinDone = 0;
-	uint64_t scanDone = 0;
+	uint64_t timeReady = 0;
+	uint64_t timePin = 0;
+	uint64_t timeScan = 0;
 	uint64_t growTime = 0;
 	uint64_t cleanDirTime = 0;
 	frg::scope_exit evtOnExit{[&] {
@@ -223,14 +228,16 @@ Inode::insertEntry(std::string name, int64_t ino, blockfs::FileType type) {
 			ostEvtExt2InsertEntry,
 			ostAttrTime(timer.elapsed()),
 			ostAttrNumBytes(fileSize()),
-			ostAttrTimePin(pinDone),
-			ostAttrTimeScan(scanDone - pinDone),
+			ostAttrTimeReady(timeReady),
+			ostAttrTimePin(timePin),
+			ostAttrTimeScan(timeScan),
 			ostAttrTimeGrow(growTime),
 			ostAttrTimeCleanDir(cleanDirTime)
 		);
 	}};
 
 	co_await readyEvent.wait();
+	timeReady = timer.split();
 
 	assert(fileType == kTypeDirectory);
 	assert(fileMapping.size() == ((fileSize() + 0xFFF) & ~size_t(0xFFF)));
@@ -291,7 +298,7 @@ Inode::insertEntry(std::string name, int64_t ino, blockfs::FileType type) {
 			0, map_size, helix::Dispatcher::global());
 	co_await submit.async_wait();
 	HEL_CHECK(lock_memory.error());
-	pinDone = timer.elapsed();
+	timePin = timer.split();
 
 	auto time = clk::getRealtime();
 	diskInode()->mtime = time.tv_sec;
@@ -327,7 +334,7 @@ Inode::insertEntry(std::string name, int64_t ino, blockfs::FileType type) {
 			// Update the existing dentry.
 			previous_entry->recordLength = contracted;
 
-			scanDone = timer.elapsed();
+			timeScan = timer.split();
 			co_return co_await appendDirEntry(offset + contracted, available);
 		}
 
@@ -336,7 +343,7 @@ Inode::insertEntry(std::string name, int64_t ino, blockfs::FileType type) {
 	assert(offset == fileSize());
 
 	// If we made it this far, we ran out of space in the directory. Resize it.
-	scanDone = timer.elapsed();
+	timeScan = timer.split();
 	protocols::ostrace::Timer growTimer;
 	auto blockOffset = (offset & ~(fs.blockSize - 1)) >> fs.blockShift;
 	auto newSize = offset + fs.blockSize;
@@ -374,21 +381,25 @@ async::result<frg::expected<protocols::fs::Error>> Inode::removeEntry(std::strin
 	assert(!name.empty() && name != "." && name != "..");
 
 	protocols::ostrace::Timer timer;
-	uint64_t pinDone = 0;
+	uint64_t timeReady = 0;
+	uint64_t timePin = 0;
 	uint64_t scanned = 0;
 	uint64_t cleanDirTime = 0;
 	frg::scope_exit evtOnExit{[&] {
+		auto timeScan = timer.split() - cleanDirTime;
 		ostContext.emit(
 			ostEvtExt2RemoveEntry,
 			ostAttrTime(timer.elapsed()),
 			ostAttrNumBytes(scanned),
-			ostAttrTimePin(pinDone),
-			ostAttrTimeScan(timer.elapsed() - pinDone - cleanDirTime),
+			ostAttrTimeReady(timeReady),
+			ostAttrTimePin(timePin),
+			ostAttrTimeScan(timeScan),
 			ostAttrTimeCleanDir(cleanDirTime)
 		);
 	}};
 
 	co_await readyEvent.wait();
+	timeReady = timer.split();
 
 	if(fileType != kTypeDirectory)
 		co_return protocols::fs::Error::notDirectory;
@@ -401,7 +412,7 @@ async::result<frg::expected<protocols::fs::Error>> Inode::removeEntry(std::strin
 			0, map_size, helix::Dispatcher::global());
 	co_await submit.async_wait();
 	HEL_CHECK(lock_memory.error());
-	pinDone = timer.elapsed();
+	timePin = timer.split();
 
 	// Read the directory structure.
 	DiskDirEntry *previous_entry = nullptr;
@@ -472,18 +483,22 @@ async::result<frg::expected<protocols::fs::Error>> Inode::removeEntry(std::strin
 
 async::result<std::expected<bool, protocols::fs::Error>> Inode::isDirectoryEmpty() {
 	protocols::ostrace::Timer timer;
-	uint64_t pinDone = 0;
+	uint64_t timeReady = 0;
+	uint64_t timePin = 0;
 	frg::scope_exit evtOnExit{[&] {
+		auto timeScan = timer.split();
 		ostContext.emit(
 			ostEvtExt2IsDirectoryEmpty,
 			ostAttrTime(timer.elapsed()),
 			ostAttrNumBytes(fileSize()),
-			ostAttrTimePin(pinDone),
-			ostAttrTimeScan(timer.elapsed() - pinDone)
+			ostAttrTimeReady(timeReady),
+			ostAttrTimePin(timePin),
+			ostAttrTimeScan(timeScan)
 		);
 	}};
 
 	co_await readyEvent.wait();
+	timeReady = timer.split();
 
 	if(fileType != kTypeDirectory)
 		co_return std::unexpected{protocols::fs::Error::notDirectory};
@@ -500,7 +515,7 @@ async::result<std::expected<bool, protocols::fs::Error>> Inode::isDirectoryEmpty
 			0, map_size, helix::Dispatcher::global());
 	co_await submit.async_wait();
 	HEL_CHECK(lock_memory.error());
-	pinDone = timer.elapsed();
+	timePin = timer.split();
 
 	// Check the directory entries for anything other than "." and "..".
 	uintptr_t offset = 0;
@@ -534,20 +549,22 @@ async::result<std::expected<bool, protocols::fs::Error>> Inode::isDirectoryEmpty
 
 async::result<frg::expected<protocols::fs::Error>> Inode::updateDotDot(uint32_t parent) {
 	protocols::ostrace::Timer timer;
-	uint64_t pinDone = 0;
+	uint64_t timeReady = 0;
+	uint64_t timePin = 0;
 	uint64_t cleanDirTime = 0;
 	frg::scope_exit evtOnExit{[&] {
 		ostContext.emit(
 			ostEvtExt2UpdateDotDot,
 			ostAttrTime(timer.elapsed()),
 			ostAttrNumBytes(fileSize()),
-			ostAttrTimePin(pinDone),
-			ostAttrTimeScan(timer.elapsed() - pinDone - cleanDirTime),
+			ostAttrTimeReady(timeReady),
+			ostAttrTimePin(timePin),
 			ostAttrTimeCleanDir(cleanDirTime)
 		);
 	}};
 
 	co_await readyEvent.wait();
+	timeReady = timer.split();
 
 	if(fileType != kTypeDirectory)
 		co_return protocols::fs::Error::notDirectory;
@@ -559,7 +576,7 @@ async::result<frg::expected<protocols::fs::Error>> Inode::updateDotDot(uint32_t 
 			0, map_size, helix::Dispatcher::global());
 	co_await submit.async_wait();
 	HEL_CHECK(lock_memory.error());
-	pinDone = timer.elapsed();
+	timePin = timer.split();
 
 	uintptr_t offset = 0;
 	while(offset < fileSize()) {
@@ -2385,20 +2402,24 @@ OpenFile::readEntries() {
 	auto inode = std::static_pointer_cast<Inode>(this->inode);
 
 	protocols::ostrace::Timer timer;
-	uint64_t pinDone = 0;
-	uint64_t mapDone = 0;
+	uint64_t timeReady = 0;
+	uint64_t timePin = 0;
+	uint64_t timeMap = 0;
 	frg::scope_exit evtOnExit{[&] {
+		auto timeScan = timer.split();
 		ostContext.emit(
 			ostEvtReadDir,
 			ostAttrTime(timer.elapsed()),
 			ostAttrNumBytes(inode->fileSize()),
-			ostAttrTimePin(pinDone),
-			ostAttrTimeMap(mapDone - pinDone),
-			ostAttrTimeScan(timer.elapsed() - mapDone)
+			ostAttrTimeReady(timeReady),
+			ostAttrTimePin(timePin),
+			ostAttrTimeMap(timeMap),
+			ostAttrTimeScan(timeScan)
 		);
 	}};
 
 	co_await inode->readyEvent.wait();
+	timeReady = timer.split();
 
 	if (inode->fileType != kTypeDirectory) {
 		std::cout << "\e[33m" "ext2fs: readEntries called on something that's not a directory\e[39m" << std::endl;
@@ -2412,13 +2433,13 @@ OpenFile::readEntries() {
 			&lock_memory, 0, map_size, helix::Dispatcher::global());
 	co_await submit.async_wait();
 	HEL_CHECK(lock_memory.error());
-	pinDone = timer.elapsed();
+	timePin = timer.split();
 
 	// Map the page cache into the address space.
 	helix::Mapping file_map{helix::BorrowedDescriptor{inode->frontalMemory},
 			0, map_size,
 			kHelMapProtRead | kHelMapDontRequireBacking};
-	mapDone = timer.elapsed();
+	timeMap = timer.split();
 
 	// Read the directory structure.
 	assert(offset <= inode->fileSize());

@@ -228,20 +228,23 @@ getStats(std::shared_ptr<void> object) {
 	auto self = std::static_pointer_cast<ext2fs::Inode>(object);
 
 	protocols::ostrace::Timer timer;
-	uint64_t lockDone = 0;
+	uint64_t timeReady = 0;
+	uint64_t timeLock = 0;
 	frg::scope_exit evtOnExit{[&] {
 		ostContext.emit(
 			ostEvtExt2GetStats,
 			ostAttrTime(timer.elapsed()),
-			ostAttrTimeLock(lockDone)
+			ostAttrTimeReady(timeReady),
+			ostAttrTimeLock(timeLock)
 		);
 	}};
 
 	co_await self->readyEvent.wait();
+	timeReady = timer.split();
 
 	co_await self->inodeMutex.async_lock_shared();
 	frg::shared_lock inodeLock{frg::adopt_lock, self->inodeMutex};
-	lockDone = timer.elapsed();
+	timeLock = timer.split();
 
 	protocols::fs::FileStats stats;
 	stats.linkCount = self->diskInode()->linksCount;

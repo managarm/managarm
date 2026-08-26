@@ -80,6 +80,7 @@ inline constinit protocols::ostrace::UintAttribute ostAttrTimeFind{"timeFind"};
 inline constinit protocols::ostrace::UintAttribute ostAttrTimeCreate{"timeCreate"};
 inline constinit protocols::ostrace::UintAttribute ostAttrTimeLink{"timeLink"};
 inline constinit protocols::ostrace::UintAttribute ostAttrTimeUpdateTimes{"timeUpdateTimes"};
+inline constinit protocols::ostrace::UintAttribute ostAttrTimeCreateStreams{"timeCreateStreams"};
 inline constinit protocols::ostrace::UintAttribute ostAttrTimeLoopCheck{"timeLoopCheck"};
 inline constinit protocols::ostrace::UintAttribute ostAttrTimeRemove{"timeRemove"};
 inline constinit protocols::ostrace::UintAttribute ostAttrTimeSuperblock{"timeSuperblock"};
@@ -163,6 +164,7 @@ inline protocols::ostrace::Vocabulary ostVocabulary{
 	ostAttrTimeCreate,
 	ostAttrTimeLink,
 	ostAttrTimeUpdateTimes,
+	ostAttrTimeCreateStreams,
 	ostAttrTimeLoopCheck,
 	ostAttrTimeRemove,
 	ostAttrTimeSuperblock,
