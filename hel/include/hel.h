@@ -927,6 +927,9 @@ struct HelSqWritebackFence {
 	size_t size;
 };
 
+//! Flag for kHelSubmitInvalidateMemory: discard dirty pages instead of writing them back.
+static const uint32_t kHelInvalidateNoWriteback = 1;
+
 //! SQ data for kHelSubmitInvalidateMemory.
 struct HelSqInvalidateMemory {
 	//! Handle to the memory object.
@@ -935,6 +938,8 @@ struct HelSqInvalidateMemory {
 	uintptr_t offset;
 	//! Size of the range.
 	size_t size;
+	//! Flags (kHelInvalidate*).
+	uint32_t flags;
 };
 
 //! SQ data for kHelSubmitPopulateSpace.

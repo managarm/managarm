@@ -390,7 +390,8 @@ public:
 
 	virtual coroutine<frg::expected<Error>> writebackFence(uintptr_t offset, size_t size);
 
-	virtual coroutine<frg::expected<Error>> invalidateRange(uintptr_t offset, size_t size);
+	virtual coroutine<frg::expected<Error>> invalidateRange(uintptr_t offset, size_t size,
+			DiscardMode mode);
 
 	virtual Error setIndirection(size_t slot, smarter::shared_ptr<MemoryView> view,
 			uintptr_t offset, size_t size, CachingFlags flags);
@@ -949,7 +950,8 @@ public:
 	coroutine<frg::expected<Error, MemoryNotification>> pollNotification() override;
 	Error updateRange(ManageRequest type, size_t offset, size_t length) override;
 	coroutine<frg::expected<Error>> writebackFence(uintptr_t offset, size_t size) override;
-	coroutine<frg::expected<Error>> invalidateRange(uintptr_t offset, size_t size) override;
+	coroutine<frg::expected<Error>> invalidateRange(uintptr_t offset, size_t size,
+			DiscardMode mode) override;
 
 private:
 	smarter::shared_ptr<ManagedSpace> _managed;

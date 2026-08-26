@@ -400,7 +400,7 @@ coroutine<frg::expected<Error>> MemoryView::writebackFence(uintptr_t, size_t) {
 	co_return {};
 }
 
-coroutine<frg::expected<Error>> MemoryView::invalidateRange(uintptr_t, size_t) {
+coroutine<frg::expected<Error>> MemoryView::invalidateRange(uintptr_t, size_t, DiscardMode) {
 	co_return {};
 }
 
@@ -2020,7 +2020,8 @@ coroutine<frg::expected<Error>> BackingMemory::writebackFence(uintptr_t offset, 
 	co_return {};
 }
 
-coroutine<frg::expected<Error>> BackingMemory::invalidateRange(uintptr_t offset, size_t size) {
+coroutine<frg::expected<Error>> BackingMemory::invalidateRange(uintptr_t offset, size_t size,
+		DiscardMode mode) {
 	assert(currentIpl() == ipl::exceptionalWork);
 	if(_managed->isSwapSpace)
 		co_return Error::illegalObject;
@@ -2034,7 +2035,7 @@ coroutine<frg::expected<Error>> BackingMemory::invalidateRange(uintptr_t offset,
 	auto firstPage = offset >> kPageShift;
 	auto limitPage = (offset + size) >> kPageShift;
 
-	// Mark the pages as discarded; dirty contents are still written back.
+	// Mark the pages as discarded.
 	// Do this in chunks so that the spinlock is not held for an unbounded time.
 	uint64_t markCursor = firstPage;
 	bool raiseDiscard = false;
@@ -2055,8 +2056,7 @@ coroutine<frg::expected<Error>> BackingMemory::invalidateRange(uintptr_t offset,
 				auto *page = &*it;
 				markCursor = page->cachePage.identity + 1;
 				++it;
-				_managed->discardPage(page, DiscardMode::keepDirty,
-						raiseDiscard, pendingMonitors);
+				_managed->discardPage(page, mode, raiseDiscard, pendingMonitors);
 			}
 		}
 		ManagedSpace::_raiseMonitors(pendingMonitors);
