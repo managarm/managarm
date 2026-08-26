@@ -953,6 +953,8 @@ const protocols::fs::NodeOperations *FileSystem::nodeOps() {
 }
 
 async::result<void> FileSystem::init() {
+	protocols::ostrace::Timer timer;
+
 	size_t deviceSuperBlockSector = superBlockOffset / device->sectorSize;
 	size_t deviceSuperBlockOffset = superBlockOffset % device->sectorSize;
 
@@ -960,6 +962,7 @@ async::result<void> FileSystem::init() {
 
 	arch::dma_buffer buffer{pool, deviceSuperBlockSectors * device->sectorSize};
 	co_await device->readSectors(deviceSuperBlockSector, buffer);
+	uint64_t superblockDone = timer.elapsed();
 
 	DiskSuperblock sb;
 	memcpy(&sb, buffer.byte_data() + deviceSuperBlockOffset, sizeof(DiskSuperblock));
@@ -1018,10 +1021,21 @@ async::result<void> FileSystem::init() {
 	bgdt.init(blockGroupDescriptorBuffer.byte_data(), blockGroupDescriptorSize);
 
 	auto bgdt_offset = (2048 + blockSize - 1) & ~size_t(blockSize - 1);
+	protocols::ostrace::Timer bgdtTimer;
 	co_await device->readSectors((bgdt_offset >> blockShift) * sectorsPerBlock,
 			blockGroupDescriptorBuffer);
+	uint64_t bgdtTime = bgdtTimer.elapsed();
 
 	handleBgdtWriteback();
+
+	ostContext.emit(
+		ostEvtExt2Mount,
+		ostAttrTime(timer.elapsed()),
+		ostAttrNumBytes(blockGroupDescriptorBuffer.size()),
+		ostAttrNumGroups(numBlockGroups),
+		ostAttrTimeSuperblock(superblockDone),
+		ostAttrTimeBgdt(bgdtTime)
+	);
 
 	co_return;
 }
@@ -1210,9 +1224,12 @@ std::pair<uint64_t, size_t> FileSystem::locateDiskInode(uint32_t number) {
 }
 
 async::result<void> FileSystem::initiateInode(std::shared_ptr<Inode> inode) {
+	protocols::ostrace::Timer timer;
+
 	auto [inodeBlock, inodeOffset] = locateDiskInode(inode->number);
 	inode->diskInodeWindow = co_await metadataCache->access(inodeBlock, true);
 	inode->diskInodeOffset = inodeOffset;
+	uint64_t accessDone = timer.elapsed();
 
 	auto disk_inode = inode->diskInode();
 	// printf("Inode %lu: file size: %u\n", inode->number, disk_inode->size);
@@ -1246,6 +1263,13 @@ async::result<void> FileSystem::initiateInode(std::shared_ptr<Inode> inode) {
 
 	// Keep the servicer on the pool member that this inode was initiated on.
 	async::detach_on(helix::Dispatcher::global().runQueue(), manageFileData(inode));
+
+	ostContext.emit(
+		ostEvtExt2InitiateInode,
+		ostAttrTime(timer.elapsed()),
+		ostAttrIno(inode->number),
+		ostAttrTimeAccess(accessDone)
+	);
 
 	inode->readyEvent.raise();
 }

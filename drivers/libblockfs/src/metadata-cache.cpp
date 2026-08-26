@@ -160,9 +160,18 @@ async::result<void> MetadataCache::read(uint64_t block, size_t offset, size_t le
 	assert(block < numBlocks_);
 	assert(offset + length <= blockSize_);
 
+	protocols::ostrace::Timer timer;
+
 	auto readMemory = co_await helix_ng::readMemory(frontal_,
 			(block << blockPagesShift_) + offset, length, buffer);
 	HEL_CHECK(readMemory.error());
+
+	ostContext.emit(
+		ostEvtMetadataRead,
+		ostAttrTime(timer.elapsed()),
+		ostAttrBlock(block),
+		ostAttrNumBytes(length)
+	);
 }
 
 async::detached MetadataCache::manage_(helix::UniqueDescriptor backing) {

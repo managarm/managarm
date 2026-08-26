@@ -18,6 +18,9 @@ inline constinit protocols::ostrace::Event ostEvtMetadataWriteback{"libblockfs.m
 inline constinit protocols::ostrace::Event ostEvtMetadataAccess{"libblockfs.metadataAccess"};
 inline constinit protocols::ostrace::Event ostEvtMetadataUnmap{"libblockfs.metadataUnmap"};
 inline constinit protocols::ostrace::Event ostEvtMetadataClean{"libblockfs.metadataClean"};
+inline constinit protocols::ostrace::Event ostEvtMetadataRead{"libblockfs.metadataRead"};
+inline constinit protocols::ostrace::Event ostEvtExt2Mount{"ext2.mount"};
+inline constinit protocols::ostrace::Event ostEvtExt2InitiateInode{"ext2.initiateInode"};
 inline constinit protocols::ostrace::Event ostEvtExt2GetStats{"ext2.getStats"};
 inline constinit protocols::ostrace::Event ostEvtExt2GetLinkOrCreate{"ext2.getLinkOrCreate"};
 inline constinit protocols::ostrace::Event ostEvtExt2Mkdir{"ext2.mkdir"};
@@ -78,6 +81,9 @@ inline constinit protocols::ostrace::UintAttribute ostAttrTimeLink{"timeLink"};
 inline constinit protocols::ostrace::UintAttribute ostAttrTimeUpdateTimes{"timeUpdateTimes"};
 inline constinit protocols::ostrace::UintAttribute ostAttrTimeLoopCheck{"timeLoopCheck"};
 inline constinit protocols::ostrace::UintAttribute ostAttrTimeRemove{"timeRemove"};
+inline constinit protocols::ostrace::UintAttribute ostAttrTimeSuperblock{"timeSuperblock"};
+inline constinit protocols::ostrace::UintAttribute ostAttrTimeBgdt{"timeBgdt"};
+inline constinit protocols::ostrace::UintAttribute ostAttrTimeCreateMemory{"timeCreateMemory"};
 
 inline protocols::ostrace::Vocabulary ostVocabulary{
 	ostEvtGetLink,
@@ -94,6 +100,9 @@ inline protocols::ostrace::Vocabulary ostVocabulary{
 	ostEvtMetadataAccess,
 	ostEvtMetadataUnmap,
 	ostEvtMetadataClean,
+	ostEvtMetadataRead,
+	ostEvtExt2Mount,
+	ostEvtExt2InitiateInode,
 	ostEvtExt2GetStats,
 	ostEvtExt2GetLinkOrCreate,
 	ostEvtExt2Mkdir,
@@ -154,6 +163,9 @@ inline protocols::ostrace::Vocabulary ostVocabulary{
 	ostAttrTimeUpdateTimes,
 	ostAttrTimeLoopCheck,
 	ostAttrTimeRemove,
+	ostAttrTimeSuperblock,
+	ostAttrTimeBgdt,
+	ostAttrTimeCreateMemory,
 };
 
 inline protocols::ostrace::Context ostContext{ostVocabulary};
