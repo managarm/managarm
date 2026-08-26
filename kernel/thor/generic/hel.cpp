@@ -937,9 +937,15 @@ HelError doSubmitWritebackFence(HelHandle handle, smarter::shared_ptr<IpcQueue> 
 }
 
 HelError doSubmitInvalidateMemory(HelHandle handle, smarter::shared_ptr<IpcQueue> queue,
-		uintptr_t offset, size_t size, uintptr_t context) {
+		uintptr_t offset, size_t size, uint32_t flags, uintptr_t context) {
 	auto this_thread = getCurrentThread();
 	auto this_universe = this_thread->getUniverse();
+
+	if(flags & ~kHelInvalidateNoWriteback)
+		return kHelErrIllegalArgs;
+	auto mode = (flags & kHelInvalidateNoWriteback)
+			? DiscardMode::dropDirty
+			: DiscardMode::keepDirty;
 
 	auto memoryOutcome = this_universe->resolveObject<DescriptorType::memoryView>(handle, kHelRightManage);
 	if(!memoryOutcome)
@@ -949,17 +955,17 @@ HelError doSubmitInvalidateMemory(HelHandle handle, smarter::shared_ptr<IpcQueue
 	if(!queue->validSize(ipcSourceSize(sizeof(HelSimpleResult))))
 		return kHelErrQueueTooSmall;
 
-	[](smarter::shared_ptr<MemoryView> memory, uintptr_t offset, size_t size,
+	[](smarter::shared_ptr<MemoryView> memory, uintptr_t offset, size_t size, DiscardMode mode,
 			smarter::shared_ptr<IpcQueue> queue, uintptr_t context,
 			enable_detached_coroutine) -> void {
-		auto outcome = co_await onExceptionalWq(memory->invalidateRange(offset, size));
+		auto outcome = co_await onExceptionalWq(memory->invalidateRange(offset, size, mode));
 
 		HelSimpleResult helResult{.error = kHelErrNone, .reserved = {}};
 		if (!outcome)
 			helResult.error = translateError(outcome.error());
 		QueueSource ipcSource{&helResult, sizeof(HelSimpleResult), nullptr};
 		co_await queue->submit(&ipcSource, context);
-	}(std::move(memory), offset, size, std::move(queue), context,
+	}(std::move(memory), offset, size, mode, std::move(queue), context,
 		enable_detached_coroutine{getCurrentThread()->mainWorkQueue().lock()});
 
 	return kHelErrNone;
@@ -4303,7 +4309,8 @@ void thor::submitFromSq(smarter::shared_ptr<IpcQueue> queue, uint32_t opcode,
 		}
 		HelSqInvalidateMemory sqData;
 		memcpy(&sqData, sqSpan.data(), sizeof(sqData));
-		error = doSubmitInvalidateMemory(sqData.handle, queue, sqData.offset, sqData.size, context);
+		error = doSubmitInvalidateMemory(sqData.handle, queue, sqData.offset, sqData.size,
+				sqData.flags, context);
 		break;
 	}
 	case kHelSubmitPopulateSpace: {

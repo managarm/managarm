@@ -1460,14 +1460,17 @@ private:
 
 template <typename Receiver>
 struct InvalidateMemoryOperation : private Context {
-	InvalidateMemoryOperation(BorrowedDescriptor memory, uintptr_t offset, size_t size, Receiver r)
-	: memory_{std::move(memory)}, offset_{offset}, size_{size}, r_{std::move(r)} {}
+	InvalidateMemoryOperation(BorrowedDescriptor memory, uintptr_t offset, size_t size,
+			uint32_t flags, Receiver r)
+	: memory_{std::move(memory)}, offset_{offset}, size_{size}, flags_{flags},
+			r_{std::move(r)} {}
 
 	void start() {
 		HelSqInvalidateMemory header;
 		header.handle = memory_.getHandle();
 		header.offset = offset_;
 		header.size = size_;
+		header.flags = flags_;
 
 		std::array segments{
 			std::as_bytes(std::span{&header, 1})
@@ -1492,24 +1495,27 @@ private:
 	BorrowedDescriptor memory_;
 	uintptr_t offset_;
 	size_t size_;
+	uint32_t flags_;
 	Receiver r_;
 };
 
 struct [[nodiscard]] InvalidateMemorySender {
 	using value_type = InvalidateMemoryResult;
 
-	InvalidateMemorySender(BorrowedDescriptor memory, uintptr_t offset, size_t size)
-	: memory_{std::move(memory)}, offset_{offset}, size_{size} { }
+	InvalidateMemorySender(BorrowedDescriptor memory, uintptr_t offset, size_t size,
+			uint32_t flags)
+	: memory_{std::move(memory)}, offset_{offset}, size_{size}, flags_{flags} { }
 
 	template<typename Receiver>
 	InvalidateMemoryOperation<Receiver> connect(Receiver receiver) {
-		return {std::move(memory_), offset_, size_, std::move(receiver)};
+		return {std::move(memory_), offset_, size_, flags_, std::move(receiver)};
 	}
 
 private:
 	BorrowedDescriptor memory_;
 	uintptr_t offset_;
 	size_t size_;
+	uint32_t flags_;
 };
 
 inline async::sender_awaiter<InvalidateMemorySender, InvalidateMemoryResult>
@@ -1517,8 +1523,9 @@ operator co_await (InvalidateMemorySender sender) {
 	return {std::move(sender)};
 }
 
-inline auto invalidateMemory(BorrowedDescriptor memory, uintptr_t offset, size_t size) {
-	return InvalidateMemorySender{std::move(memory), offset, size};
+inline auto invalidateMemory(BorrowedDescriptor memory, uintptr_t offset, size_t size,
+		uint32_t flags = 0) {
+	return InvalidateMemorySender{std::move(memory), offset, size, flags};
 }
 
 // --------------------------------------------------------------------

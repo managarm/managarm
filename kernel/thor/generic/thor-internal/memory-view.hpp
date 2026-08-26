@@ -312,6 +312,17 @@ private:
 	async::post_ack_mechanism<RangeToEvict> mechanism_;
 };
 
+// Selects how the discard path treats dirty page contents.
+enum class DiscardMode : uint8_t {
+	// The page is not being discarded.
+	none,
+	// Dirty contents are dropped without writeback (truncation semantics).
+	dropDirty,
+	// Dirty contents are still written back before the entry is erased
+	// (invalidation semantics).
+	keepDirty,
+};
+
 // View on some pages of memory. This is the "frontend" part of a memory object.
 struct MemoryView {
 protected:
@@ -379,7 +390,8 @@ public:
 
 	virtual coroutine<frg::expected<Error>> writebackFence(uintptr_t offset, size_t size);
 
-	virtual coroutine<frg::expected<Error>> invalidateRange(uintptr_t offset, size_t size);
+	virtual coroutine<frg::expected<Error>> invalidateRange(uintptr_t offset, size_t size,
+			DiscardMode mode);
 
 	virtual Error setIndirection(size_t slot, smarter::shared_ptr<MemoryView> view,
 			uintptr_t offset, size_t size, CachingFlags flags);
@@ -690,23 +702,53 @@ struct ManagedSpace : CacheBundle {
 		// Page is owned by the ManagedSpace reclamation logic.
 		// Valid in any LoadState, with or without a frame.
 		avertDiscard,
+		// Page is in _invalidationList and waiting for existing mappings to be invalidated.
+		// Page is owned by the invalidation coroutine.
+		// Valid in any LoadState, with or without a frame.
+		// Never entered on SwapSpaces (slot identities cannot be translated back to view offsets).
+		invalidation,
+	};
+
+	// Type of transaction that a TransactionMonitor is attached to.
+	enum class MonitorType : uint8_t {
+		initialization,
+		writeback,
+		discard,
 	};
 
 	// Struct that is attached to ManagedPage for the duration of
-	// a single transaction (i.e., initialization, writeback, or forced eviction).
-	// For initialization:
+	// a single transaction (i.e., initialization or writeback) or of a discard.
+	// At most one monitor per type can be attached at a time; the attached monitors
+	// form a chain headed by ManagedPage::monitors.
+	// For MonitorType::initialization:
 	// * Attached when entering TxState::wantInitialization.
 	// * Completed when leaving TxState::initialization.
-	// For writeback:
+	// For MonitorType::writeback:
 	// * Attached when entering TxState::wantWriteback.
 	// * Completed when leaving TxState::writeback.
-	// For forced eviction (invalidateRange() on a page already in TxState::performReclaim):
-	// * Attached by invalidateRange() while the page is in TxState::performReclaim.
-	// * Completed by the eviction coroutine after transitioning to LoadState::missing.
+	// For MonitorType::discard (waiting for a discarded page's entry to be erased):
+	// * Attached by a waiter to any page that has `discarded` set, in any TxState;
+	//   it stays attached across intermediate transactions.
+	// * Completed by the reclamation coroutine when the entry is erased.
 	struct TransactionMonitor final : frg::intrusive_rc {
+		explicit TransactionMonitor(MonitorType type)
+		: type{type} { }
+
+		MonitorType type;
 		async::oneshot_primitive event;
+		// Next monitor attached to the same ManagedPage.
+		TransactionMonitor *chainNext{nullptr};
 		frg::default_list_hook<TransactionMonitor> pendingHook;
 	};
+
+	using MonitorPendingList = frg::intrusive_list<
+		TransactionMonitor,
+		frg::locate_member<
+			TransactionMonitor,
+			frg::default_list_hook<TransactionMonitor>,
+			&TransactionMonitor::pendingHook
+		>
+	>;
 
 	struct ManagedPage {
 		ManagedPage(ManagedSpace *bundle, uint64_t identity) {
@@ -718,28 +760,38 @@ struct ManagedSpace : CacheBundle {
 
 		ManagedPage &operator= (const ManagedPage &) = delete;
 
+		// Allocates and attaches a monitor of the given type; the type must not be attached yet.
+		frg::intrusive_shared_ptr<TransactionMonitor, Allocator> attachMonitor(MonitorType type);
+		// Returns the attached monitor of the given type, or null.
+		frg::intrusive_shared_ptr<TransactionMonitor, Allocator> findMonitor(MonitorType type);
+		// Detaches and returns the monitor of the given type, or null.
+		frg::intrusive_shared_ptr<TransactionMonitor, Allocator> detachMonitor(MonitorType type);
+
 		PhysicalAddr physical = PhysicalAddr(-1);
 		LoadState loadState{LoadState::missing};
 		TxState transactionState{TxState::none};
 		// Whether the page is dirty even after a pending writeback completes.
 		// Can only be true in LoadState::present and TxState::writeback.
-		// If set in TxState::performReclaim or TxState::avertReclaim, causes transition to dirty.
+		// Eventually causes a transition to TxState::dirty (unless the page is discarded without writeback).
 		bool stillDirty{false};
-		// Set by invalidateRange() when the page is already in TxState::performReclaim,
-		// to request that the eviction coroutine raise monitor after completing
-		// the transition to LoadState::missing.
-		bool forceInvalidation{false};
 		// Whether the backing store's copy of the page matches its last in-memory contents.
 		// Maintained by markDirty()/updateRange().
 		bool swapCopyValid{false};
 		// The page is being torn down - see discardPage(). Set once, never cleared.
 		bool discarded{false};
+		// How dirty contents are treated during the discard.
+		// DiscardMode::none until discarded is set. Fixed by the first discardPage() call.
+		DiscardMode discardMode{DiscardMode::none};
 		// Whether swap budget was claimed for this page.
 		// Owned by SwapSpace, not used by ManagedSpace.
 		bool swapBudgetClaimed{false};
 		unsigned int lockCount = 0;
 		CachePage cachePage;
-		frg::intrusive_shared_ptr<TransactionMonitor, Allocator> monitor;
+		// Head of the chain of monitors attached to this page's in-flight transactions.
+		// The page owns one reference (= refcount) of each of these monitors.
+		TransactionMonitor *monitors{nullptr};
+		// Bitmask (indexed by MonitorType) of the attached monitor types.
+		uint8_t attachedMonitors{0};
 	};
 
 	static std::expected<smarter::shared_ptr<ManagedSpace>, Error> create(
@@ -756,17 +808,24 @@ struct ManagedSpace : CacheBundle {
 	// Returning false leaves the page on _dirtyList until swap budget becomes available.
 	virtual bool claimSwapBudget(ManagedPage *page);
 
-	// Discards the page at the given index. The entry is either immediately erased
+	// Discards the given page. The entry is either immediately erased
 	// or once the in-flight transaction is completed. The frames are freed by
 	// the reclamation behind a fenceEphemeral().
-	// Should only be called when the owning view is being destructed.
+	// Idempotent: discarding an already discarded page is a no-op (i.e., the first call fixes the mode).
+	// Must be called under mutex; the caller must raise the appended monitors
+	// (and _discardEvent, if requested) after dropping it.
 	// After a batch of discards the caller must call _wakeDrain() as discards may release swap budget.
-	void discardPage(uint64_t index);
+	void discardPage(ManagedPage *pit, DiscardMode mode, bool &raiseDiscard,
+			MonitorPendingList &pendingMonitors);
 
 	// Queues a discarded page for the reclamation coroutine, which erases its entry.
 	// Must be called under mutex with transactionState == TxState::none.
 	// Returns whether the caller must raise _discardEvent after dropping the mutex.
 	[[nodiscard]] bool _disposeDiscarded(ManagedPage *page);
+
+	// Raises (and releases the references of) the given detached monitors.
+	// Must be called without holding mutex.
+	static void _raiseMonitors(MonitorPendingList &pendingMonitors);
 
 	// Notifies the subclass that a discarded page's entry is about to be erased.
 	// Called under mutex.
@@ -777,6 +836,7 @@ struct ManagedSpace : CacheBundle {
 
 	coroutine<void> _runReclaimLoop();
 	coroutine<void> _runDrainLoop();
+	coroutine<void> _runInvalidationLoop();
 
 	Error lockPages(uintptr_t offset, size_t size);
 	void unlockPages(uintptr_t offset, size_t size);
@@ -798,37 +858,22 @@ struct ManagedSpace : CacheBundle {
 
 	EvictionQueue _evictQueue;
 
-	frg::intrusive_list<
-		CachePage,
-		frg::locate_member<
-			CachePage,
-			frg::default_list_hook<CachePage>,
-			&CachePage::listHook
-		>
-	> _dirtyList;
+	CachePagesList _dirtyList;
 
-	frg::intrusive_list<
-		CachePage,
-		frg::locate_member<
-			CachePage,
-			frg::default_list_hook<CachePage>,
-			&CachePage::listHook
-		>
-	> _initializationList;
+	CachePagesList _initializationList;
 
-	frg::intrusive_list<
-		CachePage,
-		frg::locate_member<
-			CachePage,
-			frg::default_list_hook<CachePage>,
-			&CachePage::listHook
-		>
-	> _writebackList;
+	CachePagesList _writebackList;
 
 	// Discarded pages waiting to be picked up by the reclamation coroutine.
 	// These pages are either in TxState::discardQueued or TxState::avertDiscard.
 	// Protected by mutex.
 	CachePagesList _discardList;
+
+	// Discarded pages whose remaining mappings the invalidation coroutine breaks.
+	// These pages are in TxState::invalidation.
+	// Like _discardList, the owning coroutine is woken by _discardEvent.
+	// Protected by mutex.
+	CachePagesList _invalidationList;
 
 	ManageList _managementQueue;
 
@@ -905,7 +950,8 @@ public:
 	coroutine<frg::expected<Error, MemoryNotification>> pollNotification() override;
 	Error updateRange(ManageRequest type, size_t offset, size_t length) override;
 	coroutine<frg::expected<Error>> writebackFence(uintptr_t offset, size_t size) override;
-	coroutine<frg::expected<Error>> invalidateRange(uintptr_t offset, size_t size) override;
+	coroutine<frg::expected<Error>> invalidateRange(uintptr_t offset, size_t size,
+			DiscardMode mode) override;
 
 private:
 	smarter::shared_ptr<ManagedSpace> _managed;
