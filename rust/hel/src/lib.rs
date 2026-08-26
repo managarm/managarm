@@ -1,7 +1,12 @@
 //! A Rust wrapper for Hel.
+#![no_std]
 #![allow(incomplete_features)]
 #![feature(generic_const_exprs)]
 #![feature(local_waker)]
+
+extern crate alloc;
+#[cfg(feature = "std")]
+extern crate std;
 
 pub mod executor;
 pub mod handle;
@@ -10,20 +15,20 @@ pub mod queue;
 pub mod result;
 pub mod submission;
 
-use std::time::Duration;
+use core::time::Duration;
 
+#[cfg(feature = "std")]
 pub use executor::{block_on, spawn};
 pub use handle::Handle;
 pub use mapping::{Mapping, MappingFlags};
 pub use queue::Queue;
 pub use result::{Error, Result};
-pub use submission::{
-    action::{
-        Accept, Dismiss, ExtractCredentials, Offer, PullDescriptor, PushDescriptor, ReceiveBuffer,
-        ReceiveInline, SendBuffer,
-    },
-    sleep_for, sleep_until, submit_async,
+pub use submission::action::{
+    Accept, Dismiss, ExtractCredentials, Offer, PullDescriptor, PushDescriptor, ReceiveBuffer,
+    ReceiveInline, SendBuffer,
 };
+#[cfg(feature = "std")]
+pub use submission::{sleep_for, sleep_until, submit_async};
 
 /// Creates a pair of connected lanes that can be used to communicate.
 pub fn create_stream() -> Result<(Handle, Handle)> {
@@ -125,7 +130,7 @@ pub fn access_irq_by_gsi(access_handle: &Handle, gsi: u64) -> Result<Handle> {
             hel_sys::kHelAccessIrqByGsi as u32,
             0,
             gsi,
-            std::ptr::null(),
+            core::ptr::null(),
             &mut handle,
         )
     })?;
@@ -141,7 +146,7 @@ pub fn access_irq_by_phandle(access_handle: &Handle, phandle: u64, index: u64) -
             hel_sys::kHelAccessIrqByPhandle as u32,
             phandle,
             index,
-            std::ptr::null(),
+            core::ptr::null(),
             &mut handle,
         )
     })?;
@@ -153,9 +158,9 @@ pub fn access_irq_by_phandle(access_handle: &Handle, phandle: u64, index: u64) -
 pub fn allocate_msi(access_handle: &Handle, name: &str) -> Result<Handle> {
     // The kernel reads the whole buffer, hence pass one of exactly that size.
     // Names that do not fit are truncated.
-    let mut buffer = [0 as std::ffi::c_char; hel_sys::kHelIrqNameSize as usize];
+    let mut buffer = [0 as core::ffi::c_char; hel_sys::kHelIrqNameSize as usize];
     for (slot, &byte) in buffer.iter_mut().zip(name.as_bytes()) {
-        *slot = byte as std::ffi::c_char;
+        *slot = byte as core::ffi::c_char;
     }
 
     let mut handle = hel_sys::kHelNullHandle as hel_sys::HelHandle;
@@ -262,7 +267,7 @@ impl Time {
     }
 }
 
-impl std::ops::Add<Duration> for Time {
+impl core::ops::Add<Duration> for Time {
     type Output = Self;
 
     fn add(self, rhs: Duration) -> Self::Output {
@@ -270,7 +275,7 @@ impl std::ops::Add<Duration> for Time {
     }
 }
 
-impl std::ops::Sub<Duration> for Time {
+impl core::ops::Sub<Duration> for Time {
     type Output = Self;
 
     fn sub(self, rhs: Duration) -> Self::Output {

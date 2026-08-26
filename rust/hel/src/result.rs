@@ -25,8 +25,8 @@ pub enum Error {
     AlreadyExists,
 }
 
-impl std::fmt::Display for Error {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl core::fmt::Display for Error {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
             Error::IllegalSyscall => write!(f, "Illegal syscall"),
             Error::IllegalArgs => write!(f, "Illegal arguments"),
@@ -52,7 +52,7 @@ impl std::fmt::Display for Error {
     }
 }
 
-impl std::error::Error for Error {}
+impl core::error::Error for Error {}
 
 impl From<hel_sys::HelError> for Error {
     fn from(error: hel_sys::HelError) -> Self {
@@ -82,7 +82,7 @@ impl From<hel_sys::HelError> for Error {
     }
 }
 
-pub type Result<T> = std::result::Result<T, Error>;
+pub type Result<T> = core::result::Result<T, Error>;
 
 /// Utility function to check Hel errors and convert them to `Result`.
 pub(crate) fn hel_check(error: hel_sys::HelError) -> Result<()> {

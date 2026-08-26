@@ -1,5 +1,5 @@
-use std::ptr::NonNull;
-use std::{ffi::c_void, num::NonZeroUsize};
+use core::ptr::NonNull;
+use core::{ffi::c_void, num::NonZeroUsize};
 
 use crate::{
     handle::Handle,
@@ -54,13 +54,13 @@ impl<T> Mapping<T> {
         length: usize,
         flags: MappingFlags,
     ) -> Result<Self> {
-        let mut mapping = std::ptr::null_mut();
+        let mut mapping = core::ptr::null_mut();
 
         hel_check(unsafe {
             hel_sys::helMapMemory(
                 handle.handle(),
                 space.handle(),
-                pointer.map_or(std::ptr::null_mut(), |p| p.get() as *mut c_void),
+                pointer.map_or(core::ptr::null_mut(), |p| p.get() as *mut c_void),
                 offset,
                 length,
                 flags.bits(),

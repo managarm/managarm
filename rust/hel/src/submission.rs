@@ -1,10 +1,10 @@
 pub mod action;
 pub mod result;
 
-use std::{
+use alloc::rc::Rc;
+use core::{
     cell::Cell,
     mem::{MaybeUninit, size_of},
-    rc::Rc,
     task::{LocalWaker, Poll},
     time::Duration,
 };
@@ -12,9 +12,11 @@ use std::{
 use action::Action;
 use result::{FromQueueElement, SimpleResult};
 
+#[cfg(feature = "std")]
+use crate::executor::current_executor;
 use crate::{
     Time,
-    executor::{Executor, ExecutorInner, current_executor},
+    executor::{Executor, ExecutorInner},
     handle::Handle,
     queue::QueueElement,
     result::Result,
@@ -122,7 +124,7 @@ pub fn sleep_until_with_executor(
                 cancellationTag: 0, // No cancellation needed
             };
             let header_bytes: &[u8] = unsafe {
-                std::slice::from_raw_parts(
+                core::slice::from_raw_parts(
                     &header as *const _ as *const u8,
                     size_of::<hel_sys::HelSqAwaitClock>(),
                 )
@@ -139,6 +141,7 @@ pub fn sleep_until_with_executor(
 
 /// Returns a future that will be completed when the system clock
 /// reaches the given time value.
+#[cfg(feature = "std")]
 pub fn sleep_until(time: Time) -> impl Future<Output = Result<()>> {
     sleep_until_with_executor(current_executor(), time)
 }
@@ -161,7 +164,7 @@ pub fn sleep_for_with_executor(
                 cancellationTag: 0, // No cancellation needed
             };
             let header_bytes: &[u8] = unsafe {
-                std::slice::from_raw_parts(
+                core::slice::from_raw_parts(
                     &header as *const _ as *const u8,
                     size_of::<hel_sys::HelSqAwaitClock>(),
                 )
@@ -179,6 +182,7 @@ pub fn sleep_for_with_executor(
 /// Returns a future that will be completed after the given duration
 /// has passed. This is equivalent to calling `sleep_until` with the
 /// current time plus the given duration.
+#[cfg(feature = "std")]
 pub fn sleep_for(duration: Duration) -> impl Future<Output = Result<()>> {
     sleep_for_with_executor(current_executor(), duration)
 }
@@ -208,13 +212,13 @@ where
                 flags: 0,
             };
             let header_bytes: &[u8] = unsafe {
-                std::slice::from_raw_parts(
+                core::slice::from_raw_parts(
                     &header as *const _ as *const u8,
                     size_of::<hel_sys::HelSqExchangeMsgs>(),
                 )
             };
             let actions_bytes: &[u8] = unsafe {
-                std::slice::from_raw_parts(
+                core::slice::from_raw_parts(
                     actions.as_ptr() as *const u8,
                     actions.len() * size_of::<hel_sys::HelAction>(),
                 )
@@ -229,6 +233,7 @@ where
     )
 }
 
+#[cfg(feature = "std")]
 pub fn submit_async<T: Action>(
     lane: &Handle,
     action: T,

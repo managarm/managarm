@@ -1,10 +1,14 @@
-use std::{
-    cell::{Cell, RefCell},
+use alloc::{
+    boxed::Box,
     collections::VecDeque,
+    rc::{Rc, Weak},
+    task::LocalWake,
+};
+use core::{
+    cell::{Cell, RefCell},
     future::Future,
     pin::Pin,
-    rc::{Rc, Weak},
-    task::{ContextBuilder, LocalWake, LocalWaker, Waker},
+    task::{ContextBuilder, LocalWaker, Waker},
 };
 
 use crate::{handle::Handle, queue::Queue, result::Result, submission::OperationState};
@@ -171,6 +175,7 @@ impl Executor {
 }
 
 /// Spawns a new task.
+#[cfg(feature = "std")]
 pub fn spawn<F>(future: F)
 where
     F: Future<Output = ()> + 'static,
@@ -179,6 +184,7 @@ where
 }
 
 /// Blocks the current thread until the given future is ready.
+#[cfg(feature = "std")]
 pub fn block_on<F, R: 'static>(future: F) -> Result<R>
 where
     F: Future<Output = R> + 'static,
@@ -189,6 +195,7 @@ where
 /// Temporarily replaces the default per-thread executor with the given one.
 /// The returned value ensures that the executor is restored to its previous state
 /// when dropped.
+#[cfg(feature = "std")]
 pub fn enter_executor(new_executor: Executor) -> ExecutorGuard {
     let previous_executor = EXECUTOR.with(|executor| executor.replace(new_executor));
 
@@ -196,20 +203,24 @@ pub fn enter_executor(new_executor: Executor) -> ExecutorGuard {
 }
 
 /// Returns a new reference to the current executor.
+#[cfg(feature = "std")]
 pub fn current_executor() -> Executor {
     EXECUTOR.with(|executor| executor.borrow().clone())
 }
 
-thread_local! {
+#[cfg(feature = "std")]
+std::thread_local! {
     /// The current executor for the thread.
     pub(crate) static EXECUTOR: RefCell<Executor>
         = RefCell::new(Executor::new().expect("Failed to create executor"));
 }
 
+#[cfg(feature = "std")]
 pub struct ExecutorGuard {
     previous_executor: Executor,
 }
 
+#[cfg(feature = "std")]
 impl Drop for ExecutorGuard {
     fn drop(&mut self) {
         EXECUTOR.with(|executor| executor.replace(self.previous_executor.clone()));

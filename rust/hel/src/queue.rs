@@ -1,8 +1,9 @@
-use std::ffi::c_uint;
-use std::marker::PhantomData;
-use std::mem::{MaybeUninit, offset_of};
-use std::ptr::NonNull;
-use std::sync::atomic::{AtomicI32, Ordering};
+use alloc::{boxed::Box, vec};
+use core::ffi::c_uint;
+use core::marker::PhantomData;
+use core::mem::{MaybeUninit, offset_of};
+use core::ptr::NonNull;
+use core::sync::atomic::{AtomicI32, Ordering};
 
 use crate::{
     handle::Handle,
@@ -276,7 +277,7 @@ impl Queue {
             break Ok(QueueElement::new(
                 self,
                 unsafe {
-                    std::slice::from_raw_parts(
+                    core::slice::from_raw_parts(
                         pointer
                             .byte_add(size_of::<hel_sys::HelElement>())
                             .cast()
@@ -558,14 +559,14 @@ impl Queue {
         let element: &mut hel_sys::HelElement = unsafe { ptr.cast().as_mut() };
         element.length = data_length as u32;
         element.opcode = opcode;
-        element.context = context as *mut std::ffi::c_void;
+        element.context = context as *mut core::ffi::c_void;
 
         // Write each segment after the header.
         let mut offset = size_of::<hel_sys::HelElement>();
         for segment in segments {
             if !segment.is_empty() {
                 unsafe {
-                    std::ptr::copy_nonoverlapping(
+                    core::ptr::copy_nonoverlapping(
                         segment.as_ptr(),
                         ptr.byte_add(offset).cast().as_ptr(),
                         segment.len(),
