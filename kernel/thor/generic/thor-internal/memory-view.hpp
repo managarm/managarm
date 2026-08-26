@@ -690,6 +690,11 @@ struct ManagedSpace : CacheBundle {
 		// Page is owned by the ManagedSpace reclamation logic.
 		// Valid in any LoadState, with or without a frame.
 		avertDiscard,
+		// Page is in _invalidationList and waiting for existing mappings to be invalidated.
+		// Page is owned by the invalidation coroutine.
+		// Valid in any LoadState, with or without a frame.
+		// Never entered on SwapSpaces (slot identities cannot be translated back to view offsets).
+		invalidation,
 	};
 
 	// Type of transaction that a TransactionMonitor is attached to.
@@ -803,6 +808,7 @@ struct ManagedSpace : CacheBundle {
 
 	coroutine<void> _runReclaimLoop();
 	coroutine<void> _runDrainLoop();
+	coroutine<void> _runInvalidationLoop();
 
 	Error lockPages(uintptr_t offset, size_t size);
 	void unlockPages(uintptr_t offset, size_t size);
@@ -855,6 +861,12 @@ struct ManagedSpace : CacheBundle {
 	// These pages are either in TxState::discardQueued or TxState::avertDiscard.
 	// Protected by mutex.
 	CachePagesList _discardList;
+
+	// Discarded pages whose remaining mappings the invalidation coroutine breaks.
+	// These pages are in TxState::invalidation.
+	// Like _discardList, the owning coroutine is woken by _discardEvent.
+	// Protected by mutex.
+	CachePagesList _invalidationList;
 
 	ManageList _managementQueue;
 

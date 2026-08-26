@@ -970,6 +970,7 @@ std::expected<smarter::shared_ptr<ManagedSpace>, Error> ManagedSpace::create(
 	self->selfPtr = self;
 	spawnOnWorkQueue(*kernelAlloc, WorkQueue::generalQueue().lock(), self->_runReclaimLoop());
 	spawnOnWorkQueue(*kernelAlloc, WorkQueue::generalQueue().lock(), self->_runDrainLoop());
+	spawnOnWorkQueue(*kernelAlloc, WorkQueue::generalQueue().lock(), self->_runInvalidationLoop());
 	return self;
 }
 
@@ -1219,6 +1220,54 @@ coroutine<void> ManagedSpace::_runDrainLoop() {
 	}
 }
 
+coroutine<void> ManagedSpace::_runInvalidationLoop() {
+	assert(!isSwapSpace);
+	while(true) {
+		co_await _discardEvent.async_wait_if([this] () -> bool {
+			auto irqLock = frg::guard(&irqMutex());
+			auto lock = frg::guard(&mutex);
+			return _invalidationList.empty();
+		});
+
+		CachePagesList batch;
+		{
+			auto irqLock = frg::guard(&irqMutex());
+			auto lock = frg::guard(&mutex);
+
+			batch.splice(batch.end(), _invalidationList);
+		}
+
+		CachePagesList processed;
+		while(!batch.empty()) {
+			// Coalesce runs of consecutive identities into a single eviction each.
+			auto index = batch.front()->identity;
+			size_t count = 0;
+			while(!batch.empty() && batch.front()->identity == index + count) {
+				processed.push_back(batch.pop_front());
+				count++;
+			}
+			co_await _evictQueue.breakRange(index << kPageShift, count << kPageShift);
+		}
+
+		bool raiseDiscard = false;
+		{
+			auto irqLock = frg::guard(&irqMutex());
+			auto lock = frg::guard(&mutex);
+
+			while(!processed.empty()) {
+				auto cachePage = processed.pop_front();
+				auto *page = frg::container_of(cachePage, &ManagedPage::cachePage);
+				assert(page->discarded);
+				assert(page->transactionState == TxState::invalidation);
+				page->transactionState = TxState::none;
+				raiseDiscard |= _disposeDiscarded(page);
+			}
+		}
+		if(raiseDiscard)
+			_discardEvent.raise();
+	}
+}
+
 bool ManagedSpace::claimSwapBudget(ManagedPage *) {
 	// File caches write back to their backing store, so no budget applies.
 	return true;
@@ -1276,7 +1325,7 @@ void ManagedSpace::discardPage(uint64_t index) {
 			// is on its local batch list.
 			break;
 		default:
-			// TxState::discardQueued/performDiscard/avertDiscard are unreachable:
+			// TxState::discardQueued/performDiscard/avertDiscard/invalidation are unreachable:
 			// they imply discarded, which the idempotence guard above returns on.
 			assert(!"discardPage() on page in unexpected transaction state");
 		}
@@ -1305,8 +1354,18 @@ bool ManagedSpace::_disposeDiscarded(ManagedPage *page) {
 	assert(page->discarded);
 	assert(page->transactionState == TxState::none);
 	assert(!page->monitors);
-	if(page->lockCount || page->cachePage.useCount.load(std::memory_order_relaxed))
+	if(page->lockCount)
 		return false;
+	if(page->cachePage.useCount.load(std::memory_order_relaxed)) {
+		// Swap slot identities cannot be translated back to view offsets;
+		// hence, swap spaces cannot use TxState::invalidation.
+		// Instead, discarded pages will be re-routed to _disposeDiscarded() when their useCount drops to zero.
+		if(isSwapSpace)
+			return false;
+		page->transactionState = TxState::invalidation;
+		_invalidationList.push_back(&page->cachePage);
+		return true;
+	}
 	page->transactionState = TxState::discardQueued;
 	_discardList.push_back(&page->cachePage);
 	return true;
