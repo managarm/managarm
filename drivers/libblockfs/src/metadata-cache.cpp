@@ -28,6 +28,11 @@ MetadataCache::MetadataCache(BlockDevice *device, uint64_t numBlocks, size_t blo
 			0, &backing, &frontal));
 	frontal_ = helix::UniqueDescriptor{frontal};
 
+	// The mapping is lazy, i.e., its cost does not scale with the cache size.
+	mapping_ = helix::Mapping{frontal_, 0,
+			static_cast<size_t>(numBlocks << blockPagesShift_),
+			kHelMapProtRead | kHelMapProtWrite | kHelMapDontRequireBacking};
+
 	manage_(helix::UniqueDescriptor{backing});
 	flushDirty_();
 }
@@ -43,7 +48,7 @@ void MetadataCache::CacheBlockPolicy::decrement() const {
 
 void MetadataCache::BlockWindow::markDirty() {
 	assert(cacheBlock_);
-	cacheBlock_->cache->markDirty_(cacheBlock_);
+	cacheBlock_->cache->markDirty_(cacheBlock_->block);
 }
 
 MetadataCache::CacheBlockPtr MetadataCache::findCacheBlock_(uint64_t block) {
@@ -118,10 +123,7 @@ async::result<MetadataCache::BlockWindow> MetadataCache::access(uint64_t block, 
 	co_await submit.async_wait();
 	HEL_CHECK(lockMemory.error());
 
-	helix::Mapping mapping{frontal_, static_cast<ptrdiff_t>(block << blockPagesShift_),
-			frameSize, kHelMapProtRead | kHelMapProtWrite | kHelMapDontRequireBacking};
-
-	auto cacheBlock = CacheBlock::create(this, block, lockMemory.descriptor(), std::move(mapping));
+	auto cacheBlock = CacheBlock::create(this, block, lockMemory.descriptor());
 	CacheBlockPtr evicted; // Drop after the lock.
 	{
 		std::lock_guard cacheBlockLock{cacheBlockMutex_};
@@ -182,12 +184,12 @@ async::result<void> MetadataCache::serviceRequest_(helix::BorrowedDescriptor bac
 	HEL_CHECK(helUpdateMemory(backing.getHandle(), type, offset, length));
 }
 
-void MetadataCache::markDirty_(CacheBlockPtr cacheBlock) {
+void MetadataCache::markDirty_(uint64_t block) {
 	{
 		std::lock_guard dirtyLock{dirtyMutex_};
 
 		// An entry that is already queued is covered by the raise that queued it.
-		if(!dirtyCacheBlocks_.insert(std::move(cacheBlock)).second)
+		if(!dirtyBlocks_.insert(block).second)
 			return;
 	}
 
@@ -195,9 +197,9 @@ void MetadataCache::markDirty_(CacheBlockPtr cacheBlock) {
 }
 
 async::detached MetadataCache::flushDirty_() {
-	// Cache blocks dirtied while a batch is being synchronized are picked up by the next iteration.
+	// Blocks dirtied while a batch is being synchronized are picked up by the next iteration.
 	uint64_t seenSeq = 0;
-	std::vector<CacheBlockPtr> batch;
+	std::vector<uint64_t> batch;
 	while(true) {
 		co_await dirtyEvent_.async_wait(seenSeq);
 
@@ -207,19 +209,17 @@ async::detached MetadataCache::flushDirty_() {
 			// Take the sequence together with the batch, so that no request is missed.
 			// TODO: Use async::sequenced_event::current_sequence() once it exists.
 			seenSeq = dirtyEvent_.next_sequence() - 1;
-			batch.assign(dirtyCacheBlocks_.begin(), dirtyCacheBlocks_.end());
-			dirtyCacheBlocks_.clear();
+			batch.assign(dirtyBlocks_.begin(), dirtyBlocks_.end());
+			dirtyBlocks_.clear();
 		}
 
-		for(auto &cacheBlock : batch) {
+		auto frameSize = size_t{1} << blockPagesShift_;
+		for(auto block : batch) {
 			auto synchronize = co_await helix_ng::synchronizeSpace(
 					helix::BorrowedDescriptor{kHelNullHandle},
-					cacheBlock->mapping.get(), cacheBlock->mapping.size());
+					blockAddress_(block), frameSize);
 			HEL_CHECK(synchronize.error());
 		}
-
-		// Drop the references that kept the mappings alive across the writeback.
-		batch.clear();
 	}
 }
 

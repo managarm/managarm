@@ -1,6 +1,6 @@
 #pragma once
 
-#include <functional>
+#include <cstddef>
 #include <mutex>
 #include <unordered_map>
 #include <unordered_set>
@@ -26,6 +26,10 @@ namespace blockfs {
 // Each block occupies its own page-aligned frame, i.e., blocks smaller than a page
 // are never packed into the same page (to keep writeback of a page confined to a
 // single block).
+//
+// The whole cache is mapped once at construction; windows only pin blocks into
+// the cache. Blocks must only be touched while a window pins them: a fault on a
+// non-resident block would have to be serviced by this very process.
 struct MetadataCache {
 private:
 	struct CacheBlock;
@@ -51,46 +55,30 @@ private:
 
 	using CacheBlockPtr = smarter::shared_ptr<CacheBlock, CacheBlockPolicy>;
 
-	// smarter::shared_ptr is neither hashable nor equality comparable on its own.
-	struct CacheBlockPtrHash {
-		size_t operator() (const CacheBlockPtr &cacheBlock) const {
-			return std::hash<CacheBlock *>{}(cacheBlock.get());
-		}
-	};
-
-	struct CacheBlockPtrEqual {
-		bool operator() (const CacheBlockPtr &x, const CacheBlockPtr &y) const {
-			return x.get() == y.get();
-		}
-	};
-
-	// All BlockWindows of a block share one CacheBlock (and hence one mapping).
+	// All BlockWindows of a block share one CacheBlock (and hence one lock that pins the block into the cache).
 	struct CacheBlock {
 		// The returned pointer adopts the reference that refCount starts out with.
 		static CacheBlockPtr create(MetadataCache *cache, uint64_t block,
-				helix::UniqueDescriptor lock, helix::Mapping mapping) {
-			auto cacheBlock = new CacheBlock{cache, block, std::move(lock), std::move(mapping)};
+				helix::UniqueDescriptor lock) {
+			auto cacheBlock = new CacheBlock{cache, block, std::move(lock)};
 			return CacheBlockPtr{smarter::adopt_rc, cacheBlock, CacheBlockPolicy{cacheBlock}};
 		}
 
 		MetadataCache *cache;
 		uint64_t block;
-		// The lock descriptor is declared before the mapping so that the mapping is destroyed first.
 		helix::UniqueDescriptor lock;
-		helix::Mapping mapping;
 		smarter::counter refCount{smarter::adopt_rc, 1};
 		// Protected by cacheBlockMutex_. The LRU holds a reference iff inLru.
 		frg::default_list_hook<CacheBlock> lruHook;
 		bool inLru = false;
 
 	private:
-		CacheBlock(MetadataCache *cache, uint64_t block,
-				helix::UniqueDescriptor lock, helix::Mapping mapping)
-		: cache{cache}, block{block}, lock{std::move(lock)}, mapping{std::move(mapping)} { }
+		CacheBlock(MetadataCache *cache, uint64_t block, helix::UniqueDescriptor lock)
+		: cache{cache}, block{block}, lock{std::move(lock)} { }
 	};
 
 public:
-	// A locked and mapped view of a single metadata block.
+	// A locked view of a single metadata block through the cache's persistent mapping.
 	// The block stays present in the cache for the lifetime of this object.
 	//
 	// Destroying a writable window marks it as dirty in the kernel's writeback machinery.
@@ -121,9 +109,7 @@ public:
 				markDirty();
 		}
 
-		void *get() {
-			return cacheBlock_->mapping.get();
-		}
+		void *get();
 
 		// Requests a writeback of the pages written through this window's block.
 		void markDirty();
@@ -144,7 +130,7 @@ public:
 	MetadataCache(const MetadataCache &) = delete;
 	MetadataCache &operator=(const MetadataCache &) = delete;
 
-	// Locks and maps the given block.
+	// Locks the given block and returns a window into the persistent mapping.
 	// Writes through a writable window are eventually written back to the block.
 	async::result<BlockWindow> access(uint64_t block, bool writable);
 
@@ -155,10 +141,13 @@ private:
 	async::detached manage_(helix::UniqueDescriptor backing);
 	async::result<void> serviceRequest_(helix::BorrowedDescriptor backing,
 			int type, uintptr_t offset, size_t length);
+	void *blockAddress_(uint64_t block) {
+		return static_cast<std::byte *>(mapping_.get()) + (block << blockPagesShift_);
+	}
 	CacheBlockPtr findCacheBlock_(uint64_t block);
 	CacheBlockPtr touchLru_(CacheBlock *cacheBlock);
 	void destroyCacheBlock_(CacheBlock *cacheBlock);
-	void markDirty_(CacheBlockPtr cacheBlock);
+	void markDirty_(uint64_t block);
 	async::detached flushDirty_();
 
 	BlockDevice *device_;
@@ -167,6 +156,8 @@ private:
 	uint32_t blockPagesShift_;
 	size_t sectorsPerBlock_;
 	helix::UniqueDescriptor frontal_;
+	// Persistent mapping of the whole cache.
+	helix::Mapping mapping_;
 
 	std::mutex cacheBlockMutex_;
 	// One entry per block that is currently cached.
@@ -174,7 +165,7 @@ private:
 	// Thus, lookup under cacheBlockMutex_ can always dereference the pointer and trying to acquire a shared_ptr may fail.
 	// Protected by cacheBlockMutex_.
 	std::unordered_map<uint64_t, CacheBlock *> cacheBlocks_;
-	// Keeps the most recently accessed blocks locked and mapped even while no BlockWindow refers to them.
+	// Keeps the most recently accessed blocks pinned even while no BlockWindow refers to them.
 	// Protected by cacheBlockMutex_.
 	frg::intrusive_list<
 		CacheBlock,
@@ -187,11 +178,15 @@ private:
 	async::mutex creationMutex_;
 
 	std::mutex dirtyMutex_;
-	// Cache blocks awaiting a deferred writeback.
+	// Blocks awaiting a deferred writeback.
 	// Protected by dirtyMutex_.
-	std::unordered_set<CacheBlockPtr, CacheBlockPtrHash, CacheBlockPtrEqual> dirtyCacheBlocks_;
-	// Raised to request a writeback of dirtyCacheBlocks_.
+	std::unordered_set<uint64_t> dirtyBlocks_;
+	// Raised to request a writeback of dirtyBlocks_.
 	async::sequenced_event dirtyEvent_;
 };
+
+inline void *MetadataCache::BlockWindow::get() {
+	return cacheBlock_->cache->blockAddress_(cacheBlock_->block);
+}
 
 } // namespace blockfs
