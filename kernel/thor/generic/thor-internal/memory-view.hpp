@@ -785,7 +785,7 @@ struct ManagedSpace : CacheBundle {
 	// Discards the page at the given index. The entry is either immediately erased
 	// or once the in-flight transaction is completed. The frames are freed by
 	// the reclamation behind a fenceEphemeral().
-	// Should only be called when the owning view is being destructed.
+	// Idempotent: discarding an already discarded page is a no-op.
 	// After a batch of discards the caller must call _wakeDrain() as discards may release swap budget.
 	void discardPage(uint64_t index);
 

@@ -1233,7 +1233,8 @@ void ManagedSpace::discardPage(uint64_t index) {
 
 		auto pit = pages.find(index);
 		assert(pit);
-		assert(!pit->discarded);
+		if(pit->discarded)
+			return;
 		pit->discarded = true;
 
 		bool dispose = false;
@@ -1261,6 +1262,11 @@ void ManagedSpace::discardPage(uint64_t index) {
 			// The drain coroutine completes the discard, the page is on
 			// its local pending list.
 			break;
+		case TxState::wantInitialization:
+		case TxState::initialization:
+			// Initialization completes normally (e.g., to allow reading from already locked pages).
+			// updateRange() completes the discard.
+			break;
 		case TxState::writeback:
 			// updateRange() completes the discard.
 			break;
@@ -1270,8 +1276,9 @@ void ManagedSpace::discardPage(uint64_t index) {
 			// is on its local batch list.
 			break;
 		default:
-			// Initialization is only entered by fetches, which hold view references.
-			assert(!"discardPage() on page under initialization");
+			// TxState::discardQueued/performDiscard/avertDiscard are unreachable:
+			// they imply discarded, which the idempotence guard above returns on.
+			assert(!"discardPage() on page in unexpected transaction state");
 		}
 
 		// Erases entries without a frame right away instead of paying for a fenceEphemeral().
@@ -1787,19 +1794,20 @@ Error BackingMemory::updateRange(ManageRequest type, size_t offset, size_t lengt
 			for(size_t pg = 0; pg < length; pg += kPageSize) {
 				size_t index = (offset + pg) / kPageSize;
 				auto pit = _managed->pages.find(index);
-				// Initialization implies an in-flight fetch, which holds a view
-				// reference; discardPage() thus never sees this state.
-				assert(!pit->discarded);
 				pit->loadState = ManagedSpace::LoadState::present;
-				if (pit->lockCount || pit->cachePage.useCount.load(std::memory_order_relaxed)) {
+				auto monitor = pit->detachMonitor(ManagedSpace::MonitorType::initialization);
+				assert(monitor);
+				pendingMonitors.push_back(monitor.release());
+				if(pit->discarded) {
+					// The page completed initialization normally but will now be discarded.
+					pit->transactionState = ManagedSpace::TxState::none;
+					raiseDiscard |= _managed->_disposeDiscarded(pit);
+				} else if (pit->lockCount || pit->cachePage.useCount.load(std::memory_order_relaxed)) {
 					pit->transactionState = ManagedSpace::TxState::none;
 				} else {
 					globalReclaimer->addPage(&pit->cachePage);
 					pit->transactionState = ManagedSpace::TxState::inReclaimer;
 				}
-				auto monitor = pit->detachMonitor(ManagedSpace::MonitorType::initialization);
-				assert(monitor);
-				pendingMonitors.push_back(monitor.release());
 			}
 		}else{
 			for(size_t pg = 0; pg < length; pg += kPageSize) {
