@@ -14,6 +14,7 @@ inline constinit protocols::ostrace::Event ostEvtMetadataInitialize{"libblockfs.
 inline constinit protocols::ostrace::Event ostEvtMetadataWriteback{"libblockfs.metadataWriteback"};
 inline constinit protocols::ostrace::Event ostEvtMetadataAccess{"libblockfs.metadataAccess"};
 inline constinit protocols::ostrace::Event ostEvtMetadataUnmap{"libblockfs.metadataUnmap"};
+inline constinit protocols::ostrace::Event ostEvtMetadataClean{"libblockfs.metadataClean"};
 inline constinit protocols::ostrace::Event ostEvtExt2AssignDataBlocks{"ext2.assignDataBlocks"};
 inline constinit protocols::ostrace::Event ostEvtExt2ReadDataBlocks{"ext2.readDataBlocks"};
 inline constinit protocols::ostrace::Event ostEvtExt2WriteDataBlocks{"ext2.writeDataBlocks"};
@@ -33,6 +34,8 @@ inline constinit protocols::ostrace::UintAttribute ostAttrBlock{"block"};
 inline constinit protocols::ostrace::UintAttribute ostAttrNumBlocks{"numBlocks"};
 inline constinit protocols::ostrace::UintAttribute ostAttrNumGroups{"numGroups"};
 inline constinit protocols::ostrace::UintAttribute ostAttrNumCoalesced{"numCoalesced"};
+inline constinit protocols::ostrace::UintAttribute ostAttrNumWindows{"numWindows"};
+inline constinit protocols::ostrace::UintAttribute ostAttrNumRedundant{"numRedundant"};
 inline constinit protocols::ostrace::UintAttribute ostAttrIno{"ino"};
 inline constinit protocols::ostrace::UintAttribute ostAttrIsWrite{"isWrite"};
 inline constinit protocols::ostrace::UintAttribute ostAttrTimeLock{"timeLock"};
@@ -49,6 +52,7 @@ inline constinit protocols::ostrace::UintAttribute ostAttrTimeResize{"timeResize
 inline constinit protocols::ostrace::UintAttribute ostAttrTimeCopy{"timeCopy"};
 inline constinit protocols::ostrace::UintAttribute ostAttrTimeSetup{"timeSetup"};
 inline constinit protocols::ostrace::UintAttribute ostAttrTimeObtain{"timeObtain"};
+inline constinit protocols::ostrace::UintAttribute ostAttrTimeCleanPages{"timeCleanPages"};
 
 inline protocols::ostrace::Vocabulary ostVocabulary{
 	ostEvtGetLink,
@@ -61,6 +65,7 @@ inline protocols::ostrace::Vocabulary ostVocabulary{
 	ostEvtMetadataWriteback,
 	ostEvtMetadataAccess,
 	ostEvtMetadataUnmap,
+	ostEvtMetadataClean,
 	ostEvtExt2AssignDataBlocks,
 	ostEvtExt2ReadDataBlocks,
 	ostEvtExt2WriteDataBlocks,
@@ -80,6 +85,8 @@ inline protocols::ostrace::Vocabulary ostVocabulary{
 	ostAttrNumBlocks,
 	ostAttrNumGroups,
 	ostAttrNumCoalesced,
+	ostAttrNumWindows,
+	ostAttrNumRedundant,
 	ostAttrIno,
 	ostAttrIsWrite,
 	ostAttrTimeLock,
@@ -96,6 +103,7 @@ inline protocols::ostrace::Vocabulary ostVocabulary{
 	ostAttrTimeCopy,
 	ostAttrTimeSetup,
 	ostAttrTimeObtain,
+	ostAttrTimeCleanPages,
 };
 
 inline protocols::ostrace::Context ostContext{ostVocabulary};

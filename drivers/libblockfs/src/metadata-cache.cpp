@@ -228,8 +228,10 @@ void MetadataCache::markDirty_(uint64_t block) {
 		std::lock_guard dirtyLock{dirtyMutex_};
 
 		// An entry that is already queued is covered by the raise that queued it.
-		if(!dirtyBlocks_.insert(block).second)
+		if(!dirtyBlocks_.insert(block).second) {
+			++numRedundantDirty_;
 			return;
+		}
 	}
 
 	dirtyEvent_.raise();
@@ -242,6 +244,8 @@ async::detached MetadataCache::flushDirty_() {
 	while(true) {
 		co_await dirtyEvent_.async_wait(seenSeq);
 
+		protocols::ostrace::Timer timer;
+		uint64_t numRedundant;
 		{
 			std::lock_guard dirtyLock{dirtyMutex_};
 
@@ -250,15 +254,28 @@ async::detached MetadataCache::flushDirty_() {
 			seenSeq = dirtyEvent_.next_sequence() - 1;
 			batch.assign(dirtyBlocks_.begin(), dirtyBlocks_.end());
 			dirtyBlocks_.clear();
+			numRedundant = numRedundantDirty_;
+			numRedundantDirty_ = 0;
 		}
+		auto numBlocks = batch.size();
 
 		auto frameSize = size_t{1} << blockPagesShift_;
+		protocols::ostrace::Timer cleanTimer;
 		for(auto block : batch) {
 			auto synchronize = co_await helix_ng::synchronizeSpace(
 					helix::BorrowedDescriptor{kHelNullHandle},
 					blockAddress_(block), frameSize);
 			HEL_CHECK(synchronize.error());
 		}
+		auto cleanTime = cleanTimer.elapsed();
+
+		ostContext.emit(
+			ostEvtMetadataClean,
+			ostAttrTime(timer.elapsed()),
+			ostAttrNumBlocks(numBlocks),
+			ostAttrNumRedundant(numRedundant),
+			ostAttrTimeCleanPages(cleanTime)
+		);
 	}
 }
 

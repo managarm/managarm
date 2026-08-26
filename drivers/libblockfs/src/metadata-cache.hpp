@@ -181,6 +181,9 @@ private:
 	// Blocks awaiting a deferred writeback.
 	// Protected by dirtyMutex_.
 	std::unordered_set<uint64_t> dirtyBlocks_;
+	// markDirty() calls that hit an already queued block.
+	// Protected by dirtyMutex_.
+	uint64_t numRedundantDirty_ = 0;
 	// Raised to request a writeback of dirtyBlocks_.
 	async::sequenced_event dirtyEvent_;
 };
