@@ -156,6 +156,22 @@ struct HandlePartition {
 
 		auto &fs = *fsPtr;
 
+		protocols::ostrace::Timer timer;
+		uint64_t lockTime = 0;
+		uint64_t loopCheckTime = 0;
+		uint64_t removeTime = 0;
+		uint64_t linkTime = 0;
+		frg::scope_exit evtOnExit{[&] {
+			ostContext.emit(
+				ostEvtRename,
+				ostAttrTime(timer.elapsed()),
+				ostAttrTimeLock(lockTime),
+				ostAttrTimeLoopCheck(loopCheckTime),
+				ostAttrTimeLink(linkTime),
+				ostAttrTimeRemove(removeTime)
+			);
+		}};
+
 		auto isInvalidName = [](std::string_view name) {
 			return name.empty() || name == "." || name == "..";
 		};
@@ -178,18 +194,24 @@ struct HandlePartition {
 
 		// Take topologyMutex exclusively for the whole rename.
 		// This ensures that the ancestry checks below see a consistent state.
+		protocols::ostrace::Timer topologyLockTimer;
 		co_await fs->topologyMutex.async_lock();
 		frg::unique_lock topologyLock{frg::adopt_lock, fs->topologyMutex};
+		lockTime += topologyLockTimer.elapsed();
 
 		// Lock the two parent directories in inodeMutex order.
 		std::optional<frg::unique_lock<async::shared_mutex>> firstLock;
 		std::optional<frg::unique_lock<async::shared_mutex>> secondLock;
 		if (oldInode.get() == newInode.get()) {
+			protocols::ostrace::Timer lockTimer;
 			co_await oldInode->inodeMutex.async_lock();
 			firstLock.emplace(frg::adopt_lock, oldInode->inodeMutex);
+			lockTime += lockTimer.elapsed();
 		} else {
+			protocols::ostrace::Timer loopCheckTimer;
 			auto oldIsSubdir = co_await oldInode->isSubdirectoryOf(newInode->number);
 			auto newIsSubdir = co_await newInode->isSubdirectoryOf(oldInode->number);
+			loopCheckTime += loopCheckTimer.elapsed();
 			// TODO: Handle errors gracefully here.
 			assert(oldIsSubdir); // isSubdirectoryOf() should not fail.
 			assert(newIsSubdir); // isSubdirectoryOf() should not fail.
@@ -208,11 +230,13 @@ struct HandlePartition {
 			if (!oldBeforeNew)
 				std::swap(firstInode, secondInode);
 
+			protocols::ostrace::Timer lockTimer;
 			co_await firstInode->inodeMutex.async_lock();
 			firstLock.emplace(frg::adopt_lock, firstInode->inodeMutex);
 
 			co_await secondInode->inodeMutex.async_lock();
 			secondLock.emplace(frg::adopt_lock, secondInode->inodeMutex);
+			lockTime += lockTimer.elapsed();
 		}
 
 		auto old_result = co_await oldInode->findEntry(req.old_name());
@@ -240,7 +264,9 @@ struct HandlePartition {
 			// Reject moving a directory into itself or one of its own
 			// descendants, which would detach the subtree from the tree.
 			if(old_file.value().fileType == kTypeDirectory) {
+				protocols::ostrace::Timer loopCheckTimer;
 				auto loop = co_await newInode->isSubdirectoryOf(old_file.value().inode);
+				loopCheckTime += loopCheckTimer.elapsed();
 				if(!loop) {
 					resp.set_error(loop.error() | protocols::fs::toFsError);
 
@@ -372,7 +398,9 @@ struct HandlePartition {
 			}
 
 			// A missing destination is the common case and not an error.
+			protocols::ostrace::Timer removeTimer;
 			auto result = co_await newInode->removeEntry(req.new_name());
+			removeTime += removeTimer.elapsed();
 			if(!result && result.error() != protocols::fs::Error::fileNotFound) {
 				resp.set_error(result.error() | protocols::fs::toFsError);
 
@@ -382,8 +410,10 @@ struct HandlePartition {
 				HEL_CHECK(send_resp.error());
 				co_return {};
 			}
+			protocols::ostrace::Timer linkTimer;
 			auto link_result = co_await newInode->link(req.new_name(),
 					old_file.value().inode, old_file.value().fileType);
+			linkTime += linkTimer.elapsed();
 			if(!link_result) {
 				resp.set_error(link_result.error() | protocols::fs::toFsError);
 
@@ -420,7 +450,9 @@ struct HandlePartition {
 			co_return {};
 		}
 
+		protocols::ostrace::Timer removeOldTimer;
 		auto result = co_await oldInode->removeEntry(req.old_name());
+		removeTime += removeOldTimer.elapsed();
 		if(!result) {
 			resp.set_error(result.error() | protocols::fs::toFsError);
 

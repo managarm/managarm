@@ -12,6 +12,7 @@ inline constinit protocols::ostrace::Event ostEvtWrite{"libblockfs.write"};
 inline constinit protocols::ostrace::Event ostEvtRawRead{"libblockfs.rawRead"};
 inline constinit protocols::ostrace::Event ostEvtOpen{"libblockfs.open"};
 inline constinit protocols::ostrace::Event ostEvtTruncate{"libblockfs.truncate"};
+inline constinit protocols::ostrace::Event ostEvtRename{"libblockfs.rename"};
 inline constinit protocols::ostrace::Event ostEvtMetadataInitialize{"libblockfs.metadataInitialize"};
 inline constinit protocols::ostrace::Event ostEvtMetadataWriteback{"libblockfs.metadataWriteback"};
 inline constinit protocols::ostrace::Event ostEvtMetadataAccess{"libblockfs.metadataAccess"};
@@ -75,6 +76,8 @@ inline constinit protocols::ostrace::UintAttribute ostAttrTimeFind{"timeFind"};
 inline constinit protocols::ostrace::UintAttribute ostAttrTimeCreate{"timeCreate"};
 inline constinit protocols::ostrace::UintAttribute ostAttrTimeLink{"timeLink"};
 inline constinit protocols::ostrace::UintAttribute ostAttrTimeUpdateTimes{"timeUpdateTimes"};
+inline constinit protocols::ostrace::UintAttribute ostAttrTimeLoopCheck{"timeLoopCheck"};
+inline constinit protocols::ostrace::UintAttribute ostAttrTimeRemove{"timeRemove"};
 
 inline protocols::ostrace::Vocabulary ostVocabulary{
 	ostEvtGetLink,
@@ -85,6 +88,7 @@ inline protocols::ostrace::Vocabulary ostVocabulary{
 	ostEvtRawRead,
 	ostEvtOpen,
 	ostEvtTruncate,
+	ostEvtRename,
 	ostEvtMetadataInitialize,
 	ostEvtMetadataWriteback,
 	ostEvtMetadataAccess,
@@ -148,6 +152,8 @@ inline protocols::ostrace::Vocabulary ostVocabulary{
 	ostAttrTimeCreate,
 	ostAttrTimeLink,
 	ostAttrTimeUpdateTimes,
+	ostAttrTimeLoopCheck,
+	ostAttrTimeRemove,
 };
 
 inline protocols::ostrace::Context ostContext{ostVocabulary};
