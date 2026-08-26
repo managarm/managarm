@@ -76,11 +76,19 @@ namespace detail {
 template <Inode T>
 async::result<protocols::fs::ReadResult> doReadImpl(T *inode, void *buffer, size_t length, auto &offset) {
 	protocols::ostrace::Timer timer;
+	size_t numBytes = 0;
+	uint64_t timeReady = 0;
+	uint64_t timeLock = 0;
+	uint64_t timeCopy = 0;
 	frg::scope_exit evtOnExit{[&] {
 		ostContext.emit(
 			ostEvtRead,
-			ostAttrNumBytes(length),
-			ostAttrTime(timer.elapsed())
+			ostAttrNumBytes(numBytes),
+			ostAttrNumRequested(length),
+			ostAttrTime(timer.elapsed()),
+			ostAttrTimeReady(timeReady),
+			ostAttrTimeLock(timeLock),
+			ostAttrTimeCopy(timeCopy)
 		);
 	}};
 
@@ -89,9 +97,11 @@ async::result<protocols::fs::ReadResult> doReadImpl(T *inode, void *buffer, size
 
 	// TODO(geert): Pass cancellation token
 	co_await inode->readyEvent.wait();
+	timeReady = timer.elapsed();
 
 	co_await inode->inodeMutex.async_lock_shared();
 	frg::shared_lock inodeLock{frg::adopt_lock, inode->inodeMutex};
+	timeLock = timer.elapsed() - timeReady;
 
 	if (inode->fileType == FileType::kTypeDirectory)
 		co_return std::unexpected{protocols::fs::Error::isDirectory};
@@ -108,11 +118,14 @@ async::result<protocols::fs::ReadResult> doReadImpl(T *inode, void *buffer, size
 
 	// TODO: Add a sendFromMemory action to exchangeMsgs to avoid
 	// having to copy this data twice.
+	protocols::ostrace::Timer copyTimer;
 	auto readMemory = co_await helix_ng::readMemory(
 		inode->accessMemory(),
 		chunkOffset, chunkSize, buffer);
 	HEL_CHECK(readMemory.error());
+	timeCopy = copyTimer.elapsed();
 
+	numBytes = chunkSize;
 	co_return chunkSize;
 }
 
@@ -120,11 +133,21 @@ template <Inode T>
 async::result<frg::expected<protocols::fs::Error, size_t>>
 doWriteImpl(T *inode, const void *buffer, size_t length, bool append, auto &offset) {
 	protocols::ostrace::Timer timer;
+	size_t numBytes = 0;
+	uint64_t timeReady = 0;
+	uint64_t timeLock = 0;
+	uint64_t timeResize = 0;
+	uint64_t timeCopy = 0;
 	frg::scope_exit evtOnExit{[&] {
 		ostContext.emit(
 			ostEvtWrite,
-			ostAttrNumBytes(length),
-			ostAttrTime(timer.elapsed())
+			ostAttrNumBytes(numBytes),
+			ostAttrNumRequested(length),
+			ostAttrTime(timer.elapsed()),
+			ostAttrTimeReady(timeReady),
+			ostAttrTimeLock(timeLock),
+			ostAttrTimeResize(timeResize),
+			ostAttrTimeCopy(timeCopy)
 		);
 	}};
 
@@ -132,9 +155,11 @@ doWriteImpl(T *inode, const void *buffer, size_t length, bool append, auto &offs
 		co_return size_t{0};
 
 	co_await inode->readyEvent.wait();
+	timeReady = timer.elapsed();
 
 	co_await inode->inodeMutex.async_lock();
 	frg::unique_lock inodeLock{frg::adopt_lock, inode->inodeMutex};
+	timeLock = timer.elapsed() - timeReady;
 
 	if (inode->fileType == FileType::kTypeDirectory)
 		co_return protocols::fs::Error::isDirectory;
@@ -142,18 +167,24 @@ doWriteImpl(T *inode, const void *buffer, size_t length, bool append, auto &offs
 	if (append)
 		offset = inode->fileSize();
 	auto requiredSize = offset + length;
-	if (requiredSize > inode->fileSize())
+	if (requiredSize > inode->fileSize()) {
+		protocols::ostrace::Timer resizeTimer;
 		FRG_CO_TRY(co_await inode->resizeFile(requiredSize));
+		timeResize = resizeTimer.elapsed();
+	}
 
 	// TODO: Add a recvToMemory action to exchangeMsgs to avoid
 	// having to copy this data twice.
+	protocols::ostrace::Timer copyTimer;
 	auto writeMemory = co_await helix_ng::writeMemory(
 		inode->accessMemory(),
 		offset, length, buffer);
 	HEL_CHECK(writeMemory.error());
+	timeCopy = copyTimer.elapsed();
 
 	offset += length;
 
+	numBytes = length;
 	co_return length;
 }
 
