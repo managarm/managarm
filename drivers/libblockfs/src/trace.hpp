@@ -57,6 +57,7 @@ inline constinit protocols::ostrace::UintAttribute ostAttrIno{"ino"};
 inline constinit protocols::ostrace::UintAttribute ostAttrFound{"found"};
 inline constinit protocols::ostrace::UintAttribute ostAttrIsWrite{"isWrite"};
 inline constinit protocols::ostrace::UintAttribute ostAttrTimeLock{"timeLock"};
+inline constinit protocols::ostrace::UintAttribute ostAttrTimePin{"timePin"};
 inline constinit protocols::ostrace::UintAttribute ostAttrTimeImport{"timeImport"};
 inline constinit protocols::ostrace::UintAttribute ostAttrTimeRead{"timeRead"};
 inline constinit protocols::ostrace::UintAttribute ostAttrTimeAssign{"timeAssign"};
@@ -139,6 +140,7 @@ inline protocols::ostrace::Vocabulary ostVocabulary{
 	ostAttrFound,
 	ostAttrIsWrite,
 	ostAttrTimeLock,
+	ostAttrTimePin,
 	ostAttrTimeImport,
 	ostAttrTimeRead,
 	ostAttrTimeAssign,

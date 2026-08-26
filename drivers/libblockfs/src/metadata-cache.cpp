@@ -3,6 +3,7 @@
 #include <utility>
 
 #include <frg/mutex.hpp>
+#include <frg/scope_exit.hpp>
 #include <helix/dispatcher-pool.hpp>
 
 #include "metadata-cache.hpp"
@@ -115,44 +116,44 @@ async::result<MetadataCache::BlockWindow> MetadataCache::access(uint64_t block, 
 	assert(block < numBlocks_);
 
 	protocols::ostrace::Timer timer;
-	uint64_t lockDone;
+	uint64_t timePin = 0;
+	bool found = true;
+	frg::scope_exit evtOnExit{[&] {
+		ostContext.emit(
+			ostEvtMetadataAccess,
+			ostAttrTime(timer.elapsed()),
+			ostAttrBlock(block),
+			ostAttrFound(found),
+			ostAttrTimePin(timePin)
+		);
+	}};
 
-	auto cacheBlock = findCacheBlock_(block);
-	if(cacheBlock) {
-		lockDone = timer.elapsed();
-	}else{
-		co_await creationMutex_.async_lock();
-		frg::unique_lock creationLock{frg::adopt_lock, creationMutex_};
+	if(auto cacheBlock = findCacheBlock_(block))
+		co_return BlockWindow{std::move(cacheBlock), writable};
 
-		cacheBlock = findCacheBlock_(block);
-		if(!cacheBlock) {
-			auto frameSize = size_t{1} << blockPagesShift_;
+	co_await creationMutex_.async_lock();
+	frg::unique_lock creationLock{frg::adopt_lock, creationMutex_};
 
-			helix::LockMemoryView lockMemory;
-			auto &&submit = helix::submitLockMemoryView(frontal_, &lockMemory,
-					block << blockPagesShift_, frameSize, helix::Dispatcher::global());
-			co_await submit.async_wait();
-			HEL_CHECK(lockMemory.error());
+	if(auto cacheBlock = findCacheBlock_(block))
+		co_return BlockWindow{std::move(cacheBlock), writable};
 
-			cacheBlock = CacheBlock::create(this, block, lockMemory.descriptor());
-			CacheBlockPtr evicted; // Drop after the lock.
-			{
-				std::lock_guard cacheBlockLock{cacheBlockMutex_};
-				cacheBlocks_[block] = cacheBlock.get();
-				evicted = touchLru_(cacheBlock.get());
-			}
-		}
-		lockDone = timer.elapsed();
+	found = false;
+	auto frameSize = size_t{1} << blockPagesShift_;
+
+	helix::LockMemoryView lockMemory;
+	auto &&submit = helix::submitLockMemoryView(frontal_, &lockMemory,
+			block << blockPagesShift_, frameSize, helix::Dispatcher::global());
+	co_await submit.async_wait();
+	HEL_CHECK(lockMemory.error());
+	timePin = timer.split();
+
+	auto cacheBlock = CacheBlock::create(this, block, lockMemory.descriptor());
+	CacheBlockPtr evicted; // Drop after the lock.
+	{
+		std::lock_guard cacheBlockLock{cacheBlockMutex_};
+		cacheBlocks_[block] = cacheBlock.get();
+		evicted = touchLru_(cacheBlock.get());
 	}
-
-	ostContext.emit(
-		ostEvtMetadataAccess,
-		ostAttrTime(timer.elapsed()),
-		ostAttrBlock(block),
-		ostAttrIsWrite(writable),
-		ostAttrTimeLock(lockDone)
-	);
-
 	co_return BlockWindow{std::move(cacheBlock), writable};
 }
 
