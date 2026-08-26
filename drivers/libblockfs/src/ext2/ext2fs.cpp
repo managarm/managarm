@@ -1204,17 +1204,28 @@ async::result<void> FileSystem::manageFileData(std::shared_ptr<Inode> inode) {
 async::result<std::vector<uint32_t>> FileSystem::allocateBlocks(size_t num, std::optional<uint32_t> ino) {
 	protocols::ostrace::Timer timer;
 	std::vector<uint32_t> result;
+	uint64_t accessTime = 0;
+	unsigned int numGroups = 0;
 
 	co_await allocationMutex.async_lock();
 	frg::unique_lock allocationLock{frg::adopt_lock, allocationMutex};
+	uint64_t lockDone = timer.elapsed();
+
+	// Accesses the bitmap of a block group, accounting the access to the emitted event.
+	auto accessBitmap = [&] (uint64_t block) -> async::result<MetadataCache::BlockWindow> {
+		protocols::ostrace::Timer accessTimer;
+		auto window = co_await metadataCache->access(block, true);
+		accessTime += accessTimer.elapsed();
+		++numGroups;
+		co_return window;
+	};
 
 	if (ino) {
 		uint32_t preferred_bg = (*ino - 1) / inodesPerGroup;
 
 		if(bgdt[preferred_bg].freeBlocksCount) {
 			assert(bgdt[preferred_bg].blockBitmap);
-			auto bitmapWindow = co_await metadataCache->access(
-					bgdt[preferred_bg].blockBitmap, true);
+			auto bitmapWindow = co_await accessBitmap(bgdt[preferred_bg].blockBitmap);
 			auto words = reinterpret_cast<uint32_t *>(bitmapWindow.get());
 
 			for(unsigned int i = 0; i < (blocksPerGroup + 31) / 32; i++) {
@@ -1241,7 +1252,11 @@ async::result<std::vector<uint32_t>> FileSystem::allocateBlocks(size_t num, std:
 
 						ostContext.emit(
 							ostEvtExt2AllocateBlocks,
-							ostAttrTime(timer.elapsed())
+							ostAttrTime(timer.elapsed()),
+							ostAttrNumBlocks(result.size()),
+							ostAttrNumGroups(numGroups),
+							ostAttrTimeLock(lockDone),
+							ostAttrTimeAccess(accessTime)
 						);
 						co_return result;
 					}
@@ -1260,7 +1275,7 @@ async::result<std::vector<uint32_t>> FileSystem::allocateBlocks(size_t num, std:
 			continue;
 
 		assert(bgdt[bg_idx].blockBitmap);
-		auto bitmapWindow = co_await metadataCache->access(bgdt[bg_idx].blockBitmap, true);
+		auto bitmapWindow = co_await accessBitmap(bgdt[bg_idx].blockBitmap);
 		auto words = reinterpret_cast<uint32_t *>(bitmapWindow.get());
 		for(unsigned int i = 0; i < (blocksPerGroup + 31) / 32; i++) {
 			if(words[i] == 0xFFFFFFFF)
@@ -1285,7 +1300,11 @@ async::result<std::vector<uint32_t>> FileSystem::allocateBlocks(size_t num, std:
 
 					ostContext.emit(
 						ostEvtExt2AllocateBlocks,
-						ostAttrTime(timer.elapsed())
+						ostAttrTime(timer.elapsed()),
+						ostAttrNumBlocks(result.size()),
+						ostAttrNumGroups(numGroups),
+						ostAttrTimeLock(lockDone),
+						ostAttrTimeAccess(accessTime)
 					);
 					co_return result;
 				}
@@ -1301,13 +1320,19 @@ async::result<std::vector<uint32_t>> FileSystem::allocateBlocks(size_t num, std:
 
 async::result<uint32_t> FileSystem::allocateInode(uint32_t parentIno, bool directory) {
 	protocols::ostrace::Timer timer;
+	uint64_t accessTime = 0;
+	unsigned int numGroups = 0;
 
 	co_await allocationMutex.async_lock();
 	frg::unique_lock allocationLock{frg::adopt_lock, allocationMutex};
+	uint64_t lockDone = timer.elapsed();
 
 	auto searchBlockGroup = [&](uint32_t bg) -> async::result<std::optional<uint32_t>> {
 		assert(bgdt[bg].inodeBitmap);
+		protocols::ostrace::Timer accessTimer;
 		auto bitmapWindow = co_await metadataCache->access(bgdt[bg].inodeBitmap, true);
+		accessTime += accessTimer.elapsed();
+		++numGroups;
 		auto words = reinterpret_cast<uint32_t *>(bitmapWindow.get());
 		for(unsigned int i = 0; i < (inodesPerGroup + 31) / 32; i++) {
 			if(words[i] == 0xFFFFFFFF)
@@ -1336,7 +1361,11 @@ async::result<uint32_t> FileSystem::allocateInode(uint32_t parentIno, bool direc
 
 				ostContext.emit(
 					ostEvtExt2AllocateInode,
-					ostAttrTime(timer.elapsed())
+					ostAttrTime(timer.elapsed()),
+					ostAttrIno(ino),
+					ostAttrNumGroups(numGroups),
+					ostAttrTimeLock(lockDone),
+					ostAttrTimeAccess(accessTime)
 				);
 
 				co_return ino;
@@ -1381,7 +1410,11 @@ async::result<uint32_t> FileSystem::allocateInode(uint32_t parentIno, bool direc
 
 	ostContext.emit(
 		ostEvtExt2AllocateInode,
-		ostAttrTime(timer.elapsed())
+		ostAttrTime(timer.elapsed()),
+		ostAttrIno(0),
+		ostAttrNumGroups(numGroups),
+		ostAttrTimeLock(lockDone),
+		ostAttrTimeAccess(accessTime)
 	);
 
 	co_return 0;
@@ -1701,7 +1734,8 @@ async::result<void> FileSystem::assignDataBlocksUsingExtents(Inode *inode,
 
 	ostContext.emit(
 		ostEvtExt2AssignDataBlocks,
-		ostAttrTime(timer.elapsed())
+		ostAttrTime(timer.elapsed()),
+		ostAttrNumBlocks(num_blocks)
 	);
 }
 
@@ -1948,7 +1982,8 @@ async::result<void> FileSystem::assignDataBlocks(Inode *inode,
 
 	ostContext.emit(
 		ostEvtExt2AssignDataBlocks,
-		ostAttrTime(timer.elapsed())
+		ostAttrTime(timer.elapsed()),
+		ostAttrNumBlocks(num_blocks)
 	);
 }
 

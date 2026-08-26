@@ -24,6 +24,9 @@ inline constinit protocols::ostrace::Event ostEvtExt2AllocateInode{"ext2.allocat
 inline constinit protocols::ostrace::UintAttribute ostAttrTime{"time"};
 inline constinit protocols::ostrace::UintAttribute ostAttrNumBytes{"numBytes"};
 inline constinit protocols::ostrace::UintAttribute ostAttrBlock{"block"};
+inline constinit protocols::ostrace::UintAttribute ostAttrNumBlocks{"numBlocks"};
+inline constinit protocols::ostrace::UintAttribute ostAttrNumGroups{"numGroups"};
+inline constinit protocols::ostrace::UintAttribute ostAttrIno{"ino"};
 inline constinit protocols::ostrace::UintAttribute ostAttrIsWrite{"isWrite"};
 inline constinit protocols::ostrace::UintAttribute ostAttrTimeLock{"timeLock"};
 inline constinit protocols::ostrace::UintAttribute ostAttrTimeImport{"timeImport"};
@@ -31,6 +34,7 @@ inline constinit protocols::ostrace::UintAttribute ostAttrTimeRead{"timeRead"};
 inline constinit protocols::ostrace::UintAttribute ostAttrTimeAssign{"timeAssign"};
 inline constinit protocols::ostrace::UintAttribute ostAttrTimeWrite{"timeWrite"};
 inline constinit protocols::ostrace::UintAttribute ostAttrTimeDevice{"timeDevice"};
+inline constinit protocols::ostrace::UintAttribute ostAttrTimeAccess{"timeAccess"};
 
 inline protocols::ostrace::Vocabulary ostVocabulary{
 	ostEvtGetLink,
@@ -53,6 +57,9 @@ inline protocols::ostrace::Vocabulary ostVocabulary{
 	ostAttrTime,
 	ostAttrNumBytes,
 	ostAttrBlock,
+	ostAttrNumBlocks,
+	ostAttrNumGroups,
+	ostAttrIno,
 	ostAttrIsWrite,
 	ostAttrTimeLock,
 	ostAttrTimeImport,
@@ -60,6 +67,7 @@ inline protocols::ostrace::Vocabulary ostVocabulary{
 	ostAttrTimeAssign,
 	ostAttrTimeWrite,
 	ostAttrTimeDevice,
+	ostAttrTimeAccess,
 };
 
 inline protocols::ostrace::Context ostContext{ostVocabulary};
