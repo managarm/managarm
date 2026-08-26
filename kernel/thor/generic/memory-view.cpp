@@ -979,6 +979,13 @@ coroutine<void> ManagedSpace::_runReclaimLoop() {
 			}
 
 			discardBatch.splice(discardBatch.end(), _discardList);
+
+			for(auto cachePage : discardBatch) {
+				auto *page = frg::container_of(cachePage, &ManagedPage::cachePage);
+				assert(page->discarded);
+				assert(page->transactionState == TxState::discardQueued);
+				page->transactionState = TxState::performDiscard;
+			}
 		}
 
 		if(batch.empty() && discardBatch.empty())
@@ -1060,7 +1067,7 @@ coroutine<void> ManagedSpace::_runReclaimLoop() {
 				auto cachePage = discardBatch.pop_front();
 				auto *page = frg::container_of(cachePage, &ManagedPage::cachePage);
 				assert(page->discarded);
-				assert(page->transactionState == TxState::discardQueued);
+				assert(page->transactionState == TxState::performDiscard);
 
 				// Re-check the counts in case the page has been locked/re-used.
 				if(page->lockCount

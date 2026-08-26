@@ -675,11 +675,14 @@ struct ManagedSpace : CacheBundle {
 		// Page is owned by the ManagedSpace reclamation logic.
 		// Valid in LoadState::present.
 		avertReclaim,
-		// Page is in _discardList or the reclamation coroutine's local discard batch,
-		// awaiting fenceEphemeral() before its entry is erased.
+		// Page is in _discardList, waiting to be picked up by the reclamation coroutine.
 		// Page is owned by the ManagedSpace reclamation logic.
 		// Valid in any LoadState, with or without a frame.
 		discardQueued,
+		// Page has been picked up for discarding and is awaiting fenceEphemeral().
+		// Page is owned by the ManagedSpace reclamation logic.
+		// Valid in any LoadState, with or without a frame.
+		performDiscard,
 	};
 
 	// Struct that is attached to ManagedPage for the duration of
@@ -815,7 +818,7 @@ struct ManagedSpace : CacheBundle {
 		>
 	> _writebackList;
 
-	// Discarded pages awaiting a fenceEphemeral() before their entries are erased.
+	// Discarded pages waiting to be picked up by the reclamation coroutine.
 	// Protected by mutex.
 	CachePagesList _discardList;
 
