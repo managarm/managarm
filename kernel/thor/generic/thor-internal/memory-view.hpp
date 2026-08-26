@@ -312,6 +312,17 @@ private:
 	async::post_ack_mechanism<RangeToEvict> mechanism_;
 };
 
+// Selects how the discard path treats dirty page contents.
+enum class DiscardMode : uint8_t {
+	// The page is not being discarded.
+	none,
+	// Dirty contents are dropped without writeback (truncation semantics).
+	dropDirty,
+	// Dirty contents are still written back before the entry is erased
+	// (invalidation semantics).
+	keepDirty,
+};
+
 // View on some pages of memory. This is the "frontend" part of a memory object.
 struct MemoryView {
 protected:
@@ -701,12 +712,11 @@ struct ManagedSpace : CacheBundle {
 	enum class MonitorType : uint8_t {
 		initialization,
 		writeback,
-		forcedInvalidation,
 		discard,
 	};
 
 	// Struct that is attached to ManagedPage for the duration of
-	// a single transaction (i.e., initialization, writeback, or forced invalidation).
+	// a single transaction (i.e., initialization or writeback) or of a discard.
 	// At most one monitor per type can be attached at a time; the attached monitors
 	// form a chain headed by ManagedPage::monitors.
 	// For MonitorType::initialization:
@@ -715,9 +725,6 @@ struct ManagedSpace : CacheBundle {
 	// For MonitorType::writeback:
 	// * Attached when entering TxState::wantWriteback.
 	// * Completed when leaving TxState::writeback.
-	// For MonitorType::forcedInvalidation (invalidateRange() on a page under reclamation):
-	// * Attached by invalidateRange() while the page is in TxState::performReclaim.
-	// * Completed by the eviction coroutine after transitioning to LoadState::missing.
 	// For MonitorType::discard (waiting for a discarded page's entry to be erased):
 	// * Attached by a waiter to any page that has `discarded` set, in any TxState;
 	//   it stays attached across intermediate transactions.
@@ -764,17 +771,16 @@ struct ManagedSpace : CacheBundle {
 		TxState transactionState{TxState::none};
 		// Whether the page is dirty even after a pending writeback completes.
 		// Can only be true in LoadState::present and TxState::writeback.
-		// If set in TxState::performReclaim or TxState::avertReclaim, causes transition to dirty.
+		// Eventually causes a transition to TxState::dirty (unless the page is discarded without writeback).
 		bool stillDirty{false};
-		// Set by invalidateRange() when the page is already in TxState::performReclaim,
-		// to request that the eviction coroutine raise monitor after completing
-		// the transition to LoadState::missing.
-		bool forceInvalidation{false};
 		// Whether the backing store's copy of the page matches its last in-memory contents.
 		// Maintained by markDirty()/updateRange().
 		bool swapCopyValid{false};
 		// The page is being torn down - see discardPage(). Set once, never cleared.
 		bool discarded{false};
+		// How dirty contents are treated during the discard.
+		// DiscardMode::none until discarded is set. Fixed by the first discardPage() call.
+		DiscardMode discardMode{DiscardMode::none};
 		// Whether swap budget was claimed for this page.
 		// Owned by SwapSpace, not used by ManagedSpace.
 		bool swapBudgetClaimed{false};
@@ -804,11 +810,11 @@ struct ManagedSpace : CacheBundle {
 	// Discards the given page. The entry is either immediately erased
 	// or once the in-flight transaction is completed. The frames are freed by
 	// the reclamation behind a fenceEphemeral().
-	// Idempotent: discarding an already discarded page is a no-op.
+	// Idempotent: discarding an already discarded page is a no-op (i.e., the first call fixes the mode).
 	// Must be called under mutex; the caller must raise the appended monitors
 	// (and _discardEvent, if requested) after dropping it.
 	// After a batch of discards the caller must call _wakeDrain() as discards may release swap budget.
-	void discardPage(ManagedPage *pit, bool &raiseDiscard,
+	void discardPage(ManagedPage *pit, DiscardMode mode, bool &raiseDiscard,
 			MonitorPendingList &pendingMonitors);
 
 	// Queues a discarded page for the reclamation coroutine, which erases its entry.

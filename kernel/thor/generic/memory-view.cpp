@@ -20,6 +20,9 @@ namespace {
 	// The following flags are debugging options to debug the correctness of various components.
 	bool tortureUncaching = false;
 	constexpr bool disableUncaching = false;
+
+	// Number of pages that BackingMemory::invalidateRange() discards per critical section.
+	constexpr size_t discardChunkSize = 512;
 }
 
 // --------------------------------------------------------
@@ -1042,7 +1045,6 @@ coroutine<void> ManagedSpace::_runReclaimLoop() {
 		MonitorPendingList pendingMonitors;
 		while(!batch.empty()) {
 			PhysicalAddr physical;
-			frg::intrusive_shared_ptr<TransactionMonitor, Allocator> invalidateMonitor;
 			{
 				auto irqLock = frg::guard(&irqMutex());
 				auto lock = frg::guard(&mutex);
@@ -1051,13 +1053,19 @@ coroutine<void> ManagedSpace::_runReclaimLoop() {
 				auto *page = frg::container_of(cachePage, &ManagedPage::cachePage);
 
 				if(page->discarded) {
-					// Discards only happen at view teardown, when no invalidateRange()
-					// on the page can be in flight anymore.
-					assert(!page->forceInvalidation);
-					// The frame is being discarded so it doesn't need to be written back.
-					page->stillDirty = false;
-					page->transactionState = TxState::none;
-					anyDiscardQueued |= _disposeDiscarded(page);
+					if(page->discardMode == DiscardMode::keepDirty && page->stillDirty) {
+						// Dirty contents must still be written back before the entry is erased.
+						page->stillDirty = false;
+						page->transactionState = TxState::dirty;
+						_dirtyList.push_back(&page->cachePage);
+						anyDirty = true;
+					} else {
+						assert(!page->stillDirty || page->discardMode == DiscardMode::dropDirty);
+						// The frame is being discarded so it doesn't need to be written back.
+						page->stillDirty = false;
+						page->transactionState = TxState::none;
+						anyDiscardQueued |= _disposeDiscarded(page);
+					}
 					continue;
 				}
 
@@ -1087,17 +1095,10 @@ coroutine<void> ManagedSpace::_runReclaimLoop() {
 				page->loadState = LoadState::missing;
 				page->transactionState = TxState::none;
 				page->physical = PhysicalAddr(-1);
-
-				if(page->forceInvalidation) {
-					invalidateMonitor = page->detachMonitor(MonitorType::forcedInvalidation);
-					page->forceInvalidation = false;
-				}
 			}
 
 			globalPfnDb().erase(physical);
 			physicalAllocator->free(physical, kPageSize);
-			if(invalidateMonitor)
-				invalidateMonitor->event.raise();
 			sizeFreed += kPageSize;
 		}
 
@@ -1114,8 +1115,17 @@ coroutine<void> ManagedSpace::_runReclaimLoop() {
 						|| page->transactionState == TxState::avertDiscard);
 
 				if(page->transactionState == TxState::avertDiscard) {
-					page->transactionState = TxState::none;
-					anyDiscardQueued |= _disposeDiscarded(page);
+					if(page->discardMode == DiscardMode::keepDirty && page->stillDirty) {
+						// Dirty contents must still be written back before the entry is erased.
+						page->stillDirty = false;
+						page->transactionState = TxState::dirty;
+						_dirtyList.push_back(&page->cachePage);
+						anyDirty = true;
+					} else {
+						assert(!page->stillDirty || page->discardMode == DiscardMode::dropDirty);
+						page->transactionState = TxState::none;
+						anyDiscardQueued |= _disposeDiscarded(page);
+					}
 					continue;
 				}
 
@@ -1172,7 +1182,7 @@ coroutine<void> ManagedSpace::_runDrainLoop() {
 				auto *cp = *it++;
 				auto *page = frg::container_of(cp, &ManagedPage::cachePage);
 				assert(page->transactionState == TxState::dirty);
-				assert(!page->discarded);
+				assert(!page->discarded || page->discardMode == DiscardMode::keepDirty);
 				if(!claimSwapBudget(page))
 					continue;
 				_dirtyList.erase(_dirtyList.iterator_to(cp));
@@ -1199,12 +1209,15 @@ coroutine<void> ManagedSpace::_runDrainLoop() {
 				auto *page = frg::container_of(cp, &ManagedPage::cachePage);
 				assert(page->transactionState == TxState::pendingWriteback);
 				if(page->discarded) {
-					// The page was discarded while we were waiting for the fence.
-					// Note that claimSwapBudget() already ran for this page - _pageDiscarded() undoes the claim.
-					page->transactionState = TxState::none;
-					if(_disposeDiscarded(page))
-						anyDiscardQueued = true;
-					continue;
+					if(page->discardMode == DiscardMode::dropDirty) {
+						// The page was discarded while we were waiting for the fence.
+						// Note that claimSwapBudget() already ran for this page - _pageDiscarded() undoes the claim.
+						page->transactionState = TxState::none;
+						if(_disposeDiscarded(page))
+							anyDiscardQueued = true;
+						continue;
+					}
+					assert(page->discardMode == DiscardMode::keepDirty);
 				}
 				page->transactionState = TxState::wantWriteback;
 				page->attachMonitor(MonitorType::writeback);
@@ -1253,6 +1266,7 @@ coroutine<void> ManagedSpace::_runInvalidationLoop() {
 		}
 
 		bool raiseDiscard = false;
+		bool anyDirty = false;
 		{
 			auto irqLock = frg::guard(&irqMutex());
 			auto lock = frg::guard(&mutex);
@@ -1262,12 +1276,23 @@ coroutine<void> ManagedSpace::_runInvalidationLoop() {
 				auto *page = frg::container_of(cachePage, &ManagedPage::cachePage);
 				assert(page->discarded);
 				assert(page->transactionState == TxState::invalidation);
-				page->transactionState = TxState::none;
-				raiseDiscard |= _disposeDiscarded(page);
+				if(page->discardMode == DiscardMode::keepDirty && page->stillDirty) {
+					// Breaking the mappings revealed dirty contents. Write them back.
+					page->stillDirty = false;
+					page->transactionState = TxState::dirty;
+					_dirtyList.push_back(&page->cachePage);
+					anyDirty = true;
+				} else {
+					assert(!page->stillDirty || page->discardMode == DiscardMode::dropDirty);
+					page->transactionState = TxState::none;
+					raiseDiscard |= _disposeDiscarded(page);
+				}
 			}
 		}
 		if(raiseDiscard)
 			_discardEvent.raise();
+		if(anyDirty)
+			_dirtyEvent.raise();
 	}
 }
 
@@ -1276,11 +1301,13 @@ bool ManagedSpace::claimSwapBudget(ManagedPage *) {
 	return true;
 }
 
-void ManagedSpace::discardPage(ManagedPage *pit, bool &raiseDiscard,
+void ManagedSpace::discardPage(ManagedPage *pit, DiscardMode mode, bool &raiseDiscard,
 		MonitorPendingList &pendingMonitors) {
+	assert(mode != DiscardMode::none);
 	if(pit->discarded)
 		return;
 	pit->discarded = true;
+	pit->discardMode = mode;
 
 	bool dispose = false;
 	switch(pit->transactionState) {
@@ -1293,11 +1320,19 @@ void ManagedSpace::discardPage(ManagedPage *pit, bool &raiseDiscard,
 		dispose = true;
 		break;
 	case TxState::dirty:
+		if(mode == DiscardMode::keepDirty) {
+			// The page stays in _dirtyList. The writeback pipeline completes the discard.
+			break;
+		}
 		_dirtyList.erase(_dirtyList.iterator_to(&pit->cachePage));
 		pit->transactionState = TxState::none;
 		dispose = true;
 		break;
 	case TxState::wantWriteback: {
+		if(mode == DiscardMode::keepDirty) {
+			// updateRange() completes the discard once the writeback finishes.
+			break;
+		}
 		_writebackList.erase(_writebackList.iterator_to(&pit->cachePage));
 		auto writebackMonitor = pit->detachMonitor(MonitorType::writeback);
 		pendingMonitors.push_back(writebackMonitor.release());
@@ -1654,9 +1689,12 @@ void ManagedSpace::markDirty(CachePage *cachePage) {
 		if(page->loadState == LoadState::missing)
 			return;
 
-		// Discarded data must not re-enter the writeback machinery.
-		if(page->discarded)
-			return;
+		// Data discarded without writeback must not re-enter the writeback machinery.
+		if(page->discarded) {
+			if(page->discardMode == DiscardMode::dropDirty)
+				return;
+			assert(page->discardMode == DiscardMode::keepDirty);
+		}
 
 		// The in-memory contents now diverge from the backing store's copy.
 		page->swapCopyValid = false;
@@ -1679,6 +1717,11 @@ void ManagedSpace::markDirty(CachePage *cachePage) {
 			page->transactionState = TxState::avertReclaim;
 			page->stillDirty = true;
 		} else if(page->transactionState == TxState::writeback) {
+			page->stillDirty = true;
+		} else if(page->transactionState == TxState::invalidation
+				|| page->transactionState == TxState::avertDiscard) {
+			// Only reachable on DiscardMode::keepDirty pages.
+			// The discard machinery re-routes them to the writeback pipeline.
 			page->stillDirty = true;
 		} else {
 			assert(page->transactionState == TxState::dirty
@@ -1864,28 +1907,34 @@ Error BackingMemory::updateRange(ManageRequest type, size_t offset, size_t lengt
 				auto pit = _managed->pages.find(index);
 
 				if(pit->discarded) {
-					// Raise the monitor as usual - writebackFence() waiters hold references to it.
-					auto monitor = pit->detachMonitor(ManagedSpace::MonitorType::writeback);
-					assert(monitor);
-					pendingMonitors.push_back(monitor.release());
-					// The frame is being discarded so it doesn't need to be written back.
-					pit->stillDirty = false;
-					pit->transactionState = ManagedSpace::TxState::none;
-					raiseDiscard |= _managed->_disposeDiscarded(pit);
-					continue;
+					if(pit->discardMode == DiscardMode::dropDirty) {
+						// Raise the monitor as usual - writebackFence() waiters hold references to it.
+						auto monitor = pit->detachMonitor(ManagedSpace::MonitorType::writeback);
+						assert(monitor);
+						pendingMonitors.push_back(monitor.release());
+						// The frame is being discarded so it doesn't need to be written back.
+						pit->stillDirty = false;
+						pit->transactionState = ManagedSpace::TxState::none;
+						raiseDiscard |= _managed->_disposeDiscarded(pit);
+						continue;
+					}
+					assert(pit->discardMode == DiscardMode::keepDirty);
 				}
 				if(!pit->stillDirty) {
 					// The backing store now holds the page's current contents.
 					pit->swapCopyValid = true;
-					if (pit->lockCount || pit->cachePage.useCount.load(std::memory_order_relaxed)) {
+					auto monitor = pit->detachMonitor(ManagedSpace::MonitorType::writeback);
+					assert(monitor);
+					pendingMonitors.push_back(monitor.release());
+					if(pit->discarded) {
+						pit->transactionState = ManagedSpace::TxState::none;
+						raiseDiscard |= _managed->_disposeDiscarded(pit);
+					} else if (pit->lockCount || pit->cachePage.useCount.load(std::memory_order_relaxed)) {
 						pit->transactionState = ManagedSpace::TxState::none;
 					} else {
 						globalReclaimer->addPage(&pit->cachePage);
 						pit->transactionState = ManagedSpace::TxState::inReclaimer;
 					}
-					auto monitor = pit->detachMonitor(ManagedSpace::MonitorType::writeback);
-					assert(monitor);
-					pendingMonitors.push_back(monitor.release());
 				}else{
 					pit->stillDirty = false;
 					pit->transactionState = ManagedSpace::TxState::wantWriteback;
@@ -1972,80 +2021,80 @@ coroutine<frg::expected<Error>> BackingMemory::writebackFence(uintptr_t offset, 
 }
 
 coroutine<frg::expected<Error>> BackingMemory::invalidateRange(uintptr_t offset, size_t size) {
+	assert(currentIpl() == ipl::exceptionalWork);
 	if(_managed->isSwapSpace)
 		co_return Error::illegalObject;
 	if (offset & (kPageSize - 1))
 		co_return Error::illegalArgs;
 	if (size & (kPageSize - 1))
 		co_return Error::illegalArgs;
+	if (offset > backingMemoryLength || size > backingMemoryLength - offset)
+		co_return Error::bufferTooSmall;
 
-	size_t pg = 0;
-	while(pg < size) {
-		size_t index = (offset + pg) >> kPageShift;
-		frg::intrusive_shared_ptr<ManagedSpace::TransactionMonitor, Allocator> monitor;
-		bool shouldEvict = false;
-		ManagedSpace::ManagedPage *pit = nullptr;
+	auto firstPage = offset >> kPageShift;
+	auto limitPage = (offset + size) >> kPageShift;
+
+	// Mark the pages as discarded; dirty contents are still written back.
+	// Do this in chunks so that the spinlock is not held for an unbounded time.
+	uint64_t markCursor = firstPage;
+	bool raiseDiscard = false;
+	while(true) {
+		bool exhausted = false;
+		ManagedSpace::MonitorPendingList pendingMonitors;
 		{
 			auto irqLock = frg::guard(&irqMutex());
 			auto lock = frg::guard(&_managed->mutex);
 
-			pit = _managed->pages.find(index);
-			if(!pit || pit->loadState == ManagedSpace::LoadState::missing) {
-				pg += kPageSize;
-				continue;
-			}
-
-			if(pit->loadState == ManagedSpace::LoadState::present) {
-				if(pit->transactionState == ManagedSpace::TxState::performReclaim
-						|| pit->transactionState == ManagedSpace::TxState::avertReclaim) {
-					pit->forceInvalidation = true;
-					monitor = pit->findMonitor(ManagedSpace::MonitorType::forcedInvalidation);
-					if(!monitor)
-						monitor = pit->attachMonitor(ManagedSpace::MonitorType::forcedInvalidation);
-				} else if(pit->transactionState == ManagedSpace::TxState::wantWriteback
-						|| pit->transactionState == ManagedSpace::TxState::writeback) {
-					// Wait for the writeback to complete, then re-examine the page.
-					monitor = pit->findMonitor(ManagedSpace::MonitorType::writeback);
-				} else if(!pit->lockCount) {
-					if(pit->transactionState == ManagedSpace::TxState::inReclaimer)
-						globalReclaimer->removePage(&pit->cachePage);
-					pit->transactionState = ManagedSpace::TxState::performReclaim;
-					shouldEvict = true;
-				} else {
-					co_return Error::illegalArgs;
+			auto it = _managed->pages.lower_bound(markCursor);
+			for(size_t i = 0; i < discardChunkSize; ++i) {
+				if(it == _managed->pages.end() || it->cachePage.identity >= limitPage) {
+					exhausted = true;
+					break;
 				}
+				// discardPage() can erase the entry, so advance first.
+				auto *page = &*it;
+				markCursor = page->cachePage.identity + 1;
+				++it;
+				_managed->discardPage(page, DiscardMode::keepDirty,
+						raiseDiscard, pendingMonitors);
 			}
 		}
+		ManagedSpace::_raiseMonitors(pendingMonitors);
+		if(exhausted)
+			break;
+	}
 
-		if(shouldEvict) {
-			co_await _managed->_evictQueue.breakRange(index << kPageShift, kPageSize);
-			PhysicalAddr physical;
-			{
-				auto irqLock = frg::guard(&irqMutex());
-				auto lock = frg::guard(&_managed->mutex);
+	// Wake the invalidation coroutine only after everything is marked as discarded.
+	// This helps the invalidation coroutine to coelesce ranges.
+	if(raiseDiscard)
+		_managed->_discardEvent.raise();
 
-				if(pit->transactionState == ManagedSpace::TxState::performReclaim) {
-					physical = pit->physical;
-					pit->loadState = ManagedSpace::LoadState::missing;
-					pit->transactionState = ManagedSpace::TxState::none;
-					pit->physical = PhysicalAddr(-1);
-				} else {
-					physical = PhysicalAddr(-1);
-				}
+	// Wait until every previously discarded page is erased.
+	uint64_t waitCursor = firstPage;
+	while(true) {
+		bool done = false;
+		frg::intrusive_shared_ptr<ManagedSpace::TransactionMonitor, Allocator> monitor;
+		{
+			auto irqLock = frg::guard(&irqMutex());
+			auto lock = frg::guard(&_managed->mutex);
+
+			auto it = _managed->pages.lower_bound(waitCursor);
+			while(it != _managed->pages.end() && it->cachePage.identity < limitPage
+					&& !it->discarded)
+				++it;
+
+			if(it == _managed->pages.end() || it->cachePage.identity >= limitPage) {
+				done = true;
+			} else {
+				waitCursor = it->cachePage.identity;
+				monitor = it->findMonitor(ManagedSpace::MonitorType::discard);
+				if(!monitor)
+					monitor = it->attachMonitor(ManagedSpace::MonitorType::discard);
 			}
-			if(physical != PhysicalAddr(-1)) {
-				globalPfnDb().erase(physical);
-				physicalAllocator->free(physical, kPageSize);
-			}
-			if(physical != PhysicalAddr(-1))
-				pg += kPageSize;
-			continue;
 		}
-
-		if(monitor)
-			co_await monitor->event.wait();
-		else
-			pg += kPageSize;
+		if(done)
+			break;
+		co_await monitor->event.wait();
 	}
 
 	co_return {};
@@ -2230,7 +2279,8 @@ SwappableMemory::~SwappableMemory() {
 
 			auto pit = _space->pages.find(*it);
 			assert(pit);
-			_space->discardPage(pit, raiseDiscard, pendingMonitors);
+			_space->discardPage(pit, DiscardMode::dropDirty,
+					raiseDiscard, pendingMonitors);
 		}
 		ManagedSpace::_raiseMonitors(pendingMonitors);
 		if(raiseDiscard)
