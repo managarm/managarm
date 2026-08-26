@@ -22,11 +22,13 @@ inline constinit protocols::ostrace::Event ostEvtExt2InitializeFile{"ext2.initia
 inline constinit protocols::ostrace::Event ostEvtExt2WritebackFile{"ext2.writebackFile"};
 inline constinit protocols::ostrace::Event ostEvtExt2AllocateBlocks{"ext2.allocateBlocks"};
 inline constinit protocols::ostrace::Event ostEvtExt2AllocateInode{"ext2.allocateInode"};
+inline constinit protocols::ostrace::Event ostEvtExt2BgdtWriteback{"ext2.bgdtWriteback"};
 inline constinit protocols::ostrace::UintAttribute ostAttrTime{"time"};
 inline constinit protocols::ostrace::UintAttribute ostAttrNumBytes{"numBytes"};
 inline constinit protocols::ostrace::UintAttribute ostAttrBlock{"block"};
 inline constinit protocols::ostrace::UintAttribute ostAttrNumBlocks{"numBlocks"};
 inline constinit protocols::ostrace::UintAttribute ostAttrNumGroups{"numGroups"};
+inline constinit protocols::ostrace::UintAttribute ostAttrNumCoalesced{"numCoalesced"};
 inline constinit protocols::ostrace::UintAttribute ostAttrIno{"ino"};
 inline constinit protocols::ostrace::UintAttribute ostAttrIsWrite{"isWrite"};
 inline constinit protocols::ostrace::UintAttribute ostAttrTimeLock{"timeLock"};
@@ -58,11 +60,13 @@ inline protocols::ostrace::Vocabulary ostVocabulary{
 	ostEvtExt2WritebackFile,
 	ostEvtExt2AllocateBlocks,
 	ostEvtExt2AllocateInode,
+	ostEvtExt2BgdtWriteback,
 	ostAttrTime,
 	ostAttrNumBytes,
 	ostAttrBlock,
 	ostAttrNumBlocks,
 	ostAttrNumGroups,
+	ostAttrNumCoalesced,
 	ostAttrIno,
 	ostAttrIsWrite,
 	ostAttrTimeLock,

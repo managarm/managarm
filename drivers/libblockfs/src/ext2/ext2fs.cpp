@@ -938,12 +938,17 @@ async::detached FileSystem::handleBgdtWriteback() {
 	while(true) {
 		co_await bgdtWriteback.async_wait(seenSeq);
 
+		protocols::ostrace::Timer timer;
+		uint64_t numCoalesced;
+		uint64_t lockDone;
 		{
 			co_await allocationMutex.async_lock();
 			frg::unique_lock allocationLock{frg::adopt_lock, allocationMutex};
+			lockDone = timer.elapsed();
 
 			// Take the sequence together with the snapshot, so that no request is missed.
 			// TODO: Use async::sequenced_event::current_sequence() once it exists.
+			numCoalesced = bgdtWriteback.next_sequence() - 1 - seenSeq;
 			seenSeq = bgdtWriteback.next_sequence() - 1;
 			assert(writebackBuffer.size() == blockGroupDescriptorBuffer.size());
 			memcpy(writebackBuffer.data(), blockGroupDescriptorBuffer.data(),
@@ -954,6 +959,14 @@ async::detached FileSystem::handleBgdtWriteback() {
 		auto bgdt_offset = (2048 + blockSize - 1) & ~size_t(blockSize - 1);
 		co_await device->writeSectors((bgdt_offset >> blockShift) * sectorsPerBlock,
 				writebackBuffer);
+
+		ostContext.emit(
+			ostEvtExt2BgdtWriteback,
+			ostAttrTime(timer.elapsed()),
+			ostAttrNumBytes(writebackBuffer.size()),
+			ostAttrNumCoalesced(numCoalesced),
+			ostAttrTimeLock(lockDone)
+		);
 	}
 }
 
