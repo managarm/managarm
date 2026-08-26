@@ -801,12 +801,15 @@ struct ManagedSpace : CacheBundle {
 	// Returning false leaves the page on _dirtyList until swap budget becomes available.
 	virtual bool claimSwapBudget(ManagedPage *page);
 
-	// Discards the page at the given index. The entry is either immediately erased
+	// Discards the given page. The entry is either immediately erased
 	// or once the in-flight transaction is completed. The frames are freed by
 	// the reclamation behind a fenceEphemeral().
 	// Idempotent: discarding an already discarded page is a no-op.
+	// Must be called under mutex; the caller must raise the appended monitors
+	// (and _discardEvent, if requested) after dropping it.
 	// After a batch of discards the caller must call _wakeDrain() as discards may release swap budget.
-	void discardPage(uint64_t index);
+	void discardPage(ManagedPage *pit, bool &raiseDiscard,
+			MonitorPendingList &pendingMonitors);
 
 	// Queues a discarded page for the reclamation coroutine, which erases its entry.
 	// Must be called under mutex with transactionState == TxState::none.

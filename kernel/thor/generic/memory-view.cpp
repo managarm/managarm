@@ -1276,82 +1276,72 @@ bool ManagedSpace::claimSwapBudget(ManagedPage *) {
 	return true;
 }
 
-void ManagedSpace::discardPage(uint64_t index) {
-	bool raiseDiscard = false;
-	MonitorPendingList pendingMonitors;
-	{
-		auto irqLock = frg::guard(&irqMutex());
-		auto lock = frg::guard(&mutex);
+void ManagedSpace::discardPage(ManagedPage *pit, bool &raiseDiscard,
+		MonitorPendingList &pendingMonitors) {
+	if(pit->discarded)
+		return;
+	pit->discarded = true;
 
-		auto pit = pages.find(index);
-		assert(pit);
-		if(pit->discarded)
-			return;
-		pit->discarded = true;
+	bool dispose = false;
+	switch(pit->transactionState) {
+	case TxState::none:
+		dispose = true;
+		break;
+	case TxState::inReclaimer:
+		globalReclaimer->removePage(&pit->cachePage);
+		pit->transactionState = TxState::none;
+		dispose = true;
+		break;
+	case TxState::dirty:
+		_dirtyList.erase(_dirtyList.iterator_to(&pit->cachePage));
+		pit->transactionState = TxState::none;
+		dispose = true;
+		break;
+	case TxState::wantWriteback: {
+		_writebackList.erase(_writebackList.iterator_to(&pit->cachePage));
+		auto writebackMonitor = pit->detachMonitor(MonitorType::writeback);
+		pendingMonitors.push_back(writebackMonitor.release());
+		pit->transactionState = TxState::none;
+		dispose = true;
+		break;
+	}
+	case TxState::pendingWriteback:
+		// The drain coroutine completes the discard, the page is on
+		// its local pending list.
+		break;
+	case TxState::wantInitialization:
+	case TxState::initialization:
+		// Initialization completes normally (e.g., to allow reading from already locked pages).
+		// updateRange() completes the discard.
+		break;
+	case TxState::writeback:
+		// updateRange() completes the discard.
+		break;
+	case TxState::performReclaim:
+	case TxState::avertReclaim:
+		// The reclamation coroutine completes the discard, the page
+		// is on its local batch list.
+		break;
+	default:
+		// TxState::discardQueued/performDiscard/avertDiscard/invalidation are unreachable:
+		// they imply discarded, which the idempotence guard above returns on.
+		assert(!"discardPage() on page in unexpected transaction state");
+	}
 
-		bool dispose = false;
-		switch(pit->transactionState) {
-		case TxState::none:
-			dispose = true;
-			break;
-		case TxState::inReclaimer:
-			globalReclaimer->removePage(&pit->cachePage);
-			pit->transactionState = TxState::none;
-			dispose = true;
-			break;
-		case TxState::dirty:
-			_dirtyList.erase(_dirtyList.iterator_to(&pit->cachePage));
-			pit->transactionState = TxState::none;
-			dispose = true;
-			break;
-		case TxState::wantWriteback: {
-			_writebackList.erase(_writebackList.iterator_to(&pit->cachePage));
-			auto writebackMonitor = pit->detachMonitor(MonitorType::writeback);
-			pendingMonitors.push_back(writebackMonitor.release());
-			pit->transactionState = TxState::none;
-			dispose = true;
-			break;
-		}
-		case TxState::pendingWriteback:
-			// The drain coroutine completes the discard, the page is on
-			// its local pending list.
-			break;
-		case TxState::wantInitialization:
-		case TxState::initialization:
-			// Initialization completes normally (e.g., to allow reading from already locked pages).
-			// updateRange() completes the discard.
-			break;
-		case TxState::writeback:
-			// updateRange() completes the discard.
-			break;
-		case TxState::performReclaim:
-		case TxState::avertReclaim:
-			// The reclamation coroutine completes the discard, the page
-			// is on its local batch list.
-			break;
-		default:
-			// TxState::discardQueued/performDiscard/avertDiscard/invalidation are unreachable:
-			// they imply discarded, which the idempotence guard above returns on.
-			assert(!"discardPage() on page in unexpected transaction state");
-		}
-
-		// Erases entries without a frame right away instead of paying for a fenceEphemeral().
-		if(dispose) {
-			assert(pit->transactionState == TxState::none);
-			assert(!pit->monitors);
-			if(pit->physical == PhysicalAddr(-1)
-					&& !pit->lockCount
-					&& !pit->cachePage.useCount.load(std::memory_order_relaxed)) {
-				_pageDiscarded(pit);
-				pages.erase(index);
-			} else {
-				raiseDiscard = _disposeDiscarded(pit);
-			}
+	// Erases entries without a frame right away instead of paying for a fenceEphemeral().
+	if(dispose) {
+		assert(pit->transactionState == TxState::none);
+		assert(!pit->monitors);
+		if(pit->physical == PhysicalAddr(-1)
+				&& !pit->lockCount
+				&& !pit->cachePage.useCount.load(std::memory_order_relaxed)) {
+			auto index = pit->cachePage.identity;
+			_pageDiscarded(pit);
+			pages.erase(index);
+		} else {
+			raiseDiscard |= _disposeDiscarded(pit);
 		}
 	}
-	_raiseMonitors(pendingMonitors);
-	if(raiseDiscard)
-		_discardEvent.raise();
 }
 
 bool ManagedSpace::_disposeDiscarded(ManagedPage *page) {
@@ -2239,8 +2229,21 @@ SwappableMemory::SwappableMemory(CtorToken, smarter::shared_ptr<SwapSpace> space
 }
 
 SwappableMemory::~SwappableMemory() {
-	for(auto it = _table.begin(); it != _table.end(); ++it)
-		_space->discardPage(*it);
+	for(auto it = _table.begin(); it != _table.end(); ++it) {
+		bool raiseDiscard = false;
+		ManagedSpace::MonitorPendingList pendingMonitors;
+		{
+			auto irqLock = frg::guard(&irqMutex());
+			auto lock = frg::guard(&_space->mutex);
+
+			auto pit = _space->pages.find(*it);
+			assert(pit);
+			_space->discardPage(pit, raiseDiscard, pendingMonitors);
+		}
+		ManagedSpace::_raiseMonitors(pendingMonitors);
+		if(raiseDiscard)
+			_space->_discardEvent.raise();
+	}
 	// Discarding may have released swap budget.
 	_space->_wakeDrain();
 }
