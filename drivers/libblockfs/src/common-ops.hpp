@@ -273,6 +273,17 @@ async::result<frg::expected<protocols::fs::Error>> doTruncate(void *object, size
 	auto self = static_cast<File *>(object);
 	auto inode = std::static_pointer_cast<Inode>(self->inode);
 
+	protocols::ostrace::Timer timer;
+	uint64_t lockDone = 0;
+	frg::scope_exit evtOnExit{[&] {
+		ostContext.emit(
+			ostEvtTruncate,
+			ostAttrTime(timer.elapsed()),
+			ostAttrNumBytes(size),
+			ostAttrTimeLock(lockDone)
+		);
+	}};
+
 	co_await self->mutex.async_lock_shared();
 	frg::shared_lock lock{frg::adopt_lock, self->mutex};
 
@@ -284,6 +295,7 @@ async::result<frg::expected<protocols::fs::Error>> doTruncate(void *object, size
 
 	co_await inode->inodeMutex.async_lock();
 	frg::unique_lock inodeLock{frg::adopt_lock, inode->inodeMutex};
+	lockDone = timer.elapsed();
 
 	FRG_CO_TRY(co_await inode->resizeFile(size));
 
@@ -423,6 +435,19 @@ doOpen(std::shared_ptr<void> object, bool write, bool read, bool append) {
 	using Inode = typename T::Inode;
 
 	auto self = std::static_pointer_cast<Inode>(object);
+
+	protocols::ostrace::Timer timer;
+	uint64_t lockDone = 0;
+	uint64_t updateTimesDone = 0;
+	frg::scope_exit evtOnExit{[&] {
+		ostContext.emit(
+			ostEvtOpen,
+			ostAttrTime(timer.elapsed()),
+			ostAttrTimeLock(lockDone),
+			ostAttrTimeUpdateTimes(updateTimesDone - lockDone)
+		);
+	}};
+
 	auto file = smarter::make_shared<File>(self, write, read, append);
 	co_await self->readyEvent.wait();
 
@@ -432,7 +457,9 @@ doOpen(std::shared_ptr<void> object, bool write, bool read, bool append) {
 	{
 		co_await self->inodeMutex.async_lock();
 		frg::unique_lock inodeLock{frg::adopt_lock, self->inodeMutex};
+		lockDone = timer.elapsed();
 		co_await self->updateTimes(clk::getRealtime(), std::nullopt, std::nullopt);
+		updateTimesDone = timer.elapsed();
 	}
 
 	helix::DispatcherPool::global().detach([] (smarter::shared_ptr<File> file, BaseFileSystem &fs,

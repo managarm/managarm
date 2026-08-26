@@ -52,10 +52,16 @@ getLink(std::shared_ptr<void> object,
 	auto self = std::static_pointer_cast<ext2fs::Inode>(object);
 
 	protocols::ostrace::Timer timer;
+	uint64_t timeLock = 0;
+	uint64_t timeFind = 0;
+	bool found = false;
 	frg::scope_exit evtOnExit{[&] {
 		ostContext.emit(
 			ostEvtGetLink,
-			ostAttrTime(timer.elapsed())
+			ostAttrTime(timer.elapsed()),
+			ostAttrTimeLock(timeLock),
+			ostAttrTimeFind(timeFind),
+			ostAttrFound(found)
 		);
 	}};
 
@@ -64,8 +70,11 @@ getLink(std::shared_ptr<void> object,
 
 	co_await self->inodeMutex.async_lock_shared();
 	frg::shared_lock inodeLock{frg::adopt_lock, self->inodeMutex};
+	timeLock = timer.split();
 
 	auto entry = FRG_CO_TRY(co_await self->findEntry(name));
+	timeFind = timer.split();
+	found = entry.has_value();
 	if(!entry)
 		co_return protocols::fs::GetLinkResult{nullptr, -1,
 				protocols::fs::FileType::unknown};
@@ -135,11 +144,22 @@ async::result<std::expected<protocols::fs::GetLinkResult, protocols::fs::Error>>
 async::result<std::expected<void, protocols::fs::Error>> unlink(std::shared_ptr<void> object, std::string name) {
 	auto self = std::static_pointer_cast<ext2fs::Inode>(object);
 
+	protocols::ostrace::Timer timer;
+	uint64_t lockDone = 0;
+	frg::scope_exit evtOnExit{[&] {
+		ostContext.emit(
+			ostEvtExt2Unlink,
+			ostAttrTime(timer.elapsed()),
+			ostAttrTimeLock(lockDone)
+		);
+	}};
+
 	co_await self->fs.topologyMutex.async_lock_shared();
 	frg::shared_lock topologyLock{frg::adopt_lock, self->fs.topologyMutex};
 
 	co_await self->inodeMutex.async_lock();
 	frg::unique_lock inodeLock{frg::adopt_lock, self->inodeMutex};
+	lockDone = timer.elapsed();
 
 	auto entry = co_await self->findEntry(name);
 	if(!entry)
@@ -163,11 +183,22 @@ async::result<std::expected<void, protocols::fs::Error>> unlink(std::shared_ptr<
 async::result<std::expected<void, protocols::fs::Error>> rmdir(std::shared_ptr<void> object, std::string name) {
 	auto self = std::static_pointer_cast<ext2fs::Inode>(object);
 
+	protocols::ostrace::Timer timer;
+	uint64_t lockDone = 0;
+	frg::scope_exit evtOnExit{[&] {
+		ostContext.emit(
+			ostEvtExt2Rmdir,
+			ostAttrTime(timer.elapsed()),
+			ostAttrTimeLock(lockDone)
+		);
+	}};
+
 	co_await self->fs.topologyMutex.async_lock_shared();
 	frg::shared_lock topologyLock{frg::adopt_lock, self->fs.topologyMutex};
 
 	co_await self->inodeMutex.async_lock();
 	frg::unique_lock inodeLock{frg::adopt_lock, self->inodeMutex};
+	lockDone = timer.elapsed();
 
 	auto entry = co_await self->findEntry(name);
 	if(!entry)
@@ -195,10 +226,22 @@ async::result<std::expected<void, protocols::fs::Error>> rmdir(std::shared_ptr<v
 async::result<protocols::fs::FileStats>
 getStats(std::shared_ptr<void> object) {
 	auto self = std::static_pointer_cast<ext2fs::Inode>(object);
+
+	protocols::ostrace::Timer timer;
+	uint64_t lockDone = 0;
+	frg::scope_exit evtOnExit{[&] {
+		ostContext.emit(
+			ostEvtExt2GetStats,
+			ostAttrTime(timer.elapsed()),
+			ostAttrTimeLock(lockDone)
+		);
+	}};
+
 	co_await self->readyEvent.wait();
 
 	co_await self->inodeMutex.async_lock_shared();
 	frg::shared_lock inodeLock{frg::adopt_lock, self->inodeMutex};
+	lockDone = timer.elapsed();
 
 	protocols::fs::FileStats stats;
 	stats.linkCount = self->diskInode()->linksCount;
@@ -241,11 +284,22 @@ async::result<std::expected<protocols::fs::MkdirResult, protocols::fs::Error>>
 mkdir(std::shared_ptr<void> object, std::string name, uid_t uid, gid_t gid, mode_t mode) {
 	auto self = std::static_pointer_cast<ext2fs::Inode>(object);
 
+	protocols::ostrace::Timer timer;
+	uint64_t lockDone = 0;
+	frg::scope_exit evtOnExit{[&] {
+		ostContext.emit(
+			ostEvtExt2Mkdir,
+			ostAttrTime(timer.elapsed()),
+			ostAttrTimeLock(lockDone)
+		);
+	}};
+
 	co_await self->fs.topologyMutex.async_lock_shared();
 	frg::shared_lock topologyLock{frg::adopt_lock, self->fs.topologyMutex};
 
 	co_await self->inodeMutex.async_lock();
 	frg::unique_lock inodeLock{frg::adopt_lock, self->inodeMutex};
+	lockDone = timer.elapsed();
 
 	auto entry = co_await self->mkdir(std::move(name), uid, gid, mode);
 
@@ -260,11 +314,22 @@ async::result<std::expected<protocols::fs::SymlinkResult, protocols::fs::Error>>
 symlink(std::shared_ptr<void> object, std::string name, std::string target) {
 	auto self = std::static_pointer_cast<ext2fs::Inode>(object);
 
+	protocols::ostrace::Timer timer;
+	uint64_t lockDone = 0;
+	frg::scope_exit evtOnExit{[&] {
+		ostContext.emit(
+			ostEvtExt2Symlink,
+			ostAttrTime(timer.elapsed()),
+			ostAttrTimeLock(lockDone)
+		);
+	}};
+
 	co_await self->fs.topologyMutex.async_lock_shared();
 	frg::shared_lock topologyLock{frg::adopt_lock, self->fs.topologyMutex};
 
 	co_await self->inodeMutex.async_lock();
 	frg::unique_lock inodeLock{frg::adopt_lock, self->inodeMutex};
+	lockDone = timer.elapsed();
 
 	auto entry = co_await self->symlink(std::move(name), std::move(target));
 
@@ -302,13 +367,33 @@ getLinkOrCreate(std::shared_ptr<void> object, std::string name, mode_t mode, boo
 		uid_t uid, gid_t gid) {
 	auto self = std::static_pointer_cast<ext2fs::Inode>(object);
 
+	protocols::ostrace::Timer timer;
+	uint64_t timeLock = 0;
+	uint64_t timeFind = 0;
+	uint64_t timeCreate = 0;
+	uint64_t timeLink = 0;
+	bool existed = false;
+	frg::scope_exit evtOnExit{[&] {
+		ostContext.emit(
+			ostEvtExt2GetLinkOrCreate,
+			ostAttrTime(timer.elapsed()),
+			ostAttrTimeLock(timeLock),
+			ostAttrTimeFind(timeFind),
+			ostAttrTimeCreate(timeCreate),
+			ostAttrTimeLink(timeLink),
+			ostAttrFound(existed)
+		);
+	}};
+
 	co_await self->fs.topologyMutex.async_lock_shared();
 	frg::shared_lock topologyLock{frg::adopt_lock, self->fs.topologyMutex};
 
 	co_await self->inodeMutex.async_lock();
 	frg::unique_lock inodeLock{frg::adopt_lock, self->inodeMutex};
+	timeLock = timer.split();
 
 	auto findResult = co_await self->findEntry(name);
+	timeFind = timer.split();
 
 	if (!findResult)
 		co_return std::unexpected{findResult.error()};
@@ -316,6 +401,7 @@ getLinkOrCreate(std::shared_ptr<void> object, std::string name, mode_t mode, boo
 	auto result = findResult.value();
 
 	if (result) {
+		existed = true;
 		if (exclusive)
 			co_return std::unexpected{protocols::fs::Error::alreadyExists};
 
@@ -347,8 +433,10 @@ getLinkOrCreate(std::shared_ptr<void> object, std::string name, mode_t mode, boo
 	auto chmodResult = co_await inode->chmod(mode);
 	if (chmodResult != protocols::fs::Error::none)
 		co_return std::unexpected{chmodResult};
+	timeCreate = timer.split();
 
 	auto linkResult = co_await self->link(name, inode->number, FileType::kTypeRegular);
+	timeLink = timer.split();
 	if (!linkResult)
 		co_return std::unexpected{protocols::fs::Error::internalError};
 
