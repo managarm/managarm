@@ -702,6 +702,7 @@ struct ManagedSpace : CacheBundle {
 		initialization,
 		writeback,
 		forcedInvalidation,
+		discard,
 	};
 
 	// Struct that is attached to ManagedPage for the duration of
@@ -717,6 +718,10 @@ struct ManagedSpace : CacheBundle {
 	// For MonitorType::forcedInvalidation (invalidateRange() on a page under reclamation):
 	// * Attached by invalidateRange() while the page is in TxState::performReclaim.
 	// * Completed by the eviction coroutine after transitioning to LoadState::missing.
+	// For MonitorType::discard (waiting for a discarded page's entry to be erased):
+	// * Attached by a waiter to any page that has `discarded` set, in any TxState;
+	//   it stays attached across intermediate transactions.
+	// * Completed by the reclamation coroutine when the entry is erased.
 	struct TransactionMonitor final : frg::intrusive_rc {
 		explicit TransactionMonitor(MonitorType type)
 		: type{type} { }
@@ -727,6 +732,15 @@ struct ManagedSpace : CacheBundle {
 		TransactionMonitor *chainNext{nullptr};
 		frg::default_list_hook<TransactionMonitor> pendingHook;
 	};
+
+	using MonitorPendingList = frg::intrusive_list<
+		TransactionMonitor,
+		frg::locate_member<
+			TransactionMonitor,
+			frg::default_list_hook<TransactionMonitor>,
+			&TransactionMonitor::pendingHook
+		>
+	>;
 
 	struct ManagedPage {
 		ManagedPage(ManagedSpace *bundle, uint64_t identity) {
@@ -799,6 +813,10 @@ struct ManagedSpace : CacheBundle {
 	// Returns whether the caller must raise _discardEvent after dropping the mutex.
 	[[nodiscard]] bool _disposeDiscarded(ManagedPage *page);
 
+	// Raises (and releases the references of) the given detached monitors.
+	// Must be called without holding mutex.
+	static void _raiseMonitors(MonitorPendingList &pendingMonitors);
+
 	// Notifies the subclass that a discarded page's entry is about to be erased.
 	// Called under mutex.
 	virtual void _pageDiscarded(ManagedPage *page);
@@ -830,32 +848,11 @@ struct ManagedSpace : CacheBundle {
 
 	EvictionQueue _evictQueue;
 
-	frg::intrusive_list<
-		CachePage,
-		frg::locate_member<
-			CachePage,
-			frg::default_list_hook<CachePage>,
-			&CachePage::listHook
-		>
-	> _dirtyList;
+	CachePagesList _dirtyList;
 
-	frg::intrusive_list<
-		CachePage,
-		frg::locate_member<
-			CachePage,
-			frg::default_list_hook<CachePage>,
-			&CachePage::listHook
-		>
-	> _initializationList;
+	CachePagesList _initializationList;
 
-	frg::intrusive_list<
-		CachePage,
-		frg::locate_member<
-			CachePage,
-			frg::default_list_hook<CachePage>,
-			&CachePage::listHook
-		>
-	> _writebackList;
+	CachePagesList _writebackList;
 
 	// Discarded pages waiting to be picked up by the reclamation coroutine.
 	// These pages are either in TxState::discardQueued or TxState::avertDiscard.

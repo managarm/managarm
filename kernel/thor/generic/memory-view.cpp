@@ -1039,6 +1039,7 @@ coroutine<void> ManagedSpace::_runReclaimLoop() {
 		bool anyDiscardQueued = false;
 		bool anyDiscardErased = false;
 		size_t sizeFreed = 0;
+		MonitorPendingList pendingMonitors;
 		while(!batch.empty()) {
 			PhysicalAddr physical;
 			frg::intrusive_shared_ptr<TransactionMonitor, Allocator> invalidateMonitor;
@@ -1122,6 +1123,10 @@ coroutine<void> ManagedSpace::_runReclaimLoop() {
 				assert(!page->cachePage.useCount.load(std::memory_order_relaxed));
 				physical = page->physical;
 
+				auto monitor = page->detachMonitor(MonitorType::discard);
+				if(monitor)
+					pendingMonitors.push_back(monitor.release());
+
 				if(physical != PhysicalAddr(-1))
 					globalPfnDb().erase(physical);
 				_pageDiscarded(page);
@@ -1135,6 +1140,7 @@ coroutine<void> ManagedSpace::_runReclaimLoop() {
 			anyDiscardErased = true;
 		}
 
+		_raiseMonitors(pendingMonitors);
 		if(anyDirty || anyDiscardErased)
 			_dirtyEvent.raise();
 		if(anyDiscardQueued)
@@ -1156,10 +1162,7 @@ coroutine<void> ManagedSpace::_runDrainLoop() {
 			return _dirtyList.empty() || _drainBlocked;
 		});
 
-		frg::intrusive_list<
-			CachePage,
-			frg::locate_member<CachePage, frg::default_list_hook<CachePage>, &CachePage::listHook>
-		> pending;
+		CachePagesList pending;
 		{
 			auto irqLock = frg::guard(&irqMutex());
 			auto lock = frg::guard(&mutex);
@@ -1275,7 +1278,7 @@ bool ManagedSpace::claimSwapBudget(ManagedPage *) {
 
 void ManagedSpace::discardPage(uint64_t index) {
 	bool raiseDiscard = false;
-	frg::intrusive_shared_ptr<TransactionMonitor, Allocator> writebackMonitor;
+	MonitorPendingList pendingMonitors;
 	{
 		auto irqLock = frg::guard(&irqMutex());
 		auto lock = frg::guard(&mutex);
@@ -1301,12 +1304,14 @@ void ManagedSpace::discardPage(uint64_t index) {
 			pit->transactionState = TxState::none;
 			dispose = true;
 			break;
-		case TxState::wantWriteback:
+		case TxState::wantWriteback: {
 			_writebackList.erase(_writebackList.iterator_to(&pit->cachePage));
-			writebackMonitor = pit->detachMonitor(MonitorType::writeback);
+			auto writebackMonitor = pit->detachMonitor(MonitorType::writeback);
+			pendingMonitors.push_back(writebackMonitor.release());
 			pit->transactionState = TxState::none;
 			dispose = true;
 			break;
+		}
 		case TxState::pendingWriteback:
 			// The drain coroutine completes the discard, the page is on
 			// its local pending list.
@@ -1344,8 +1349,7 @@ void ManagedSpace::discardPage(uint64_t index) {
 			}
 		}
 	}
-	if(writebackMonitor)
-		writebackMonitor->event.raise();
+	_raiseMonitors(pendingMonitors);
 	if(raiseDiscard)
 		_discardEvent.raise();
 }
@@ -1353,7 +1357,9 @@ void ManagedSpace::discardPage(uint64_t index) {
 bool ManagedSpace::_disposeDiscarded(ManagedPage *page) {
 	assert(page->discarded);
 	assert(page->transactionState == TxState::none);
-	assert(!page->monitors);
+	// Only the discard monitor may outlive the page's last transaction.
+	assert(!(page->attachedMonitors
+			& ~(uint8_t{1} << static_cast<unsigned int>(MonitorType::discard))));
 	if(page->lockCount)
 		return false;
 	if(page->cachePage.useCount.load(std::memory_order_relaxed)) {
@@ -1369,6 +1375,15 @@ bool ManagedSpace::_disposeDiscarded(ManagedPage *page) {
 	page->transactionState = TxState::discardQueued;
 	_discardList.push_back(&page->cachePage);
 	return true;
+}
+
+void ManagedSpace::_raiseMonitors(MonitorPendingList &pendingMonitors) {
+	while(!pendingMonitors.empty()) {
+		frg::intrusive_shared_ptr<TransactionMonitor, Allocator> monitor{
+			frg::adopt_rc, pendingMonitors.pop_front()
+		};
+		monitor->event.raise();
+	}
 }
 
 void ManagedSpace::_pageDiscarded(ManagedPage *) {}
@@ -1820,14 +1835,7 @@ Error BackingMemory::updateRange(ManageRequest type, size_t offset, size_t lengt
 	if (length & (kPageSize - 1))
 		return Error::illegalArgs;
 
-	frg::intrusive_list<
-		ManagedSpace::TransactionMonitor,
-		frg::locate_member<
-			ManagedSpace::TransactionMonitor,
-			frg::default_list_hook<ManagedSpace::TransactionMonitor>,
-			&ManagedSpace::TransactionMonitor::pendingHook
-		>
-	> pendingMonitors;
+	ManagedSpace::MonitorPendingList pendingMonitors;
 	bool raiseDiscard = false;
 	{
 		auto irqLock = frg::guard(&irqMutex());
@@ -1913,12 +1921,7 @@ Error BackingMemory::updateRange(ManageRequest type, size_t offset, size_t lengt
 	if(raiseDiscard)
 		_managed->_discardEvent.raise();
 
-	while(!pendingMonitors.empty()) {
-		frg::intrusive_shared_ptr<ManagedSpace::TransactionMonitor, Allocator> monitor{
-			frg::adopt_rc, pendingMonitors.pop_front()
-		};
-		monitor->event.raise();
-	}
+	ManagedSpace::_raiseMonitors(pendingMonitors);
 
 	return Error::success;
 }
