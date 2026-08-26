@@ -1710,6 +1710,9 @@ async::result<void> FileSystem::readDataBlocksUsingExtents(std::shared_ptr<Inode
 	co_await inode->readyEvent.wait();
 	// TODO: Assert that we do not read past the EOF.
 
+	protocols::ostrace::Timer timer;
+	uint64_t deviceTime = 0;
+
 	size_t num_blocks = buf.size() >> blockShift;
 	auto blockRanges = co_await lookupBlocksUsingExtent(inode.get(), block_offset, num_blocks, false);
 
@@ -1721,16 +1724,25 @@ async::result<void> FileSystem::readDataBlocksUsingExtents(std::shared_ptr<Inode
 			memset(buf.byte_data() + progress * blockSize, 0, range.size * blockSize);
 		}else {
 			assert(range.absoluteStartBlock);
+			protocols::ostrace::Timer deviceTimer;
 			co_await device->readSectors(
 			    range.absoluteStartBlock * sectorsPerBlock,
 			    buf.subview(progress * blockSize, range.size * blockSize)
 			);
+			deviceTime += deviceTimer.elapsed();
 		}
 
 		progress += range.size;
 	}
 
 	assert(progress == num_blocks);
+
+	ostContext.emit(
+		ostEvtExt2ReadDataBlocks,
+		ostAttrTime(timer.elapsed()),
+		ostAttrNumBytes(buf.size()),
+		ostAttrTimeDevice(deviceTime)
+	);
 }
 
 async::result<void> FileSystem::writeDataBlocksUsingExtents(std::shared_ptr<Inode> inode, uint64_t block_offset,
@@ -1738,19 +1750,31 @@ async::result<void> FileSystem::writeDataBlocksUsingExtents(std::shared_ptr<Inod
 	co_await inode->readyEvent.wait();
 	// TODO: Assert that we do not read past the EOF.
 
+	protocols::ostrace::Timer timer;
+	uint64_t deviceTime = 0;
+
 	size_t num_blocks = buf.size() >> blockShift;
 	auto blockRanges = co_await lookupBlocksUsingExtent(inode.get(), block_offset, num_blocks, true);
 
 	size_t progress = 0;
 	for(auto &range : blockRanges) {
+		protocols::ostrace::Timer deviceTimer;
 		co_await device->writeSectors(
 		    range.absoluteStartBlock * sectorsPerBlock,
 		    buf.subview(progress * blockSize, range.size * blockSize)
 		);
+		deviceTime += deviceTimer.elapsed();
 		progress += range.size;
 	}
 
 	assert(progress == num_blocks);
+
+	ostContext.emit(
+		ostEvtExt2WriteDataBlocks,
+		ostAttrTime(timer.elapsed()),
+		ostAttrNumBytes(buf.size()),
+		ostAttrTimeDevice(deviceTime)
+	);
 }
 
 async::result<void> FileSystem::assignDataBlocks(Inode *inode,
@@ -1962,6 +1986,9 @@ async::result<void> FileSystem::readDataBlocks(std::shared_ptr<Inode> inode,
 	co_await inode->readyEvent.wait();
 	// TODO: Assert that we do not read past the EOF.
 
+	protocols::ostrace::Timer timer;
+	uint64_t deviceTime = 0;
+
 	constexpr size_t indirectBufferSize = 8;
 
 	std::array<uint32_t, indirectBufferSize> indirectBuffer;
@@ -2037,12 +2064,21 @@ async::result<void> FileSystem::readDataBlocks(std::shared_ptr<Inode> inode,
 //				<< " blocks, starting at " << issue.first << std::endl;
 
 		if (issue.first) {
+			protocols::ostrace::Timer deviceTimer;
 			co_await device->readSectors(issue.first * sectorsPerBlock, buf.subview(progress * blockSize, issue.second * blockSize));
+			deviceTime += deviceTimer.elapsed();
 		} else {
 			memset(buf.byte_data() + progress * blockSize, 0, issue.second * blockSize);
 		}
 		progress += issue.second;
 	}
+
+	ostContext.emit(
+		ostEvtExt2ReadDataBlocks,
+		ostAttrTime(timer.elapsed()),
+		ostAttrNumBytes(buf.size()),
+		ostAttrTimeDevice(deviceTime)
+	);
 }
 
 // TODO: There is a lot of overlap between this method and readDataBlocks.
@@ -2080,6 +2116,9 @@ async::result<void> FileSystem::writeDataBlocks(std::shared_ptr<Inode> inode,
 
 	co_await inode->readyEvent.wait();
 	// TODO: Assert that we do not write past the EOF.
+
+	protocols::ostrace::Timer timer;
+	uint64_t deviceTime = 0;
 
 	size_t progress = 0;
 	while(progress < num_blocks) {
@@ -2129,12 +2168,21 @@ async::result<void> FileSystem::writeDataBlocks(std::shared_ptr<Inode> inode,
 //				<< " blocks, starting at " << issue.first << std::endl;
 
 		assert(issue.first);
+		protocols::ostrace::Timer deviceTimer;
 		co_await device->writeSectors(
 		    issue.first * sectorsPerBlock,
 		    buf.subview(progress * blockSize, issue.second * blockSize)
 		);
+		deviceTime += deviceTimer.elapsed();
 		progress += issue.second;
 	}
+
+	ostContext.emit(
+		ostEvtExt2WriteDataBlocks,
+		ostAttrTime(timer.elapsed()),
+		ostAttrNumBytes(buf.size()),
+		ostAttrTimeDevice(deviceTime)
+	);
 }
 
 // --------------------------------------------------------

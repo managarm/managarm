@@ -185,8 +185,10 @@ async::result<void> MetadataCache::serviceRequest_(helix::BorrowedDescriptor bac
 	assert(!(length & (frameSize - 1)));
 
 	protocols::ostrace::Timer timer;
+	uint64_t deviceTime = 0;
 
 	auto view = device_->pagePool->importMemory(backing, offset, length);
+	auto importTime = timer.split();
 
 	for(size_t progress = 0; progress < length; progress += frameSize) {
 		auto block = (offset + progress) >> blockPagesShift_;
@@ -194,8 +196,10 @@ async::result<void> MetadataCache::serviceRequest_(helix::BorrowedDescriptor bac
 
 		auto subview = view.view().subview(progress, blockSize_);
 
+		protocols::ostrace::Timer deviceTimer;
 		if(type == kHelManageInitialize) {
 			co_await device_->readSectors(block * sectorsPerBlock_, subview);
+			deviceTime += deviceTimer.elapsed();
 			// Zero the tail of the frame that no disk block backs.
 			if(blockSize_ < frameSize)
 				memset(view.view().subview(progress + blockSize_,
@@ -203,6 +207,7 @@ async::result<void> MetadataCache::serviceRequest_(helix::BorrowedDescriptor bac
 		}else{
 			assert(type == kHelManageWriteback);
 			co_await device_->writeSectors(block * sectorsPerBlock_, subview);
+			deviceTime += deviceTimer.elapsed();
 		}
 	}
 
@@ -212,7 +217,9 @@ async::result<void> MetadataCache::serviceRequest_(helix::BorrowedDescriptor bac
 		type == kHelManageInitialize ? ostEvtMetadataInitialize : ostEvtMetadataWriteback,
 		ostAttrTime(timer.elapsed()),
 		ostAttrNumBytes(length),
-		ostAttrBlock(offset >> blockPagesShift_)
+		ostAttrBlock(offset >> blockPagesShift_),
+		ostAttrTimeImport(importTime),
+		ostAttrTimeDevice(deviceTime)
 	);
 }
 
