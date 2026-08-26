@@ -692,19 +692,34 @@ struct ManagedSpace : CacheBundle {
 		avertDiscard,
 	};
 
+	// Type of transaction that a TransactionMonitor is attached to.
+	enum class MonitorType : uint8_t {
+		initialization,
+		writeback,
+		forcedInvalidation,
+	};
+
 	// Struct that is attached to ManagedPage for the duration of
-	// a single transaction (i.e., initialization, writeback, or forced eviction).
-	// For initialization:
+	// a single transaction (i.e., initialization, writeback, or forced invalidation).
+	// At most one monitor per type can be attached at a time; the attached monitors
+	// form a chain headed by ManagedPage::monitors.
+	// For MonitorType::initialization:
 	// * Attached when entering TxState::wantInitialization.
 	// * Completed when leaving TxState::initialization.
-	// For writeback:
+	// For MonitorType::writeback:
 	// * Attached when entering TxState::wantWriteback.
 	// * Completed when leaving TxState::writeback.
-	// For forced eviction (invalidateRange() on a page already in TxState::performReclaim):
+	// For MonitorType::forcedInvalidation (invalidateRange() on a page under reclamation):
 	// * Attached by invalidateRange() while the page is in TxState::performReclaim.
 	// * Completed by the eviction coroutine after transitioning to LoadState::missing.
 	struct TransactionMonitor final : frg::intrusive_rc {
+		explicit TransactionMonitor(MonitorType type)
+		: type{type} { }
+
+		MonitorType type;
 		async::oneshot_primitive event;
+		// Next monitor attached to the same ManagedPage.
+		TransactionMonitor *chainNext{nullptr};
 		frg::default_list_hook<TransactionMonitor> pendingHook;
 	};
 
@@ -717,6 +732,13 @@ struct ManagedSpace : CacheBundle {
 		ManagedPage(const ManagedPage &) = delete;
 
 		ManagedPage &operator= (const ManagedPage &) = delete;
+
+		// Allocates and attaches a monitor of the given type; the type must not be attached yet.
+		frg::intrusive_shared_ptr<TransactionMonitor, Allocator> attachMonitor(MonitorType type);
+		// Returns the attached monitor of the given type, or null.
+		frg::intrusive_shared_ptr<TransactionMonitor, Allocator> findMonitor(MonitorType type);
+		// Detaches and returns the monitor of the given type, or null.
+		frg::intrusive_shared_ptr<TransactionMonitor, Allocator> detachMonitor(MonitorType type);
 
 		PhysicalAddr physical = PhysicalAddr(-1);
 		LoadState loadState{LoadState::missing};
@@ -739,7 +761,11 @@ struct ManagedSpace : CacheBundle {
 		bool swapBudgetClaimed{false};
 		unsigned int lockCount = 0;
 		CachePage cachePage;
-		frg::intrusive_shared_ptr<TransactionMonitor, Allocator> monitor;
+		// Head of the chain of monitors attached to this page's in-flight transactions.
+		// The page owns one reference (= refcount) of each of these monitors.
+		TransactionMonitor *monitors{nullptr};
+		// Bitmask (indexed by MonitorType) of the attached monitor types.
+		uint8_t attachedMonitors{0};
 	};
 
 	static std::expected<smarter::shared_ptr<ManagedSpace>, Error> create(

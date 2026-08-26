@@ -923,6 +923,45 @@ size_t AllocatedMemory::getLength() {
 // ManagedSpace
 // --------------------------------------------------------
 
+frg::intrusive_shared_ptr<ManagedSpace::TransactionMonitor, Allocator>
+ManagedSpace::ManagedPage::attachMonitor(MonitorType type) {
+	auto bit = uint8_t{1} << static_cast<unsigned int>(type);
+	assert(!(attachedMonitors & bit));
+	attachedMonitors |= bit;
+	auto monitor = frg::allocate_intrusive_shared<TransactionMonitor>(Allocator{}, type);
+	ref_rc(monitor.get());
+	monitor->chainNext = monitors;
+	monitors = monitor.get();
+	return monitor;
+}
+
+frg::intrusive_shared_ptr<ManagedSpace::TransactionMonitor, Allocator>
+ManagedSpace::ManagedPage::findMonitor(MonitorType type) {
+	auto bit = uint8_t{1} << static_cast<unsigned int>(type);
+	if(!(attachedMonitors & bit))
+		return {};
+	auto ptr = monitors;
+	while(ptr->type != type)
+		ptr = ptr->chainNext;
+	ref_rc(ptr);
+	return {frg::adopt_rc, ptr};
+}
+
+frg::intrusive_shared_ptr<ManagedSpace::TransactionMonitor, Allocator>
+ManagedSpace::ManagedPage::detachMonitor(MonitorType type) {
+	auto bit = uint8_t{1} << static_cast<unsigned int>(type);
+	if(!(attachedMonitors & bit))
+		return {};
+	attachedMonitors &= ~bit;
+	auto link = &monitors;
+	while((*link)->type != type)
+		link = &(*link)->chainNext;
+	auto ptr = *link;
+	*link = ptr->chainNext;
+	ptr->chainNext = nullptr;
+	return {frg::adopt_rc, ptr};
+}
+
 std::expected<smarter::shared_ptr<ManagedSpace>, Error> ManagedSpace::create(
 		size_t length, bool readahead) {
 	if(length > backingMemoryLength)
@@ -1048,7 +1087,7 @@ coroutine<void> ManagedSpace::_runReclaimLoop() {
 				page->physical = PhysicalAddr(-1);
 
 				if(page->forceInvalidation) {
-					invalidateMonitor = std::move(page->monitor);
+					invalidateMonitor = page->detachMonitor(MonitorType::forcedInvalidation);
 					page->forceInvalidation = false;
 				}
 			}
@@ -1164,7 +1203,7 @@ coroutine<void> ManagedSpace::_runDrainLoop() {
 					continue;
 				}
 				page->transactionState = TxState::wantWriteback;
-				page->monitor = frg::allocate_intrusive_shared<TransactionMonitor>(Allocator{});
+				page->attachMonitor(MonitorType::writeback);
 				_writebackList.push_back(cp);
 			}
 
@@ -1214,7 +1253,7 @@ void ManagedSpace::discardPage(uint64_t index) {
 			break;
 		case TxState::wantWriteback:
 			_writebackList.erase(_writebackList.iterator_to(&pit->cachePage));
-			writebackMonitor = std::move(pit->monitor);
+			writebackMonitor = pit->detachMonitor(MonitorType::writeback);
 			pit->transactionState = TxState::none;
 			dispose = true;
 			break;
@@ -1238,7 +1277,7 @@ void ManagedSpace::discardPage(uint64_t index) {
 		// Erases entries without a frame right away instead of paying for a fenceEphemeral().
 		if(dispose) {
 			assert(pit->transactionState == TxState::none);
-			assert(!pit->monitor);
+			assert(!pit->monitors);
 			if(pit->physical == PhysicalAddr(-1)
 					&& !pit->lockCount
 					&& !pit->cachePage.useCount.load(std::memory_order_relaxed)) {
@@ -1258,7 +1297,7 @@ void ManagedSpace::discardPage(uint64_t index) {
 bool ManagedSpace::_disposeDiscarded(ManagedPage *page) {
 	assert(page->discarded);
 	assert(page->transactionState == TxState::none);
-	assert(!page->monitor);
+	assert(!page->monitors);
 	if(page->lockCount || page->cachePage.useCount.load(std::memory_order_relaxed))
 		return false;
 	page->transactionState = TxState::discardQueued;
@@ -1758,9 +1797,9 @@ Error BackingMemory::updateRange(ManageRequest type, size_t offset, size_t lengt
 					globalReclaimer->addPage(&pit->cachePage);
 					pit->transactionState = ManagedSpace::TxState::inReclaimer;
 				}
-				ref_rc(pit->monitor.get());
-				pendingMonitors.push_back(pit->monitor.get());
-				pit->monitor = {};
+				auto monitor = pit->detachMonitor(ManagedSpace::MonitorType::initialization);
+				assert(monitor);
+				pendingMonitors.push_back(monitor.release());
 			}
 		}else{
 			for(size_t pg = 0; pg < length; pg += kPageSize) {
@@ -1769,9 +1808,9 @@ Error BackingMemory::updateRange(ManageRequest type, size_t offset, size_t lengt
 
 				if(pit->discarded) {
 					// Raise the monitor as usual - writebackFence() waiters hold references to it.
-					ref_rc(pit->monitor.get());
-					pendingMonitors.push_back(pit->monitor.get());
-					pit->monitor = {};
+					auto monitor = pit->detachMonitor(ManagedSpace::MonitorType::writeback);
+					assert(monitor);
+					pendingMonitors.push_back(monitor.release());
 					// The frame is being discarded so it doesn't need to be written back.
 					pit->stillDirty = false;
 					pit->transactionState = ManagedSpace::TxState::none;
@@ -1787,17 +1826,18 @@ Error BackingMemory::updateRange(ManageRequest type, size_t offset, size_t lengt
 						globalReclaimer->addPage(&pit->cachePage);
 						pit->transactionState = ManagedSpace::TxState::inReclaimer;
 					}
-					ref_rc(pit->monitor.get());
-					pendingMonitors.push_back(pit->monitor.get());
-					pit->monitor = {};
+					auto monitor = pit->detachMonitor(ManagedSpace::MonitorType::writeback);
+					assert(monitor);
+					pendingMonitors.push_back(monitor.release());
 				}else{
 					pit->stillDirty = false;
 					pit->transactionState = ManagedSpace::TxState::wantWriteback;
 					_managed->_writebackList.push_back(&pit->cachePage);
-					ref_rc(pit->monitor.get());
-					pendingMonitors.push_back(pit->monitor.get());
+					auto monitor = pit->detachMonitor(ManagedSpace::MonitorType::writeback);
+					assert(monitor);
+					pendingMonitors.push_back(monitor.release());
 					// Note that the monitor is destroyed and re-created here.
-					pit->monitor = frg::allocate_intrusive_shared<ManagedSpace::TransactionMonitor>(Allocator{});
+					pit->attachMonitor(ManagedSpace::MonitorType::writeback);
 				}
 			}
 		}
@@ -1835,10 +1875,12 @@ coroutine<frg::expected<Error>> BackingMemory::writebackFence(uintptr_t offset, 
 				auto pit = _managed->pages.find(index);
 				if(pit) {
 					if(pit->transactionState == ManagedSpace::TxState::wantWriteback) {
-						monitor = pit->monitor;
+						monitor = pit->findMonitor(ManagedSpace::MonitorType::writeback);
+						assert(monitor);
 						break;
 					} else if(pit->transactionState == ManagedSpace::TxState::writeback) {
-						monitor = pit->monitor;
+						monitor = pit->findMonitor(ManagedSpace::MonitorType::writeback);
+						assert(monitor);
 						needSecond = true;
 						break;
 					}
@@ -1863,8 +1905,8 @@ coroutine<frg::expected<Error>> BackingMemory::writebackFence(uintptr_t offset, 
 
 				size_t index = (offset + pg) >> kPageShift;
 				auto pit = _managed->pages.find(index);
-				if(pit && pit->monitor)
-					monitor = pit->monitor;
+				if(pit)
+					monitor = pit->findMonitor(ManagedSpace::MonitorType::writeback);
 			}
 
 			if(monitor)
@@ -1905,11 +1947,13 @@ coroutine<frg::expected<Error>> BackingMemory::invalidateRange(uintptr_t offset,
 				if(pit->transactionState == ManagedSpace::TxState::performReclaim
 						|| pit->transactionState == ManagedSpace::TxState::avertReclaim) {
 					pit->forceInvalidation = true;
-					if(!pit->monitor)
-						pit->monitor = frg::allocate_intrusive_shared<ManagedSpace::TransactionMonitor>(Allocator{});
-					monitor = pit->monitor;
-				} else if(pit->monitor) {
-					monitor = pit->monitor;
+					monitor = pit->findMonitor(ManagedSpace::MonitorType::forcedInvalidation);
+					if(!monitor)
+						monitor = pit->attachMonitor(ManagedSpace::MonitorType::forcedInvalidation);
+				} else if(pit->transactionState == ManagedSpace::TxState::wantWriteback
+						|| pit->transactionState == ManagedSpace::TxState::writeback) {
+					// Wait for the writeback to complete, then re-examine the page.
+					monitor = pit->findMonitor(ManagedSpace::MonitorType::writeback);
 				} else if(!pit->lockCount) {
 					if(pit->transactionState == ManagedSpace::TxState::inReclaimer)
 						globalReclaimer->removePage(&pit->cachePage);
@@ -2067,7 +2111,7 @@ FrontalMemory::touchRange(uintptr_t offset, size_t, FetchFlags flags) {
 				&& pit->transactionState == ManagedSpace::TxState::none) {
 			pit->transactionState = ManagedSpace::TxState::wantInitialization;
 			_managed->_initializationList.push_back(&pit->cachePage);
-			pit->monitor = frg::allocate_intrusive_shared<ManagedSpace::TransactionMonitor>(Allocator{});
+			pit->attachMonitor(ManagedSpace::MonitorType::initialization);
 		}
 
 		// Perform readahead.
@@ -2082,13 +2126,14 @@ FrontalMemory::touchRange(uintptr_t offset, size_t, FetchFlags flags) {
 						&& pit->transactionState == ManagedSpace::TxState::none) {
 					pit->transactionState = ManagedSpace::TxState::wantInitialization;
 					_managed->_initializationList.push_back(&pit->cachePage);
-					pit->monitor = frg::allocate_intrusive_shared<ManagedSpace::TransactionMonitor>(Allocator{});
+					pit->attachMonitor(ManagedSpace::MonitorType::initialization);
 				}
 			}
 
 		_managed->_progressManagement(pendingManagement);
 
-		fetchMonitor = pit->monitor;
+		fetchMonitor = pit->findMonitor(ManagedSpace::MonitorType::initialization);
+		assert(fetchMonitor);
 	}
 
 	while(!pendingManagement.empty()) {
@@ -2360,11 +2405,12 @@ SwappableMemory::touchRange(uintptr_t offset, size_t, FetchFlags flags) {
 				if(pit->transactionState == ManagedSpace::TxState::none) {
 					pit->transactionState = ManagedSpace::TxState::wantInitialization;
 					_space->_initializationList.push_back(&pit->cachePage);
-					pit->monitor = frg::allocate_intrusive_shared<ManagedSpace::TransactionMonitor>(Allocator{});
+					pit->attachMonitor(ManagedSpace::MonitorType::initialization);
 				}
 
 				_space->_progressManagement(pendingManagement);
-				fetchMonitor = pit->monitor;
+				fetchMonitor = pit->findMonitor(ManagedSpace::MonitorType::initialization);
+				assert(fetchMonitor);
 			}
 		}
 
