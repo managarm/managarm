@@ -789,25 +789,45 @@ Inode::ensureBackingBlocks(size_t offset, size_t length) {
 async::result<frg::expected<protocols::fs::Error>>
 Inode::resizeFile(size_t newSize) {
 	auto oldSize = fileSize();
+	auto newMappingSize = (newSize + 0xFFF) & ~size_t(0xFFF);
 
 	if (newSize > oldSize) {
 		// TODO(qookie): Technically we only need to assign 0
 		// blocks here, not allocate new ones. We also should
 		// zero out the new blocks.
 		FRG_CO_TRY(co_await ensureBackingBlocks(oldSize, newSize - oldSize));
+
+		// Grow fileSize() first so the backing memory never covers a page beyond EOF.
+		setFileSize(newSize);
+
+		// Resize the memory object last (afterwards, initialization requests can appear for pages in the new range).
+		auto resizeResult = co_await helix_ng::resizeMemory(
+				helix::BorrowedDescriptor{backingMemory}, newMappingSize);
+		HEL_CHECK(resizeResult.error());
 	} else if (newSize < oldSize) {
 		// TODO(qookie): Deallocate blocks if they're no longer within the file.
 		std::println("libblockfs: Shrinking an Ext2 file does not free data blocks!");
-	} else if (newSize == oldSize) {
+
+		// Shrink the memory object first so that no new pages appear beyond the new size.
+		auto resizeResult = co_await helix_ng::resizeMemory(
+				helix::BorrowedDescriptor{backingMemory}, newMappingSize);
+		HEL_CHECK(resizeResult.error());
+
+		// Discard the truncated pages without writeback.
+		auto oldMappingSize = (oldSize + 0xFFF) & ~size_t(0xFFF);
+		if (oldMappingSize > newMappingSize) {
+			auto invalidateResult = co_await helix_ng::invalidateMemory(
+					helix::BorrowedDescriptor{backingMemory}, newMappingSize,
+					oldMappingSize - newMappingSize, kHelInvalidateNoWriteback);
+			HEL_CHECK(invalidateResult.error());
+		}
+
+		// Shrink fileSize() last (after no initialization/writeback is in flight anymore).
+		setFileSize(newSize);
+	} else {
 		// Nothing to do.
 		co_return frg::success;
 	}
-
-	auto resizeResult = co_await helix_ng::resizeMemory(
-			helix::BorrowedDescriptor{backingMemory},
-			(newSize + 0xFFF) & ~size_t(0xFFF));
-	HEL_CHECK(resizeResult.error());
-	setFileSize(newSize);
 
 	updateInodeChecksum(fs, diskInode(), number);
 
@@ -1152,13 +1172,9 @@ async::result<void> FileSystem::manageFileData(std::shared_ptr<Inode> inode) {
 				&manage, helix::Dispatcher::global());
 		co_await submit.async_wait();
 		HEL_CHECK(manage.error());
-		if(manage.type() == kHelManageInitialize) {
-			assert(manage.offset() + manage.length() <= ((inode->fileSize() + 0xFFF) & ~size_t(0xFFF)));
-		}else{
-			if(!(manage.offset() + manage.length() <= ((inode->fileSize() + 0xFFF) & ~size_t(0xFFF)))) {
-				continue;
-			}
-		}
+
+		// This is guaranteed by our resizing logic (since shrinking of fileSize() happens after backing memory resize).
+		assert(manage.offset() + manage.length() <= ((inode->fileSize() + 0xFFF) & ~size_t(0xFFF)));
 
 		protocols::ostrace::Timer timer;
 		auto fileView = pool->importMemory(
