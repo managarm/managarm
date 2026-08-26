@@ -17,10 +17,6 @@ async::result<std::expected<protocols::fs::ReadEntriesResult, managarm::fs::Erro
 readEntries(void *object) {
 	auto self = static_cast<ext2fs::OpenFile *>(object);
 
-	ostContext.emit(
-		ostEvtReadDir
-	);
-
 	co_await self->mutex.async_lock();
 	frg::unique_lock fileLock{frg::adopt_lock, self->mutex};
 

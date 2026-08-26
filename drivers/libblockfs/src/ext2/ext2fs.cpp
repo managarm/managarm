@@ -13,6 +13,7 @@
 #include <core/align.hpp>
 #include <core/clock.hpp>
 #include <core/logging.hpp>
+#include <frg/scope_exit.hpp>
 #include <helix/dispatcher-pool.hpp>
 #include <helix/ipc.hpp>
 #include <helix/memory.hpp>
@@ -136,6 +137,21 @@ void Inode::setFileSize(size_t size) {
 
 async::result<frg::expected<protocols::fs::Error, std::optional<DirEntry>>>
 Inode::findEntry(std::string name) {
+	protocols::ostrace::Timer timer;
+	uint64_t lockDone = 0;
+	uint64_t scanned = 0;
+	bool found = false;
+	frg::scope_exit evtOnExit{[&] {
+		ostContext.emit(
+			ostEvtExt2FindEntry,
+			ostAttrTime(timer.elapsed()),
+			ostAttrNumBytes(scanned),
+			ostAttrTimeLock(lockDone),
+			ostAttrTimeScan(timer.elapsed() - lockDone),
+			ostAttrFound(found)
+		);
+	}};
+
 	co_await readyEvent.wait();
 
 	if(fileType != kTypeDirectory)
@@ -150,6 +166,7 @@ Inode::findEntry(std::string name) {
 			0, map_size, helix::Dispatcher::global());
 	co_await submit.async_wait();
 	HEL_CHECK(lock_memory.error());
+	lockDone = timer.elapsed();
 
 	// Read the directory structure.
 	uintptr_t offset = 0;
@@ -163,6 +180,9 @@ Inode::findEntry(std::string name) {
 		if(disk_entry->inode
 				&& name.length() == disk_entry->nameLength
 				&& !memcmp(disk_entry->name, name.data(), name.length())) {
+			scanned = offset;
+			found = true;
+
 			DirEntry entry;
 			entry.inode = disk_entry->inode;
 
@@ -183,6 +203,7 @@ Inode::findEntry(std::string name) {
 		offset += disk_entry->recordLength;
 	}
 	assert(offset == fileSize());
+	scanned = offset;
 
 	co_return std::nullopt;
 }
@@ -191,6 +212,23 @@ async::result<frg::expected<protocols::fs::Error, DirEntry>>
 Inode::insertEntry(std::string name, int64_t ino, blockfs::FileType type) {
 	assert(!name.empty() && name != "." && name != "..");
 	assert(ino);
+
+	protocols::ostrace::Timer timer;
+	uint64_t lockDone = 0;
+	uint64_t scanDone = 0;
+	uint64_t growTime = 0;
+	uint64_t cleanDirTime = 0;
+	frg::scope_exit evtOnExit{[&] {
+		ostContext.emit(
+			ostEvtExt2InsertEntry,
+			ostAttrTime(timer.elapsed()),
+			ostAttrNumBytes(fileSize()),
+			ostAttrTimeLock(lockDone),
+			ostAttrTimeScan(scanDone - lockDone),
+			ostAttrTimeGrow(growTime),
+			ostAttrTimeCleanDir(cleanDirTime)
+		);
+	}};
 
 	co_await readyEvent.wait();
 
@@ -223,9 +261,11 @@ Inode::insertEntry(std::string name, int64_t ino, blockfs::FileType type) {
 
 		// Flush the data to disk.
 		// TODO: It would be enough to flush only one or two pages here.
+		protocols::ostrace::Timer cleanDirTimer;
 		auto syncDir = co_await helix_ng::synchronizeSpace(
 				helix::BorrowedDescriptor{kHelNullHandle}, fileMapping.get(), fileSize());
 		HEL_CHECK(syncDir.error());
+		cleanDirTime += cleanDirTimer.elapsed();
 
 		// Increment the target's link count.
 		// This is sound since the caller holds the target's inodeMutex exclusively.
@@ -251,6 +291,7 @@ Inode::insertEntry(std::string name, int64_t ino, blockfs::FileType type) {
 			0, map_size, helix::Dispatcher::global());
 	co_await submit.async_wait();
 	HEL_CHECK(lock_memory.error());
+	lockDone = timer.elapsed();
 
 	auto time = clk::getRealtime();
 	diskInode()->mtime = time.tv_sec;
@@ -286,6 +327,7 @@ Inode::insertEntry(std::string name, int64_t ino, blockfs::FileType type) {
 			// Update the existing dentry.
 			previous_entry->recordLength = contracted;
 
+			scanDone = timer.elapsed();
 			co_return co_await appendDirEntry(offset + contracted, available);
 		}
 
@@ -294,6 +336,8 @@ Inode::insertEntry(std::string name, int64_t ino, blockfs::FileType type) {
 	assert(offset == fileSize());
 
 	// If we made it this far, we ran out of space in the directory. Resize it.
+	scanDone = timer.elapsed();
+	protocols::ostrace::Timer growTimer;
 	auto blockOffset = (offset & ~(fs.blockSize - 1)) >> fs.blockShift;
 	auto newSize = offset + fs.blockSize;
 	auto newMappingSize = (newSize + 0xFFF) & ~size_t(0xFFF);
@@ -320,6 +364,7 @@ Inode::insertEntry(std::string name, int64_t ino, blockfs::FileType type) {
 				0, newMappingSize, helix::Dispatcher::global());
 		co_await submit.async_wait();
 		HEL_CHECK(lock_memory.error());
+		growTime = growTimer.elapsed();
 
 		co_return co_await appendDirEntry(offset, fileSize() - offset);
 	}
@@ -327,6 +372,21 @@ Inode::insertEntry(std::string name, int64_t ino, blockfs::FileType type) {
 
 async::result<frg::expected<protocols::fs::Error>> Inode::removeEntry(std::string name) {
 	assert(!name.empty() && name != "." && name != "..");
+
+	protocols::ostrace::Timer timer;
+	uint64_t lockDone = 0;
+	uint64_t scanned = 0;
+	uint64_t cleanDirTime = 0;
+	frg::scope_exit evtOnExit{[&] {
+		ostContext.emit(
+			ostEvtExt2RemoveEntry,
+			ostAttrTime(timer.elapsed()),
+			ostAttrNumBytes(scanned),
+			ostAttrTimeLock(lockDone),
+			ostAttrTimeScan(timer.elapsed() - lockDone - cleanDirTime),
+			ostAttrTimeCleanDir(cleanDirTime)
+		);
+	}};
 
 	co_await readyEvent.wait();
 
@@ -341,6 +401,7 @@ async::result<frg::expected<protocols::fs::Error>> Inode::removeEntry(std::strin
 			0, map_size, helix::Dispatcher::global());
 	co_await submit.async_wait();
 	HEL_CHECK(lock_memory.error());
+	lockDone = timer.elapsed();
 
 	// Read the directory structure.
 	DiskDirEntry *previous_entry = nullptr;
@@ -356,6 +417,8 @@ async::result<frg::expected<protocols::fs::Error>> Inode::removeEntry(std::strin
 				&& name.length() == disk_entry->nameLength
 				&& !memcmp(disk_entry->name, name.data(), name.length())) {
 
+			scanned = offset;
+
 			auto target = std::static_pointer_cast<Inode>(fs.accessInode(disk_entry->inode));
 			co_await target->readyEvent.wait();
 
@@ -369,9 +432,11 @@ async::result<frg::expected<protocols::fs::Error>> Inode::removeEntry(std::strin
 
 			// Flush the data to disk.
 			// TODO: It would be enough to flush only one or two pages here.
+			protocols::ostrace::Timer cleanDirTimer;
 			auto syncDir = co_await helix_ng::synchronizeSpace(
 					helix::BorrowedDescriptor{kHelNullHandle}, fileMapping.get(), fileSize());
 			HEL_CHECK(syncDir.error());
+			cleanDirTime += cleanDirTimer.elapsed();
 
 			// Decrement the inode's link count
 			// This is sound since the caller holds the target's inodeMutex exclusively.
@@ -400,11 +465,24 @@ async::result<frg::expected<protocols::fs::Error>> Inode::removeEntry(std::strin
 		previous_entry = disk_entry;
 	}
 	assert(offset == fileSize());
+	scanned = offset;
 
 	co_return protocols::fs::Error::fileNotFound;
 }
 
 async::result<std::expected<bool, protocols::fs::Error>> Inode::isDirectoryEmpty() {
+	protocols::ostrace::Timer timer;
+	uint64_t lockDone = 0;
+	frg::scope_exit evtOnExit{[&] {
+		ostContext.emit(
+			ostEvtExt2IsDirectoryEmpty,
+			ostAttrTime(timer.elapsed()),
+			ostAttrNumBytes(fileSize()),
+			ostAttrTimeLock(lockDone),
+			ostAttrTimeScan(timer.elapsed() - lockDone)
+		);
+	}};
+
 	co_await readyEvent.wait();
 
 	if(fileType != kTypeDirectory)
@@ -422,6 +500,7 @@ async::result<std::expected<bool, protocols::fs::Error>> Inode::isDirectoryEmpty
 			0, map_size, helix::Dispatcher::global());
 	co_await submit.async_wait();
 	HEL_CHECK(lock_memory.error());
+	lockDone = timer.elapsed();
 
 	// Check the directory entries for anything other than "." and "..".
 	uintptr_t offset = 0;
@@ -454,6 +533,20 @@ async::result<std::expected<bool, protocols::fs::Error>> Inode::isDirectoryEmpty
 }
 
 async::result<frg::expected<protocols::fs::Error>> Inode::updateDotDot(uint32_t parent) {
+	protocols::ostrace::Timer timer;
+	uint64_t lockDone = 0;
+	uint64_t cleanDirTime = 0;
+	frg::scope_exit evtOnExit{[&] {
+		ostContext.emit(
+			ostEvtExt2UpdateDotDot,
+			ostAttrTime(timer.elapsed()),
+			ostAttrNumBytes(fileSize()),
+			ostAttrTimeLock(lockDone),
+			ostAttrTimeScan(timer.elapsed() - lockDone - cleanDirTime),
+			ostAttrTimeCleanDir(cleanDirTime)
+		);
+	}};
+
 	co_await readyEvent.wait();
 
 	if(fileType != kTypeDirectory)
@@ -466,6 +559,7 @@ async::result<frg::expected<protocols::fs::Error>> Inode::updateDotDot(uint32_t 
 			0, map_size, helix::Dispatcher::global());
 	co_await submit.async_wait();
 	HEL_CHECK(lock_memory.error());
+	lockDone = timer.elapsed();
 
 	uintptr_t offset = 0;
 	while(offset < fileSize()) {
@@ -481,9 +575,11 @@ async::result<frg::expected<protocols::fs::Error>> Inode::updateDotDot(uint32_t 
 				&& disk_entry->name[1] == '.') {
 			disk_entry->inode = parent;
 
+			protocols::ostrace::Timer cleanDirTimer;
 			auto syncDir = co_await helix_ng::synchronizeSpace(
 					helix::BorrowedDescriptor{kHelNullHandle}, fileMapping.get(), fileSize());
 			HEL_CHECK(syncDir.error());
+			cleanDirTime += cleanDirTimer.elapsed();
 
 			co_return {};
 		}
@@ -2264,6 +2360,20 @@ async::result<std::expected<protocols::fs::ReadEntriesResult, managarm::fs::Erro
 OpenFile::readEntries() {
 	auto inode = std::static_pointer_cast<Inode>(this->inode);
 
+	protocols::ostrace::Timer timer;
+	uint64_t lockDone = 0;
+	uint64_t mapDone = 0;
+	frg::scope_exit evtOnExit{[&] {
+		ostContext.emit(
+			ostEvtReadDir,
+			ostAttrTime(timer.elapsed()),
+			ostAttrNumBytes(inode->fileSize()),
+			ostAttrTimeLock(lockDone),
+			ostAttrTimeMap(mapDone - lockDone),
+			ostAttrTimeScan(timer.elapsed() - mapDone)
+		);
+	}};
+
 	co_await inode->readyEvent.wait();
 
 	if (inode->fileType != kTypeDirectory) {
@@ -2278,11 +2388,13 @@ OpenFile::readEntries() {
 			&lock_memory, 0, map_size, helix::Dispatcher::global());
 	co_await submit.async_wait();
 	HEL_CHECK(lock_memory.error());
+	lockDone = timer.elapsed();
 
 	// Map the page cache into the address space.
 	helix::Mapping file_map{helix::BorrowedDescriptor{inode->frontalMemory},
 			0, map_size,
 			kHelMapProtRead | kHelMapDontRequireBacking};
+	mapDone = timer.elapsed();
 
 	// Read the directory structure.
 	assert(offset <= inode->fileSize());
