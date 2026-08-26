@@ -6,7 +6,7 @@
 [![aarch64](https://builds.managarm.org/projects/managarm_aarch64/badge)](https://builds.managarm.org/projects/managarm_aarch64)
 [![riscv](https://builds.managarm.org/projects/managarm_riscv64/badge)](https://builds.managarm.org/projects/managarm_riscv64)
 
-![Screenshot](../assets/screenshots/managarm-glxgears-xclock.png?raw=true)
+![Screenshot](../assets/screenshots/kde-epiphany.png?raw=true)
 
 ## What is this about?
 
@@ -48,9 +48,13 @@ To run the (uncompressed) image using qemu, we recommend the following flags:
 
 `qemu-system-x86_64 -display gtk,zoom-to-fit=off -enable-kvm -m 2048 -cpu host,migratable=off -device qemu-xhci -device usb-kbd -device usb-tablet -drive id=hdd,file=image,format=raw,if=none -device virtio-blk-pci,drive=hdd -vga virtio -debugcon stdio`
 
+To log in, use the following credentials
+- user: managarm
+- password: managarm
+
 ## Supported Software
 
-Programs supported on managarm include [Weston](https://gitlab.freedesktop.org/wayland/weston/) (the Wayland reference compositor), [kmscon](https://www.freedesktop.org/wiki/Software/kmscon/) (a system console), GNU Coreutils, Bash, nano and others.
+Programs supported on managarm include [Weston](https://gitlab.freedesktop.org/wayland/weston/) (the Wayland reference compositor), [kmscon](https://www.freedesktop.org/wiki/Software/kmscon/) (a system console), [KDE Plasma 6](https://kde.org/), GNU Coreutils, Bash, nano and others.
 
 ## Supported Hardware
 
