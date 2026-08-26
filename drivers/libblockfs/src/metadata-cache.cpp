@@ -94,6 +94,7 @@ MetadataCache::CacheBlockPtr MetadataCache::touchLru_(CacheBlock *cacheBlock) {
 
 void MetadataCache::destroyCacheBlock_(CacheBlock *cacheBlock) {
 	protocols::ostrace::Timer timer;
+	auto block = cacheBlock->block;
 
 	{
 		std::lock_guard cacheBlockLock{cacheBlockMutex_};
@@ -108,7 +109,8 @@ void MetadataCache::destroyCacheBlock_(CacheBlock *cacheBlock) {
 
 	ostContext.emit(
 		ostEvtMetadataUnmap,
-		ostAttrTime(timer.elapsed())
+		ostAttrTime(timer.elapsed()),
+		ostAttrBlock(block)
 	);
 }
 
