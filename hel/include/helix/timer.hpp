@@ -1,5 +1,6 @@
 #pragma once
 
+#include <helix/clock.hpp>
 #include <helix/ipc.hpp>
 #include <async/cancellation.hpp>
 #include <async/result.hpp>
@@ -27,8 +28,7 @@ struct TimeoutCallback {
 
 private:
 	async::detached _runTimer(uint64_t duration) {
-		uint64_t tick;
-		HEL_CHECK(helGetClock(&tick));
+		auto tick = getClock();
 
 		helix::AwaitClock await;
 		auto &&submit = helix::submitAwaitClock(&await, tick + duration,
@@ -77,8 +77,7 @@ private:
 };
 
 inline async::result<bool> sleepFor(uint64_t duration, async::cancellation_token cancel = {}) {
-	uint64_t tick;
-	HEL_CHECK(helGetClock(&tick));
+	auto tick = getClock();
 
 	helix::AwaitClock await;
 	auto &&submit = helix::submitAwaitClock(&await, tick + duration,
@@ -119,9 +118,9 @@ inline async::result<bool> sleepUntil(uint64_t tick, async::cancellation_token c
 // Returns true if the operation succeeded, or false if it timed out
 template<typename F> requires (std::is_invocable_r_v<bool, F>)
 async::result<bool> kindaBusyWait(uint64_t timeoutNs, F cond) {
-	uint64_t startNs, currNs;
-	HEL_CHECK(helGetClock(&startNs));
+	auto startNs = getClock();
 
+	uint64_t currNs;
 	do {
 		if (std::invoke(cond))
 			co_return true;
@@ -129,7 +128,7 @@ async::result<bool> kindaBusyWait(uint64_t timeoutNs, F cond) {
 		// Sleep for 5ms (TODO: make adaptive?)
 		co_await sleepFor(5'000'000);
 
-		HEL_CHECK(helGetClock(&currNs));
+		currNs = getClock();
 	} while (currNs < startNs + timeoutNs);
 
 	co_return std::invoke(cond);
@@ -138,14 +137,14 @@ async::result<bool> kindaBusyWait(uint64_t timeoutNs, F cond) {
 // Returns true if the operation succeeded, or false if it timed out
 template<typename F> requires (std::is_invocable_r_v<bool, F>)
 bool busyWaitUntil(uint64_t timeoutNs, F cond) {
-	uint64_t startNs, currNs;
-	HEL_CHECK(helGetClock(&startNs));
+	auto startNs = getClock();
 
+	uint64_t currNs;
 	do {
 		if (std::invoke(cond))
 			return true;
 
-		HEL_CHECK(helGetClock(&currNs));
+		currNs = getClock();
 	} while (currNs < startNs + timeoutNs);
 
 	return std::invoke(cond);
