@@ -1047,6 +1047,7 @@ coroutine<void> ManagedSpace::_runReclaimLoop() {
 		co_await _evictQueue.fenceEphemeral();
 
 		bool anyDirty = false;
+		bool anyExpedite = false;
 		bool anyDiscardQueued = false;
 		bool anyDiscardErased = false;
 		size_t sizeFreed = 0;
@@ -1064,8 +1065,7 @@ coroutine<void> ManagedSpace::_runReclaimLoop() {
 					if(page->discardMode == DiscardMode::keepDirty && page->stillDirty) {
 						// Dirty contents must still be written back before the entry is erased.
 						page->stillDirty = false;
-						page->transactionState = TxState::dirty;
-						_dirtyList.push_back(&page->cachePage);
+						_enqueueDirty(page, anyExpedite);
 						anyDirty = true;
 					} else {
 						assert(!page->stillDirty || page->discardMode == DiscardMode::dropDirty);
@@ -1080,8 +1080,7 @@ coroutine<void> ManagedSpace::_runReclaimLoop() {
 				if(page->transactionState == TxState::avertReclaim) {
 					if(page->stillDirty) {
 						page->stillDirty = false;
-						page->transactionState = TxState::dirty;
-						_dirtyList.push_back(&page->cachePage);
+						_enqueueDirty(page, anyExpedite);
 						if(page->swapBudgetClaimed)
 							_drainBlocked = false;
 						anyDirty = true;
@@ -1126,8 +1125,7 @@ coroutine<void> ManagedSpace::_runReclaimLoop() {
 					if(page->discardMode == DiscardMode::keepDirty && page->stillDirty) {
 						// Dirty contents must still be written back before the entry is erased.
 						page->stillDirty = false;
-						page->transactionState = TxState::dirty;
-						_dirtyList.push_back(&page->cachePage);
+						_enqueueDirty(page, anyExpedite);
 						anyDirty = true;
 					} else {
 						assert(!page->stillDirty || page->discardMode == DiscardMode::dropDirty);
@@ -1161,6 +1159,8 @@ coroutine<void> ManagedSpace::_runReclaimLoop() {
 		_raiseMonitors(pendingMonitors);
 		if(anyDirty || anyDiscardErased)
 			_dirtyEvent.raise();
+		if(anyExpedite)
+			_expediteEvent.raise();
 		if(anyDiscardQueued)
 			_discardEvent.raise();
 
@@ -1180,10 +1180,46 @@ coroutine<void> ManagedSpace::_runDrainLoop() {
 			return _dirtyList.empty() || _drainBlocked;
 		});
 
+		// Delay the writeback such that further dirty pages can accumulate
+		// and _progressManagement() can fuse larger requests.
+		while(true) {
+			uint64_t deadline;
+			{
+				auto irqLock = frg::guard(&irqMutex());
+				auto lock = frg::guard(&mutex);
+				if(_writebackExpedited)
+					break;
+				deadline = _writebackDeadline;
+			}
+			if(!deadline || getClockNanos() >= deadline)
+				break;
+			co_await async::race_and_cancel(
+				[&] (async::cancellation_token ct) {
+					return async::transform(
+						generalTimerEngine()->sleep(deadline, ct),
+						[] (auto) { }
+					);
+				},
+				[&] (async::cancellation_token ct) {
+					return async::transform(
+						_expediteEvent.async_wait_if([this] () -> bool {
+							auto irqLock = frg::guard(&irqMutex());
+							auto lock = frg::guard(&mutex);
+							return !_writebackExpedited;
+						}, ct),
+						[] (auto) { }
+					);
+				}
+			);
+		}
+
 		CachePagesList pending;
 		{
 			auto irqLock = frg::guard(&irqMutex());
 			auto lock = frg::guard(&mutex);
+
+			// However we left the delay, this pass serves the pending expedite request.
+			_writebackExpedited = false;
 
 			auto it = _dirtyList.begin();
 			while(it != _dirtyList.end()) {
@@ -1193,7 +1229,7 @@ coroutine<void> ManagedSpace::_runDrainLoop() {
 				assert(!page->discarded || page->discardMode == DiscardMode::keepDirty);
 				if(!claimSwapBudget(page))
 					continue;
-				_dirtyList.erase(_dirtyList.iterator_to(cp));
+				_dequeueDirty(page);
 				page->transactionState = TxState::pendingWriteback;
 				pending.push_back(cp);
 			}
@@ -1279,6 +1315,7 @@ coroutine<void> ManagedSpace::_runInvalidationLoop() {
 
 		bool raiseDiscard = false;
 		bool anyDirty = false;
+		bool anyExpedite = false;
 		{
 			auto irqLock = frg::guard(&irqMutex());
 			auto lock = frg::guard(&mutex);
@@ -1291,8 +1328,7 @@ coroutine<void> ManagedSpace::_runInvalidationLoop() {
 				if(page->discardMode == DiscardMode::keepDirty && page->stillDirty) {
 					// Breaking the mappings revealed dirty contents. Write them back.
 					page->stillDirty = false;
-					page->transactionState = TxState::dirty;
-					_dirtyList.push_back(&page->cachePage);
+					_enqueueDirty(page, anyExpedite);
 					anyDirty = true;
 				} else {
 					assert(!page->stillDirty || page->discardMode == DiscardMode::dropDirty);
@@ -1305,6 +1341,8 @@ coroutine<void> ManagedSpace::_runInvalidationLoop() {
 			_discardEvent.raise();
 		if(anyDirty)
 			_dirtyEvent.raise();
+		if(anyExpedite)
+			_expediteEvent.raise();
 	}
 }
 
@@ -1314,7 +1352,7 @@ bool ManagedSpace::claimSwapBudget(ManagedPage *) {
 }
 
 void ManagedSpace::discardPage(ManagedPage *pit, DiscardMode mode, bool &raiseDiscard,
-		MonitorPendingList &pendingMonitors) {
+		bool &raiseExpedite, MonitorPendingList &pendingMonitors) {
 	assert(mode != DiscardMode::none);
 	if(pit->discarded)
 		return;
@@ -1334,9 +1372,14 @@ void ManagedSpace::discardPage(ManagedPage *pit, DiscardMode mode, bool &raiseDi
 	case TxState::dirty: {
 		if(mode == DiscardMode::keepDirty) {
 			// The page stays in _dirtyList. The writeback pipeline completes the discard.
+			// Expedite writeback so that discard waiters do not sit out the writeback delay.
+			if(!_writebackExpedited) {
+				_writebackExpedited = true;
+				raiseExpedite = true;
+			}
 			break;
 		}
-		_dirtyList.erase(_dirtyList.iterator_to(&pit->cachePage));
+		_dequeueDirty(pit);
 		auto writebackMonitor = pit->detachMonitor(MonitorType::writeback);
 		if(writebackMonitor)
 			pendingMonitors.push_back(writebackMonitor.release());
@@ -1394,6 +1437,25 @@ void ManagedSpace::discardPage(ManagedPage *pit, DiscardMode mode, bool &raiseDi
 			raiseDiscard |= _disposeDiscarded(pit);
 		}
 	}
+}
+
+void ManagedSpace::_enqueueDirty(ManagedPage *page, bool &raiseExpedite) {
+	page->transactionState = TxState::dirty;
+	_dirtyList.push_back(&page->cachePage);
+	if(!_writebackDeadline)
+		_writebackDeadline = getClockNanos() + writebackDelayNanos;
+	// Discard waiters must not sit out the writeback delay; see discardPage().
+	if(page->discarded && !_writebackExpedited) {
+		_writebackExpedited = true;
+		raiseExpedite = true;
+	}
+}
+
+void ManagedSpace::_dequeueDirty(ManagedPage *page) {
+	_dirtyList.erase(_dirtyList.iterator_to(&page->cachePage));
+	// The deadline belongs to the batch that just drained; the next batch arms its own.
+	if(_dirtyList.empty())
+		_writebackDeadline = 0;
 }
 
 bool ManagedSpace::_disposeDiscarded(ManagedPage *page) {
@@ -1697,6 +1759,7 @@ void ManagedSpace::decrementUses(CachePage *cachePage) {
 
 void ManagedSpace::markDirty(CachePage *cachePage) {
 	bool needsEvent = false;
+	bool needsExpedite = false;
 	{
 		auto irqLock = frg::guard(&irqMutex());
 		auto lock = frg::guard(&mutex);
@@ -1721,8 +1784,7 @@ void ManagedSpace::markDirty(CachePage *cachePage) {
 					|| page->transactionState == TxState::inReclaimer)) {
 			if(page->transactionState == TxState::inReclaimer)
 				globalReclaimer->removePage(cachePage);
-			page->transactionState = TxState::dirty;
-			_dirtyList.push_back(cachePage);
+			_enqueueDirty(page, needsExpedite);
 			// When the drain coroutine is blocked on swap budget, only pages that
 			// already claimed swap budget can enter writeback.
 			if(!_drainBlocked || page->swapBudgetClaimed) {
@@ -1749,6 +1811,8 @@ void ManagedSpace::markDirty(CachePage *cachePage) {
 
 	if(needsEvent)
 		_dirtyEvent.raise();
+	if(needsExpedite)
+		_expediteEvent.raise();
 }
 
 // --------------------------------------------------------
@@ -1978,10 +2042,14 @@ coroutine<frg::expected<Error>> BackingMemory::writebackFence(uintptr_t offset, 
 	if (size & (kPageSize - 1))
 		co_return Error::illegalArgs;
 
+	// Note that writebackFence() expedites writeback
+	// (otherwise, callers would need to wait for the full writebackDelayNanos).
+
 	size_t pg = 0;
 	while(pg < size) {
 		frg::intrusive_shared_ptr<ManagedSpace::TransactionMonitor, Allocator> monitor;
 		bool needSecond = false;
+		bool raiseExpedite = false;
 		{
 			auto irqLock = frg::guard(&irqMutex());
 			auto lock = frg::guard(&_managed->mutex);
@@ -1994,6 +2062,11 @@ coroutine<frg::expected<Error>> BackingMemory::writebackFence(uintptr_t offset, 
 							|| pit->transactionState == ManagedSpace::TxState::pendingWriteback
 							|| pit->transactionState == ManagedSpace::TxState::wantWriteback) {
 						monitor = pit->requireMonitor(ManagedSpace::MonitorType::writeback);
+						if(pit->transactionState == ManagedSpace::TxState::dirty
+								&& !_managed->_writebackExpedited) {
+							_managed->_writebackExpedited = true;
+							raiseExpedite = true;
+						}
 						break;
 					} else if(pit->transactionState == ManagedSpace::TxState::writeback) {
 						monitor = pit->requireMonitor(ManagedSpace::MonitorType::writeback);
@@ -2004,6 +2077,8 @@ coroutine<frg::expected<Error>> BackingMemory::writebackFence(uintptr_t offset, 
 				pg += kPageSize;
 			}
 		}
+		if(raiseExpedite)
+			_managed->_expediteEvent.raise();
 
 		if(!monitor)
 			break;
@@ -2055,6 +2130,7 @@ coroutine<frg::expected<Error>> BackingMemory::invalidateRange(uintptr_t offset,
 	// Do this in chunks so that the spinlock is not held for an unbounded time.
 	uint64_t markCursor = firstPage;
 	bool raiseDiscard = false;
+	bool raiseExpedite = false;
 	while(true) {
 		bool exhausted = false;
 		ManagedSpace::MonitorPendingList pendingMonitors;
@@ -2072,7 +2148,7 @@ coroutine<frg::expected<Error>> BackingMemory::invalidateRange(uintptr_t offset,
 				auto *page = &*it;
 				markCursor = page->cachePage.identity + 1;
 				++it;
-				_managed->discardPage(page, mode, raiseDiscard, pendingMonitors);
+				_managed->discardPage(page, mode, raiseDiscard, raiseExpedite, pendingMonitors);
 			}
 		}
 		ManagedSpace::_raiseMonitors(pendingMonitors);
@@ -2084,6 +2160,8 @@ coroutine<frg::expected<Error>> BackingMemory::invalidateRange(uintptr_t offset,
 	// This helps the invalidation coroutine to coelesce ranges.
 	if(raiseDiscard)
 		_managed->_discardEvent.raise();
+	if(raiseExpedite)
+		_managed->_expediteEvent.raise();
 
 	// Wait until every previously discarded page is erased.
 	uint64_t waitCursor = firstPage;
@@ -2285,6 +2363,7 @@ SwappableMemory::SwappableMemory(CtorToken, smarter::shared_ptr<SwapSpace> space
 SwappableMemory::~SwappableMemory() {
 	for(auto it = _table.begin(); it != _table.end(); ++it) {
 		bool raiseDiscard = false;
+		bool raiseExpedite = false;
 		ManagedSpace::MonitorPendingList pendingMonitors;
 		{
 			auto irqLock = frg::guard(&irqMutex());
@@ -2293,11 +2372,13 @@ SwappableMemory::~SwappableMemory() {
 			auto pit = _space->pages.find(*it);
 			assert(pit);
 			_space->discardPage(pit, DiscardMode::dropDirty,
-					raiseDiscard, pendingMonitors);
+					raiseDiscard, raiseExpedite, pendingMonitors);
 		}
 		ManagedSpace::_raiseMonitors(pendingMonitors);
 		if(raiseDiscard)
 			_space->_discardEvent.raise();
+		if(raiseExpedite)
+			_space->_expediteEvent.raise();
 	}
 	// Discarding may have released swap budget.
 	_space->_wakeDrain();

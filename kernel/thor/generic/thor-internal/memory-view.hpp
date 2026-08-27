@@ -815,10 +815,21 @@ struct ManagedSpace : CacheBundle {
 	// the reclamation behind a fenceEphemeral().
 	// Idempotent: discarding an already discarded page is a no-op (i.e., the first call fixes the mode).
 	// Must be called under mutex; the caller must raise the appended monitors
-	// (and _discardEvent, if requested) after dropping it.
+	// (and _discardEvent/_expediteEvent, if requested) after dropping it.
 	// After a batch of discards the caller must call _wakeDrain() as discards may release swap budget.
 	void discardPage(ManagedPage *pit, DiscardMode mode, bool &raiseDiscard,
-			MonitorPendingList &pendingMonitors);
+			bool &raiseExpedite, MonitorPendingList &pendingMonitors);
+
+	// Moves a present page into TxState::dirty / _dirtyList.
+	// Arms the writeback deadline. Discarded pages expedite the writeback.
+	// Sets raiseExpedite to true if _expediteEvent needs to be raised (and doesn't modify it otherwise).
+	// Callers must hold mutex.
+	void _enqueueDirty(ManagedPage *page, bool &raiseExpedite);
+
+	// Removes a page from _dirtyList (does not change the transaction state).
+	// Disarms the writeback deadline once the list runs empty.
+	// Callers must hold mutex.
+	void _dequeueDirty(ManagedPage *page);
 
 	// Queues a discarded page for the reclamation coroutine, which erases its entry.
 	// Must be called under mutex with transactionState == TxState::none.
@@ -858,6 +869,9 @@ struct ManagedSpace : CacheBundle {
 	// Whether this space is a SwapSpace.
 	bool isSwapSpace = false;
 
+	// Delay before dirty pages enter writeback. Longer delays allow for more coalescing.
+	uint64_t writebackDelayNanos = 200'000'000;
+
 	EvictionQueue _evictQueue;
 
 	CachePagesList _dirtyList;
@@ -887,6 +901,18 @@ struct ManagedSpace : CacheBundle {
 	// While this is set, _dirtyEvent does not wake the drain coroutine.
 	// Protected by mutex.
 	bool _drainBlocked = false;
+
+	// Deadline (for getClockNanos()) at which the drain coroutine starts writeback. Zero when unarmed.
+	// Protected by mutex.
+	uint64_t _writebackDeadline = 0;
+
+	// Causes _writebackDeadline to be ignored (e.g., in case of memory pressure).
+	// Cleared by the drain pass that acts on it.
+	// Protected by mutex.
+	bool _writebackExpedited = false;
+
+	// Wakes the drain coroutine after _writebackExpedited has been set.
+	async::recurring_event _expediteEvent;
 };
 
 // Backing store for swappable anonymous memory].
