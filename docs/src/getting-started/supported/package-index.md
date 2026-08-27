@@ -14,8 +14,10 @@ Some of the available packages include:
 - Communication: `hexchat`, `konversation`
 - Editors: `nano`, `vim`
 - Shells: `bash`, `dash`, `zsh`
-- Graphical: `weston`, `mesa-demos`, `gtk+3`, `xclock`, `xkill`, `xwininfo`, `gtk4`
-- Browsers: `minibrowser`, `links`
+- Graphical: `weston`, `mesa-demos`, `gtk+3`, `xclock`, `xkill`, `xwininfo`, `gtk4`, `konsole`
+- Desktop Environments: `KDE Plasma 6`
+- File browsers: `dolphin`
+- Browsers: `minibrowser`, `links`, `epiphany`
 - Databases: `sqlite`, `gdbm`
 - Bootloaders: `limine`
 - Emulation: `qemu`
