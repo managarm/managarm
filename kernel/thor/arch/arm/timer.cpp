@@ -80,6 +80,14 @@ uint64_t getClockNanos() {
 	return timerTickDuration * getRawTimestampCounter();
 }
 
+UserspaceClock getUserspaceClock() {
+	assert(timerTickDuration);
+	return {
+		.type = isKernelInEl2() ? UserspaceClockType::armCntpct : UserspaceClockType::armCntvct,
+		.tickDuration = timerTickDuration
+	};
+}
+
 void setTimerDeadline(frg::optional<uint64_t> deadline) {
 	if (deadline) {
 		uint64_t rawDeadline = timerTickFreq * *deadline;

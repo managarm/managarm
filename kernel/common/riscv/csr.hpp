@@ -8,10 +8,11 @@ enum class Csr : uint16_t {
 	// Floating point control and status.
 	fcsr = 0x3,
 	// Supervisor trap setup.
-	sstatus = 0x100, // Status register.
-	sie = 0x104,     // Interrupt enable.
-	stvec = 0x105,   // Trap vector address.
-	senvcfg = 0x10A, // Environment configuration.
+	sstatus = 0x100,    // Status register.
+	sie = 0x104,        // Interrupt enable.
+	stvec = 0x105,      // Trap vector address.
+	scounteren = 0x106, // Counter enable.
+	senvcfg = 0x10A,    // Environment configuration.
 	// Supervisor trap handling.
 	sscratch = 0x140,
 	sepc = 0x141,     // Exception program counter.
@@ -133,6 +134,14 @@ constexpr uint64_t hupmmShift = 48;
 constexpr uint64_t hupmmMask = 0b11;
 
 } // namespace hstatus
+
+namespace scounteren {
+
+constexpr uint64_t cy = UINT64_C(1) << 0; // cycle register enable
+constexpr uint64_t tm = UINT64_C(1) << 1; // time register enable
+constexpr uint64_t ir = UINT64_C(1) << 2; // instret register enable
+
+} // namespace scounteren
 
 namespace hcounteren {
 

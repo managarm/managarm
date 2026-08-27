@@ -343,6 +343,17 @@ uint64_t getClockNanos() {
 	}
 }
 
+UserspaceClock getUserspaceClock() {
+	assert(localApicContext()->timersAreCalibrated);
+	// Without an invariant TSC, the clock is driven by the HPET, which userspace cannot read.
+	if(!getGlobalCpuFeatures()->haveInvariantTsc)
+		return {};
+	return {
+		.type = UserspaceClockType::x86Tsc,
+		.tickDuration = localApicContext()->tscTickDuration
+	};
+}
+
 void acknowledgeIpi() {
 	picBase.store(lApicEoi, 0);
 }
