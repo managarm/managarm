@@ -41,6 +41,7 @@ struct Frame {
 	}
 	constexpr uint64_t &ra() { return x(1); }
 	constexpr uint64_t &sp() { return x(2); }
+	constexpr uint64_t &gp() { return x(3); }
 	constexpr uint64_t &tp() { return x(4); }
 
 	bool umode() { return !(sstatus & riscv::sstatus::sppBit); }
