@@ -30,6 +30,9 @@ struct ControllingTerminalState;
 
 typedef int ProcessId;
 
+// Returns the global memory object that reads as zeros.
+helix::BorrowedDescriptor getZeroMemory();
+
 // TODO: This struct should store the process' VMAs once we implement them.
 // TODO: We need a clarification here: Does mmap() keep file descriptions open (e.g. for flock())?
 struct VmContext {

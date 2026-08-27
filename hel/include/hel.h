@@ -31,6 +31,7 @@ enum {
 	kHelCallDescriptorInfo = 32,
 	kHelCallGetCredentials = 84,
 	kHelCallCloseDescriptor = 21,
+	kHelCallObtainHandle = 4,
 
 	kHelCallCreateQueue = 89,
 	kHelCallDriveQueue = 105,
@@ -382,8 +383,7 @@ typedef struct HelX86VirtualizationRegs HelVirtualizationRegs;
 enum {
 	kHelNullHandle = 0,
 	kHelThisUniverse = -1,
-	kHelThisThread = -2,
-	kHelZeroMemory = -3
+	kHelThisThread = -2
 };
 
 enum {
@@ -417,6 +417,10 @@ enum {
 
 static const uint32_t kHelTransferDescriptorOut = UINT32_C(1) << 0;
 static const uint32_t kHelTransferDescriptorIn = UINT32_C(1) << 1;
+
+enum {
+	kHelObtainZeroMemory = 1
+};
 
 struct HelSgItem {
 	void *buffer;
@@ -1167,6 +1171,13 @@ HEL_C_LINKAGE HelError helGetCredentials(HelHandle handle, uint32_t flags,
 //! @param[in] handle
 //!    	Handle to be closed.
 HEL_C_LINKAGE HelError helCloseDescriptor(HelHandle universeHandle, HelHandle handle);
+
+//! Obtains a descriptor to one of the kernel's global objects.
+//! @param[in] kind
+//!    	Kind of the object, e.g., ::kHelObtainZeroMemory.
+//! @param[out] handle
+//!    	Handle to the object.
+HEL_C_LINKAGE HelError helObtainHandle(int kind, HelHandle *handle);
 
 //! @}
 //! @name Management of IPC Queues

@@ -44,6 +44,16 @@ Error resolveSetIdRequest(uint64_t requested, Id current, Id &result) {
 
 } // namespace
 
+helix::BorrowedDescriptor getZeroMemory() {
+	static helix::UniqueDescriptor memory = [] {
+		HelHandle handle;
+		HEL_CHECK(helObtainHandle(kHelObtainZeroMemory, &handle));
+		return helix::UniqueDescriptor{handle};
+	}();
+
+	return memory;
+}
+
 // ----------------------------------------------------------------------------
 // VmContext.
 // ----------------------------------------------------------------------------
@@ -165,7 +175,7 @@ VmContext::mapFile(uintptr_t hint, helix::UniqueDescriptor memory,
 		if(memory) {
 			HEL_CHECK(helCopyOnWrite(memory.getHandle(), offset, alignedSize, &handle));
 		}else{
-			HEL_CHECK(helCopyOnWrite(kHelZeroMemory, offset, alignedSize, &handle));
+			HEL_CHECK(helCopyOnWrite(getZeroMemory().getHandle(), offset, alignedSize, &handle));
 		}
 		copyView = helix::UniqueDescriptor{handle};
 
