@@ -9,6 +9,9 @@ namespace thor {
 // Get the size of the lower half (= virtual memory available to user-space) in bits.
 int getLowerHalfBits();
 
+// Make instructions that were written to the given range visible to instruction fetch.
+void syncInstructionCache(void *pointer, size_t size);
+
 template <typename T>
 concept ValidCursor = requires (T t, uintptr_t va, PhysicalAddr pa,
 		PageFlags flags, CachingMode mode) {

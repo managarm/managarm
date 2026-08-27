@@ -2,7 +2,8 @@ namespace "managarm::kernlet";
 
 enum Error {
 	SUCCESS = 0,
-	ILLEGAL_REQUEST
+	ILLEGAL_REQUEST,
+	ARCHITECTURE_NOT_SUPPORTED
 }
 
 enum ParameterType {

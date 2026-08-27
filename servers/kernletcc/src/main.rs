@@ -65,6 +65,15 @@ async fn upload(
     Ok(pull?.expect("kernletctl did not push a kernlet descriptor"))
 }
 
+/// Sends a head-only response without a kernlet descriptor, used to reject a request.
+async fn reject(conversation: &Handle, error: kernlet::Error) -> Result<()> {
+    let resp = kernlet::SvrResponse::new(error);
+    let resp_head = bragi::head_to_bytes(&resp)?;
+    let (send_resp,) = hel::submit_async(conversation, (hel::SendBuffer::new(&resp_head),)).await?;
+    send_resp?;
+    Ok(())
+}
+
 /// Handles a single request on the given lane. Returns `false` if the lane was shut down.
 async fn handle_request(lane: &Handle, ctl: &Handle) -> Result<bool> {
     let (conv, (head,)) = hel::submit_async(lane, hel::Accept::new((hel::ReceiveInline,))).await?;
@@ -88,12 +97,27 @@ async fn handle_request(lane: &Handle, ctl: &Handle) -> Result<bool> {
     recv_tail?;
     let code = recv_code?;
 
+    let Some(arch) = fafnir::Arch::host() else {
+        reject(&conversation, kernlet::Error::ArchitectureNotSupported).await?;
+        return Ok(true);
+    };
+
     let req: kernlet::CompileRequest = bragi::head_tail_from_bytes(&head, &tail)?;
     let proto: Vec<kernlet::ParameterType> = req.bind_types().to_vec();
     let bind_types: Vec<BindType> = proto.iter().map(|&p| bind_type_of(p)).collect();
 
-    let compiled = fafnir::compile(&code, &bind_types)?;
-    let elf_bytes = elf::build_dso(&compiled)?;
+    // Compilation fails on malformed bytecode, i.e. due to the request and not due to us.
+    let elf_bytes = match fafnir::compile(arch, &code, &bind_types)
+        .and_then(|compiled| elf::build_dso(&compiled))
+    {
+        Ok(elf_bytes) => elf_bytes,
+        Err(e) => {
+            eprintln!("kernletcc: Failed to compile a kernlet: {e:?}");
+            reject(&conversation, kernlet::Error::IllegalRequest).await?;
+            return Ok(true);
+        }
+    };
+
     let kernlet = upload(ctl, &elf_bytes, &proto).await?;
 
     let resp = kernlet::SvrResponse::new(kernlet::Error::Success);

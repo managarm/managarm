@@ -6,7 +6,7 @@ use object::Endianness;
 use object::elf;
 use object::write::elf::{FileHeader, ProgramHeader, Rel, Sym, SymbolIndex, Writer};
 
-use crate::fafnir::Compiled;
+use crate::fafnir::{Arch, Compiled, GotReloc, GotRelocKind};
 
 const SYM_SIZE: usize = size_of::<elf::Sym64<Endianness>>();
 const RELA_SIZE: usize = size_of::<elf::Rela64<Endianness>>();
@@ -25,8 +25,83 @@ fn sysv_elf_hash(name: &str) -> u32 {
     h
 }
 
+/// The ELF machine and JUMP_SLOT relocation type of an architecture.
+/// Keep in sync with kernletMachine/kernletJumpSlot in kernel/thor/generic/kernlet.cpp.
+fn elf_arch(arch: Arch) -> (u16, u32) {
+    match arch {
+        Arch::X86_64 => (elf::EM_X86_64, elf::R_X86_64_JUMP_SLOT),
+        Arch::Aarch64 => (elf::EM_AARCH64, elf::R_AARCH64_JUMP_SLOT),
+        Arch::Riscv64 => (elf::EM_RISCV, elf::R_RISCV_JUMP_SLOT),
+    }
+}
+
+/// Rewrites the 4-byte instruction at `offset` in place.
+fn patch_insn(code: &mut [u8], offset: usize, f: impl FnOnce(u32) -> u32) {
+    let field = &mut code[offset..offset + 4];
+    let insn = u32::from_le_bytes(field.try_into().unwrap());
+    field.copy_from_slice(&f(insn).to_le_bytes());
+}
+
+/// Encodes the address of a GOT slot into the instruction field that references it.
+/// `got_vaddr` is the address of the slot, `text_off` the address of the code.
+fn patch_got_reference(
+    code: &mut [u8],
+    reloc: &GotReloc,
+    got_vaddr: usize,
+    text_off: usize,
+) -> Result<()> {
+    let slot = got_vaddr as i64 + reloc.addend;
+    let pc = (text_off + reloc.pc_offset as usize) as i64;
+    let field = reloc.offset as usize;
+
+    match reloc.kind {
+        GotRelocKind::X86Pcrel32 => {
+            let value = i32::try_from(slot - pc)
+                .map_err(|_| anyhow::anyhow!("GOT displacement out of range"))?;
+            code[field..field + 4].copy_from_slice(&value.to_le_bytes());
+        }
+        GotRelocKind::Aarch64AdrpPage => {
+            // The adrp immediate counts 4 KiB pages and is split into immlo and immhi.
+            let pages = (slot >> 12) - (pc >> 12);
+            ensure!(
+                (-(1 << 20)..(1 << 20)).contains(&pages),
+                "GOT page offset out of range"
+            );
+            let imm = pages as u32;
+            patch_insn(code, field, |insn| {
+                (insn & !((0x3 << 29) | (0x7FFFF << 5)))
+                    | ((imm & 0x3) << 29)
+                    | (((imm >> 2) & 0x7FFFF) << 5)
+            });
+        }
+        GotRelocKind::Aarch64LdrLo12 => {
+            // The 64-bit ldr immediate is scaled by the access size.
+            ensure!(slot % 8 == 0, "GOT slot is not 8-byte aligned");
+            let imm = ((slot as u32) & 0xFFF) >> 3;
+            patch_insn(code, field, |insn| (insn & !(0xFFF << 10)) | (imm << 10));
+        }
+        GotRelocKind::RiscvAuipcHi20 => {
+            // The auipc immediate is rounded such that the (sign-extended) low 12 bits of the
+            // paired ld cancel the rounding out again.
+            let offset = i32::try_from(slot - pc)
+                .map_err(|_| anyhow::anyhow!("GOT displacement out of range"))?;
+            let hi20 = ((offset as u32).wrapping_add(0x800) >> 12) & 0xFFFFF;
+            patch_insn(code, field, |insn| (insn & 0xFFF) | (hi20 << 12));
+        }
+        GotRelocKind::RiscvLoadLo12 => {
+            let offset = i32::try_from(slot - pc)
+                .map_err(|_| anyhow::anyhow!("GOT displacement out of range"))?;
+            let lo12 = (offset as u32) & 0xFFF;
+            patch_insn(code, field, |insn| (insn & 0x000F_FFFF) | (lo12 << 20));
+        }
+    }
+    Ok(())
+}
+
 /// Builds an ELF DSO from compiled kernlet code and its external relocations.
 pub fn build_dso(compiled: &Compiled) -> Result<Vec<u8>> {
+    let (machine, jump_slot) = elf_arch(compiled.arch);
+
     let mut buffer = Vec::new();
     let mut w = Writer::new(Endianness::Little, true, &mut buffer);
 
@@ -92,7 +167,7 @@ pub fn build_dso(compiled: &Compiled) -> Result<Vec<u8>> {
         os_abi: elf::ELFOSABI_NONE,
         abi_version: 0,
         e_type: elf::ET_DYN,
-        e_machine: elf::EM_X86_64,
+        e_machine: machine,
         e_entry: 0,
         e_flags: 0,
     })?;
@@ -120,16 +195,11 @@ pub fn build_dso(compiled: &Compiled) -> Result<Vec<u8>> {
         p_align: 8,
     });
 
-    // Code (.text); patch each GOT-relative field to its GOT slot via S + A - P.
+    // Code (.text); patch each GOT reference to point at its GOT slot.
     let mut code = compiled.code.clone();
     for reloc in &compiled.relocs {
-        let got_vaddr = (got_off + reloc.symbol as usize * 8) as i64;
-        let field_vaddr = (text_off + reloc.offset as usize) as i64;
-        let value = got_vaddr + reloc.addend - field_vaddr;
-        let value =
-            i32::try_from(value).map_err(|_| anyhow::anyhow!("GOT displacement out of range"))?;
-        code[reloc.offset as usize..reloc.offset as usize + 4]
-            .copy_from_slice(&value.to_le_bytes());
+        let got_vaddr = got_off + reloc.symbol as usize * 8;
+        patch_got_reference(&mut code, reloc, got_vaddr, text_off)?;
     }
     w.write_align(8);
     check_off(w.len(), text_off, ".text")?;
@@ -205,7 +275,7 @@ pub fn build_dso(compiled: &Compiled) -> Result<Vec<u8>> {
             &Rel {
                 r_offset: (got_off + i * 8) as u64,
                 r_sym: symidx.0,
-                r_type: elf::R_X86_64_JUMP_SLOT,
+                r_type: jump_slot,
                 r_addend: 0,
             },
         );
