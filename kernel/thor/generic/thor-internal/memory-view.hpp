@@ -724,8 +724,8 @@ struct ManagedSpace : CacheBundle {
 	// * Attached by a waiter in TxState::wantInitialization or TxState::initialization.
 	// * Completed when leaving TxState::initialization.
 	// For MonitorType::writeback:
-	// * Attached by a waiter in TxState::wantWriteback or TxState::writeback.
-	// * Completed when leaving TxState::writeback.
+	// * Attached by a waiter in TxState::dirty, pendingWriteback, wantWriteback or writeback.
+	// * Completed when leaving TxState::writeback (or when the dirty data is dropped).
 	// For MonitorType::discard (waiting for a discarded page's entry to be erased):
 	// * Attached by a waiter to any page that has `discarded` set, in any TxState;
 	//   it stays attached across intermediate transactions.

@@ -1207,6 +1207,7 @@ coroutine<void> ManagedSpace::_runDrainLoop() {
 		co_await _evictQueue.fenceDirty();
 
 		ManageList mgmtPending;
+		MonitorPendingList pendingMonitors;
 		bool anyDiscardQueued = false;
 		{
 			auto irqLock = frg::guard(&irqMutex());
@@ -1220,6 +1221,9 @@ coroutine<void> ManagedSpace::_runDrainLoop() {
 					if(page->discardMode == DiscardMode::dropDirty) {
 						// The page was discarded while we were waiting for the fence.
 						// Note that claimSwapBudget() already ran for this page - _pageDiscarded() undoes the claim.
+						auto writebackMonitor = page->detachMonitor(MonitorType::writeback);
+						if(writebackMonitor)
+							pendingMonitors.push_back(writebackMonitor.release());
 						page->transactionState = TxState::none;
 						if(_disposeDiscarded(page))
 							anyDiscardQueued = true;
@@ -1233,6 +1237,7 @@ coroutine<void> ManagedSpace::_runDrainLoop() {
 
 			_progressManagement(mgmtPending);
 		}
+		_raiseMonitors(pendingMonitors);
 		if(anyDiscardQueued)
 			_discardEvent.raise();
 
@@ -1326,15 +1331,19 @@ void ManagedSpace::discardPage(ManagedPage *pit, DiscardMode mode, bool &raiseDi
 		pit->transactionState = TxState::none;
 		dispose = true;
 		break;
-	case TxState::dirty:
+	case TxState::dirty: {
 		if(mode == DiscardMode::keepDirty) {
 			// The page stays in _dirtyList. The writeback pipeline completes the discard.
 			break;
 		}
 		_dirtyList.erase(_dirtyList.iterator_to(&pit->cachePage));
+		auto writebackMonitor = pit->detachMonitor(MonitorType::writeback);
+		if(writebackMonitor)
+			pendingMonitors.push_back(writebackMonitor.release());
 		pit->transactionState = TxState::none;
 		dispose = true;
 		break;
+	}
 	case TxState::wantWriteback: {
 		if(mode == DiscardMode::keepDirty) {
 			// updateRange() completes the discard once the writeback finishes.
@@ -1981,7 +1990,9 @@ coroutine<frg::expected<Error>> BackingMemory::writebackFence(uintptr_t offset, 
 				size_t index = (offset + pg) >> kPageShift;
 				auto pit = _managed->pages.find(index);
 				if(pit) {
-					if(pit->transactionState == ManagedSpace::TxState::wantWriteback) {
+					if(pit->transactionState == ManagedSpace::TxState::dirty
+							|| pit->transactionState == ManagedSpace::TxState::pendingWriteback
+							|| pit->transactionState == ManagedSpace::TxState::wantWriteback) {
 						monitor = pit->requireMonitor(ManagedSpace::MonitorType::writeback);
 						break;
 					} else if(pit->transactionState == ManagedSpace::TxState::writeback) {
