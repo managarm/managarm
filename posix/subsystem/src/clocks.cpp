@@ -2,6 +2,7 @@
 #include <core/clock.hpp>
 #include <frg/safe_int.hpp>
 #include <hel.h>
+#include <helix/clock.hpp>
 #include <print>
 
 #include "clocks.hpp"
@@ -16,15 +17,13 @@ uint64_t convertToNanos(const timespec &ts, clockid_t clock, bool relative) {
 		nanos = UINT64_MAX;
 
 	if(relative) {
-		uint64_t now;
-		HEL_CHECK(helGetClock(&now));
+		auto now = helix::getClock();
 		uint64_t r;
 		if(!(frg::safe_int{now} + frg::safe_int{nanos}).into(r))
 			return UINT64_MAX;
 		return r;
 	} else if(clock == CLOCK_REALTIME) {
-		uint64_t now;
-		HEL_CHECK(helGetClock(&now));
+		auto now = helix::getClock();
 
 		// Transform real time to time since boot.
 		int64_t bootTime = clk::getRealtimeNanos() - now;
