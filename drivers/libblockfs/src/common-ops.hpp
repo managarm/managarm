@@ -340,16 +340,25 @@ doTraverseLinks(std::shared_ptr<void> object, std::deque<std::string> components
 
 	auto self = std::static_pointer_cast<Inode>(object);
 
-	protocols::ostrace::Timer timer;
-	frg::scope_exit evtOnExit{[&] {
-		ostContext.emit(ostEvtTraverseLinks, ostAttrTime(timer.elapsed()));
-	}};
-
 	std::optional<DirEntry> entry;
 	size_t allComponents = components.size();
 
 	// (inode, inode number) pair for all resolved path components.
 	std::vector<std::pair<std::shared_ptr<void>, int64_t>> nodes;
+
+	protocols::ostrace::Timer timer;
+	uint64_t timeLock = 0;
+	uint64_t timeFind = 0;
+	frg::scope_exit evtOnExit{[&] {
+		ostContext.emit(
+			ostEvtTraverseLinks,
+			ostAttrTime(timer.elapsed()),
+			ostAttrNumComponents(allComponents),
+			ostAttrNumResolved(nodes.size()),
+			ostAttrTimeLock(timeLock),
+			ostAttrTimeFind(timeFind)
+		);
+	}};
 
 	// Stack of directories that we have entered.
 	// Differs from the nodes vector: directories are popped here when resolving "..".
@@ -374,9 +383,14 @@ doTraverseLinks(std::shared_ptr<void> object, std::deque<std::string> components
 		} else {
 			auto parent = dirStack.back().first;
 			{
+				protocols::ostrace::Timer lockTimer;
 				co_await parent->inodeMutex.async_lock_shared();
 				frg::shared_lock inodeLock{frg::adopt_lock, parent->inodeMutex};
+				timeLock += lockTimer.elapsed();
+
+				protocols::ostrace::Timer findTimer;
 				entry = FRG_CO_TRY(co_await parent->findEntry(component));
+				timeFind += findTimer.elapsed();
 			}
 
 			if (!entry) {

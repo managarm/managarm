@@ -66,6 +66,9 @@ inline constinit protocols::ostrace::UintAttribute ostAttrNumGroups{"numGroups"}
 inline constinit protocols::ostrace::UintAttribute ostAttrNumCoalesced{"numCoalesced"};
 // markDirty() calls since the last batch that hit an already queued block.
 inline constinit protocols::ostrace::UintAttribute ostAttrNumRedundant{"numRedundant"};
+// Path components the caller asked to resolve, and how many of them were resolved.
+inline constinit protocols::ostrace::UintAttribute ostAttrNumComponents{"numComponents"};
+inline constinit protocols::ostrace::UintAttribute ostAttrNumResolved{"numResolved"};
 // Inode number the operation acted on; 0 if allocation failed.
 inline constinit protocols::ostrace::UintAttribute ostAttrIno{"ino"};
 // Whether the looked-up name or block was already present (1) or not (0).
@@ -180,6 +183,8 @@ inline protocols::ostrace::Vocabulary ostVocabulary{
 	ostAttrNumGroups,
 	ostAttrNumCoalesced,
 	ostAttrNumRedundant,
+	ostAttrNumComponents,
+	ostAttrNumResolved,
 	ostAttrIno,
 	ostAttrFound,
 	ostAttrIsWrite,
