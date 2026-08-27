@@ -76,11 +76,19 @@ namespace detail {
 template <Inode T>
 async::result<protocols::fs::ReadResult> doReadImpl(T *inode, void *buffer, size_t length, auto &offset) {
 	protocols::ostrace::Timer timer;
+	size_t numBytes = 0;
+	uint64_t timeReady = 0;
+	uint64_t timeLock = 0;
+	uint64_t timeCopy = 0;
 	frg::scope_exit evtOnExit{[&] {
 		ostContext.emit(
 			ostEvtRead,
-			ostAttrNumBytes(length),
-			ostAttrTime(timer.elapsed())
+			ostAttrNumBytes(numBytes),
+			ostAttrNumRequested(length),
+			ostAttrTime(timer.elapsed()),
+			ostAttrTimeReady(timeReady),
+			ostAttrTimeLock(timeLock),
+			ostAttrTimeCopy(timeCopy)
 		);
 	}};
 
@@ -89,9 +97,11 @@ async::result<protocols::fs::ReadResult> doReadImpl(T *inode, void *buffer, size
 
 	// TODO(geert): Pass cancellation token
 	co_await inode->readyEvent.wait();
+	timeReady = timer.elapsed();
 
 	co_await inode->inodeMutex.async_lock_shared();
 	frg::shared_lock inodeLock{frg::adopt_lock, inode->inodeMutex};
+	timeLock = timer.elapsed() - timeReady;
 
 	if (inode->fileType == FileType::kTypeDirectory)
 		co_return std::unexpected{protocols::fs::Error::isDirectory};
@@ -108,11 +118,14 @@ async::result<protocols::fs::ReadResult> doReadImpl(T *inode, void *buffer, size
 
 	// TODO: Add a sendFromMemory action to exchangeMsgs to avoid
 	// having to copy this data twice.
+	protocols::ostrace::Timer copyTimer;
 	auto readMemory = co_await helix_ng::readMemory(
 		inode->accessMemory(),
 		chunkOffset, chunkSize, buffer);
 	HEL_CHECK(readMemory.error());
+	timeCopy = copyTimer.elapsed();
 
+	numBytes = chunkSize;
 	co_return chunkSize;
 }
 
@@ -120,11 +133,21 @@ template <Inode T>
 async::result<frg::expected<protocols::fs::Error, size_t>>
 doWriteImpl(T *inode, const void *buffer, size_t length, bool append, auto &offset) {
 	protocols::ostrace::Timer timer;
+	size_t numBytes = 0;
+	uint64_t timeReady = 0;
+	uint64_t timeLock = 0;
+	uint64_t timeResize = 0;
+	uint64_t timeCopy = 0;
 	frg::scope_exit evtOnExit{[&] {
 		ostContext.emit(
 			ostEvtWrite,
-			ostAttrNumBytes(length),
-			ostAttrTime(timer.elapsed())
+			ostAttrNumBytes(numBytes),
+			ostAttrNumRequested(length),
+			ostAttrTime(timer.elapsed()),
+			ostAttrTimeReady(timeReady),
+			ostAttrTimeLock(timeLock),
+			ostAttrTimeResize(timeResize),
+			ostAttrTimeCopy(timeCopy)
 		);
 	}};
 
@@ -132,9 +155,11 @@ doWriteImpl(T *inode, const void *buffer, size_t length, bool append, auto &offs
 		co_return size_t{0};
 
 	co_await inode->readyEvent.wait();
+	timeReady = timer.elapsed();
 
 	co_await inode->inodeMutex.async_lock();
 	frg::unique_lock inodeLock{frg::adopt_lock, inode->inodeMutex};
+	timeLock = timer.elapsed() - timeReady;
 
 	if (inode->fileType == FileType::kTypeDirectory)
 		co_return protocols::fs::Error::isDirectory;
@@ -142,18 +167,24 @@ doWriteImpl(T *inode, const void *buffer, size_t length, bool append, auto &offs
 	if (append)
 		offset = inode->fileSize();
 	auto requiredSize = offset + length;
-	if (requiredSize > inode->fileSize())
+	if (requiredSize > inode->fileSize()) {
+		protocols::ostrace::Timer resizeTimer;
 		FRG_CO_TRY(co_await inode->resizeFile(requiredSize));
+		timeResize = resizeTimer.elapsed();
+	}
 
 	// TODO: Add a recvToMemory action to exchangeMsgs to avoid
 	// having to copy this data twice.
+	protocols::ostrace::Timer copyTimer;
 	auto writeMemory = co_await helix_ng::writeMemory(
 		inode->accessMemory(),
 		offset, length, buffer);
 	HEL_CHECK(writeMemory.error());
+	timeCopy = copyTimer.elapsed();
 
 	offset += length;
 
+	numBytes = length;
 	co_return length;
 }
 
@@ -242,10 +273,25 @@ async::result<frg::expected<protocols::fs::Error>> doTruncate(void *object, size
 	auto self = static_cast<File *>(object);
 	auto inode = std::static_pointer_cast<Inode>(self->inode);
 
+	protocols::ostrace::Timer timer;
+	uint64_t timeReady = 0;
+	uint64_t timeLock = 0;
+	frg::scope_exit evtOnExit{[&] {
+		ostContext.emit(
+			ostEvtTruncate,
+			ostAttrTime(timer.elapsed()),
+			ostAttrNewSize(size),
+			ostAttrTimeReady(timeReady),
+			ostAttrTimeLock(timeLock)
+		);
+	}};
+
 	co_await self->mutex.async_lock_shared();
 	frg::shared_lock lock{frg::adopt_lock, self->mutex};
+	timeLock += timer.split();
 
 	co_await inode->readyEvent.wait();
+	timeReady = timer.split();
 
 	// Directories cannot be truncated.
 	if (inode->fileType == FileType::kTypeDirectory)
@@ -253,6 +299,7 @@ async::result<frg::expected<protocols::fs::Error>> doTruncate(void *object, size
 
 	co_await inode->inodeMutex.async_lock();
 	frg::unique_lock inodeLock{frg::adopt_lock, inode->inodeMutex};
+	timeLock += timer.split();
 
 	FRG_CO_TRY(co_await inode->resizeFile(size));
 
@@ -293,16 +340,25 @@ doTraverseLinks(std::shared_ptr<void> object, std::deque<std::string> components
 
 	auto self = std::static_pointer_cast<Inode>(object);
 
-	protocols::ostrace::Timer timer;
-	frg::scope_exit evtOnExit{[&] {
-		ostContext.emit(ostEvtTraverseLinks, ostAttrTime(timer.elapsed()));
-	}};
-
 	std::optional<DirEntry> entry;
 	size_t allComponents = components.size();
 
 	// (inode, inode number) pair for all resolved path components.
 	std::vector<std::pair<std::shared_ptr<void>, int64_t>> nodes;
+
+	protocols::ostrace::Timer timer;
+	uint64_t timeLock = 0;
+	uint64_t timeFind = 0;
+	frg::scope_exit evtOnExit{[&] {
+		ostContext.emit(
+			ostEvtTraverseLinks,
+			ostAttrTime(timer.elapsed()),
+			ostAttrNumComponents(allComponents),
+			ostAttrNumResolved(nodes.size()),
+			ostAttrTimeLock(timeLock),
+			ostAttrTimeFind(timeFind)
+		);
+	}};
 
 	// Stack of directories that we have entered.
 	// Differs from the nodes vector: directories are popped here when resolving "..".
@@ -327,9 +383,14 @@ doTraverseLinks(std::shared_ptr<void> object, std::deque<std::string> components
 		} else {
 			auto parent = dirStack.back().first;
 			{
+				protocols::ostrace::Timer lockTimer;
 				co_await parent->inodeMutex.async_lock_shared();
 				frg::shared_lock inodeLock{frg::adopt_lock, parent->inodeMutex};
+				timeLock += lockTimer.elapsed();
+
+				protocols::ostrace::Timer findTimer;
 				entry = FRG_CO_TRY(co_await parent->findEntry(component));
+				timeFind += findTimer.elapsed();
 			}
 
 			if (!entry) {
@@ -392,15 +453,31 @@ doOpen(std::shared_ptr<void> object, bool write, bool read, bool append) {
 	using Inode = typename T::Inode;
 
 	auto self = std::static_pointer_cast<Inode>(object);
+
+	protocols::ostrace::Timer timer;
+	uint64_t timeReady = 0;
+	uint64_t timeLock = 0;
+	frg::scope_exit evtOnExit{[&] {
+		ostContext.emit(
+			ostEvtOpen,
+			ostAttrTime(timer.elapsed()),
+			ostAttrTimeReady(timeReady),
+			ostAttrTimeLock(timeLock)
+		);
+	}};
+
 	auto file = smarter::make_shared<File>(self, write, read, append);
 	co_await self->readyEvent.wait();
+	timeReady = timer.split();
 
 	auto [localCtrl, remoteCtrl] = helix::createStream();
 	auto [localPt, remotePt] = helix::createStream();
 
 	{
+		protocols::ostrace::Timer lockTimer;
 		co_await self->inodeMutex.async_lock();
 		frg::unique_lock inodeLock{frg::adopt_lock, self->inodeMutex};
+		timeLock = lockTimer.elapsed();
 		co_await self->updateTimes(clk::getRealtime(), std::nullopt, std::nullopt);
 	}
 

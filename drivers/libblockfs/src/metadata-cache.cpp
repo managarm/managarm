@@ -3,9 +3,11 @@
 #include <utility>
 
 #include <frg/mutex.hpp>
+#include <frg/scope_exit.hpp>
 #include <helix/dispatcher-pool.hpp>
 
 #include "metadata-cache.hpp"
+#include "trace.hpp"
 
 namespace blockfs {
 
@@ -91,6 +93,9 @@ MetadataCache::CacheBlockPtr MetadataCache::touchLru_(CacheBlock *cacheBlock) {
 }
 
 void MetadataCache::destroyCacheBlock_(CacheBlock *cacheBlock) {
+	protocols::ostrace::Timer timer;
+	auto block = cacheBlock->block;
+
 	{
 		std::lock_guard cacheBlockLock{cacheBlockMutex_};
 
@@ -101,10 +106,29 @@ void MetadataCache::destroyCacheBlock_(CacheBlock *cacheBlock) {
 			cacheBlocks_.erase(it);
 	}
 	delete cacheBlock;
+
+	ostContext.emit(
+		ostEvtMetadataUnmap,
+		ostAttrTime(timer.elapsed()),
+		ostAttrBlock(block)
+	);
 }
 
 async::result<MetadataCache::BlockWindow> MetadataCache::access(uint64_t block, bool writable) {
 	assert(block < numBlocks_);
+
+	protocols::ostrace::Timer timer;
+	uint64_t timePin = 0;
+	bool found = true;
+	frg::scope_exit evtOnExit{[&] {
+		ostContext.emit(
+			ostEvtMetadataAccess,
+			ostAttrTime(timer.elapsed()),
+			ostAttrBlock(block),
+			ostAttrFound(found),
+			ostAttrTimePin(timePin)
+		);
+	}};
 
 	if(auto cacheBlock = findCacheBlock_(block))
 		co_return BlockWindow{std::move(cacheBlock), writable};
@@ -115,6 +139,7 @@ async::result<MetadataCache::BlockWindow> MetadataCache::access(uint64_t block, 
 	if(auto cacheBlock = findCacheBlock_(block))
 		co_return BlockWindow{std::move(cacheBlock), writable};
 
+	found = false;
 	auto frameSize = size_t{1} << blockPagesShift_;
 
 	helix::LockMemoryView lockMemory;
@@ -122,6 +147,7 @@ async::result<MetadataCache::BlockWindow> MetadataCache::access(uint64_t block, 
 			block << blockPagesShift_, frameSize, helix::Dispatcher::global());
 	co_await submit.async_wait();
 	HEL_CHECK(lockMemory.error());
+	timePin = timer.split();
 
 	auto cacheBlock = CacheBlock::create(this, block, lockMemory.descriptor());
 	CacheBlockPtr evicted; // Drop after the lock.
@@ -137,9 +163,18 @@ async::result<void> MetadataCache::read(uint64_t block, size_t offset, size_t le
 	assert(block < numBlocks_);
 	assert(offset + length <= blockSize_);
 
+	protocols::ostrace::Timer timer;
+
 	auto readMemory = co_await helix_ng::readMemory(frontal_,
 			(block << blockPagesShift_) + offset, length, buffer);
 	HEL_CHECK(readMemory.error());
+
+	ostContext.emit(
+		ostEvtMetadataRead,
+		ostAttrTime(timer.elapsed()),
+		ostAttrBlock(block),
+		ostAttrNumBytes(length)
+	);
 }
 
 async::detached MetadataCache::manage_(helix::UniqueDescriptor backing) {
@@ -161,7 +196,11 @@ async::result<void> MetadataCache::serviceRequest_(helix::BorrowedDescriptor bac
 	assert(!(offset & (frameSize - 1)));
 	assert(!(length & (frameSize - 1)));
 
+	protocols::ostrace::Timer timer;
+	uint64_t deviceTime = 0;
+
 	auto view = device_->pagePool->importMemory(backing, offset, length);
+	auto importTime = timer.split();
 
 	for(size_t progress = 0; progress < length; progress += frameSize) {
 		auto block = (offset + progress) >> blockPagesShift_;
@@ -169,8 +208,10 @@ async::result<void> MetadataCache::serviceRequest_(helix::BorrowedDescriptor bac
 
 		auto subview = view.view().subview(progress, blockSize_);
 
+		protocols::ostrace::Timer deviceTimer;
 		if(type == kHelManageInitialize) {
 			co_await device_->readSectors(block * sectorsPerBlock_, subview);
+			deviceTime += deviceTimer.elapsed();
 			// Zero the tail of the frame that no disk block backs.
 			if(blockSize_ < frameSize)
 				memset(view.view().subview(progress + blockSize_,
@@ -178,10 +219,20 @@ async::result<void> MetadataCache::serviceRequest_(helix::BorrowedDescriptor bac
 		}else{
 			assert(type == kHelManageWriteback);
 			co_await device_->writeSectors(block * sectorsPerBlock_, subview);
+			deviceTime += deviceTimer.elapsed();
 		}
 	}
 
 	HEL_CHECK(helUpdateMemory(backing.getHandle(), type, offset, length));
+
+	ostContext.emit(
+		type == kHelManageInitialize ? ostEvtMetadataInitialize : ostEvtMetadataWriteback,
+		ostAttrTime(timer.elapsed()),
+		ostAttrNumBytes(length),
+		ostAttrBlock(offset >> blockPagesShift_),
+		ostAttrTimeImport(importTime),
+		ostAttrTimeDevice(deviceTime)
+	);
 }
 
 void MetadataCache::markDirty_(uint64_t block) {
@@ -189,8 +240,10 @@ void MetadataCache::markDirty_(uint64_t block) {
 		std::lock_guard dirtyLock{dirtyMutex_};
 
 		// An entry that is already queued is covered by the raise that queued it.
-		if(!dirtyBlocks_.insert(block).second)
+		if(!dirtyBlocks_.insert(block).second) {
+			++numRedundantDirty_;
 			return;
+		}
 	}
 
 	dirtyEvent_.raise();
@@ -203,6 +256,8 @@ async::detached MetadataCache::flushDirty_() {
 	while(true) {
 		co_await dirtyEvent_.async_wait(seenSeq);
 
+		protocols::ostrace::Timer timer;
+		uint64_t numRedundant;
 		{
 			std::lock_guard dirtyLock{dirtyMutex_};
 
@@ -211,15 +266,28 @@ async::detached MetadataCache::flushDirty_() {
 			seenSeq = dirtyEvent_.next_sequence() - 1;
 			batch.assign(dirtyBlocks_.begin(), dirtyBlocks_.end());
 			dirtyBlocks_.clear();
+			numRedundant = numRedundantDirty_;
+			numRedundantDirty_ = 0;
 		}
+		auto numBlocks = batch.size();
 
 		auto frameSize = size_t{1} << blockPagesShift_;
+		protocols::ostrace::Timer cleanTimer;
 		for(auto block : batch) {
 			auto synchronize = co_await helix_ng::synchronizeSpace(
 					helix::BorrowedDescriptor{kHelNullHandle},
 					blockAddress_(block), frameSize);
 			HEL_CHECK(synchronize.error());
 		}
+		auto cleanTime = cleanTimer.elapsed();
+
+		ostContext.emit(
+			ostEvtMetadataClean,
+			ostAttrTime(timer.elapsed()),
+			ostAttrNumBlocks(numBlocks),
+			ostAttrNumRedundant(numRedundant),
+			ostAttrTimeCleanPages(cleanTime)
+		);
 	}
 }
 

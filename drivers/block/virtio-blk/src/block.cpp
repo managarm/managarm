@@ -1,5 +1,6 @@
 
 #include <async/basic.hpp>
+#include <frg/scope_exit.hpp>
 #include <stdlib.h>
 #include <iostream>
 #include <list>
@@ -10,6 +11,28 @@ namespace block {
 namespace virtio {
 
 static bool logInitiateRetire = false;
+
+namespace {
+
+uint64_t currentNs() {
+	uint64_t ns;
+	HEL_CHECK(helGetClock(&ns));
+	return ns;
+}
+
+void emitRequestTrace(UserRequest *request) {
+	blockfs::ostContext.emit(
+		blockfs::ostEvtVirtioBlkRequest,
+		blockfs::ostAttrTime(request->completeTs - request->enqueueTs),
+		blockfs::ostAttrNumBytes(request->view.size()),
+		blockfs::ostAttrIsWrite(request->write),
+		blockfs::ostAttrTimeSetup(request->setupTime),
+		blockfs::ostAttrTimeObtain(request->obtainTime),
+		blockfs::ostAttrTimeDevice(request->completeTs - request->submitTs)
+	);
+}
+
+} // anonymous namespace
 
 // --------------------------------------------------------
 // UserRequest
@@ -56,6 +79,8 @@ async::result<void> Device::readSectors(uint64_t sector, arch::dma_buffer_view v
 	assert(!((uintptr_t)view.data() % 512));
 //	printf("readSectors(%lu, %lu)\n", sector, num_sectors);
 
+	protocols::ostrace::Timer timer;
+
 	// Limit to ensure that we don't monopolize the device.
 	auto max_sectors = _requestQueue->numDescriptors() / 4;
 	assert(max_sectors >= 1);
@@ -69,6 +94,7 @@ async::result<void> Device::readSectors(uint64_t sector, arch::dma_buffer_view v
 		    progress << sectorShift, std::min(num_sectors - progress, max_sectors) << sectorShift
 		);
 		auto &request = requests.emplace_back(false, sector + progress, subview, pagePool);
+		request.enqueueTs = currentNs();
 		co_await _issueRequest(&request);
 	}
 
@@ -80,13 +106,22 @@ async::result<void> Device::readSectors(uint64_t sector, arch::dma_buffer_view v
 					<< static_cast<unsigned int>(*request.status) << std::endl;
 			abort();
 		}
+		emitRequestTrace(&request);
 	}
+
+	blockfs::ostContext.emit(
+		blockfs::ostEvtVirtioBlkReadSectors,
+		blockfs::ostAttrTime(timer.elapsed()),
+		blockfs::ostAttrNumBytes(view.size())
+	);
 }
 
 async::result<void> Device::writeSectors(uint64_t sector, arch::dma_buffer_view view) {
 	// Natural alignment makes sure a sector does not cross a page boundary.
 	assert(!((uintptr_t)view.data() % 512));
 //	printf("writeSectors(%lu, %lu)\n", sector, num_sectors);
+
+	protocols::ostrace::Timer timer;
 
 	// Limit to ensure that we don't monopolize the device.
 	auto max_sectors = _requestQueue->numDescriptors() / 4;
@@ -101,6 +136,7 @@ async::result<void> Device::writeSectors(uint64_t sector, arch::dma_buffer_view 
 		    progress << sectorShift, std::min(num_sectors - progress, max_sectors) << sectorShift
 		);
 		auto &request = requests.emplace_back(true, sector + progress, subview, pagePool);
+		request.enqueueTs = currentNs();
 		co_await _issueRequest(&request);
 	}
 
@@ -112,17 +148,41 @@ async::result<void> Device::writeSectors(uint64_t sector, arch::dma_buffer_view 
 					<< static_cast<unsigned int>(*request.status) << std::endl;
 			abort();
 		}
+		emitRequestTrace(&request);
 	}
+
+	blockfs::ostContext.emit(
+		blockfs::ostEvtVirtioBlkWriteSectors,
+		blockfs::ostAttrTime(timer.elapsed()),
+		blockfs::ostAttrNumBytes(view.size())
+	);
 }
 
 async::result<void> Device::flush() {
+	protocols::ostrace::Timer timer;
+	uint64_t setupTime = 0;
+	uint64_t obtainTime = 0;
+	uint64_t deviceTime = 0;
+	frg::scope_exit evtOnExit{[&] {
+		blockfs::ostContext.emit(
+			blockfs::ostEvtVirtioBlkFlush,
+			blockfs::ostAttrTime(timer.elapsed()),
+			blockfs::ostAttrTimeSetup(setupTime),
+			blockfs::ostAttrTimeObtain(obtainTime),
+			blockfs::ostAttrTimeDevice(deviceTime)
+		);
+	}};
+
+	// Devices without a flush command still emit the event, with a zero device time.
 	if(!_hasFlush)
 		co_return;
 
 	UserRequest request{false, 0, {}, pagePool};
 
 	std::array<virtio_core::Handle, 2> handles;
+	setupTime += timer.split();
 	co_await _requestQueue->obtainDescriptors(handles);
+	obtainTime = timer.split();
 	handles[0].setupLink(handles[1]);
 
 	request.header->type = VIRTIO_BLK_T_FLUSH;
@@ -132,14 +192,19 @@ async::result<void> Device::flush() {
 	co_await handles[0].setupBuffer(virtio_core::hostToDevice, request.header.view_buffer());
 	co_await handles[1].setupBuffer(virtio_core::deviceToHost, request.status.view_buffer());
 
+	setupTime += timer.split();
+	request.submitTs = currentNs();
+
 	_requestQueue->postDescriptor(handles.front(), &request,
 			[] (virtio_core::Request *base_request) {
 		auto request = static_cast<UserRequest *>(base_request);
+		request->completeTs = currentNs();
 		request->event.raise();
 	});
 	_requestQueue->notify();
 
 	co_await request.event.wait();
+	deviceTime = request.completeTs - request.submitTs;
 	if(*request.status != VIRTIO_BLK_S_OK) {
 		std::cout << "virtio: Device signaled an error for flush, status "
 				<< static_cast<unsigned int>(*request.status) << std::endl;
@@ -154,13 +219,17 @@ async::result<size_t> Device::getSize() {
 async::result<void> Device::_issueRequest(UserRequest *request) {
 	assert(request->view.size());
 
+	protocols::ostrace::Timer setupTimer;
+
 	// Split the view into DMA-contiguous chunks (and not into individual sectors)
 	// since setupBuffer() only requires contiguity in DMA space per descriptor.
 	auto chunks = co_await _requestQueue->splitContiguous(request->view);
 
 	// Acquire all descriptors of the chain at once to avoid potential deadlocks.
 	std::vector<virtio_core::Handle> handles(2 + chunks.size());
+	request->setupTime += setupTimer.split();
 	co_await _requestQueue->obtainDescriptors(handles);
+	request->obtainTime = setupTimer.split();
 
 	for(size_t i = 1; i < handles.size(); i++)
 		handles[i - 1].setupLink(handles[i]);
@@ -194,6 +263,11 @@ async::result<void> Device::_issueRequest(UserRequest *request) {
 	    request->status.view_buffer()
 	);
 
+	// Stamp the submission before posting: the completion callback may run
+	// as soon as the descriptor is posted.
+	request->setupTime += setupTimer.split();
+	request->submitTs = currentNs();
+
 	// Submit the request to the device
 	_requestQueue->postDescriptor(handles.front(), request,
 			[] (virtio_core::Request *base_request) {
@@ -201,6 +275,7 @@ async::result<void> Device::_issueRequest(UserRequest *request) {
 		if(logInitiateRetire)
 			std::cout << "Retiring request of " << request->view.size()
 					<< " bytes" << std::endl;
+		request->completeTs = currentNs();
 		request->event.raise();
 	});
 	_requestQueue->notify();

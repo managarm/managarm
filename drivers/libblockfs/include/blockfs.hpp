@@ -58,12 +58,18 @@ extern protocols::ostrace::Event ostEvtTraverseLinks;
 extern protocols::ostrace::Event ostEvtRead;
 extern protocols::ostrace::Event ostEvtRawRead;
 extern protocols::ostrace::Event ostEvtExt2AssignDataBlocks;
-extern protocols::ostrace::Event ostEvtExt2InitiateInode;
-extern protocols::ostrace::Event ostEvtExt2ManageFile;
 extern protocols::ostrace::Event ostEvtExt2AllocateBlocks;
 extern protocols::ostrace::Event ostEvtExt2AllocateInode;
+extern protocols::ostrace::Event ostEvtVirtioBlkReadSectors;
+extern protocols::ostrace::Event ostEvtVirtioBlkWriteSectors;
+extern protocols::ostrace::Event ostEvtVirtioBlkRequest;
+extern protocols::ostrace::Event ostEvtVirtioBlkFlush;
 extern protocols::ostrace::UintAttribute ostAttrTime;
 extern protocols::ostrace::UintAttribute ostAttrNumBytes;
+extern protocols::ostrace::UintAttribute ostAttrIsWrite;
+extern protocols::ostrace::UintAttribute ostAttrTimeSetup;
+extern protocols::ostrace::UintAttribute ostAttrTimeObtain;
+extern protocols::ostrace::UintAttribute ostAttrTimeDevice;
 
 extern protocols::ostrace::Context ostContext;
 

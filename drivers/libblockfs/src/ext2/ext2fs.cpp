@@ -13,6 +13,7 @@
 #include <core/align.hpp>
 #include <core/clock.hpp>
 #include <core/logging.hpp>
+#include <frg/scope_exit.hpp>
 #include <helix/dispatcher-pool.hpp>
 #include <helix/ipc.hpp>
 #include <helix/memory.hpp>
@@ -23,6 +24,7 @@
 #include "ext2fs.hpp"
 #include "extents.hpp"
 #include "../checksums.hpp"
+#include "../trace.hpp"
 
 namespace blockfs {
 namespace ext2fs {
@@ -135,7 +137,26 @@ void Inode::setFileSize(size_t size) {
 
 async::result<frg::expected<protocols::fs::Error, std::optional<DirEntry>>>
 Inode::findEntry(std::string name) {
+	protocols::ostrace::Timer timer;
+	uint64_t timeReady = 0;
+	uint64_t timePin = 0;
+	uint64_t scanned = 0;
+	bool found = false;
+	frg::scope_exit evtOnExit{[&] {
+		auto timeScan = timer.split();
+		ostContext.emit(
+			ostEvtExt2FindEntry,
+			ostAttrTime(timer.elapsed()),
+			ostAttrNumBytes(scanned),
+			ostAttrTimeReady(timeReady),
+			ostAttrTimePin(timePin),
+			ostAttrTimeScan(timeScan),
+			ostAttrFound(found)
+		);
+	}};
+
 	co_await readyEvent.wait();
+	timeReady = timer.split();
 
 	if(fileType != kTypeDirectory)
 		co_return protocols::fs::Error::notDirectory;
@@ -149,6 +170,7 @@ Inode::findEntry(std::string name) {
 			0, map_size, helix::Dispatcher::global());
 	co_await submit.async_wait();
 	HEL_CHECK(lock_memory.error());
+	timePin = timer.split();
 
 	// Read the directory structure.
 	uintptr_t offset = 0;
@@ -162,6 +184,9 @@ Inode::findEntry(std::string name) {
 		if(disk_entry->inode
 				&& name.length() == disk_entry->nameLength
 				&& !memcmp(disk_entry->name, name.data(), name.length())) {
+			scanned = offset;
+			found = true;
+
 			DirEntry entry;
 			entry.inode = disk_entry->inode;
 
@@ -182,6 +207,7 @@ Inode::findEntry(std::string name) {
 		offset += disk_entry->recordLength;
 	}
 	assert(offset == fileSize());
+	scanned = offset;
 
 	co_return std::nullopt;
 }
@@ -191,7 +217,29 @@ Inode::insertEntry(std::string name, int64_t ino, blockfs::FileType type) {
 	assert(!name.empty() && name != "." && name != "..");
 	assert(ino);
 
+	protocols::ostrace::Timer timer;
+	size_t dirSize = 0;
+	uint64_t timeReady = 0;
+	uint64_t timePin = 0;
+	uint64_t timeScan = 0;
+	uint64_t growTime = 0;
+	uint64_t cleanDirTime = 0;
+	frg::scope_exit evtOnExit{[&] {
+		ostContext.emit(
+			ostEvtExt2InsertEntry,
+			ostAttrTime(timer.elapsed()),
+			ostAttrFileSize(dirSize),
+			ostAttrTimeReady(timeReady),
+			ostAttrTimePin(timePin),
+			ostAttrTimeScan(timeScan),
+			ostAttrTimeGrow(growTime),
+			ostAttrTimeCleanDir(cleanDirTime)
+		);
+	}};
+
 	co_await readyEvent.wait();
+	timeReady = timer.split();
+	dirSize = fileSize();
 
 	assert(fileType == kTypeDirectory);
 	assert(fileMapping.size() == ((fileSize() + 0xFFF) & ~size_t(0xFFF)));
@@ -220,11 +268,13 @@ Inode::insertEntry(std::string name, int64_t ino, blockfs::FileType type) {
 		}
 		memcpy(diskEntry->name, name.data(), name.length() + 1);
 
-		// Flush the data to disk.
-		// TODO: It would be enough to flush only one or two pages here.
+		// Hand the modified pages over to writeback.
+		// TODO: It would be enough to clean only one or two pages here.
+		protocols::ostrace::Timer cleanDirTimer;
 		auto syncDir = co_await helix_ng::synchronizeSpace(
 				helix::BorrowedDescriptor{kHelNullHandle}, fileMapping.get(), fileSize());
 		HEL_CHECK(syncDir.error());
+		cleanDirTime += cleanDirTimer.elapsed();
 
 		// Increment the target's link count.
 		// This is sound since the caller holds the target's inodeMutex exclusively.
@@ -234,7 +284,7 @@ Inode::insertEntry(std::string name, int64_t ino, blockfs::FileType type) {
 
 		updateInodeChecksum(fs, target->diskInode(), ino);
 
-		// Flush the target inode to disk.
+		// Queue the target inode for writeback.
 		target->diskInodeWindow.markDirty();
 
 		DirEntry entry;
@@ -250,6 +300,7 @@ Inode::insertEntry(std::string name, int64_t ino, blockfs::FileType type) {
 			0, map_size, helix::Dispatcher::global());
 	co_await submit.async_wait();
 	HEL_CHECK(lock_memory.error());
+	timePin = timer.split();
 
 	auto time = clk::getRealtime();
 	diskInode()->mtime = time.tv_sec;
@@ -285,6 +336,7 @@ Inode::insertEntry(std::string name, int64_t ino, blockfs::FileType type) {
 			// Update the existing dentry.
 			previous_entry->recordLength = contracted;
 
+			timeScan = timer.split();
 			co_return co_await appendDirEntry(offset + contracted, available);
 		}
 
@@ -293,6 +345,8 @@ Inode::insertEntry(std::string name, int64_t ino, blockfs::FileType type) {
 	assert(offset == fileSize());
 
 	// If we made it this far, we ran out of space in the directory. Resize it.
+	timeScan = timer.split();
+	protocols::ostrace::Timer growTimer;
 	auto blockOffset = (offset & ~(fs.blockSize - 1)) >> fs.blockShift;
 	auto newSize = offset + fs.blockSize;
 	auto newMappingSize = (newSize + 0xFFF) & ~size_t(0xFFF);
@@ -319,6 +373,7 @@ Inode::insertEntry(std::string name, int64_t ino, blockfs::FileType type) {
 				0, newMappingSize, helix::Dispatcher::global());
 		co_await submit.async_wait();
 		HEL_CHECK(lock_memory.error());
+		growTime = growTimer.elapsed();
 
 		co_return co_await appendDirEntry(offset, fileSize() - offset);
 	}
@@ -327,7 +382,26 @@ Inode::insertEntry(std::string name, int64_t ino, blockfs::FileType type) {
 async::result<frg::expected<protocols::fs::Error>> Inode::removeEntry(std::string name) {
 	assert(!name.empty() && name != "." && name != "..");
 
+	protocols::ostrace::Timer timer;
+	uint64_t timeReady = 0;
+	uint64_t timePin = 0;
+	uint64_t scanned = 0;
+	uint64_t cleanDirTime = 0;
+	frg::scope_exit evtOnExit{[&] {
+		auto timeScan = timer.split() - cleanDirTime;
+		ostContext.emit(
+			ostEvtExt2RemoveEntry,
+			ostAttrTime(timer.elapsed()),
+			ostAttrNumBytes(scanned),
+			ostAttrTimeReady(timeReady),
+			ostAttrTimePin(timePin),
+			ostAttrTimeScan(timeScan),
+			ostAttrTimeCleanDir(cleanDirTime)
+		);
+	}};
+
 	co_await readyEvent.wait();
+	timeReady = timer.split();
 
 	if(fileType != kTypeDirectory)
 		co_return protocols::fs::Error::notDirectory;
@@ -340,6 +414,7 @@ async::result<frg::expected<protocols::fs::Error>> Inode::removeEntry(std::strin
 			0, map_size, helix::Dispatcher::global());
 	co_await submit.async_wait();
 	HEL_CHECK(lock_memory.error());
+	timePin = timer.split();
 
 	// Read the directory structure.
 	DiskDirEntry *previous_entry = nullptr;
@@ -355,6 +430,8 @@ async::result<frg::expected<protocols::fs::Error>> Inode::removeEntry(std::strin
 				&& name.length() == disk_entry->nameLength
 				&& !memcmp(disk_entry->name, name.data(), name.length())) {
 
+			scanned = offset;
+
 			auto target = std::static_pointer_cast<Inode>(fs.accessInode(disk_entry->inode));
 			co_await target->readyEvent.wait();
 
@@ -366,11 +443,13 @@ async::result<frg::expected<protocols::fs::Error>> Inode::removeEntry(std::strin
 				disk_entry->inode = 0;
 			}
 
-			// Flush the data to disk.
-			// TODO: It would be enough to flush only one or two pages here.
+			// Hand the modified pages over to writeback.
+			// TODO: It would be enough to clean only one or two pages here.
+			protocols::ostrace::Timer cleanDirTimer;
 			auto syncDir = co_await helix_ng::synchronizeSpace(
 					helix::BorrowedDescriptor{kHelNullHandle}, fileMapping.get(), fileSize());
 			HEL_CHECK(syncDir.error());
+			cleanDirTime += cleanDirTimer.elapsed();
 
 			// Decrement the inode's link count
 			// This is sound since the caller holds the target's inodeMutex exclusively.
@@ -399,12 +478,29 @@ async::result<frg::expected<protocols::fs::Error>> Inode::removeEntry(std::strin
 		previous_entry = disk_entry;
 	}
 	assert(offset == fileSize());
+	scanned = offset;
 
 	co_return protocols::fs::Error::fileNotFound;
 }
 
 async::result<std::expected<bool, protocols::fs::Error>> Inode::isDirectoryEmpty() {
+	protocols::ostrace::Timer timer;
+	uint64_t timeReady = 0;
+	uint64_t timePin = 0;
+	frg::scope_exit evtOnExit{[&] {
+		auto timeScan = timer.split();
+		ostContext.emit(
+			ostEvtExt2IsDirectoryEmpty,
+			ostAttrTime(timer.elapsed()),
+			ostAttrFileSize(fileSize()),
+			ostAttrTimeReady(timeReady),
+			ostAttrTimePin(timePin),
+			ostAttrTimeScan(timeScan)
+		);
+	}};
+
 	co_await readyEvent.wait();
+	timeReady = timer.split();
 
 	if(fileType != kTypeDirectory)
 		co_return std::unexpected{protocols::fs::Error::notDirectory};
@@ -421,6 +517,7 @@ async::result<std::expected<bool, protocols::fs::Error>> Inode::isDirectoryEmpty
 			0, map_size, helix::Dispatcher::global());
 	co_await submit.async_wait();
 	HEL_CHECK(lock_memory.error());
+	timePin = timer.split();
 
 	// Check the directory entries for anything other than "." and "..".
 	uintptr_t offset = 0;
@@ -453,7 +550,23 @@ async::result<std::expected<bool, protocols::fs::Error>> Inode::isDirectoryEmpty
 }
 
 async::result<frg::expected<protocols::fs::Error>> Inode::updateDotDot(uint32_t parent) {
+	protocols::ostrace::Timer timer;
+	uint64_t timeReady = 0;
+	uint64_t timePin = 0;
+	uint64_t cleanDirTime = 0;
+	frg::scope_exit evtOnExit{[&] {
+		ostContext.emit(
+			ostEvtExt2UpdateDotDot,
+			ostAttrTime(timer.elapsed()),
+			ostAttrFileSize(fileSize()),
+			ostAttrTimeReady(timeReady),
+			ostAttrTimePin(timePin),
+			ostAttrTimeCleanDir(cleanDirTime)
+		);
+	}};
+
 	co_await readyEvent.wait();
+	timeReady = timer.split();
 
 	if(fileType != kTypeDirectory)
 		co_return protocols::fs::Error::notDirectory;
@@ -465,6 +578,7 @@ async::result<frg::expected<protocols::fs::Error>> Inode::updateDotDot(uint32_t 
 			0, map_size, helix::Dispatcher::global());
 	co_await submit.async_wait();
 	HEL_CHECK(lock_memory.error());
+	timePin = timer.split();
 
 	uintptr_t offset = 0;
 	while(offset < fileSize()) {
@@ -480,9 +594,11 @@ async::result<frg::expected<protocols::fs::Error>> Inode::updateDotDot(uint32_t 
 				&& disk_entry->name[1] == '.') {
 			disk_entry->inode = parent;
 
+			protocols::ostrace::Timer cleanDirTimer;
 			auto syncDir = co_await helix_ng::synchronizeSpace(
 					helix::BorrowedDescriptor{kHelNullHandle}, fileMapping.get(), fileSize());
 			HEL_CHECK(syncDir.error());
+			cleanDirTime += cleanDirTimer.elapsed();
 
 			co_return {};
 		}
@@ -602,10 +718,10 @@ async::result<std::expected<DirEntry, protocols::fs::Error>> Inode::mkdir(std::s
 
 	updateInodeChecksum(fs, dirNode->diskInode(), dirNode->number);
 
-	// Synchronize the new directory's inode to update its linksCount
+	// Queue the new directory's inode for writeback to update its linksCount.
 	dirNode->diskInodeWindow.markDirty();
 
-	// Synchronize the data blocks
+	// Hand the modified data blocks over to writeback.
 	auto syncNewDir = co_await helix_ng::synchronizeSpace(
 			helix::BorrowedDescriptor{kHelNullHandle},
 			dirNode->fileMapping.get(), dirNode->fileSize());
@@ -762,11 +878,26 @@ Inode::resizeFile(size_t newSize) {
 	auto oldSize = fileSize();
 	auto newMappingSize = (newSize + 0xFFF) & ~size_t(0xFFF);
 
+	protocols::ostrace::Timer timer;
+	uint64_t timeEnsureBlocks = 0;
+	uint64_t timeResizeMemory = 0;
+	frg::scope_exit evtOnExit{[&] {
+		ostContext.emit(
+			ostEvtExt2ResizeFile,
+			ostAttrTime(timer.elapsed()),
+			ostAttrOldSize(oldSize),
+			ostAttrNewSize(newSize),
+			ostAttrTimeEnsureBlocks(timeEnsureBlocks),
+			ostAttrTimeResizeMemory(timeResizeMemory)
+		);
+	}};
+
 	if (newSize > oldSize) {
 		// TODO(qookie): Technically we only need to assign 0
 		// blocks here, not allocate new ones. We also should
 		// zero out the new blocks.
 		FRG_CO_TRY(co_await ensureBackingBlocks(oldSize, newSize - oldSize));
+		timeEnsureBlocks = timer.split();
 
 		// Grow fileSize() first so the backing memory never covers a page beyond EOF.
 		setFileSize(newSize);
@@ -775,6 +906,7 @@ Inode::resizeFile(size_t newSize) {
 		auto resizeResult = co_await helix_ng::resizeMemory(
 				helix::BorrowedDescriptor{backingMemory}, newMappingSize);
 		HEL_CHECK(resizeResult.error());
+		timeResizeMemory = timer.split();
 	} else if (newSize < oldSize) {
 		// TODO(qookie): Deallocate blocks if they're no longer within the file.
 		std::println("libblockfs: Shrinking an Ext2 file does not free data blocks!");
@@ -795,6 +927,7 @@ Inode::resizeFile(size_t newSize) {
 
 		// Shrink fileSize() last (after no initialization/writeback is in flight anymore).
 		setFileSize(newSize);
+		timeResizeMemory = timer.split();
 	} else {
 		// Nothing to do.
 		co_return frg::success;
@@ -833,6 +966,8 @@ const protocols::fs::NodeOperations *FileSystem::nodeOps() {
 }
 
 async::result<void> FileSystem::init() {
+	protocols::ostrace::Timer timer;
+
 	size_t deviceSuperBlockSector = superBlockOffset / device->sectorSize;
 	size_t deviceSuperBlockOffset = superBlockOffset % device->sectorSize;
 
@@ -840,6 +975,7 @@ async::result<void> FileSystem::init() {
 
 	arch::dma_buffer buffer{pool, deviceSuperBlockSectors * device->sectorSize};
 	co_await device->readSectors(deviceSuperBlockSector, buffer);
+	uint64_t superblockDone = timer.elapsed();
 
 	DiskSuperblock sb;
 	memcpy(&sb, buffer.byte_data() + deviceSuperBlockOffset, sizeof(DiskSuperblock));
@@ -898,10 +1034,21 @@ async::result<void> FileSystem::init() {
 	bgdt.init(blockGroupDescriptorBuffer.byte_data(), blockGroupDescriptorSize);
 
 	auto bgdt_offset = (2048 + blockSize - 1) & ~size_t(blockSize - 1);
+	protocols::ostrace::Timer bgdtTimer;
 	co_await device->readSectors((bgdt_offset >> blockShift) * sectorsPerBlock,
 			blockGroupDescriptorBuffer);
+	uint64_t bgdtTime = bgdtTimer.elapsed();
 
 	handleBgdtWriteback();
+
+	ostContext.emit(
+		ostEvtExt2Mount,
+		ostAttrTime(timer.elapsed()),
+		ostAttrNumBytes(blockGroupDescriptorBuffer.size()),
+		ostAttrNumBlockGroups(numBlockGroups),
+		ostAttrTimeSuperblock(superblockDone),
+		ostAttrTimeBgdt(bgdtTime)
+	);
 
 	co_return;
 }
@@ -914,12 +1061,17 @@ async::detached FileSystem::handleBgdtWriteback() {
 	while(true) {
 		co_await bgdtWriteback.async_wait(seenSeq);
 
+		protocols::ostrace::Timer timer;
+		uint64_t numCoalesced;
+		uint64_t lockDone;
 		{
 			co_await allocationMutex.async_lock();
 			frg::unique_lock allocationLock{frg::adopt_lock, allocationMutex};
+			lockDone = timer.elapsed();
 
 			// Take the sequence together with the snapshot, so that no request is missed.
 			// TODO: Use async::sequenced_event::current_sequence() once it exists.
+			numCoalesced = bgdtWriteback.next_sequence() - 1 - seenSeq;
 			seenSeq = bgdtWriteback.next_sequence() - 1;
 			assert(writebackBuffer.size() == blockGroupDescriptorBuffer.size());
 			memcpy(writebackBuffer.data(), blockGroupDescriptorBuffer.data(),
@@ -930,6 +1082,14 @@ async::detached FileSystem::handleBgdtWriteback() {
 		auto bgdt_offset = (2048 + blockSize - 1) & ~size_t(blockSize - 1);
 		co_await device->writeSectors((bgdt_offset >> blockShift) * sectorsPerBlock,
 				writebackBuffer);
+
+		ostContext.emit(
+			ostEvtExt2BgdtWriteback,
+			ostAttrTime(timer.elapsed()),
+			ostAttrNumBytes(writebackBuffer.size()),
+			ostAttrNumCoalesced(numCoalesced),
+			ostAttrTimeLock(lockDone)
+		);
 	}
 }
 
@@ -1077,9 +1237,12 @@ std::pair<uint64_t, size_t> FileSystem::locateDiskInode(uint32_t number) {
 }
 
 async::result<void> FileSystem::initiateInode(std::shared_ptr<Inode> inode) {
+	protocols::ostrace::Timer timer;
+
 	auto [inodeBlock, inodeOffset] = locateDiskInode(inode->number);
 	inode->diskInodeWindow = co_await metadataCache->access(inodeBlock, true);
 	inode->diskInodeOffset = inodeOffset;
+	uint64_t accessDone = timer.elapsed();
 
 	auto disk_inode = inode->diskInode();
 	// printf("Inode %lu: file size: %u\n", inode->number, disk_inode->size);
@@ -1114,6 +1277,13 @@ async::result<void> FileSystem::initiateInode(std::shared_ptr<Inode> inode) {
 	// Keep the servicer on the pool member that this inode was initiated on.
 	async::detach_on(helix::Dispatcher::global().runQueue(), manageFileData(inode));
 
+	ostContext.emit(
+		ostEvtExt2InitiateInode,
+		ostAttrTime(timer.elapsed()),
+		ostAttrIno(inode->number),
+		ostAttrTimeAccess(accessDone)
+	);
+
 	inode->readyEvent.raise();
 }
 
@@ -1132,6 +1302,7 @@ async::result<void> FileSystem::manageFileData(std::shared_ptr<Inode> inode) {
 		auto fileView = pool->importMemory(
 		    helix::BorrowedDescriptor{inode->backingMemory}, manage.offset(), manage.length()
 		);
+		uint64_t importDone = timer.elapsed();
 
 		if(manage.type() == kHelManageInitialize) {
 			assert(!(manage.offset() % inode->fs.blockSize));
@@ -1139,14 +1310,27 @@ async::result<void> FileSystem::manageFileData(std::shared_ptr<Inode> inode) {
 			size_t num_blocks = (backed_size + (inode->fs.blockSize - 1)) / inode->fs.blockSize;
 			assert(num_blocks * inode->fs.blockSize <= manage.length());
 
+			uint64_t lockDone;
+			uint64_t readDone;
 			{
 				co_await inode->blockMapMutex.async_lock();
 				frg::unique_lock blockMapLock{frg::adopt_lock, inode->blockMapMutex};
+				lockDone = timer.elapsed();
 				co_await inode->fs.readDataBlocks(inode, manage.offset() / inode->fs.blockSize, fileView);
+				readDone = timer.elapsed();
 			}
 
 			HEL_CHECK(helUpdateMemory(inode->backingMemory, kHelManageInitialize,
 					manage.offset(), manage.length()));
+
+			ostContext.emit(
+				ostEvtExt2InitializeFile,
+				ostAttrTime(timer.elapsed()),
+				ostAttrNumBytes(manage.length()),
+				ostAttrTimeImport(importDone),
+				ostAttrTimeLock(lockDone - importDone),
+				ostAttrTimeRead(readDone - lockDone)
+			);
 		}else{
 			assert(manage.type() == kHelManageWriteback);
 
@@ -1157,38 +1341,60 @@ async::result<void> FileSystem::manageFileData(std::shared_ptr<Inode> inode) {
 
 			assert(numBlocks * inode->fs.blockSize <= manage.length());
 
+			uint64_t lockDone;
+			uint64_t assignDone;
+			uint64_t writeDone;
 			{
 				co_await inode->blockMapMutex.async_lock();
 				frg::unique_lock blockMapLock{frg::adopt_lock, inode->blockMapMutex};
+				lockDone = timer.elapsed();
 				co_await inode->fs.assignDataBlocks(inode.get(), blockOffset, numBlocks);
+				assignDone = timer.elapsed();
 				co_await inode->fs.writeDataBlocks(inode, blockOffset, fileView);
+				writeDone = timer.elapsed();
 			}
 
 			HEL_CHECK(helUpdateMemory(inode->backingMemory, kHelManageWriteback,
 					manage.offset(), manage.length()));
-		}
 
-		ostContext.emit(
-			ostEvtExt2ManageFile,
-			ostAttrTime(timer.elapsed())
-		);
+			ostContext.emit(
+				ostEvtExt2WritebackFile,
+				ostAttrTime(timer.elapsed()),
+				ostAttrNumBytes(manage.length()),
+				ostAttrTimeImport(importDone),
+				ostAttrTimeLock(lockDone - importDone),
+				ostAttrTimeAssign(assignDone - lockDone),
+				ostAttrTimeWrite(writeDone - assignDone)
+			);
+		}
 	}
 }
 
 async::result<std::vector<uint32_t>> FileSystem::allocateBlocks(size_t num, std::optional<uint32_t> ino) {
 	protocols::ostrace::Timer timer;
 	std::vector<uint32_t> result;
+	uint64_t accessTime = 0;
+	unsigned int numGroups = 0;
 
 	co_await allocationMutex.async_lock();
 	frg::unique_lock allocationLock{frg::adopt_lock, allocationMutex};
+	uint64_t lockDone = timer.elapsed();
+
+	// Accesses the bitmap of a block group, accounting the access to the emitted event.
+	auto accessBitmap = [&] (uint64_t block) -> async::result<MetadataCache::BlockWindow> {
+		protocols::ostrace::Timer accessTimer;
+		auto window = co_await metadataCache->access(block, true);
+		accessTime += accessTimer.elapsed();
+		++numGroups;
+		co_return window;
+	};
 
 	if (ino) {
 		uint32_t preferred_bg = (*ino - 1) / inodesPerGroup;
 
 		if(bgdt[preferred_bg].freeBlocksCount) {
 			assert(bgdt[preferred_bg].blockBitmap);
-			auto bitmapWindow = co_await metadataCache->access(
-					bgdt[preferred_bg].blockBitmap, true);
+			auto bitmapWindow = co_await accessBitmap(bgdt[preferred_bg].blockBitmap);
 			auto words = reinterpret_cast<uint32_t *>(bitmapWindow.get());
 
 			for(unsigned int i = 0; i < (blocksPerGroup + 31) / 32; i++) {
@@ -1215,7 +1421,11 @@ async::result<std::vector<uint32_t>> FileSystem::allocateBlocks(size_t num, std:
 
 						ostContext.emit(
 							ostEvtExt2AllocateBlocks,
-							ostAttrTime(timer.elapsed())
+							ostAttrTime(timer.elapsed()),
+							ostAttrNumBlocks(result.size()),
+							ostAttrNumGroups(numGroups),
+							ostAttrTimeLock(lockDone),
+							ostAttrTimeAccess(accessTime)
 						);
 						co_return result;
 					}
@@ -1234,7 +1444,7 @@ async::result<std::vector<uint32_t>> FileSystem::allocateBlocks(size_t num, std:
 			continue;
 
 		assert(bgdt[bg_idx].blockBitmap);
-		auto bitmapWindow = co_await metadataCache->access(bgdt[bg_idx].blockBitmap, true);
+		auto bitmapWindow = co_await accessBitmap(bgdt[bg_idx].blockBitmap);
 		auto words = reinterpret_cast<uint32_t *>(bitmapWindow.get());
 		for(unsigned int i = 0; i < (blocksPerGroup + 31) / 32; i++) {
 			if(words[i] == 0xFFFFFFFF)
@@ -1259,7 +1469,11 @@ async::result<std::vector<uint32_t>> FileSystem::allocateBlocks(size_t num, std:
 
 					ostContext.emit(
 						ostEvtExt2AllocateBlocks,
-						ostAttrTime(timer.elapsed())
+						ostAttrTime(timer.elapsed()),
+						ostAttrNumBlocks(result.size()),
+						ostAttrNumGroups(numGroups),
+						ostAttrTimeLock(lockDone),
+						ostAttrTimeAccess(accessTime)
 					);
 					co_return result;
 				}
@@ -1275,13 +1489,19 @@ async::result<std::vector<uint32_t>> FileSystem::allocateBlocks(size_t num, std:
 
 async::result<uint32_t> FileSystem::allocateInode(uint32_t parentIno, bool directory) {
 	protocols::ostrace::Timer timer;
+	uint64_t accessTime = 0;
+	unsigned int numGroups = 0;
 
 	co_await allocationMutex.async_lock();
 	frg::unique_lock allocationLock{frg::adopt_lock, allocationMutex};
+	uint64_t lockDone = timer.elapsed();
 
 	auto searchBlockGroup = [&](uint32_t bg) -> async::result<std::optional<uint32_t>> {
 		assert(bgdt[bg].inodeBitmap);
+		protocols::ostrace::Timer accessTimer;
 		auto bitmapWindow = co_await metadataCache->access(bgdt[bg].inodeBitmap, true);
+		accessTime += accessTimer.elapsed();
+		++numGroups;
 		auto words = reinterpret_cast<uint32_t *>(bitmapWindow.get());
 		for(unsigned int i = 0; i < (inodesPerGroup + 31) / 32; i++) {
 			if(words[i] == 0xFFFFFFFF)
@@ -1310,7 +1530,11 @@ async::result<uint32_t> FileSystem::allocateInode(uint32_t parentIno, bool direc
 
 				ostContext.emit(
 					ostEvtExt2AllocateInode,
-					ostAttrTime(timer.elapsed())
+					ostAttrTime(timer.elapsed()),
+					ostAttrIno(ino),
+					ostAttrNumGroups(numGroups),
+					ostAttrTimeLock(lockDone),
+					ostAttrTimeAccess(accessTime)
 				);
 
 				co_return ino;
@@ -1355,7 +1579,11 @@ async::result<uint32_t> FileSystem::allocateInode(uint32_t parentIno, bool direc
 
 	ostContext.emit(
 		ostEvtExt2AllocateInode,
-		ostAttrTime(timer.elapsed())
+		ostAttrTime(timer.elapsed()),
+		ostAttrIno(0),
+		ostAttrNumGroups(numGroups),
+		ostAttrTimeLock(lockDone),
+		ostAttrTimeAccess(accessTime)
 	);
 
 	co_return 0;
@@ -1675,7 +1903,8 @@ async::result<void> FileSystem::assignDataBlocksUsingExtents(Inode *inode,
 
 	ostContext.emit(
 		ostEvtExt2AssignDataBlocks,
-		ostAttrTime(timer.elapsed())
+		ostAttrTime(timer.elapsed()),
+		ostAttrNumBlocks(num_blocks)
 	);
 }
 
@@ -1683,6 +1912,9 @@ async::result<void> FileSystem::readDataBlocksUsingExtents(std::shared_ptr<Inode
 		arch::dma_buffer_view buf) {
 	co_await inode->readyEvent.wait();
 	// TODO: Assert that we do not read past the EOF.
+
+	protocols::ostrace::Timer timer;
+	uint64_t deviceTime = 0;
 
 	size_t num_blocks = buf.size() >> blockShift;
 	auto blockRanges = co_await lookupBlocksUsingExtent(inode.get(), block_offset, num_blocks, false);
@@ -1695,16 +1927,25 @@ async::result<void> FileSystem::readDataBlocksUsingExtents(std::shared_ptr<Inode
 			memset(buf.byte_data() + progress * blockSize, 0, range.size * blockSize);
 		}else {
 			assert(range.absoluteStartBlock);
+			protocols::ostrace::Timer deviceTimer;
 			co_await device->readSectors(
 			    range.absoluteStartBlock * sectorsPerBlock,
 			    buf.subview(progress * blockSize, range.size * blockSize)
 			);
+			deviceTime += deviceTimer.elapsed();
 		}
 
 		progress += range.size;
 	}
 
 	assert(progress == num_blocks);
+
+	ostContext.emit(
+		ostEvtExt2ReadDataBlocks,
+		ostAttrTime(timer.elapsed()),
+		ostAttrNumBytes(buf.size()),
+		ostAttrTimeDevice(deviceTime)
+	);
 }
 
 async::result<void> FileSystem::writeDataBlocksUsingExtents(std::shared_ptr<Inode> inode, uint64_t block_offset,
@@ -1712,19 +1953,31 @@ async::result<void> FileSystem::writeDataBlocksUsingExtents(std::shared_ptr<Inod
 	co_await inode->readyEvent.wait();
 	// TODO: Assert that we do not read past the EOF.
 
+	protocols::ostrace::Timer timer;
+	uint64_t deviceTime = 0;
+
 	size_t num_blocks = buf.size() >> blockShift;
 	auto blockRanges = co_await lookupBlocksUsingExtent(inode.get(), block_offset, num_blocks, true);
 
 	size_t progress = 0;
 	for(auto &range : blockRanges) {
+		protocols::ostrace::Timer deviceTimer;
 		co_await device->writeSectors(
 		    range.absoluteStartBlock * sectorsPerBlock,
 		    buf.subview(progress * blockSize, range.size * blockSize)
 		);
+		deviceTime += deviceTimer.elapsed();
 		progress += range.size;
 	}
 
 	assert(progress == num_blocks);
+
+	ostContext.emit(
+		ostEvtExt2WriteDataBlocks,
+		ostAttrTime(timer.elapsed()),
+		ostAttrNumBytes(buf.size()),
+		ostAttrTimeDevice(deviceTime)
+	);
 }
 
 async::result<void> FileSystem::assignDataBlocks(Inode *inode,
@@ -1898,7 +2151,8 @@ async::result<void> FileSystem::assignDataBlocks(Inode *inode,
 
 	ostContext.emit(
 		ostEvtExt2AssignDataBlocks,
-		ostAttrTime(timer.elapsed())
+		ostAttrTime(timer.elapsed()),
+		ostAttrNumBlocks(num_blocks)
 	);
 }
 
@@ -1935,6 +2189,9 @@ async::result<void> FileSystem::readDataBlocks(std::shared_ptr<Inode> inode,
 
 	co_await inode->readyEvent.wait();
 	// TODO: Assert that we do not read past the EOF.
+
+	protocols::ostrace::Timer timer;
+	uint64_t deviceTime = 0;
 
 	constexpr size_t indirectBufferSize = 8;
 
@@ -2011,12 +2268,21 @@ async::result<void> FileSystem::readDataBlocks(std::shared_ptr<Inode> inode,
 //				<< " blocks, starting at " << issue.first << std::endl;
 
 		if (issue.first) {
+			protocols::ostrace::Timer deviceTimer;
 			co_await device->readSectors(issue.first * sectorsPerBlock, buf.subview(progress * blockSize, issue.second * blockSize));
+			deviceTime += deviceTimer.elapsed();
 		} else {
 			memset(buf.byte_data() + progress * blockSize, 0, issue.second * blockSize);
 		}
 		progress += issue.second;
 	}
+
+	ostContext.emit(
+		ostEvtExt2ReadDataBlocks,
+		ostAttrTime(timer.elapsed()),
+		ostAttrNumBytes(buf.size()),
+		ostAttrTimeDevice(deviceTime)
+	);
 }
 
 // TODO: There is a lot of overlap between this method and readDataBlocks.
@@ -2054,6 +2320,9 @@ async::result<void> FileSystem::writeDataBlocks(std::shared_ptr<Inode> inode,
 
 	co_await inode->readyEvent.wait();
 	// TODO: Assert that we do not write past the EOF.
+
+	protocols::ostrace::Timer timer;
+	uint64_t deviceTime = 0;
 
 	size_t progress = 0;
 	while(progress < num_blocks) {
@@ -2103,12 +2372,21 @@ async::result<void> FileSystem::writeDataBlocks(std::shared_ptr<Inode> inode,
 //				<< " blocks, starting at " << issue.first << std::endl;
 
 		assert(issue.first);
+		protocols::ostrace::Timer deviceTimer;
 		co_await device->writeSectors(
 		    issue.first * sectorsPerBlock,
 		    buf.subview(progress * blockSize, issue.second * blockSize)
 		);
+		deviceTime += deviceTimer.elapsed();
 		progress += issue.second;
 	}
+
+	ostContext.emit(
+		ostEvtExt2WriteDataBlocks,
+		ostAttrTime(timer.elapsed()),
+		ostAttrNumBytes(buf.size()),
+		ostAttrTimeDevice(deviceTime)
+	);
 }
 
 // --------------------------------------------------------
@@ -2119,7 +2397,25 @@ async::result<std::expected<protocols::fs::ReadEntriesResult, managarm::fs::Erro
 OpenFile::readEntries() {
 	auto inode = std::static_pointer_cast<Inode>(this->inode);
 
+	protocols::ostrace::Timer timer;
+	uint64_t timeReady = 0;
+	uint64_t timePin = 0;
+	uint64_t timeMap = 0;
+	frg::scope_exit evtOnExit{[&] {
+		auto timeScan = timer.split();
+		ostContext.emit(
+			ostEvtReadDir,
+			ostAttrTime(timer.elapsed()),
+			ostAttrFileSize(inode->fileSize()),
+			ostAttrTimeReady(timeReady),
+			ostAttrTimePin(timePin),
+			ostAttrTimeMap(timeMap),
+			ostAttrTimeScan(timeScan)
+		);
+	}};
+
 	co_await inode->readyEvent.wait();
+	timeReady = timer.split();
 
 	if (inode->fileType != kTypeDirectory) {
 		std::cout << "\e[33m" "ext2fs: readEntries called on something that's not a directory\e[39m" << std::endl;
@@ -2133,11 +2429,13 @@ OpenFile::readEntries() {
 			&lock_memory, 0, map_size, helix::Dispatcher::global());
 	co_await submit.async_wait();
 	HEL_CHECK(lock_memory.error());
+	timePin = timer.split();
 
 	// Map the page cache into the address space.
 	helix::Mapping file_map{helix::BorrowedDescriptor{inode->frontalMemory},
 			0, map_size,
 			kHelMapProtRead | kHelMapDontRequireBacking};
+	timeMap = timer.split();
 
 	// Read the directory structure.
 	assert(offset <= inode->fileSize());
