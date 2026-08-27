@@ -53,23 +53,23 @@ fn port_list(resource: &Resource) -> Option<Vec<u16>> {
 }
 
 /// Returns the IRQs of an IRQ resource, or None for other resource types.
-fn irq_list(resource: &Resource) -> Option<Vec<u8>> {
+fn irq_list(resource: &Resource) -> Option<Vec<u32>> {
     match resource {
-        Resource::Irq(irq) => Some(irq.irqs().to_vec()),
-        Resource::ExtendedIrq(irq) => Some(irq.irqs().iter().map(|&i| i as u8).collect()),
+        Resource::Irq(irq) => Some(irq.irqs().iter().map(|&i| u32::from(i)).collect()),
+        Resource::ExtendedIrq(irq) => Some(irq.irqs().to_vec()),
         _ => None,
     }
 }
 
 /// Resolves an IRQ of _CRS to the GSI that raises it.
-fn resolve_irq_to_gsi(irq: u8) -> u32 {
+fn resolve_irq_to_gsi(irq: u32) -> u32 {
     #[cfg(target_arch = "x86_64")]
     {
         crate::isa::resolve_isa_irq(irq).gsi
     }
     #[cfg(not(target_arch = "x86_64"))]
     {
-        u32::from(irq)
+        irq
     }
 }
 

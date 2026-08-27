@@ -119,8 +119,8 @@ struct EventDevice final : libevbackend::EventDevice {
 
 Controller::Controller(mbus_ng::EntityId mbusParent, std::shared_ptr<protocols::hw::Device> device,
 	std::array<uintptr_t, 2> ports,
-	std::optional<std::pair<int, std::shared_ptr<protocols::hw::Device>>> primaryIrq,
-	std::optional<std::pair<int, std::shared_ptr<protocols::hw::Device>>> secondaryIrq)
+	std::optional<std::pair<uint32_t, std::shared_ptr<protocols::hw::Device>>> primaryIrq,
+	std::optional<std::pair<uint32_t, std::shared_ptr<protocols::hw::Device>>> secondaryIrq)
 	: _hwDevice{std::move(device)}, mbusParent_{mbusParent}, _ioPorts{ports}, _primaryIrq{primaryIrq},
 	_secondaryIrq{secondaryIrq} {
 
@@ -1306,8 +1306,8 @@ async::detached observeControllers() {
 	std::optional<std::shared_ptr<protocols::hw::Device>> hwDevice = std::nullopt;
 	std::optional<uintptr_t> primaryPort = std::nullopt;
 	std::optional<uintptr_t> secondaryPort = std::nullopt;
-	std::optional<std::pair<int, std::shared_ptr<protocols::hw::Device>>> primaryIrq = std::nullopt;
-	std::optional<std::pair<int, std::shared_ptr<protocols::hw::Device>>> secondaryIrq = std::nullopt;
+	std::optional<std::pair<uint32_t, std::shared_ptr<protocols::hw::Device>>> primaryIrq = std::nullopt;
+	std::optional<std::pair<uint32_t, std::shared_ptr<protocols::hw::Device>>> secondaryIrq = std::nullopt;
 	std::optional<mbus_ng::EntityId> entityId = std::nullopt;
 
 	auto enumerator = mbus_ng::Instance::global().enumerate(filter);

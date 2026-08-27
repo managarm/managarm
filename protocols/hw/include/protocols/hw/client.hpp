@@ -74,7 +74,7 @@ struct BatteryState {
 
 struct AcpiResources {
 	std::vector<uint16_t> io_ports;
-	std::vector<uint8_t> irqs;
+	std::vector<uint32_t> irqs;
 };
 
 struct DtRegister {

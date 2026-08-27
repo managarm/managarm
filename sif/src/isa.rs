@@ -13,7 +13,7 @@ const NUM_ISA_IRQS: usize = 16;
 /// ISA IRQs that we configure upfront, i.e., before any driver claims them.
 ///
 /// TODO: This is a hack. We assume that HPET will use legacy replacement.
-const PRECONFIGURED_ISA_IRQS: [u8; 5] = [0, 1, 4, 12, 14];
+const PRECONFIGURED_ISA_IRQS: [u32; 5] = [0, 1, 4, 12, 14];
 
 /// The GSI that an ISA IRQ is wired to, and how the interrupt controller drives it.
 #[derive(Clone, Copy)]
@@ -25,9 +25,9 @@ pub struct IsaIrq {
 
 impl IsaIrq {
     /// Without an override, ISA IRQs are identity mapped to GSIs and use the ISA bus defaults.
-    fn identity(irq: u8) -> IsaIrq {
+    fn identity(irq: u32) -> IsaIrq {
         IsaIrq {
-            gsi: irq.into(),
+            gsi: irq,
             trigger: IrqTrigger::Edge,
             polarity: IrqPolarity::High,
         }
@@ -99,10 +99,10 @@ fn read_isa_overrides() -> IsaOverrides {
 static ISA_OVERRIDES: OnceLock<IsaOverrides> = OnceLock::new();
 
 /// Resolves an ISA IRQ to the GSI that it is wired to.
-pub fn resolve_isa_irq(irq: u8) -> IsaIrq {
+pub fn resolve_isa_irq(irq: u32) -> IsaIrq {
     let overrides = ISA_OVERRIDES.get_or_init(read_isa_overrides);
     overrides
-        .get(usize::from(irq))
+        .get(irq as usize)
         .copied()
         .flatten()
         .unwrap_or_else(|| IsaIrq::identity(irq))

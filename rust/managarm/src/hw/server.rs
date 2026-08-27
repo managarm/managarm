@@ -377,7 +377,7 @@ pub async fn serve_pci_device<D: PciDevice + 'static>(lane: Handle, device: Arc<
 pub struct AcpiResources {
     pub io_ports: Vec<u16>,
     pub fixed_io_ports: Vec<u16>,
-    pub irqs: Vec<u8>,
+    pub irqs: Vec<u32>,
 }
 
 pub trait AcpiObject {
