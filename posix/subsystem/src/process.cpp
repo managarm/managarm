@@ -1579,6 +1579,18 @@ Process::clone(std::shared_ptr<Process> original, void *ip, void *sp, posix::sup
 			process->vmContext()->getSpace().getHandle(), kHelAbiSystemV,
 			ip, sp, kHelThreadStopped, &new_thread));
 	process->_threadDescriptor = helix::UniqueDescriptor{new_thread};
+
+#if defined(__riscv) && __riscv_xlen == 64
+	// gp points to the executable's small data area and is only ever computed by crt0.
+	// New threads start out with all registers but ip and sp cleared, hence it is inherited here.
+	uintptr_t originalGprs[kHelNumGprs];
+	HEL_CHECK(helLoadRegisters(original->threadDescriptor().getHandle(),
+			kHelRegsGeneral, &originalGprs));
+	uintptr_t gprs[kHelNumGprs] = {};
+	gprs[kHelRegGp] = originalGprs[kHelRegGp];
+	HEL_CHECK(helStoreRegisters(new_thread, kHelRegsGeneral, &gprs));
+#endif
+
 	process->_posixLane = std::move(server_lane);
 	HEL_CHECK(helGetCredentials(process->_threadDescriptor.getHandle(), 0, process->credentials_.data()));
 
