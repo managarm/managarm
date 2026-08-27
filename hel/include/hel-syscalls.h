@@ -60,6 +60,14 @@ extern inline __attribute__ (( always_inline )) HelError helCloseDescriptor(
 	return helSyscall2(kHelCallCloseDescriptor, (HelWord)universeHandle, (HelWord)handle);
 };
 
+extern inline __attribute__ (( always_inline )) HelError helObtainHandle(
+		int kind, HelHandle *handle) {
+	HelWord helHandle;
+	HelError error = helSyscall1_1(kHelCallObtainHandle, (HelWord)kind, &helHandle);
+	*handle = (HelHandle)helHandle;
+	return error;
+};
+
 extern inline __attribute__ (( always_inline )) HelError helCreateQueue(
 		const struct HelQueueParameters *params, HelHandle *handle) {
 	HelWord hel_handle;

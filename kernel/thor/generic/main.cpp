@@ -623,6 +623,11 @@ void handleSyscall(SyscallImageAccessor image) {
 	case kHelCallCloseDescriptor: {
 		*image.error() = helCloseDescriptor((HelHandle)arg0, (HelHandle)arg1);
 	} break;
+	case kHelCallObtainHandle: {
+		HelHandle handle;
+		*image.error() = helObtainHandle((int)arg0, &handle);
+		*image.out0() = handle;
+	} break;
 
 	case kHelCallCreateQueue: {
 		HelHandle handle;

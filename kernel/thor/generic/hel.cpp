@@ -418,6 +418,26 @@ HelError helCloseDescriptor(HelHandle universeHandle, HelHandle handle) {
 	return kHelErrNone;
 }
 
+HelError helObtainHandle(int kind, HelHandle *handle) {
+	auto thisThread = getCurrentThread();
+	auto thisUniverse = thisThread->getUniverse();
+
+	switch(kind) {
+	case kHelObtainZeroMemory:
+		*handle = thisUniverse->attachDescriptor(
+			AnyDescriptor::make<DescriptorType::memoryView>(
+				getZeroMemory(),
+				kHelRightRead | kHelRightAssign
+			)
+		);
+		break;
+	default:
+		return kHelErrIllegalArgs;
+	}
+
+	return kHelErrNone;
+}
+
 HelError helCreateQueue(const HelQueueParameters *paramsPtr, HelHandle *handle) {
 	auto thisThread = getCurrentThread();
 	auto thisUniverse = thisThread->getUniverse();
