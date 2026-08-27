@@ -1183,6 +1183,22 @@ namespace posix {
 				auto new_thread = std::move(*threadOutcome);
 				new_thread->flags |= Thread::kFlagServer;
 
+#if defined(__riscv) && __riscv_xlen == 64
+				// gp points to the executable's small data area and is only ever computed by
+				// crt0, hence the new thread has to inherit it from the calling thread.
+				uintptr_t argGp;
+				auto readGpOutcome = info.thread->accessRegisters([&](Executor *executor) {
+					argGp = executor->general()->gp();
+				});
+				if(!readGpOutcome)
+					panicLogger() << "thor: Failed to access server registers" << frg::endlog;
+				auto writeGpOutcome = new_thread->accessRegisters([&](Executor *executor) {
+					executor->general()->gp() = argGp;
+				});
+				if(!writeGpOutcome)
+					panicLogger() << "thor: Failed to access server registers" << frg::endlog;
+#endif
+
 				// see helCreateThread for the reasoning here
 				new_thread.policy().increment();
 				new_thread.policy().increment();
