@@ -44,18 +44,6 @@
 using namespace thor;
 
 
-namespace {
-	// TODO: Replace this by a function that returns the type of special descriptor.
-	bool isSpecialMemoryView(HelHandle handle) {
-		return handle == kHelZeroMemory;
-	}
-
-	smarter::shared_ptr<MemoryView> getSpecialMemoryView(HelHandle handle) {
-		assert(handle == kHelZeroMemory);
-		return getZeroMemory();
-	}
-}
-
 extern "C" int doCopyFromUser(void *dest, const void *src, size_t size);
 extern "C" int doCopyToUser(void *dest, const void *src, size_t size);
 extern "C" int doAtomicUserLoad(unsigned int *out, const unsigned int *p);
@@ -703,20 +691,11 @@ HelError helCopyOnWrite(HelHandle memoryHandle,
 	auto this_thread = getCurrentThread();
 	auto this_universe = this_thread->getUniverse();
 
-	smarter::shared_ptr<MemoryView> view;
+	auto viewOutcome = this_universe->resolveObject<DescriptorType::memoryView>(memoryHandle, kHelRightRead | kHelRightAssign);
+	if(!viewOutcome)
+		return translateError(viewOutcome.error());
 
-	if(memoryHandle < 0) {
-		if(!isSpecialMemoryView(memoryHandle))
-			return kHelErrBadDescriptor;
-		view = getSpecialMemoryView(memoryHandle);
-	} else {
-		auto viewOutcome = this_universe->resolveObject<DescriptorType::memoryView>(memoryHandle, kHelRightRead | kHelRightAssign);
-		if(!viewOutcome)
-			return translateError(viewOutcome.error());
-		view = std::move(*viewOutcome);
-	}
-
-	auto sliceOutcome = CopyOnWriteMemory::create(std::move(view), offset, size);
+	auto sliceOutcome = CopyOnWriteMemory::create(std::move(*viewOutcome), offset, size);
 	if(!sliceOutcome)
 		return translateError(sliceOutcome.error());
 	*outHandle = this_universe->attachDescriptor(

@@ -383,8 +383,7 @@ typedef struct HelX86VirtualizationRegs HelVirtualizationRegs;
 enum {
 	kHelNullHandle = 0,
 	kHelThisUniverse = -1,
-	kHelThisThread = -2,
-	kHelZeroMemory = -3
+	kHelThisThread = -2
 };
 
 enum {

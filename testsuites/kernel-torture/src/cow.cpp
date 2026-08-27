@@ -6,8 +6,11 @@
 #include "testsuite.hpp"
 
 DEFINE_TEST(cows, ([] {
+	HelHandle zeroHandle;
+	HEL_CHECK(helObtainHandle(kHelObtainZeroMemory, &zeroHandle));
+
 	HelHandle handle;
-	HEL_CHECK(helCopyOnWrite(kHelZeroMemory, 0, 0x1000, &handle));
+	HEL_CHECK(helCopyOnWrite(zeroHandle, 0, 0x1000, &handle));
 
 	void *window;
 	HEL_CHECK(helMapMemory(handle, kHelNullHandle, nullptr, 0, 0x1000, kHelMapProtRead | kHelMapProtWrite, &window));
@@ -22,6 +25,7 @@ DEFINE_TEST(cows, ([] {
 	*reinterpret_cast<volatile uintptr_t *>(window) = 0xC0FFEE;
 	HEL_CHECK(helUnmapMemory(kHelNullHandle, window, 0x1000));
 
+	HEL_CHECK(helCloseDescriptor(kHelThisUniverse, zeroHandle));
 	HEL_CHECK(helCloseDescriptor(kHelThisUniverse, handle));
 	HEL_CHECK(helCloseDescriptor(kHelThisUniverse, forkHandle));
 }))

@@ -34,14 +34,6 @@ static THIS_THREAD: ManuallyDrop<Handle> = unsafe {
     ))
 };
 
-/// A static handle that refers to a zeroed memory view.
-static ZERO_MEMORY: ManuallyDrop<Handle> = unsafe {
-    ManuallyDrop::new(Handle::from_raw_in_universe(
-        hel_sys::kHelZeroMemory as hel_sys::HelHandle as i64,
-        hel_sys::kHelNullHandle as hel_sys::HelHandle as i64,
-    ))
-};
-
 impl Handle {
     /// Returns a reference to the null handle.
     pub fn null() -> &'static Self {
@@ -56,11 +48,6 @@ impl Handle {
     /// Returns a reference to the current thread handle.
     pub fn this_thread() -> &'static Self {
         &THIS_THREAD
-    }
-
-    /// Returns a reference to the zero memory handle.
-    pub fn zero_memory() -> &'static Self {
-        &ZERO_MEMORY
     }
 
     pub const unsafe fn from_raw(handle: hel_sys::HelHandle) -> Self {
