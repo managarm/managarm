@@ -280,7 +280,7 @@ async::result<frg::expected<protocols::fs::Error>> doTruncate(void *object, size
 		ostContext.emit(
 			ostEvtTruncate,
 			ostAttrTime(timer.elapsed()),
-			ostAttrNumBytes(size),
+			ostAttrNewSize(size),
 			ostAttrTimeReady(timeReady),
 			ostAttrTimeLock(timeLock)
 		);

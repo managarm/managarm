@@ -56,12 +56,20 @@ inline constinit protocols::ostrace::UintAttribute ostAttrTime{"time"};
 inline constinit protocols::ostrace::UintAttribute ostAttrNumBytes{"numBytes"};
 // Bytes the caller asked for; exceeds numBytes on a short read at EOF.
 inline constinit protocols::ostrace::UintAttribute ostAttrNumRequested{"numRequested"};
+// File size before a resize. Absent where the operation only knows the target size.
+inline constinit protocols::ostrace::UintAttribute ostAttrOldSize{"oldSize"};
+// File size that the operation resizes to. Equal to oldSize if the resize was a no-op.
+inline constinit protocols::ostrace::UintAttribute ostAttrNewSize{"newSize"};
+// Size of the file that the operation walked; its pin and map costs scale with this.
+inline constinit protocols::ostrace::UintAttribute ostAttrFileSize{"fileSize"};
 // Filesystem block number the operation acted on.
 inline constinit protocols::ostrace::UintAttribute ostAttrBlock{"block"};
 // Number of filesystem blocks allocated, assigned or cleaned.
 inline constinit protocols::ostrace::UintAttribute ostAttrNumBlocks{"numBlocks"};
 // Block groups whose bitmap was consulted before the search succeeded.
 inline constinit protocols::ostrace::UintAttribute ostAttrNumGroups{"numGroups"};
+// Block groups that the filesystem consists of.
+inline constinit protocols::ostrace::UintAttribute ostAttrNumBlockGroups{"numBlockGroups"};
 // Writeback requests merged into this one device write. 1 means no coalescing.
 inline constinit protocols::ostrace::UintAttribute ostAttrNumCoalesced{"numCoalesced"};
 // markDirty() calls since the last batch that hit an already queued block.
@@ -178,9 +186,13 @@ inline protocols::ostrace::Vocabulary ostVocabulary{
 	ostAttrTime,
 	ostAttrNumBytes,
 	ostAttrNumRequested,
+	ostAttrOldSize,
+	ostAttrNewSize,
+	ostAttrFileSize,
 	ostAttrBlock,
 	ostAttrNumBlocks,
 	ostAttrNumGroups,
+	ostAttrNumBlockGroups,
 	ostAttrNumCoalesced,
 	ostAttrNumRedundant,
 	ostAttrNumComponents,

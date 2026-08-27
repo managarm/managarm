@@ -218,6 +218,7 @@ Inode::insertEntry(std::string name, int64_t ino, blockfs::FileType type) {
 	assert(ino);
 
 	protocols::ostrace::Timer timer;
+	size_t dirSize = 0;
 	uint64_t timeReady = 0;
 	uint64_t timePin = 0;
 	uint64_t timeScan = 0;
@@ -227,7 +228,7 @@ Inode::insertEntry(std::string name, int64_t ino, blockfs::FileType type) {
 		ostContext.emit(
 			ostEvtExt2InsertEntry,
 			ostAttrTime(timer.elapsed()),
-			ostAttrNumBytes(fileSize()),
+			ostAttrFileSize(dirSize),
 			ostAttrTimeReady(timeReady),
 			ostAttrTimePin(timePin),
 			ostAttrTimeScan(timeScan),
@@ -238,6 +239,7 @@ Inode::insertEntry(std::string name, int64_t ino, blockfs::FileType type) {
 
 	co_await readyEvent.wait();
 	timeReady = timer.split();
+	dirSize = fileSize();
 
 	assert(fileType == kTypeDirectory);
 	assert(fileMapping.size() == ((fileSize() + 0xFFF) & ~size_t(0xFFF)));
@@ -490,7 +492,7 @@ async::result<std::expected<bool, protocols::fs::Error>> Inode::isDirectoryEmpty
 		ostContext.emit(
 			ostEvtExt2IsDirectoryEmpty,
 			ostAttrTime(timer.elapsed()),
-			ostAttrNumBytes(fileSize()),
+			ostAttrFileSize(fileSize()),
 			ostAttrTimeReady(timeReady),
 			ostAttrTimePin(timePin),
 			ostAttrTimeScan(timeScan)
@@ -556,7 +558,7 @@ async::result<frg::expected<protocols::fs::Error>> Inode::updateDotDot(uint32_t 
 		ostContext.emit(
 			ostEvtExt2UpdateDotDot,
 			ostAttrTime(timer.elapsed()),
-			ostAttrNumBytes(fileSize()),
+			ostAttrFileSize(fileSize()),
 			ostAttrTimeReady(timeReady),
 			ostAttrTimePin(timePin),
 			ostAttrTimeCleanDir(cleanDirTime)
@@ -879,26 +881,23 @@ Inode::resizeFile(size_t newSize) {
 	protocols::ostrace::Timer timer;
 	uint64_t timeEnsureBlocks = 0;
 	uint64_t timeResizeMemory = 0;
-	auto emitEvent = [&] {
+	frg::scope_exit evtOnExit{[&] {
 		ostContext.emit(
 			ostEvtExt2ResizeFile,
 			ostAttrTime(timer.elapsed()),
-			ostAttrNumBytes(newSize > oldSize ? newSize - oldSize : 0),
+			ostAttrOldSize(oldSize),
+			ostAttrNewSize(newSize),
 			ostAttrTimeEnsureBlocks(timeEnsureBlocks),
 			ostAttrTimeResizeMemory(timeResizeMemory)
 		);
-	};
+	}};
 
 	if (newSize > oldSize) {
 		// TODO(qookie): Technically we only need to assign 0
 		// blocks here, not allocate new ones. We also should
 		// zero out the new blocks.
-		auto ensureResult = co_await ensureBackingBlocks(oldSize, newSize - oldSize);
+		FRG_CO_TRY(co_await ensureBackingBlocks(oldSize, newSize - oldSize));
 		timeEnsureBlocks = timer.split();
-		if (!ensureResult) {
-			emitEvent();
-			co_return ensureResult.error();
-		}
 
 		// Grow fileSize() first so the backing memory never covers a page beyond EOF.
 		setFileSize(newSize);
@@ -931,15 +930,12 @@ Inode::resizeFile(size_t newSize) {
 		timeResizeMemory = timer.split();
 	} else {
 		// Nothing to do.
-		emitEvent();
 		co_return frg::success;
 	}
 
 	updateInodeChecksum(fs, diskInode(), number);
 
 	diskInodeWindow.markDirty();
-
-	emitEvent();
 
 	co_return frg::success;
 }
@@ -1049,7 +1045,7 @@ async::result<void> FileSystem::init() {
 		ostEvtExt2Mount,
 		ostAttrTime(timer.elapsed()),
 		ostAttrNumBytes(blockGroupDescriptorBuffer.size()),
-		ostAttrNumGroups(numBlockGroups),
+		ostAttrNumBlockGroups(numBlockGroups),
 		ostAttrTimeSuperblock(superblockDone),
 		ostAttrTimeBgdt(bgdtTime)
 	);
@@ -2410,7 +2406,7 @@ OpenFile::readEntries() {
 		ostContext.emit(
 			ostEvtReadDir,
 			ostAttrTime(timer.elapsed()),
-			ostAttrNumBytes(inode->fileSize()),
+			ostAttrFileSize(inode->fileSize()),
 			ostAttrTimeReady(timeReady),
 			ostAttrTimePin(timePin),
 			ostAttrTimeMap(timeMap),
