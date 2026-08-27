@@ -268,8 +268,8 @@ Inode::insertEntry(std::string name, int64_t ino, blockfs::FileType type) {
 		}
 		memcpy(diskEntry->name, name.data(), name.length() + 1);
 
-		// Flush the data to disk.
-		// TODO: It would be enough to flush only one or two pages here.
+		// Hand the modified pages over to writeback.
+		// TODO: It would be enough to clean only one or two pages here.
 		protocols::ostrace::Timer cleanDirTimer;
 		auto syncDir = co_await helix_ng::synchronizeSpace(
 				helix::BorrowedDescriptor{kHelNullHandle}, fileMapping.get(), fileSize());
@@ -284,7 +284,7 @@ Inode::insertEntry(std::string name, int64_t ino, blockfs::FileType type) {
 
 		updateInodeChecksum(fs, target->diskInode(), ino);
 
-		// Flush the target inode to disk.
+		// Queue the target inode for writeback.
 		target->diskInodeWindow.markDirty();
 
 		DirEntry entry;
@@ -443,8 +443,8 @@ async::result<frg::expected<protocols::fs::Error>> Inode::removeEntry(std::strin
 				disk_entry->inode = 0;
 			}
 
-			// Flush the data to disk.
-			// TODO: It would be enough to flush only one or two pages here.
+			// Hand the modified pages over to writeback.
+			// TODO: It would be enough to clean only one or two pages here.
 			protocols::ostrace::Timer cleanDirTimer;
 			auto syncDir = co_await helix_ng::synchronizeSpace(
 					helix::BorrowedDescriptor{kHelNullHandle}, fileMapping.get(), fileSize());
@@ -718,10 +718,10 @@ async::result<std::expected<DirEntry, protocols::fs::Error>> Inode::mkdir(std::s
 
 	updateInodeChecksum(fs, dirNode->diskInode(), dirNode->number);
 
-	// Synchronize the new directory's inode to update its linksCount
+	// Queue the new directory's inode for writeback to update its linksCount.
 	dirNode->diskInodeWindow.markDirty();
 
-	// Synchronize the data blocks
+	// Hand the modified data blocks over to writeback.
 	auto syncNewDir = co_await helix_ng::synchronizeSpace(
 			helix::BorrowedDescriptor{kHelNullHandle},
 			dirNode->fileMapping.get(), dirNode->fileSize());
