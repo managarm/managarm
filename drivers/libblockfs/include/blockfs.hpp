@@ -63,6 +63,7 @@ extern protocols::ostrace::Event ostEvtExt2AllocateInode;
 extern protocols::ostrace::Event ostEvtVirtioBlkReadSectors;
 extern protocols::ostrace::Event ostEvtVirtioBlkWriteSectors;
 extern protocols::ostrace::Event ostEvtVirtioBlkRequest;
+extern protocols::ostrace::Event ostEvtVirtioBlkFlush;
 extern protocols::ostrace::UintAttribute ostAttrTime;
 extern protocols::ostrace::UintAttribute ostAttrNumBytes;
 extern protocols::ostrace::UintAttribute ostAttrIsWrite;

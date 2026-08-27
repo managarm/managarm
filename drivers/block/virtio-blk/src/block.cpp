@@ -1,5 +1,6 @@
 
 #include <async/basic.hpp>
+#include <frg/scope_exit.hpp>
 #include <stdlib.h>
 #include <iostream>
 #include <list>
@@ -158,13 +159,30 @@ async::result<void> Device::writeSectors(uint64_t sector, arch::dma_buffer_view 
 }
 
 async::result<void> Device::flush() {
+	protocols::ostrace::Timer timer;
+	uint64_t setupTime = 0;
+	uint64_t obtainTime = 0;
+	uint64_t deviceTime = 0;
+	frg::scope_exit evtOnExit{[&] {
+		blockfs::ostContext.emit(
+			blockfs::ostEvtVirtioBlkFlush,
+			blockfs::ostAttrTime(timer.elapsed()),
+			blockfs::ostAttrTimeSetup(setupTime),
+			blockfs::ostAttrTimeObtain(obtainTime),
+			blockfs::ostAttrTimeDevice(deviceTime)
+		);
+	}};
+
+	// Devices without a flush command still emit the event, with a zero device time.
 	if(!_hasFlush)
 		co_return;
 
 	UserRequest request{false, 0, {}, pagePool};
 
 	std::array<virtio_core::Handle, 2> handles;
+	setupTime += timer.split();
 	co_await _requestQueue->obtainDescriptors(handles);
+	obtainTime = timer.split();
 	handles[0].setupLink(handles[1]);
 
 	request.header->type = VIRTIO_BLK_T_FLUSH;
@@ -174,14 +192,19 @@ async::result<void> Device::flush() {
 	co_await handles[0].setupBuffer(virtio_core::hostToDevice, request.header.view_buffer());
 	co_await handles[1].setupBuffer(virtio_core::deviceToHost, request.status.view_buffer());
 
+	setupTime += timer.split();
+	request.submitTs = currentNs();
+
 	_requestQueue->postDescriptor(handles.front(), &request,
 			[] (virtio_core::Request *base_request) {
 		auto request = static_cast<UserRequest *>(base_request);
+		request->completeTs = currentNs();
 		request->event.raise();
 	});
 	_requestQueue->notify();
 
 	co_await request.event.wait();
+	deviceTime = request.completeTs - request.submitTs;
 	if(*request.status != VIRTIO_BLK_S_OK) {
 		std::cout << "virtio: Device signaled an error for flush, status "
 				<< static_cast<unsigned int>(*request.status) << std::endl;

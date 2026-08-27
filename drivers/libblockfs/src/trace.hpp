@@ -44,6 +44,7 @@ inline constinit protocols::ostrace::Event ostEvtExt2BgdtWriteback{"ext2.bgdtWri
 inline constinit protocols::ostrace::Event ostEvtVirtioBlkReadSectors{"virtio-blk.readSectors"};
 inline constinit protocols::ostrace::Event ostEvtVirtioBlkWriteSectors{"virtio-blk.writeSectors"};
 inline constinit protocols::ostrace::Event ostEvtVirtioBlkRequest{"virtio-blk.request"};
+inline constinit protocols::ostrace::Event ostEvtVirtioBlkFlush{"virtio-blk.flush"};
 
 // Attributes. Every time* attribute is in nanoseconds and measures a phase of the event it is attached to.
 // The phases of one event do not overlap, so they can be stacked against `time`.
@@ -170,6 +171,7 @@ inline protocols::ostrace::Vocabulary ostVocabulary{
 	ostEvtVirtioBlkReadSectors,
 	ostEvtVirtioBlkWriteSectors,
 	ostEvtVirtioBlkRequest,
+	ostEvtVirtioBlkFlush,
 	ostAttrTime,
 	ostAttrNumBytes,
 	ostAttrNumRequested,
