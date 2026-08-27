@@ -106,6 +106,11 @@ struct MemoryReclaimer {
 			rotationEvent_.raise();
 	}
 
+	bool checkPressure() {
+		auto watermark = physicalAllocator->numTotalPages() * 3 / 4;
+		return tortureUncaching || physicalAllocator->numUsedPages() >= watermark;
+	}
+
 	auto awaitReclaim(CacheBundle *bundle, async::cancellation_token ct = {}) {
 		return async::transform(
 			bundle->_reclaimEvent.async_wait_if(
@@ -149,9 +154,9 @@ struct MemoryReclaimer {
 				}
 
 				// On memory pressure: rotate generations until pressure drops.
-				if (checkPressure_()) {
+				if (checkPressure()) {
 					for(unsigned int i = 1; i <= CacheBundle::numGenerations; i++) {
-						if(!checkPressure_())
+						if(!checkPressure())
 							break;
 
 						auto result = rotateGenerations_();
@@ -252,11 +257,6 @@ private:
 		auto totalCachePages = physicalAllocator->numTotalPages() / 2;
 		auto threshold = totalCachePages / CacheBundle::numGenerations;
 		return rotationTurnaround_.load(std::memory_order_relaxed) >= threshold;
-	}
-
-	bool checkPressure_() {
-		auto watermark = physicalAllocator->numTotalPages() * 3 / 4;
-		return tortureUncaching || physicalAllocator->numUsedPages() >= watermark;
 	}
 
 	frg::ticket_spinlock mutex_;
@@ -1191,6 +1191,11 @@ coroutine<void> ManagedSpace::_runDrainLoop() {
 					break;
 				deadline = _writebackDeadline;
 			}
+			// Skip the deadline under memory pressure such that dirty pages become reclaimable immediately.
+			// TODO: Pressure is only sampled before we sleep.
+			//       Waking the sleep would require the physical allocator to signal pressure.
+			if(globalReclaimer->checkPressure())
+				break;
 			if(!deadline || getClockNanos() >= deadline)
 				break;
 			co_await async::race_and_cancel(
