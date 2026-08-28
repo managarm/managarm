@@ -5,80 +5,24 @@ pub mod dtb;
 pub mod quirks;
 pub mod serve;
 
-use managarm::svrctl::hardware_access_handle;
-use std::collections::BTreeMap;
 use std::sync::atomic::{AtomicBool, AtomicI32, AtomicI64, AtomicU8, AtomicU32, Ordering};
 use std::sync::{Mutex, OnceLock};
 
 use anyhow::Result;
 use arch::{IoMemSpace, bit_register, scalar_register};
-use hel::{IrqPolarity, IrqTrigger};
 
 use config::PciConfigIo;
 
-pub(crate) fn leak<T>(value: T) -> &'static T {
-    Box::leak(Box::new(value))
-}
+pub(crate) use crate::irq::{IrqPin, system_irq};
+pub(crate) use crate::leak;
 
 // The PCI tree is only locked for the duration of a single operation, none of which can panic.
 pub(crate) const EXPECT_LOCK: &str = "sif: PCI tree mutex was poisoned";
-
-pub struct IrqPin {
-    name: String,
-    handle: hel::Handle,
-    // None if the interrupt controller has no configurable trigger mode / polarity.
-    trigger: Option<IrqTrigger>,
-    polarity: Option<IrqPolarity>,
-}
-
-impl IrqPin {
-    pub fn name(&self) -> &str {
-        &self.name
-    }
-
-    pub fn handle(&self) -> &hel::Handle {
-        &self.handle
-    }
-}
-
-static IRQ_PINS: Mutex<BTreeMap<u32, &'static IrqPin>> = Mutex::new(BTreeMap::new());
 
 // thor only implements MSI allocation on x86-64 (LAPIC MSIs); mirror that here
 // until the kernel can report MSI availability.
 pub fn msi_controller_available() -> bool {
     cfg!(target_arch = "x86_64")
-}
-
-// Configures a GSI and returns its pin, sharing pins between users of the same GSI.
-pub fn system_irq(gsi: u32, trigger: IrqTrigger, polarity: IrqPolarity) -> Option<&'static IrqPin> {
-    let mut pins = IRQ_PINS.lock().expect(EXPECT_LOCK);
-    if let Some(pin) = pins.get(&gsi) {
-        if pin.trigger != Some(trigger) || pin.polarity != Some(polarity) {
-            println!("sif: Conflicting configurations for GSI {gsi}");
-        }
-        return Some(*pin);
-    }
-
-    let handle = match hel::access_irq_by_gsi(hardware_access_handle(), gsi as u64) {
-        Ok(handle) => handle,
-        Err(err) => {
-            println!("sif: Failed to access GSI {gsi}: {err}");
-            return None;
-        }
-    };
-    if let Err(err) = hel::configure_irq(&handle, Some(trigger), Some(polarity)) {
-        println!("sif: Failed to configure GSI {gsi}: {err}");
-        return None;
-    }
-
-    let pin = leak(IrqPin {
-        name: format!("gsi-{gsi}"),
-        handle,
-        trigger: Some(trigger),
-        polarity: Some(polarity),
-    });
-    pins.insert(gsi, pin);
-    Some(pin)
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -1082,9 +1026,12 @@ pub const PCI_BRIDGE_SECONDARY: u16 = 0x19;
 pub const PCI_BRIDGE_SUBORDINATE: u16 = 0x1A;
 
 pub async fn publish_devices() -> Result<()> {
-    // Each discovery source no-ops if its firmware interface is absent.
+    // Each discovery source no-ops if its firmware interface is absent. ACPI systems
+    // describe PCI via the MCFG even when a device tree is also present.
     acpi::discover_root_buses();
-    dtb::discover_root_buses();
+    if !crate::acpi::has_rsdp() {
+        dtb::discover_root_buses();
+    }
 
     discover::enumerate_all();
     serve::publish_all().await?;

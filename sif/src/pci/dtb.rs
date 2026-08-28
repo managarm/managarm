@@ -1,16 +1,11 @@
-use std::collections::BTreeMap;
-use std::sync::Mutex;
-
-use hel::{IrqPolarity, IrqTrigger};
-use managarm::svrctl::hardware_access_handle;
-
 use crate::dt::node::{DeviceTreeNode, get_device_tree_root, walk_interrupt_map};
+use crate::irq::{IrqPin, dt_irq};
 
 use super::config::PciConfigIo;
 use super::config::ecam::EcamPcieConfigIo;
 use super::discover::add_root_bus;
 use super::{
-    EXPECT_LOCK, IrqIndex, IrqPin, PciBus, PciBusResource, PciIrqRouter, RouterState, RoutingEntry,
+    EXPECT_LOCK, IrqIndex, PciBus, PciBusResource, PciIrqRouter, RouterState, RoutingEntry,
     RoutingModel, leak,
 };
 
@@ -21,56 +16,6 @@ static DT_PCI_COMPATIBLE: [&str; 3] = [
     "pci-host-ecam-generic",
     "brcm,bcm2711-pcie",
 ];
-
-static DT_IRQ_PINS: Mutex<BTreeMap<(u32, u64), &'static IrqPin>> = Mutex::new(BTreeMap::new());
-
-// Configures a DT interrupt and returns its pin, sharing pins between users of the same
-// (controller, index) pair.
-fn dt_irq(
-    controller: &'static DeviceTreeNode,
-    index: u64,
-    trigger: Option<IrqTrigger>,
-    polarity: Option<IrqPolarity>,
-) -> Option<&'static IrqPin> {
-    let phandle = controller.phandle();
-    let mut pins = DT_IRQ_PINS.lock().expect(EXPECT_LOCK);
-    if let Some(pin) = pins.get(&(phandle, index)) {
-        if pin.trigger != trigger || pin.polarity != polarity {
-            println!(
-                "sif: Conflicting configurations for IRQ {index} of {}",
-                controller.path()
-            );
-        }
-        return Some(*pin);
-    }
-
-    let handle = match hel::access_irq_by_phandle(hardware_access_handle(), phandle.into(), index) {
-        Ok(handle) => handle,
-        Err(err) => {
-            println!(
-                "sif: Failed to access IRQ {index} of {}: {err}",
-                controller.path()
-            );
-            return None;
-        }
-    };
-    if let Err(err) = hel::configure_irq(&handle, trigger, polarity) {
-        println!(
-            "sif: Failed to configure IRQ {index} of {}: {err}",
-            controller.path()
-        );
-        return None;
-    }
-
-    let pin = leak(IrqPin {
-        name: format!("{}:{index}", controller.name()),
-        handle,
-        trigger,
-        polarity,
-    });
-    pins.insert((phandle, index), pin);
-    Some(pin)
-}
 
 pub struct DtbPciIrqRouter {
     state: RouterState,

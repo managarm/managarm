@@ -6,7 +6,7 @@ use std::sync::atomic::Ordering;
 use anyhow::Result;
 use managarm::hw::pci::IoType;
 use managarm::hw::server::{BarDescriptor, CapDescriptor, serve_pci_device};
-use managarm::mbus::{EntityManager, Item, Properties, create_entity};
+use managarm::mbus::{EntityManager, Properties, create_entity};
 
 use super::discover::{all_devices, all_root_buses};
 use super::{
@@ -14,18 +14,7 @@ use super::{
 };
 
 use crate::acpi::{PAGE_MASK, PAGE_SIZE};
-
-fn string(value: &str) -> Item {
-    Item::String(value.to_string())
-}
-
-fn hex(value: u32, width: usize) -> Item {
-    Item::String(format!("{value:0width$x}"))
-}
-
-fn decimal(value: i64) -> Item {
-    Item::String(format!("{value}"))
-}
+use crate::entity::{decimal, hex, serve_entity_lanes, string};
 
 #[derive(Clone, Copy)]
 enum ServedEntity {
@@ -303,23 +292,12 @@ impl managarm::hw::server::PciDevice for ServedEntity {
 }
 
 async fn serve_entity(manager: &'static EntityManager, served: ServedEntity) {
-    let id = manager.id();
     let device = Arc::new(served);
 
-    loop {
-        let (local, remote) = match hel::create_stream() {
-            Ok(pair) => pair,
-            Err(err) => {
-                println!("sif: entity {id}: create_stream failed: {err}");
-                return;
-            }
-        };
-        if let Err(err) = manager.serve_remote_lane(remote).await {
-            println!("sif: entity {id}: serve_remote_lane failed: {err}");
-            return;
-        }
-        hel::spawn(serve_pci_device(local, device.clone()));
-    }
+    serve_entity_lanes(manager, move |lane| {
+        hel::spawn(serve_pci_device(lane, device.clone()));
+    })
+    .await;
 }
 
 fn entity_properties(entity: &PciEntity, pci_type: &str) -> Properties {

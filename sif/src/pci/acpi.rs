@@ -85,7 +85,7 @@ fn resolve_link(source: NamespaceNode, index: u32) -> Option<(u32, IrqTrigger, I
             irq.triggering(),
             irq.polarity(),
         ),
-        Resource::Other => {
+        _ => {
             println!("sif: Resource {index} of an IRQ link does not describe an IRQ");
             return None;
         }

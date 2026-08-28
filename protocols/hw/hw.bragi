@@ -183,7 +183,7 @@ head(16):
 tail:
 	uint16[] io_ports;
 	uint16[] fixed_io_ports;
-	uint8[] irqs;
+	uint32[] irqs;
 }
 
 message GetDtInfoRequest 21 {

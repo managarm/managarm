@@ -127,13 +127,14 @@ async::result<helix::UniqueDescriptor> Device::accessBar(int index) {
 		);
 
 	HEL_CHECK(recv_tail.error());
-	HEL_CHECK(pull_bar.error());
 
 	bragi::limited_reader reader{tailBuffer.data(), tailBuffer.size()};
 	auto ok = resp.decode_tail(reader);
 	assert(ok);
 
 	assert(resp.error() == managarm::hw::Errors::SUCCESS);
+
+	HEL_CHECK(pull_bar.error());
 
 	auto bar = pull_bar.descriptor();
 	co_return std::move(bar);
@@ -169,13 +170,14 @@ async::result<helix::UniqueDescriptor> Device::accessExpansionRom() {
 		);
 
 	HEL_CHECK(recv_tail.error());
-	HEL_CHECK(pull_bar.error());
 
 	bragi::limited_reader reader{tailBuffer.data(), tailBuffer.size()};
 	auto ok = resp.decode_tail(reader);
 	assert(ok);
 
 	assert(resp.error() == managarm::hw::Errors::SUCCESS);
+
+	HEL_CHECK(pull_bar.error());
 
 	auto expansion_rom = pull_bar.descriptor();
 	co_return std::move(expansion_rom);
@@ -212,13 +214,14 @@ async::result<helix::UniqueDescriptor> Device::accessIrq(size_t index) {
 		);
 
 	HEL_CHECK(recv_tail.error());
-	HEL_CHECK(pull_irq.error());
 
 	bragi::limited_reader reader{tailBuffer.data(), tailBuffer.size()};
 	auto ok = resp.decode_tail(reader);
 	assert(ok);
 
 	assert(resp.error() == managarm::hw::Errors::SUCCESS);
+
+	HEL_CHECK(pull_irq.error());
 
 	co_return pull_irq.descriptor();
 }
@@ -254,13 +257,14 @@ async::result<helix::UniqueDescriptor> Device::installMsi(int index) {
 		);
 
 	HEL_CHECK(recv_tail.error());
-	HEL_CHECK(pull_msi.error());
 
 	bragi::limited_reader reader{tailBuffer.data(), tailBuffer.size()};
 	auto ok = resp.decode_tail(reader);
 	assert(ok);
 
 	assert(resp.error() == managarm::hw::Errors::SUCCESS);
+
+	HEL_CHECK(pull_msi.error());
 
 	co_return pull_msi.descriptor();
 }
@@ -613,13 +617,14 @@ async::result<helix::UniqueDescriptor> Device::accessFbMemory() {
 		);
 
 	HEL_CHECK(recv_tail.error());
-	HEL_CHECK(pull_bar.error());
 
 	bragi::limited_reader reader{tailBuffer.data(), tailBuffer.size()};
 	auto ok = resp.decode_tail(reader);
 	assert(ok);
 
 	assert(resp.error() == managarm::hw::Errors::SUCCESS);
+
+	HEL_CHECK(pull_bar.error());
 
 	auto bar = pull_bar.descriptor();
 	co_return std::move(bar);
@@ -933,13 +938,14 @@ async::result<helix::UniqueDescriptor> Device::accessDtRegister(uint32_t index) 
 		);
 
 	HEL_CHECK(recv_tail.error());
-	HEL_CHECK(pull_reg.error());
 
 	bragi::limited_reader reader{tailBuffer.data(), tailBuffer.size()};
 	auto ok = resp.decode_tail(reader);
 	assert(ok);
 
 	assert(resp.error() == managarm::hw::Errors::SUCCESS);
+
+	HEL_CHECK(pull_reg.error());
 
 	auto reg = pull_reg.descriptor();
 	co_return std::move(reg);
@@ -976,13 +982,14 @@ async::result<helix::UniqueDescriptor> Device::installDtIrq(uint32_t index) {
 		);
 
 	HEL_CHECK(recv_tail.error());
-	HEL_CHECK(pull_irq.error());
 
 	bragi::limited_reader reader{tailBuffer.data(), tailBuffer.size()};
 	auto ok = resp.decode_tail(reader);
 	assert(ok);
 
 	assert(resp.error() == managarm::hw::Errors::SUCCESS);
+
+	HEL_CHECK(pull_irq.error());
 
 	auto irq = pull_irq.descriptor();
 	co_return std::move(irq);
@@ -1112,13 +1119,14 @@ async::result<std::pair<helix::UniqueDescriptor, uint32_t>> Device::getVbt() {
 		);
 
 	HEL_CHECK(recv_tail.error());
-	HEL_CHECK(pull_desc.error());
 
 	bragi::limited_reader reader{tailBuffer.data(), tailBuffer.size()};
 	auto ok = resp.decode_tail(reader);
 	assert(ok);
 
 	assert(resp.error() == managarm::hw::Errors::SUCCESS);
+
+	HEL_CHECK(pull_desc.error());
 
 	auto desc = pull_desc.descriptor();
 	co_return { std::move(desc), resp.vbt_size() };

@@ -1,3 +1,4 @@
+#include <thor-internal/debug.hpp>
 #include <thor-internal/fiber.hpp>
 #include <thor-internal/main.hpp>
 #include <thor-internal/dtb/dtb.hpp>
@@ -363,6 +364,11 @@ static initgraph::Task discoverDtNodes{&globalInitEngine, "dt.discover-nodes",
 	initgraph::Requires{getDeviceTreeParsedStage()},
 	[] {
 		allNodes.initialize(*kernelAlloc);
+
+		if (debugOptionsNote->useSif) {
+			infoLogger() << "thor: Skipping DT mbus node discovery (sif)" << frg::endlog;
+			return;
+		}
 
 		auto root = getDeviceTreeRoot();
 		if (!root)

@@ -1,3 +1,5 @@
+use std::sync::OnceLock;
+
 use hel::{IrqPolarity, IrqTrigger};
 use managarm::svrctl::hardware_access_handle;
 use uacpi_sys::acpi_madt_interrupt_source_override;
@@ -11,21 +13,21 @@ const NUM_ISA_IRQS: usize = 16;
 /// ISA IRQs that we configure upfront, i.e., before any driver claims them.
 ///
 /// TODO: This is a hack. We assume that HPET will use legacy replacement.
-const PRECONFIGURED_ISA_IRQS: [u8; 5] = [0, 1, 4, 12, 14];
+const PRECONFIGURED_ISA_IRQS: [u32; 5] = [0, 1, 4, 12, 14];
 
 /// The GSI that an ISA IRQ is wired to, and how the interrupt controller drives it.
 #[derive(Clone, Copy)]
-struct IsaIrq {
-    gsi: u32,
-    trigger: IrqTrigger,
-    polarity: IrqPolarity,
+pub struct IsaIrq {
+    pub gsi: u32,
+    pub trigger: IrqTrigger,
+    pub polarity: IrqPolarity,
 }
 
 impl IsaIrq {
     /// Without an override, ISA IRQs are identity mapped to GSIs and use the ISA bus defaults.
-    fn identity(irq: u8) -> IsaIrq {
+    fn identity(irq: u32) -> IsaIrq {
         IsaIrq {
-            gsi: irq.into(),
+            gsi: irq,
             trigger: IrqTrigger::Edge,
             polarity: IrqPolarity::High,
         }
@@ -94,13 +96,23 @@ fn read_isa_overrides() -> IsaOverrides {
     overrides
 }
 
+static ISA_OVERRIDES: OnceLock<IsaOverrides> = OnceLock::new();
+
+/// Resolves an ISA IRQ to the GSI that it is wired to.
+pub fn resolve_isa_irq(irq: u32) -> IsaIrq {
+    let overrides = ISA_OVERRIDES.get_or_init(read_isa_overrides);
+    overrides
+        .get(irq as usize)
+        .copied()
+        .flatten()
+        .unwrap_or_else(|| IsaIrq::identity(irq))
+}
+
 /// Configures the ISA IRQs of devices whose drivers cannot resolve them themselves.
 pub fn configure_isa_irqs() {
-    let overrides = read_isa_overrides();
-
     println!("sif: Configuring ISA IRQs");
     for irq in PRECONFIGURED_ISA_IRQS {
-        let line = overrides[usize::from(irq)].unwrap_or_else(|| IsaIrq::identity(irq));
+        let line = resolve_isa_irq(irq);
         let pin = match hel::access_irq_by_gsi(hardware_access_handle(), line.gsi as u64) {
             Ok(pin) => pin,
             Err(err) => {

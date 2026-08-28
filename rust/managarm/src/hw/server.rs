@@ -8,6 +8,16 @@ use crate::hw::bindings::Errors;
 use super::bindings;
 use super::pci::IoType;
 
+fn encode_hw_error(err: &super::Error) -> Errors {
+    match err {
+        super::Error::OutOfBounds => Errors::OutOfBounds,
+        super::Error::IllegalArguments => Errors::IllegalArguments,
+        super::Error::ResourceExhaustion => Errors::ResourceExhaustion,
+        super::Error::PropertyNotFound => Errors::PropertyNotFound,
+        _ => Errors::DeviceError,
+    }
+}
+
 #[derive(Debug, Clone, Copy, Default)]
 pub struct BarDescriptor {
     pub io_type: IoType,
@@ -121,7 +131,7 @@ fn build_pci_info<D: PciDevice>(device: &D) -> bindings::SvrResponse {
     resp
 }
 
-async fn send_response(lane: &Handle, resp: &bindings::SvrResponse) -> hel::Result<()> {
+async fn send_response<M: Message>(lane: &Handle, resp: &M) -> hel::Result<()> {
     let (head, tail) = bragi::head_tail_to_bytes(resp).expect("failed to encode hw response");
     let (head, tail) = submit_async(lane, (SendBuffer::new(&head), SendBuffer::new(&tail))).await?;
     head?;
@@ -129,9 +139,9 @@ async fn send_response(lane: &Handle, resp: &bindings::SvrResponse) -> hel::Resu
     Ok(())
 }
 
-async fn send_response_with_push(
+async fn send_response_with_push<M: Message>(
     lane: &Handle,
-    resp: &bindings::SvrResponse,
+    resp: &M,
     push: &Handle,
     rights: u32,
 ) -> hel::Result<()> {
@@ -149,12 +159,10 @@ async fn send_response_with_push(
     Ok(())
 }
 
-impl Into<bindings::SvrResponse> for Errors {
-    fn into(self) -> bindings::SvrResponse {
-        let mut resp = bindings::SvrResponse::default();
-        resp.set_error(self);
-        resp
-    }
+fn error_response(error: Errors) -> bindings::SvrResponse {
+    let mut resp = bindings::SvrResponse::default();
+    resp.set_error(error);
+    resp
 }
 
 async fn handle_one<D: PciDevice>(lane: &Handle, request: &[u8], device: &D) -> hel::Result<()> {
@@ -176,7 +184,7 @@ async fn handle_one<D: PciDevice>(lane: &Handle, request: &[u8], device: &D) -> 
                 Ok(handle) => {
                     send_response_with_push(
                         lane,
-                        &Errors::Success.into(),
+                        &error_response(Errors::Success),
                         &handle,
                         hel_sys::kHelRightRead
                             | hel_sys::kHelRightWrite
@@ -186,7 +194,7 @@ async fn handle_one<D: PciDevice>(lane: &Handle, request: &[u8], device: &D) -> 
                     )
                     .await?
                 }
-                Err(_) => send_response(lane, &Errors::OutOfBounds.into()).await?,
+                Err(_) => send_response(lane, &error_response(Errors::OutOfBounds)).await?,
             }
         }
         bindings::AccessIrqRequest::MESSAGE_ID => {
@@ -196,20 +204,20 @@ async fn handle_one<D: PciDevice>(lane: &Handle, request: &[u8], device: &D) -> 
                 Ok(Some(handle)) => {
                     send_response_with_push(
                         lane,
-                        &Errors::Success.into(),
+                        &error_response(Errors::Success),
                         &handle,
                         hel_sys::kHelRightWait | hel_sys::kHelRightSignal,
                     )
                     .await?
                 }
-                _ => send_response(lane, &Errors::IllegalArguments.into()).await?,
+                _ => send_response(lane, &error_response(Errors::IllegalArguments)).await?,
             }
         }
         bindings::AccessExpansionRomRequest::MESSAGE_ID => match device.access_expansion_rom() {
             Ok(Some(handle)) => {
                 send_response_with_push(
                     lane,
-                    &Errors::Success.into(),
+                    &error_response(Errors::Success),
                     &handle,
                     hel_sys::kHelRightRead
                         | hel_sys::kHelRightAssign
@@ -218,7 +226,7 @@ async fn handle_one<D: PciDevice>(lane: &Handle, request: &[u8], device: &D) -> 
                 )
                 .await?
             }
-            _ => send_response(lane, &Errors::DeviceError.into()).await?,
+            _ => send_response(lane, &error_response(Errors::DeviceError)).await?,
         },
         bindings::GetVbtRequest::MESSAGE_ID => match device.access_vbt() {
             Ok(Some((size, handle))) => {
@@ -236,7 +244,7 @@ async fn handle_one<D: PciDevice>(lane: &Handle, request: &[u8], device: &D) -> 
                 )
                 .await?
             }
-            _ => send_response(lane, &Errors::IllegalArguments.into()).await?,
+            _ => send_response(lane, &error_response(Errors::IllegalArguments)).await?,
         },
         bindings::LoadPciSpaceRequest::MESSAGE_ID => {
             let req: bindings::LoadPciSpaceRequest =
@@ -259,7 +267,7 @@ async fn handle_one<D: PciDevice>(lane: &Handle, request: &[u8], device: &D) -> 
             } else {
                 Errors::IllegalArguments
             };
-            send_response(lane, &error.into()).await?;
+            send_response(lane, &error_response(error)).await?;
         }
         bindings::LoadPciCapabilityRequest::MESSAGE_ID => {
             let req: bindings::LoadPciCapabilityRequest =
@@ -276,11 +284,11 @@ async fn handle_one<D: PciDevice>(lane: &Handle, request: &[u8], device: &D) -> 
         }
         bindings::EnableBusmasterRequest::MESSAGE_ID => {
             device.enable_busmaster();
-            send_response(lane, &Errors::Success.into()).await?;
+            send_response(lane, &error_response(Errors::Success)).await?;
         }
         bindings::EnableBusIrqRequest::MESSAGE_ID => {
             device.enable_irq();
-            send_response(lane, &Errors::Success.into()).await?;
+            send_response(lane, &error_response(Errors::Success)).await?;
         }
         bindings::InstallMsiRequest::MESSAGE_ID => {
             let req: bindings::InstallMsiRequest =
@@ -289,21 +297,21 @@ async fn handle_one<D: PciDevice>(lane: &Handle, request: &[u8], device: &D) -> 
                 Ok(Some(handle)) => {
                     send_response_with_push(
                         lane,
-                        &Errors::Success.into(),
+                        &error_response(Errors::Success),
                         &handle,
                         hel_sys::kHelRightWait | hel_sys::kHelRightSignal,
                     )
                     .await?
                 }
-                Ok(None) => send_response(lane, &Errors::IllegalArguments.into()).await?,
-                Err(_) => send_response(lane, &Errors::ResourceExhaustion.into()).await?,
+                Ok(None) => send_response(lane, &error_response(Errors::IllegalArguments)).await?,
+                Err(_) => send_response(lane, &error_response(Errors::ResourceExhaustion)).await?,
             }
         }
         bindings::EnableMsiRequest::MESSAGE_ID => {
             if device.enable_msi() {
-                send_response(lane, &Errors::Success.into()).await?;
+                send_response(lane, &error_response(Errors::Success)).await?;
             } else {
-                send_response(lane, &Errors::IllegalArguments.into()).await?;
+                send_response(lane, &error_response(Errors::IllegalArguments)).await?;
             }
         }
         bindings::GetDmaSpaceRequest::MESSAGE_ID => {
@@ -326,15 +334,15 @@ async fn handle_one<D: PciDevice>(lane: &Handle, request: &[u8], device: &D) -> 
         }
         bindings::ClaimDeviceRequest::MESSAGE_ID => {
             device.claim_device();
-            send_response(lane, &Errors::Success.into()).await?;
+            send_response(lane, &error_response(Errors::Success)).await?;
         }
-        _ => send_response(lane, &Errors::DeviceError.into()).await?,
+        _ => send_response(lane, &error_response(Errors::DeviceError)).await?,
     }
 
     Ok(())
 }
 
-pub async fn serve_pci_device<D: PciDevice + 'static>(lane: Handle, device: Arc<D>) {
+async fn serve_requests(lane: Handle, handler: impl AsyncFn(&Handle, &[u8]) -> hel::Result<()>) {
     loop {
         let (conversation, request) = match submit_async(&lane, Accept::new(ReceiveInline)).await {
             Ok((conversation, request)) => (conversation, request),
@@ -351,11 +359,243 @@ pub async fn serve_pci_device<D: PciDevice + 'static>(lane: Handle, device: Arc<
             Err(_) => continue,
         };
 
-        if handle_one(&conversation, &request, device.as_ref())
-            .await
-            .is_err()
-        {
+        if handler(&conversation, &request).await.is_err() {
             continue;
         }
     }
+}
+
+pub async fn serve_pci_device<D: PciDevice + 'static>(lane: Handle, device: Arc<D>) {
+    serve_requests(lane, async |conversation: &Handle, request: &[u8]| {
+        handle_one(conversation, request, device.as_ref()).await
+    })
+    .await
+}
+
+/// The IO ports and IRQs that an ACPI object's _CRS describes.
+#[derive(Debug, Default)]
+pub struct AcpiResources {
+    pub io_ports: Vec<u16>,
+    pub fixed_io_ports: Vec<u16>,
+    pub irqs: Vec<u32>,
+}
+
+pub trait AcpiObject {
+    /// Returns the resources of the object's _CRS, or None if evaluation fails.
+    fn resources(&self) -> Option<AcpiResources>;
+    /// Returns an IO-space handle covering the ports of the index-th port resource of _CRS.
+    fn access_ports(&self, index: usize) -> super::Result<Handle>;
+    /// Returns the IRQ object for the index-th interrupt of _CRS.
+    fn access_irq(&self, index: usize) -> super::Result<&Handle>;
+}
+
+async fn handle_one_acpi<D: AcpiObject>(
+    lane: &Handle,
+    request: &[u8],
+    object: &D,
+) -> hel::Result<()> {
+    let preamble = match bragi::preamble_from_bytes(request) {
+        Ok(p) => p,
+        Err(_) => return Ok(()),
+    };
+
+    match preamble.id() {
+        bindings::AcpiGetResourcesRequest::MESSAGE_ID => {
+            let mut resp = bindings::AcpiGetResourcesReply::default();
+            match object.resources() {
+                Some(resources) => {
+                    resp.set_error(Errors::Success);
+                    resp.set_io_ports(resources.io_ports);
+                    resp.set_fixed_io_ports(resources.fixed_io_ports);
+                    resp.set_irqs(resources.irqs);
+                }
+                None => resp.set_error(Errors::DeviceError),
+            }
+            send_response(lane, &resp).await?;
+        }
+        bindings::AccessBarRequest::MESSAGE_ID => {
+            let req: bindings::AccessBarRequest =
+                bragi::head_from_bytes(request).map_err(|_| hel::Error::IllegalArgs)?;
+            let index = usize::try_from(req.index()).map_err(|_| hel::Error::IllegalArgs)?;
+            match object.access_ports(index) {
+                Ok(handle) => {
+                    send_response_with_push(
+                        lane,
+                        &error_response(Errors::Success),
+                        &handle,
+                        hel_sys::kHelRightRead
+                            | hel_sys::kHelRightWrite
+                            | hel_sys::kHelRightAssign
+                            | hel_sys::kHelRightProvision
+                            | hel_sys::kHelRightPin,
+                    )
+                    .await?
+                }
+                Err(err) => send_response(lane, &error_response(encode_hw_error(&err))).await?,
+            }
+        }
+        bindings::AccessIrqRequest::MESSAGE_ID => {
+            let req: bindings::AccessIrqRequest =
+                bragi::head_from_bytes(request).map_err(|_| hel::Error::IllegalArgs)?;
+            let index = usize::try_from(req.index()).map_err(|_| hel::Error::IllegalArgs)?;
+            match object.access_irq(index) {
+                Ok(handle) => {
+                    send_response_with_push(
+                        lane,
+                        &error_response(Errors::Success),
+                        handle,
+                        hel_sys::kHelRightWait | hel_sys::kHelRightSignal,
+                    )
+                    .await?
+                }
+                Err(err) => send_response(lane, &error_response(encode_hw_error(&err))).await?,
+            }
+        }
+        _ => send_response(lane, &error_response(Errors::DeviceError)).await?,
+    }
+
+    Ok(())
+}
+
+pub async fn serve_acpi_object<D: AcpiObject + 'static>(lane: Handle, object: Arc<D>) {
+    serve_requests(lane, async |conversation: &Handle, request: &[u8]| {
+        handle_one_acpi(conversation, request, object.as_ref()).await
+    })
+    .await
+}
+
+/// A register range of a device tree node's reg property.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct DtRegisterDescriptor {
+    pub address: u64,
+    pub length: u64,
+    pub offset: u32,
+}
+
+pub trait DtNode {
+    fn regs(&self) -> Vec<DtRegisterDescriptor>;
+    fn num_irqs(&self) -> u32;
+    fn path(&self) -> String;
+    fn property(&self, name: &str) -> Option<Vec<u8>>;
+    fn properties(&self) -> Vec<(String, Vec<u8>)>;
+
+    /// Returns a memory view of the index-th register range.
+    fn access_register(&self, index: usize) -> super::Result<Handle>;
+    /// Returns the IRQ object for the index-th interrupt of the node.
+    fn install_irq(&self, index: usize) -> super::Result<&Handle>;
+    /// Configures all interrupts of the node.
+    fn enable_irqs(&self);
+}
+
+async fn handle_one_dt<D: DtNode>(lane: &Handle, request: &[u8], node: &D) -> hel::Result<()> {
+    let preamble = match bragi::preamble_from_bytes(request) {
+        Ok(p) => p,
+        Err(_) => return Ok(()),
+    };
+
+    match preamble.id() {
+        bindings::GetDtInfoRequest::MESSAGE_ID => {
+            let mut resp = bindings::SvrResponse::default();
+            resp.set_error(Errors::Success);
+            resp.set_num_dt_irqs(node.num_irqs());
+            let regs = node
+                .regs()
+                .iter()
+                .map(|reg| {
+                    let mut msg = bindings::DtRegister::default();
+                    msg.set_address(reg.address);
+                    msg.set_length(reg.length);
+                    msg.set_offset(reg.offset);
+                    msg
+                })
+                .collect();
+            resp.set_dt_regs(regs);
+            send_response(lane, &resp).await?;
+        }
+        bindings::AccessDtRegisterRequest::MESSAGE_ID => {
+            let req: bindings::AccessDtRegisterRequest =
+                bragi::head_from_bytes(request).map_err(|_| hel::Error::IllegalArgs)?;
+            match node.access_register(req.index() as usize) {
+                Ok(handle) => {
+                    send_response_with_push(
+                        lane,
+                        &error_response(Errors::Success),
+                        &handle,
+                        hel_sys::kHelRightRead
+                            | hel_sys::kHelRightWrite
+                            | hel_sys::kHelRightAssign
+                            | hel_sys::kHelRightProvision
+                            | hel_sys::kHelRightPin,
+                    )
+                    .await?
+                }
+                Err(err) => send_response(lane, &error_response(encode_hw_error(&err))).await?,
+            }
+        }
+        bindings::InstallDtIrqRequest::MESSAGE_ID => {
+            let req: bindings::InstallDtIrqRequest =
+                bragi::head_from_bytes(request).map_err(|_| hel::Error::IllegalArgs)?;
+            match node.install_irq(req.index() as usize) {
+                Ok(handle) => {
+                    send_response_with_push(
+                        lane,
+                        &error_response(Errors::Success),
+                        handle,
+                        hel_sys::kHelRightWait | hel_sys::kHelRightSignal,
+                    )
+                    .await?
+                }
+                Err(err) => send_response(lane, &error_response(encode_hw_error(&err))).await?,
+            }
+        }
+        bindings::EnableBusIrqRequest::MESSAGE_ID => {
+            node.enable_irqs();
+            send_response(lane, &error_response(Errors::Success)).await?;
+        }
+        bindings::GetDtPropertyRequest::MESSAGE_ID => {
+            let req: bindings::GetDtPropertyRequest =
+                bragi::head_from_bytes(request).map_err(|_| hel::Error::IllegalArgs)?;
+            let mut resp = bindings::GetDtPropertyResponse::default();
+            match node.property(req.name()) {
+                Some(data) => {
+                    resp.set_error(Errors::Success);
+                    resp.set_data(data);
+                }
+                None => resp.set_error(Errors::PropertyNotFound),
+            }
+            send_response(lane, &resp).await?;
+        }
+        bindings::GetDtPropertiesRequest::MESSAGE_ID => {
+            let mut resp = bindings::GetDtPropertiesResponse::default();
+            resp.set_error(Errors::Success);
+            let properties = node
+                .properties()
+                .into_iter()
+                .map(|(name, data)| {
+                    let mut msg = bindings::DtProperty::default();
+                    msg.set_name(name);
+                    msg.set_data(data);
+                    msg
+                })
+                .collect();
+            resp.set_properties(properties);
+            send_response(lane, &resp).await?;
+        }
+        bindings::GetDtPathRequest::MESSAGE_ID => {
+            let mut resp = bindings::GetDtPathResponse::default();
+            resp.set_error(Errors::Success);
+            resp.set_path(node.path());
+            send_response(lane, &resp).await?;
+        }
+        _ => send_response(lane, &error_response(Errors::DeviceError)).await?,
+    }
+
+    Ok(())
+}
+
+pub async fn serve_dt_node<D: DtNode + 'static>(lane: Handle, node: Arc<D>) {
+    serve_requests(lane, async |conversation: &Handle, request: &[u8]| {
+        handle_one_dt(conversation, request, node.as_ref()).await
+    })
+    .await
 }

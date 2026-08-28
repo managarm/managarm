@@ -53,11 +53,69 @@ unsafe impl Send for NamespaceNode {}
 unsafe impl Sync for NamespaceNode {}
 
 impl NamespaceNode {
+    /// Wraps uacpi_namespace_root().
+    pub fn root() -> NamespaceNode {
+        // SAFETY: uACPI does not take any arguments that we could get wrong.
+        let node = unsafe { uacpi_sys::uacpi_namespace_root() };
+        NamespaceNode::from_raw(node).expect("uACPI lacks a root namespace node")
+    }
+
     /// Wraps uacpi_namespace_get_predefined().
     pub fn predefined(which: PredefinedNamespace) -> NamespaceNode {
         // SAFETY: uACPI does not take any arguments that we could get wrong.
         let node = unsafe { uacpi_sys::uacpi_namespace_get_predefined(which.to_raw()) };
         NamespaceNode::from_raw(node).expect("uACPI lacks a predefined namespace node")
+    }
+
+    /// Wraps uacpi_namespace_node_generate_absolute_path().
+    pub fn absolute_path(self) -> String {
+        // SAFETY: uACPI allocates the path string; we free it below.
+        let path = unsafe { uacpi_sys::uacpi_namespace_node_generate_absolute_path(self.node) };
+        assert!(!path.is_null(), "uACPI failed to generate an absolute path");
+        let string = unsafe { CStr::from_ptr(path) }
+            .to_string_lossy()
+            .into_owned();
+        unsafe { uacpi_sys::uacpi_free_absolute_path(path) };
+        string
+    }
+
+    /// Wraps uacpi_eval_hid(). Returns None if the device has no _HID.
+    pub fn eval_hid(self) -> Result<Option<String>> {
+        let mut id: *mut uacpi_sys::uacpi_id_string = std::ptr::null_mut();
+        // SAFETY: uACPI only writes the pointer to the id string that it allocates.
+        let status = unsafe { uacpi_sys::uacpi_eval_hid(self.node, &mut id) };
+        if !check_optional("uacpi_eval_hid", status)? {
+            return Ok(None);
+        }
+
+        // SAFETY: uACPI hands out a valid id string; we free it below.
+        let value = unsafe { CStr::from_ptr((*id).value) }
+            .to_string_lossy()
+            .into_owned();
+        unsafe { uacpi_sys::uacpi_free_id_string(id) };
+        Ok(Some(value))
+    }
+
+    /// Wraps uacpi_eval_cid(). Returns None if the device has no _CID.
+    pub fn eval_cid(self) -> Result<Option<Vec<String>>> {
+        let mut list: *mut uacpi_sys::uacpi_pnp_id_list = std::ptr::null_mut();
+        // SAFETY: uACPI only writes the pointer to the id list that it allocates.
+        let status = unsafe { uacpi_sys::uacpi_eval_cid(self.node, &mut list) };
+        if !check_optional("uacpi_eval_cid", status)? {
+            return Ok(None);
+        }
+
+        // SAFETY: uACPI hands out a list of num_ids valid id strings; we free it below.
+        let values = unsafe {
+            (*list)
+                .ids
+                .as_slice((*list).num_ids as usize)
+                .iter()
+                .map(|id| CStr::from_ptr(id.value).to_string_lossy().into_owned())
+                .collect()
+        };
+        unsafe { uacpi_sys::uacpi_free_pnp_id_list(list) };
+        Ok(Some(values))
     }
 
     pub(super) fn from_raw(node: *mut uacpi_namespace_node) -> Option<NamespaceNode> {
