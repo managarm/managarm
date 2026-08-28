@@ -543,6 +543,16 @@ struct FileSystem final : BaseFileSystem {
 	async::result<void> assignDataBlocksUsingExtents(Inode *inode,
 			uint64_t block_offset, size_t num_blocks);
 
+	// Locks a metadata block and returns a window into it.
+	async::result<MetadataCache::BlockWindow> accessMetadata(uint64_t block, bool writable) {
+		return metadataCache->access(block, writable);
+	}
+
+	// Reads bytes from a metadata block without mapping it.
+	async::result<void> readMetadata(uint64_t block, size_t offset, size_t length, void *buffer) {
+		return metadataCache->read(block, offset, length, buffer);
+	}
+
 	BlockDevice *device;
 	uint16_t inodeSize;
 	uint32_t blockShift;

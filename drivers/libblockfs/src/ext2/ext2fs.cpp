@@ -1146,7 +1146,7 @@ async::result<std::shared_ptr<BaseInode>> FileSystem::createRegular(int uid, int
 	assert(ino);
 
 	auto [inodeBlock, inodeOffset] = locateDiskInode(ino);
-	auto inodeWindow = co_await metadataCache->access(inodeBlock, true);
+	auto inodeWindow = co_await accessMetadata(inodeBlock, true);
 
 	// TODO: Set the UID, GID, timestamps.
 	auto disk_inode = reinterpret_cast<DiskInode *>(
@@ -1179,7 +1179,7 @@ async::result<std::shared_ptr<Inode>> FileSystem::createDirectory() {
 	assert(ino);
 
 	auto [inodeBlock, inodeOffset] = locateDiskInode(ino);
-	auto inodeWindow = co_await metadataCache->access(inodeBlock, true);
+	auto inodeWindow = co_await accessMetadata(inodeBlock, true);
 
 	// TODO: Set the UID, GID, timestamps.
 	auto disk_inode = reinterpret_cast<DiskInode *>(
@@ -1210,7 +1210,7 @@ async::result<std::shared_ptr<Inode>> FileSystem::createSymlink() {
 	assert(ino);
 
 	auto [inodeBlock, inodeOffset] = locateDiskInode(ino);
-	auto inodeWindow = co_await metadataCache->access(inodeBlock, true);
+	auto inodeWindow = co_await accessMetadata(inodeBlock, true);
 
 	// TODO: Set the UID, GID, timestamps.
 	auto disk_inode = reinterpret_cast<DiskInode *>(
@@ -1240,7 +1240,7 @@ async::result<void> FileSystem::initiateInode(std::shared_ptr<Inode> inode) {
 	protocols::ostrace::Timer timer;
 
 	auto [inodeBlock, inodeOffset] = locateDiskInode(inode->number);
-	inode->diskInodeWindow = co_await metadataCache->access(inodeBlock, true);
+	inode->diskInodeWindow = co_await accessMetadata(inodeBlock, true);
 	inode->diskInodeOffset = inodeOffset;
 	uint64_t accessDone = timer.elapsed();
 
@@ -1393,7 +1393,7 @@ async::result<std::vector<uint32_t>> FileSystem::allocateBlocks(size_t num, std:
 	// Accesses the bitmap of a block group, accounting the access to the emitted event.
 	auto accessBitmap = [&] (uint64_t block) -> async::result<MetadataCache::BlockWindow> {
 		protocols::ostrace::Timer accessTimer;
-		auto window = co_await metadataCache->access(block, true);
+		auto window = co_await accessMetadata(block, true);
 		accessTime += accessTimer.elapsed();
 		++numGroups;
 		co_return window;
@@ -1509,7 +1509,7 @@ async::result<uint32_t> FileSystem::allocateInode(uint32_t parentIno, bool direc
 	auto searchBlockGroup = [&](uint32_t bg) -> async::result<std::optional<uint32_t>> {
 		assert(bgdt[bg].inodeBitmap);
 		protocols::ostrace::Timer accessTimer;
-		auto bitmapWindow = co_await metadataCache->access(bgdt[bg].inodeBitmap, true);
+		auto bitmapWindow = co_await accessMetadata(bgdt[bg].inodeBitmap, true);
 		accessTime += accessTimer.elapsed();
 		++numGroups;
 		auto words = reinterpret_cast<uint32_t *>(bitmapWindow.get());
@@ -1755,7 +1755,7 @@ async::result<void> FileSystem::assignDataBlocksUsingExtents(Inode *inode,
 
 						diskInode->blocks += blockSize / 512;
 
-						newBlockWindow = co_await metadataCache->access(newBlock[0], true);
+						newBlockWindow = co_await accessMetadata(newBlock[0], true);
 						auto newHdr = reinterpret_cast<ExtentHeader *>(newBlockWindow.get());
 
 						newHdr->magic = EXT4_EXTENT_MAGIC;
@@ -1809,7 +1809,7 @@ async::result<void> FileSystem::assignDataBlocksUsingExtents(Inode *inode,
 
 							diskInode->blocks += blockSize / 512;
 
-							newRootWindow = co_await metadataCache->access(newRoot[0], true);
+							newRootWindow = co_await accessMetadata(newRoot[0], true);
 							auto newRootHdr = reinterpret_cast<ExtentHeader *>(newRootWindow.get());
 
 							memcpy(newRootHdr, info.hdr, sizeof(ExtentHeader) + info.hdr->entries * sizeof(Extent));
@@ -2034,18 +2034,18 @@ async::result<std::vector<BlockRange>> FileSystem::lookupBlocksOnDisk(Inode *ino
 			auto disk_inode = inode->diskInode();
 			uint32_t indirect_block = 0;
 			if(disk_inode->data.blocks.doubleIndirect)
-				co_await metadataCache->read(disk_inode->data.blocks.doubleIndirect,
+				co_await readMetadata(disk_inode->data.blocks.doubleIndirect,
 						indirect_frame * 4, 4, &indirect_block);
 
 			if(!indirect_block) {
 				// Nothing to do: the whole range is a hole.
 			} else if (remaining > indirectBufferSize) {
-				indirectWindow = co_await metadataCache->access(indirect_block, false);
+				indirectWindow = co_await accessMetadata(indirect_block, false);
 
 				list = reinterpret_cast<const uint32_t *>(indirectWindow.get())
 						+ indirect_index;
 			} else {
-				co_await metadataCache->read(indirect_block,
+				co_await readMetadata(indirect_block,
 						indirect_index * 4, count * 4, indirectBuffer.data());
 
 				list = indirectBuffer.data();
@@ -2060,12 +2060,12 @@ async::result<std::vector<BlockRange>> FileSystem::lookupBlocksOnDisk(Inode *ino
 			if(!indirect_block) {
 				// Nothing to do: the whole range is a hole.
 			} else if (remaining > indirectBufferSize) {
-				indirectWindow = co_await metadataCache->access(indirect_block, false);
+				indirectWindow = co_await accessMetadata(indirect_block, false);
 
 				list = reinterpret_cast<const uint32_t *>(indirectWindow.get())
 						+ indirect_index;
 			} else {
-				co_await metadataCache->read(indirect_block,
+				co_await readMetadata(indirect_block,
 						indirect_index * 4, count * 4, indirectBuffer.data());
 
 				list = indirectBuffer.data();
@@ -2153,7 +2153,7 @@ async::result<void> FileSystem::assignDataBlocks(Inode *inode,
 				needsReset = true;
 			}
 
-			auto indirectWindow = co_await metadataCache->access(
+			auto indirectWindow = co_await accessMetadata(
 					disk_inode->data.blocks.singleIndirect, true);
 			auto window = reinterpret_cast<uint32_t *>(indirectWindow.get());
 
@@ -2198,7 +2198,7 @@ async::result<void> FileSystem::assignDataBlocks(Inode *inode,
 				doubleNeedsReset = true;
 			}
 
-			auto doubleIndirectWindow = co_await metadataCache->access(
+			auto doubleIndirectWindow = co_await accessMetadata(
 					disk_inode->data.blocks.doubleIndirect, true);
 			auto double_window = reinterpret_cast<uint32_t *>(doubleIndirectWindow.get());
 
@@ -2220,7 +2220,7 @@ async::result<void> FileSystem::assignDataBlocks(Inode *inode,
 					needsReset = true;
 				}
 
-				auto indirectWindow = co_await metadataCache->access(
+				auto indirectWindow = co_await accessMetadata(
 						double_window[indirect_frame], true);
 				auto window = reinterpret_cast<uint32_t *>(indirectWindow.get());
 

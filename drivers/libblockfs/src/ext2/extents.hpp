@@ -85,7 +85,7 @@ struct ExtentWalker {
 			uint64_t nextBlock = static_cast<uint64_t>(idx.leafLow)
 					| (static_cast<uint64_t>(idx.leafHigh) << 32);
 
-			windows[pathCount] = co_await fs->metadataCache->access(nextBlock, !lookup);
+			windows[pathCount] = co_await fs->accessMetadata(nextBlock, !lookup);
 			currentBlock = nextBlock;
 			hdr = reinterpret_cast<ExtentHeader *>(windows[pathCount].get());
 		}
