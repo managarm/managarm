@@ -36,8 +36,9 @@ MetadataCache::MetadataCache(BlockDevice *device, uint64_t baseBlock, uint64_t n
 			static_cast<size_t>(numBlocks << blockPagesShift_),
 			kHelMapProtRead | kHelMapProtWrite | kHelMapDontRequireBacking};
 
-	manage_(helix::UniqueDescriptor{backing});
-	flushDirty_();
+	// Distribute MetadataCache servicing coroutines over the helix::DispatcherPool,
+	// but keep manage_() and flushDirty_() on the same thread.
+	helix::DispatcherPool::global().detach(run_(helix::UniqueDescriptor{backing}));
 }
 
 void MetadataCache::CacheBlockPolicy::increment() const {
@@ -178,7 +179,14 @@ async::result<void> MetadataCache::read(uint64_t block, size_t offset, size_t le
 	);
 }
 
-async::detached MetadataCache::manage_(helix::UniqueDescriptor backing) {
+async::result<void> MetadataCache::run_(helix::UniqueDescriptor backing) {
+	co_await async::when_all(
+		flushDirty_(),
+		manage_(std::move(backing))
+	);
+}
+
+async::result<void> MetadataCache::manage_(helix::UniqueDescriptor backing) {
 	while(true) {
 		helix::ManageMemory manage;
 		auto &&submitManage = helix::submitManageMemory(backing,
@@ -186,8 +194,7 @@ async::detached MetadataCache::manage_(helix::UniqueDescriptor backing) {
 		co_await submitManage.async_wait();
 		HEL_CHECK(manage.error());
 
-		helix::DispatcherPool::global().detach(
-				serviceRequest_(backing, manage.type(), manage.offset(), manage.length()));
+		async::detach(serviceRequest_(backing, manage.type(), manage.offset(), manage.length()));
 	}
 }
 
@@ -250,7 +257,7 @@ void MetadataCache::markDirty_(uint64_t block) {
 	dirtyEvent_.raise();
 }
 
-async::detached MetadataCache::flushDirty_() {
+async::result<void> MetadataCache::flushDirty_() {
 	// Blocks dirtied while a batch is being synchronized are picked up by the next iteration.
 	uint64_t seenSeq = 0;
 	std::vector<uint64_t> batch;

@@ -127,7 +127,7 @@ public:
 	// The cache covers the blocks [baseBlock, baseBlock + numBlocks).
 	MetadataCache(BlockDevice *device, uint64_t baseBlock, uint64_t numBlocks, size_t blockSize);
 
-	// The servicer coroutine started by the constructor refers back to this object.
+	// The coroutines started by the constructor refer back to this object.
 	MetadataCache(const MetadataCache &) = delete;
 	MetadataCache &operator=(const MetadataCache &) = delete;
 
@@ -139,7 +139,8 @@ public:
 	async::result<void> read(uint64_t block, size_t offset, size_t length, void *buffer);
 
 private:
-	async::detached manage_(helix::UniqueDescriptor backing);
+	async::result<void> run_(helix::UniqueDescriptor backing);
+	async::result<void> manage_(helix::UniqueDescriptor backing);
 	async::result<void> serviceRequest_(helix::BorrowedDescriptor backing,
 			int type, uintptr_t offset, size_t length);
 	// Offset of the given block within this cache's mapping.
@@ -153,7 +154,7 @@ private:
 	CacheBlockPtr touchLru_(CacheBlock *cacheBlock);
 	void destroyCacheBlock_(CacheBlock *cacheBlock);
 	void markDirty_(uint64_t block);
-	async::detached flushDirty_();
+	async::result<void> flushDirty_();
 
 	BlockDevice *device_;
 	uint64_t baseBlock_;
