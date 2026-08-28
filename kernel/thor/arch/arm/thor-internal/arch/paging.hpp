@@ -43,14 +43,14 @@ inline size_t icacheLineSize() {
 	uint64_t ctr;
 	asm ("mrs %0, ctr_el0" : "=r"(ctr));
 
-	return (ctr & 0b1111) << 4;
+	return size_t{4} << (ctr & 0b1111);
 }
 
 inline size_t dcacheLineSize() {
 	uint64_t ctr;
 	asm ("mrs %0, ctr_el0" : "=r"(ctr));
 
-	return ((ctr >> 16) & 0b1111) << 4;
+	return size_t{4} << ((ctr >> 16) & 0b1111);
 }
 
 inline size_t isICachePIPT() {
