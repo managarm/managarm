@@ -1896,8 +1896,8 @@ Error BackingMemory::updateRange(ManageRequest type, size_t offset, size_t lengt
 				auto pit = _managed->pages.find(index);
 				pit->loadState = ManagedSpace::LoadState::present;
 				auto monitor = pit->detachMonitor(ManagedSpace::MonitorType::initialization);
-				assert(monitor);
-				pendingMonitors.push_back(monitor.release());
+				if(monitor)
+					pendingMonitors.push_back(monitor.release());
 				if(pit->discarded) {
 					// The page completed initialization normally but will now be discarded.
 					pit->transactionState = ManagedSpace::TxState::none;
@@ -2218,7 +2218,6 @@ FrontalMemory::touchRange(uintptr_t offset, size_t, FetchFlags flags) {
 				&& pit->transactionState == ManagedSpace::TxState::none) {
 			pit->transactionState = ManagedSpace::TxState::wantInitialization;
 			_managed->_initializationList.push_back(&pit->cachePage);
-			pit->attachMonitor(ManagedSpace::MonitorType::initialization);
 		}
 
 		// Perform readahead.
@@ -2233,14 +2232,14 @@ FrontalMemory::touchRange(uintptr_t offset, size_t, FetchFlags flags) {
 						&& pit->transactionState == ManagedSpace::TxState::none) {
 					pit->transactionState = ManagedSpace::TxState::wantInitialization;
 					_managed->_initializationList.push_back(&pit->cachePage);
-					pit->attachMonitor(ManagedSpace::MonitorType::initialization);
 				}
 			}
 
 		_managed->_progressManagement(pendingManagement);
 
-		fetchMonitor = pit->findMonitor(ManagedSpace::MonitorType::initialization);
-		assert(fetchMonitor);
+		assert(pit->transactionState == ManagedSpace::TxState::wantInitialization
+				|| pit->transactionState == ManagedSpace::TxState::initialization);
+		fetchMonitor = pit->requireMonitor(ManagedSpace::MonitorType::initialization);
 	}
 
 	while(!pendingManagement.empty()) {
@@ -2526,12 +2525,12 @@ SwappableMemory::touchRange(uintptr_t offset, size_t, FetchFlags flags) {
 				if(pit->transactionState == ManagedSpace::TxState::none) {
 					pit->transactionState = ManagedSpace::TxState::wantInitialization;
 					_space->_initializationList.push_back(&pit->cachePage);
-					pit->attachMonitor(ManagedSpace::MonitorType::initialization);
 				}
 
 				_space->_progressManagement(pendingManagement);
-				fetchMonitor = pit->findMonitor(ManagedSpace::MonitorType::initialization);
-				assert(fetchMonitor);
+				assert(pit->transactionState == ManagedSpace::TxState::wantInitialization
+						|| pit->transactionState == ManagedSpace::TxState::initialization);
+				fetchMonitor = pit->requireMonitor(ManagedSpace::MonitorType::initialization);
 			}
 		}
 

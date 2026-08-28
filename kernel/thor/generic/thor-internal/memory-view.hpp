@@ -721,7 +721,7 @@ struct ManagedSpace : CacheBundle {
 	// At most one monitor per type can be attached at a time; the attached monitors
 	// form a chain headed by ManagedPage::monitors.
 	// For MonitorType::initialization:
-	// * Attached when entering TxState::wantInitialization.
+	// * Attached by a waiter in TxState::wantInitialization or TxState::initialization.
 	// * Completed when leaving TxState::initialization.
 	// For MonitorType::writeback:
 	// * Attached when entering TxState::wantWriteback.
