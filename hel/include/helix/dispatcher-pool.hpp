@@ -5,6 +5,7 @@
 #include <stdlib.h>
 #include <atomic>
 #include <concepts>
+#include <optional>
 #include <vector>
 
 #include <async/algorithm.hpp>
@@ -25,6 +26,12 @@ struct DispatcherPool {
 	DispatcherPool(const DispatcherPool &) = delete;
 
 	DispatcherPool &operator= (const DispatcherPool &) = delete;
+
+	// Index of the calling thread within the pool, or std::nullopt if the calling thread is not a pool member.
+	std::optional<size_t> thisThread();
+
+	// Maximal number of members that the pool can ever have.
+	size_t maxThreads();
 
 	// Fixes the number of pool threads.
 	// Must be called before the pool is brought up.

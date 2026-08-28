@@ -2,6 +2,7 @@
 #include <bit>
 #include <future>
 #include <iostream>
+#include <optional>
 #include <thread>
 
 #include <hel.h>
@@ -24,7 +25,12 @@ size_t queryCpuCount() {
 	return count;
 }
 
-void workerMain(std::promise<async::run_queue *> promise) {
+// Index of the current thread within the pool. Absent on non-member threads.
+// FIXME: This assumes that there is a single global DispatcherPool.
+thread_local std::optional<size_t> memberIndex_;
+
+void workerMain(size_t index, std::promise<async::run_queue *> promise) {
+	memberIndex_ = index;
 	promise.set_value(Dispatcher::global().runQueue());
 	async::run_forever(currentDispatcher);
 	abort(); // We should never get here.
@@ -41,7 +47,18 @@ DispatcherPool::DispatcherPool() {
 	ownerContext_ = async::current_run_queue_context();
 
 	// Adopt the owner as the first member of this pool.
+	memberIndex_ = 0;
 	members_.push_back(Dispatcher::global().runQueue());
+}
+
+std::optional<size_t> DispatcherPool::thisThread() {
+	return memberIndex_;
+}
+
+size_t DispatcherPool::maxThreads() {
+	if(!live_.load(std::memory_order_relaxed))
+		abort();
+	return threadCount_;
 }
 
 void DispatcherPool::enter_() {
@@ -52,18 +69,19 @@ void DispatcherPool::enter_() {
 	if(live_.load(std::memory_order_relaxed))
 		return;
 
-	auto numThreads = threadCount_ ? threadCount_ : queryCpuCount();
-	std::cout << "helix: Running dispatcher pool on " << numThreads
+	if (!threadCount_)
+		threadCount_ = queryCpuCount();
+	std::cout << "helix: Running dispatcher pool on " << threadCount_
 			<< " threads" << std::endl;
 
 	assert(members_.size() == 1); // The owner is the first member.
-	for(size_t i = 1; i < numThreads; ++i) {
+	for(size_t i = 1; i < threadCount_; ++i) {
 		std::promise<async::run_queue *> promise;
 		auto future = promise.get_future();
 
 		// The workers are never joined for now to prevent UAF
 		// when there are still coroutines pointing to the helix::Dispatchers.
-		std::thread{workerMain, std::move(promise)}.detach();
+		std::thread{workerMain, i, std::move(promise)}.detach();
 
 		members_.push_back(future.get());
 	}
