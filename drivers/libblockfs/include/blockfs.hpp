@@ -67,6 +67,7 @@ extern protocols::ostrace::Event ostEvtVirtioBlkFlush;
 extern protocols::ostrace::UintAttribute ostAttrTime;
 extern protocols::ostrace::UintAttribute ostAttrNumBytes;
 extern protocols::ostrace::UintAttribute ostAttrIsWrite;
+extern protocols::ostrace::UintAttribute ostAttrQueueIndex;
 extern protocols::ostrace::UintAttribute ostAttrTimeSetup;
 extern protocols::ostrace::UintAttribute ostAttrTimeObtain;
 extern protocols::ostrace::UintAttribute ostAttrTimeDevice;

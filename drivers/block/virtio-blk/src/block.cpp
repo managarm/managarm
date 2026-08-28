@@ -21,12 +21,13 @@ uint64_t currentNs() {
 	return helix::getClock();
 }
 
-void emitRequestTrace(UserRequest *request) {
+void emitRequestTrace(UserRequest *request, unsigned int queueIndex) {
 	blockfs::ostContext.emit(
 		blockfs::ostEvtVirtioBlkRequest,
 		blockfs::ostAttrTime(request->completeTs - request->enqueueTs),
 		blockfs::ostAttrNumBytes(request->view.size()),
 		blockfs::ostAttrIsWrite(request->write),
+		blockfs::ostAttrQueueIndex(queueIndex),
 		blockfs::ostAttrTimeSetup(request->setupTime),
 		blockfs::ostAttrTimeObtain(request->obtainTime),
 		blockfs::ostAttrTimeDevice(request->completeTs - request->submitTs)
@@ -153,7 +154,7 @@ async::result<void> Device::readSectors(uint64_t sector, arch::dma_buffer_view v
 					<< static_cast<unsigned int>(*request.status) << std::endl;
 			abort();
 		}
-		emitRequestTrace(&request);
+		emitRequestTrace(&request, queue->queueIndex());
 	}
 
 	blockfs::ostContext.emit(
@@ -197,7 +198,7 @@ async::result<void> Device::writeSectors(uint64_t sector, arch::dma_buffer_view 
 					<< static_cast<unsigned int>(*request.status) << std::endl;
 			abort();
 		}
-		emitRequestTrace(&request);
+		emitRequestTrace(&request, queue->queueIndex());
 	}
 
 	blockfs::ostContext.emit(
