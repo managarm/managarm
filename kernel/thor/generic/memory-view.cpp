@@ -1228,7 +1228,6 @@ coroutine<void> ManagedSpace::_runDrainLoop() {
 					assert(page->discardMode == DiscardMode::keepDirty);
 				}
 				page->transactionState = TxState::wantWriteback;
-				page->attachMonitor(MonitorType::writeback);
 				_writebackList.push_back(cp);
 			}
 
@@ -1343,7 +1342,8 @@ void ManagedSpace::discardPage(ManagedPage *pit, DiscardMode mode, bool &raiseDi
 		}
 		_writebackList.erase(_writebackList.iterator_to(&pit->cachePage));
 		auto writebackMonitor = pit->detachMonitor(MonitorType::writeback);
-		pendingMonitors.push_back(writebackMonitor.release());
+		if(writebackMonitor)
+			pendingMonitors.push_back(writebackMonitor.release());
 		pit->transactionState = TxState::none;
 		dispose = true;
 		break;
@@ -1918,8 +1918,8 @@ Error BackingMemory::updateRange(ManageRequest type, size_t offset, size_t lengt
 					if(pit->discardMode == DiscardMode::dropDirty) {
 						// Raise the monitor as usual - writebackFence() waiters hold references to it.
 						auto monitor = pit->detachMonitor(ManagedSpace::MonitorType::writeback);
-						assert(monitor);
-						pendingMonitors.push_back(monitor.release());
+						if(monitor)
+							pendingMonitors.push_back(monitor.release());
 						// The frame is being discarded so it doesn't need to be written back.
 						pit->stillDirty = false;
 						pit->transactionState = ManagedSpace::TxState::none;
@@ -1932,8 +1932,8 @@ Error BackingMemory::updateRange(ManageRequest type, size_t offset, size_t lengt
 					// The backing store now holds the page's current contents.
 					pit->swapCopyValid = true;
 					auto monitor = pit->detachMonitor(ManagedSpace::MonitorType::writeback);
-					assert(monitor);
-					pendingMonitors.push_back(monitor.release());
+					if(monitor)
+						pendingMonitors.push_back(monitor.release());
 					if(pit->discarded) {
 						pit->transactionState = ManagedSpace::TxState::none;
 						raiseDiscard |= _managed->_disposeDiscarded(pit);
@@ -1948,10 +1948,8 @@ Error BackingMemory::updateRange(ManageRequest type, size_t offset, size_t lengt
 					pit->transactionState = ManagedSpace::TxState::wantWriteback;
 					_managed->_writebackList.push_back(&pit->cachePage);
 					auto monitor = pit->detachMonitor(ManagedSpace::MonitorType::writeback);
-					assert(monitor);
-					pendingMonitors.push_back(monitor.release());
-					// Note that the monitor is destroyed and re-created here.
-					pit->attachMonitor(ManagedSpace::MonitorType::writeback);
+					if(monitor)
+						pendingMonitors.push_back(monitor.release());
 				}
 			}
 		}
@@ -1984,12 +1982,10 @@ coroutine<frg::expected<Error>> BackingMemory::writebackFence(uintptr_t offset, 
 				auto pit = _managed->pages.find(index);
 				if(pit) {
 					if(pit->transactionState == ManagedSpace::TxState::wantWriteback) {
-						monitor = pit->findMonitor(ManagedSpace::MonitorType::writeback);
-						assert(monitor);
+						monitor = pit->requireMonitor(ManagedSpace::MonitorType::writeback);
 						break;
 					} else if(pit->transactionState == ManagedSpace::TxState::writeback) {
-						monitor = pit->findMonitor(ManagedSpace::MonitorType::writeback);
-						assert(monitor);
+						monitor = pit->requireMonitor(ManagedSpace::MonitorType::writeback);
 						needSecond = true;
 						break;
 					}
@@ -2014,8 +2010,9 @@ coroutine<frg::expected<Error>> BackingMemory::writebackFence(uintptr_t offset, 
 
 				size_t index = (offset + pg) >> kPageShift;
 				auto pit = _managed->pages.find(index);
-				if(pit)
-					monitor = pit->findMonitor(ManagedSpace::MonitorType::writeback);
+				if(pit && (pit->transactionState == ManagedSpace::TxState::wantWriteback
+						|| pit->transactionState == ManagedSpace::TxState::writeback))
+					monitor = pit->requireMonitor(ManagedSpace::MonitorType::writeback);
 			}
 
 			if(monitor)
