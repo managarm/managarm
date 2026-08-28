@@ -23,6 +23,7 @@
 #include "fs.bragi.hpp"
 #include "../fs.hpp"
 #include "../metadata-cache.hpp"
+#include "block-map-cache.hpp"
 
 namespace blockfs {
 namespace ext2fs {
@@ -328,14 +329,20 @@ struct DirEntry {
 };
 
 // --------------------------------------------------------
-// ExtentBlockRange
+// BlockRange
 // --------------------------------------------------------
 
-struct ExtentBlockRange {
+// Describes a mapping from per-file blocks to on-disk blocks.
+struct BlockRange {
+	// Offset of the range within the file.
 	uint64_t relativeStartBlock;
+	// Block number on the file system.
+	// Only meaningful if !hole.
 	uint64_t absoluteStartBlock;
+	// Number of blocks.
 	uint64_t size;
-	bool found;
+	// Whether the range represents a hole or not.
+	bool hole;
 };
 
 // --------------------------------------------------------
@@ -419,6 +426,9 @@ struct Inode final : BaseInode, std::enable_shared_from_this<Inode> {
 	// - the single/double/triple indirect blocks
 	// Ordered after inodeMutex.
 	async::mutex blockMapMutex;
+
+	// Caches the runs of this inode's block map that were already resolved.
+	BlockMapCache blockMapCache;
 
 	// page cache that stores the contents of this file
 	HelHandle backingMemory;
@@ -506,30 +516,32 @@ struct FileSystem final : BaseFileSystem {
 	async::result<void> assignDataBlocks(Inode *inode,
 			uint64_t block_offset, size_t num_blocks);
 
+	// Resolves a range of file blocks to runs of disk blocks and holes.
 	// Callers must hold inode->blockMapMutex.
-	async::result<void>
-	readDataBlocks(std::shared_ptr<Inode> inode, uint64_t block_offset, arch::dma_buffer_view buf);
+	async::result<std::vector<BlockRange>> lookupBlocks(Inode *inode,
+			uint64_t block_offset, size_t num_blocks);
+
+	// Resolves a range of file blocks by walking the on-disk block map.
+	// Callers must hold inode->blockMapMutex.
+	async::result<std::vector<BlockRange>> lookupBlocksOnDisk(Inode *inode,
+			uint64_t block_offset, size_t num_blocks);
 
 	// Callers must hold inode->blockMapMutex.
-	async::result<void> writeDataBlocks(
-	    std::shared_ptr<Inode> inode, uint64_t block_offset, arch::dma_buffer_view view
-	);
+	async::result<void> readDataBlocks(const std::vector<BlockRange> &ranges,
+			arch::dma_buffer_view buf);
+
+	// Callers must hold inode->blockMapMutex.
+	async::result<void> writeDataBlocks(const std::vector<BlockRange> &ranges,
+			arch::dma_buffer_view buf);
 
 
 	// Callers must hold inode->blockMapMutex.
-	async::result<std::vector<ExtentBlockRange>> lookupBlocksUsingExtent(Inode *inode,
-			uint64_t block_offset, size_t num_blocks, bool errorIfNotFound);
+	async::result<std::vector<BlockRange>> lookupBlocksUsingExtent(Inode *inode,
+			uint64_t block_offset, size_t num_blocks);
 
 	// Callers must hold inode->blockMapMutex.
 	async::result<void> assignDataBlocksUsingExtents(Inode *inode,
 			uint64_t block_offset, size_t num_blocks);
-
-	// Callers must hold inode->blockMapMutex.
-	async::result<void> readDataBlocksUsingExtents(std::shared_ptr<Inode> inode, uint64_t block_offset,
-			arch::dma_buffer_view buf);
-	// Callers must hold inode->blockMapMutex.
-	async::result<void> writeDataBlocksUsingExtents(std::shared_ptr<Inode> inode, uint64_t block_offset,
-			arch::dma_buffer_view buf);
 
 	BlockDevice *device;
 	uint16_t inodeSize;

@@ -1316,7 +1316,12 @@ async::result<void> FileSystem::manageFileData(std::shared_ptr<Inode> inode) {
 				co_await inode->blockMapMutex.async_lock();
 				frg::unique_lock blockMapLock{frg::adopt_lock, inode->blockMapMutex};
 				lockDone = timer.elapsed();
-				co_await inode->fs.readDataBlocks(inode, manage.offset() / inode->fs.blockSize, fileView);
+				auto blockRanges = co_await inode->fs.lookupBlocks(inode.get(),
+						manage.offset() / inode->fs.blockSize, num_blocks);
+				// For blockSize < pageSize, the manage request (= fileView) may extend beyond the last block of the file.
+				// Clamp fileView to the number of blocks that we actually want to read.
+				co_await inode->fs.readDataBlocks(blockRanges,
+						fileView.view().subview(0, num_blocks * inode->fs.blockSize));
 				readDone = timer.elapsed();
 			}
 
@@ -1350,7 +1355,12 @@ async::result<void> FileSystem::manageFileData(std::shared_ptr<Inode> inode) {
 				lockDone = timer.elapsed();
 				co_await inode->fs.assignDataBlocks(inode.get(), blockOffset, numBlocks);
 				assignDone = timer.elapsed();
-				co_await inode->fs.writeDataBlocks(inode, blockOffset, fileView);
+				auto blockRanges = co_await inode->fs.lookupBlocks(inode.get(),
+						blockOffset, numBlocks);
+				// For blockSize < pageSize, the manage request (= fileView) may extend beyond the last block of the file.
+				// Clamp fileView to the number of blocks that we actually want to write.
+				co_await inode->fs.writeDataBlocks(blockRanges,
+						fileView.view().subview(0, numBlocks * inode->fs.blockSize));
 				writeDone = timer.elapsed();
 			}
 
@@ -1589,9 +1599,9 @@ async::result<uint32_t> FileSystem::allocateInode(uint32_t parentIno, bool direc
 	co_return 0;
 }
 
-async::result<std::vector<ExtentBlockRange>> FileSystem::lookupBlocksUsingExtent(Inode *inode,
-		uint64_t block_offset, size_t num_blocks, bool errorIfNotFound) {
-	std::vector<ExtentBlockRange> ranges;
+async::result<std::vector<BlockRange>> FileSystem::lookupBlocksUsingExtent(Inode *inode,
+		uint64_t block_offset, size_t num_blocks) {
+	std::vector<BlockRange> ranges;
 
 	ExtentWalker walker{this, inode, true};
 
@@ -1617,11 +1627,11 @@ async::result<std::vector<ExtentBlockRange>> FileSystem::lookupBlocksUsingExtent
 			uint64_t absoluteStartBlock = static_cast<uint64_t>(extent.startLow)
 					| (static_cast<uint64_t>(extent.startHigh) << 32);
 
-			ExtentBlockRange range{
+			BlockRange range{
 				.relativeStartBlock = index,
 				.absoluteStartBlock = absoluteStartBlock + startOffset,
 				.size = toAdd,
-				.found = true
+				.hole = false
 			};
 			ranges.push_back(range);
 
@@ -1630,18 +1640,15 @@ async::result<std::vector<ExtentBlockRange>> FileSystem::lookupBlocksUsingExtent
 		}));
 
 		if(!res) {
-			if(errorIfNotFound)
-				assert(!"Block was not found in extent tree");
-
 			if(!ranges.empty() && ranges.back().relativeStartBlock + ranges.back().size == index
-					&& !ranges.back().found) {
+					&& ranges.back().hole) {
 				ranges.back().size++;
 			} else {
-				ExtentBlockRange range{
+				BlockRange range{
 					.relativeStartBlock = index,
 					.absoluteStartBlock = 0,
 					.size = 1,
-					.found = false
+					.hole = true
 				};
 				ranges.push_back(range);
 			}
@@ -1658,10 +1665,10 @@ async::result<void> FileSystem::assignDataBlocksUsingExtents(Inode *inode,
 	protocols::ostrace::Timer timer;
 
 	auto diskInode = inode->diskInode();
-	auto blockRanges = co_await lookupBlocksUsingExtent(inode, block_offset, num_blocks, false);
+	auto blockRanges = co_await lookupBlocksUsingExtent(inode, block_offset, num_blocks);
 
 	for(auto &range : blockRanges) {
-		if(range.found)
+		if(!range.hole)
 			continue;
 
 		auto allocated = co_await allocateBlocks(range.size, inode->number);
@@ -1703,6 +1710,15 @@ async::result<void> FileSystem::assignDataBlocksUsingExtents(Inode *inode,
 				.startHigh = static_cast<uint16_t>((allocatedRange.first >> 32) & 0xffff),
 				.startLow = static_cast<uint32_t>(allocatedRange.first & 0xffffffff)
 			};
+
+			inode->blockMapCache.insert(
+				index,
+				{
+					.diskBlock = allocatedRange.first,
+					.size = allocatedRangeSize,
+					.hole = false
+				}
+			);
 
 			ExtentWalker walker{this, inode, false};
 			co_await walker.walk(index,
@@ -1908,76 +1924,169 @@ async::result<void> FileSystem::assignDataBlocksUsingExtents(Inode *inode,
 	);
 }
 
-async::result<void> FileSystem::readDataBlocksUsingExtents(std::shared_ptr<Inode> inode, uint64_t block_offset,
-		arch::dma_buffer_view buf) {
-	co_await inode->readyEvent.wait();
-	// TODO: Assert that we do not read past the EOF.
+namespace {
 
-	protocols::ostrace::Timer timer;
-	uint64_t deviceTime = 0;
+// Appends a run to a range list, merging it with the last range if contiguous.
+void mergeBlockRange(std::vector<BlockRange> &ranges,
+		uint64_t rel, uint64_t abs, uint64_t size) {
+	bool hole = !abs;
 
-	size_t num_blocks = buf.size() >> blockShift;
-	auto blockRanges = co_await lookupBlocksUsingExtent(inode.get(), block_offset, num_blocks, false);
+	auto continues = [&] (const BlockRange &back) {
+		if(back.relativeStartBlock + back.size != rel)
+			return false;
+		// Holes merge with adjacent holes.
+		if(back.hole || hole)
+			return back.hole && hole;
+		// Non-holes merge only if they are contiguous on disk.
+		return back.absoluteStartBlock + back.size == abs;
+	};
 
-	size_t progress = 0;
-	for(auto &range : blockRanges) {
-		assert(range.relativeStartBlock == block_offset + progress);
-
-		if(!range.found) {
-			memset(buf.byte_data() + progress * blockSize, 0, range.size * blockSize);
-		}else {
-			assert(range.absoluteStartBlock);
-			protocols::ostrace::Timer deviceTimer;
-			co_await device->readSectors(
-			    range.absoluteStartBlock * sectorsPerBlock,
-			    buf.subview(progress * blockSize, range.size * blockSize)
-			);
-			deviceTime += deviceTimer.elapsed();
-		}
-
-		progress += range.size;
+	if(!ranges.empty() && continues(ranges.back())) {
+		ranges.back().size += size;
+		return;
 	}
-
-	assert(progress == num_blocks);
-
-	ostContext.emit(
-		ostEvtExt2ReadDataBlocks,
-		ostAttrTime(timer.elapsed()),
-		ostAttrNumBytes(buf.size()),
-		ostAttrTimeDevice(deviceTime)
-	);
+	ranges.push_back({rel, abs, size, hole});
 }
 
-async::result<void> FileSystem::writeDataBlocksUsingExtents(std::shared_ptr<Inode> inode, uint64_t block_offset,
-		arch::dma_buffer_view buf) {
+} // anonymous namespace
+
+async::result<std::vector<BlockRange>> FileSystem::lookupBlocks(Inode *inode,
+		uint64_t block_offset, size_t num_blocks) {
 	co_await inode->readyEvent.wait();
-	// TODO: Assert that we do not read past the EOF.
 
-	protocols::ostrace::Timer timer;
-	uint64_t deviceTime = 0;
-
-	size_t num_blocks = buf.size() >> blockShift;
-	auto blockRanges = co_await lookupBlocksUsingExtent(inode.get(), block_offset, num_blocks, true);
+	std::vector<BlockRange> ranges;
 
 	size_t progress = 0;
-	for(auto &range : blockRanges) {
-		protocols::ostrace::Timer deviceTimer;
-		co_await device->writeSectors(
-		    range.absoluteStartBlock * sectorsPerBlock,
-		    buf.subview(progress * blockSize, range.size * blockSize)
-		);
-		deviceTime += deviceTimer.elapsed();
-		progress += range.size;
+	while(progress < num_blocks) {
+		auto index = block_offset + progress;
+		auto [run, length] = inode->blockMapCache.probe(index, num_blocks - progress);
+		assert(length);
+
+		// Serve as much as possible from the per-inode cache.
+		if(run) {
+			mergeBlockRange(ranges, index, run->hole ? 0 : run->diskBlock, run->size);
+		}else{
+			// Resolve the gap from the on-disk block map and cache the result.
+			auto walked = co_await lookupBlocksOnDisk(inode, index, length);
+			for(auto &range : walked) {
+				inode->blockMapCache.insert(
+					range.relativeStartBlock,
+					{
+						.diskBlock = range.absoluteStartBlock,
+						.size = range.size,
+						.hole = range.hole
+					}
+				);
+				mergeBlockRange(ranges, range.relativeStartBlock,
+						range.hole ? 0 : range.absoluteStartBlock, range.size);
+			}
+		}
+		progress += length;
 	}
 
-	assert(progress == num_blocks);
+	co_return ranges;
+}
 
-	ostContext.emit(
-		ostEvtExt2WriteDataBlocks,
-		ostAttrTime(timer.elapsed()),
-		ostAttrNumBytes(buf.size()),
-		ostAttrTimeDevice(deviceTime)
-	);
+async::result<std::vector<BlockRange>> FileSystem::lookupBlocksOnDisk(Inode *inode,
+		uint64_t block_offset, size_t num_blocks) {
+	if(inode->usesExtents) {
+		auto blockRanges = co_await lookupBlocksUsingExtent(inode, block_offset, num_blocks);
+		co_await helix_ng::asyncNop();
+		co_return blockRanges;
+	}
+
+	size_t per_indirect = blockSize / 4;
+	size_t per_single = per_indirect;
+	size_t per_double = per_indirect * per_indirect;
+
+	// Number of blocks that can be accessed by:
+	size_t i_range = 12; // Direct blocks only.
+	size_t s_range = i_range + per_single; // Plus the first single indirect block.
+	size_t d_range = s_range + per_double; // Plus the first double indirect block.
+
+	std::vector<BlockRange> ranges;
+
+	// Buffer to store small fragments of indirect blocks.
+	// Short lookups read the block pointers through readMemory() instead of pinning the
+	// indirect block into the metadata cache (pinning is more expensive than readMemory()).
+	constexpr size_t indirectBufferSize = 8;
+	std::array<uint32_t, indirectBufferSize> indirectBuffer;
+
+	size_t progress = 0;
+	while(progress < num_blocks) {
+		auto index = block_offset + progress;
+		auto remaining = num_blocks - progress;
+
+		// Block pointers backing [index, index + count), or null if the range is a hole
+		// because no indirect block is allocated. The window keeps list alive.
+		MetadataCache::BlockWindow indirectWindow;
+		const uint32_t *list = nullptr;
+		size_t count;
+
+		assert(index < d_range);
+		if(index >= d_range) {
+			assert(!"Fix triple indirect blocks");
+		}else if(index >= s_range) { // Use the double indirect block.
+			int64_t indirect_frame = (index - s_range) >> (blockShift - 2);
+			int64_t indirect_index = (index - s_range) & ((1 << (blockShift - 2)) - 1);
+			count = std::min<size_t>(remaining, per_indirect - indirect_index);
+
+			auto disk_inode = inode->diskInode();
+			uint32_t indirect_block = 0;
+			if(disk_inode->data.blocks.doubleIndirect)
+				co_await metadataCache->read(disk_inode->data.blocks.doubleIndirect,
+						indirect_frame * 4, 4, &indirect_block);
+
+			if(!indirect_block) {
+				// Nothing to do: the whole range is a hole.
+			} else if (remaining > indirectBufferSize) {
+				indirectWindow = co_await metadataCache->access(indirect_block, false);
+
+				list = reinterpret_cast<const uint32_t *>(indirectWindow.get())
+						+ indirect_index;
+			} else {
+				co_await metadataCache->read(indirect_block,
+						indirect_index * 4, count * 4, indirectBuffer.data());
+
+				list = indirectBuffer.data();
+			}
+		}else if(index >= i_range) { // Use the single indirect block.
+			auto indirect_index = index - i_range;
+			count = std::min<size_t>(remaining, per_single - indirect_index);
+
+			auto disk_inode = inode->diskInode();
+			auto indirect_block = disk_inode->data.blocks.singleIndirect;
+
+			if(!indirect_block) {
+				// Nothing to do: the whole range is a hole.
+			} else if (remaining > indirectBufferSize) {
+				indirectWindow = co_await metadataCache->access(indirect_block, false);
+
+				list = reinterpret_cast<const uint32_t *>(indirectWindow.get())
+						+ indirect_index;
+			} else {
+				co_await metadataCache->read(indirect_block,
+						indirect_index * 4, count * 4, indirectBuffer.data());
+
+				list = indirectBuffer.data();
+			}
+		}else{
+			auto disk_inode = inode->diskInode();
+
+			count = std::min<size_t>(remaining, 12 - index);
+			list = disk_inode->data.blocks.direct + index;
+		}
+
+		if(list) {
+			for(size_t i = 0; i < count; i++)
+				mergeBlockRange(ranges, index + i, list[i], 1);
+		}else{
+			mergeBlockRange(ranges, index, 0, count);
+		}
+		progress += count;
+	}
+
+	co_return ranges;
 }
 
 async::result<void> FileSystem::assignDataBlocks(Inode *inode,
@@ -2027,6 +2136,7 @@ async::result<void> FileSystem::assignDataBlocks(Inode *inode,
 				auto allocated = co_await allocateBlocks(range, inode->number);
 				for (auto const [blocknum, block] : std::views::enumerate(allocated))
 					disk_inode->data.blocks.direct[idx + blocknum] = block;
+				inode->blockMapCache.insertList(idx, allocated);
 
 				disk_inode->blocks += allocated.size() * (blockSize / 512);
 				prg += allocated.size();
@@ -2073,6 +2183,7 @@ async::result<void> FileSystem::assignDataBlocks(Inode *inode,
 				auto allocated = co_await allocateBlocks(range, inode->number);
 				for (auto const [blocknum, block] : std::views::enumerate(allocated))
 					window[idx + blocknum] = block;
+				inode->blockMapCache.insertList(block_offset + prg, allocated);
 
 				disk_inode->blocks += allocated.size() * (blockSize / 512);
 				prg += allocated.size();
@@ -2135,6 +2246,7 @@ async::result<void> FileSystem::assignDataBlocks(Inode *inode,
 				auto allocated = co_await allocateBlocks(range, inode->number);
 				for (auto const [blocknum, block] : std::views::enumerate(allocated))
 					window[indirect_index + blocknum] = block;
+				inode->blockMapCache.insertList(block_offset + prg, allocated);
 
 				disk_inode->blocks += allocated.size() * (blockSize / 512);
 				prg += allocated.size();
@@ -2156,126 +2268,34 @@ async::result<void> FileSystem::assignDataBlocks(Inode *inode,
 	);
 }
 
-async::result<void> FileSystem::readDataBlocks(std::shared_ptr<Inode> inode,
-		uint64_t offset, arch::dma_buffer_view buf) {
-	size_t num_blocks = buf.size() >> blockShift;
-
-	if(inode->usesExtents) {
-		co_await readDataBlocksUsingExtents(std::move(inode), offset, buf);
-		co_await helix_ng::asyncNop();
-		co_return;
-	}
-
-	// We perform "block-fusion" here i.e. we try to read/write multiple
-	// consecutive blocks in a single read/writeSectors() operation.
-	auto fuse = [] (size_t remaining, uint32_t *list, size_t limit) {
-		size_t n = 1;
-		while(n < remaining && n < limit) {
-			if ((list[0] && (list[n] != list[0] + n)) || (!list[0] && list[n]))
-				break;
-			n++;
-		}
-		return std::pair<size_t, size_t>{list[0], n};
-	};
-
-	size_t per_indirect = blockSize / 4;
-	size_t per_single = per_indirect;
-	size_t per_double = per_indirect * per_indirect;
-
-	// Number of blocks that can be accessed by:
-	size_t i_range = 12; // Direct blocks only.
-	size_t s_range = i_range + per_single; // Plus the first single indirect block.
-	size_t d_range = s_range + per_double; // Plus the first double indirect block.
-
-	co_await inode->readyEvent.wait();
+async::result<void> FileSystem::readDataBlocks(const std::vector<BlockRange> &ranges,
+		arch::dma_buffer_view buf) {
+	assert(!(buf.size() & (blockSize - 1)));
 	// TODO: Assert that we do not read past the EOF.
 
 	protocols::ostrace::Timer timer;
 	uint64_t deviceTime = 0;
 
-	constexpr size_t indirectBufferSize = 8;
-
-	std::array<uint32_t, indirectBufferSize> indirectBuffer;
-
 	size_t progress = 0;
-	while(progress < num_blocks) {
-		// Block number and block count of the readSectors() command that we will issue here.
-		std::pair<size_t, size_t> issue;
+	for(auto &range : ranges) {
+		assert(range.relativeStartBlock == ranges.front().relativeStartBlock + progress);
 
-		auto index = offset + progress;
-//		std::cout << "Reading " << index << "-th block from inode " << inode->number
-//				<< " (" << progress << "/" << num_blocks << " in request)" << std::endl;
-
-		assert(index < d_range);
-		if(index >= d_range) {
-			assert(!"Fix triple indirect blocks");
-		}else if(index >= s_range) { // Use the double indirect block.
-			auto remaining = num_blocks - progress;
-			int64_t indirect_frame = (index - s_range) >> (blockShift - 2);
-			int64_t indirect_index = (index - s_range) & ((1 << (blockShift - 2)) - 1);
-
-			auto disk_inode = inode->diskInode();
-			uint32_t indirect_block = 0;
-			if(disk_inode->data.blocks.doubleIndirect)
-				co_await metadataCache->read(disk_inode->data.blocks.doubleIndirect,
-						indirect_frame * 4, 4, &indirect_block);
-
-			if(!indirect_block) {
-				issue = {0, std::min<size_t>(remaining, per_indirect - indirect_index)};
-			} else if (remaining > indirectBufferSize) {
-				auto indirectWindow = co_await metadataCache->access(indirect_block, false);
-
-				issue = fuse(remaining,
-						reinterpret_cast<uint32_t *>(indirectWindow.get()) + indirect_index,
-						per_indirect - indirect_index);
-			} else {
-				auto chunk = std::min<size_t>(remaining, per_indirect - indirect_index);
-				co_await metadataCache->read(indirect_block,
-						indirect_index * 4, chunk * 4, indirectBuffer.data());
-
-				issue = fuse(chunk, indirectBuffer.data(), chunk);
-			}
-		}else if(index >= i_range) { // Use the single indirect block.
-			auto remaining = num_blocks - progress;
-			auto indirect_index = index - i_range;
-
-			auto disk_inode = inode->diskInode();
-			auto indirect_block = disk_inode->data.blocks.singleIndirect;
-
-			if(!indirect_block) {
-				issue = {0, std::min<size_t>(remaining, per_single - indirect_index)};
-			} else if (remaining > indirectBufferSize) {
-				auto indirectWindow = co_await metadataCache->access(indirect_block, false);
-
-				issue = fuse(remaining,
-						reinterpret_cast<uint32_t *>(indirectWindow.get()) + indirect_index,
-						per_indirect - indirect_index);
-			} else {
-				auto chunk = std::min<size_t>(remaining, per_single - indirect_index);
-				co_await metadataCache->read(indirect_block,
-						indirect_index * 4, chunk * 4, indirectBuffer.data());
-
-				issue = fuse(chunk, indirectBuffer.data(), chunk);
-			}
-		}else{
-			auto disk_inode = inode->diskInode();
-
-			issue = fuse(num_blocks - progress,
-					disk_inode->data.blocks.direct + index, 12 - index);
-		}
-
-//		std::cout << "Issuing read of " << issue.second
-//				<< " blocks, starting at " << issue.first << std::endl;
-
-		if (issue.first) {
+		if(range.hole) {
+			memset(buf.byte_data() + progress * blockSize, 0, range.size * blockSize);
+		}else {
+			assert(range.absoluteStartBlock);
 			protocols::ostrace::Timer deviceTimer;
-			co_await device->readSectors(issue.first * sectorsPerBlock, buf.subview(progress * blockSize, issue.second * blockSize));
+			co_await device->readSectors(
+			    range.absoluteStartBlock * sectorsPerBlock,
+			    buf.subview(progress * blockSize, range.size * blockSize)
+			);
 			deviceTime += deviceTimer.elapsed();
-		} else {
-			memset(buf.byte_data() + progress * blockSize, 0, issue.second * blockSize);
 		}
-		progress += issue.second;
+
+		progress += range.size;
 	}
+
+	assert(progress == (buf.size() >> blockShift));
 
 	ostContext.emit(
 		ostEvtExt2ReadDataBlocks,
@@ -2285,101 +2305,29 @@ async::result<void> FileSystem::readDataBlocks(std::shared_ptr<Inode> inode,
 	);
 }
 
-// TODO: There is a lot of overlap between this method and readDataBlocks.
-//       Refactor common code into a another method.
-async::result<void> FileSystem::writeDataBlocks(std::shared_ptr<Inode> inode,
-		uint64_t offset, arch::dma_buffer_view buf) {
-	size_t num_blocks = buf.size() >> blockShift;
-
-	if(inode->usesExtents) {
-		co_await writeDataBlocksUsingExtents(std::move(inode), offset, buf);
-		co_await helix_ng::asyncNop();
-		co_return;
-	}
-
-	// We perform "block-fusion" here i.e. we try to read/write multiple
-	// consecutive blocks in a single read/writeSectors() operation.
-	auto fuse = [] (size_t index, size_t remaining, uint32_t *list, size_t limit) {
-		size_t n = 1;
-		while(n < remaining && index + n < limit) {
-			if(list[index + n] != list[index] + n)
-				break;
-			n++;
-		}
-		return std::pair<size_t, size_t>{list[index], n};
-	};
-
-	size_t per_indirect = blockSize / 4;
-	size_t per_single = per_indirect;
-	size_t per_double = per_indirect * per_indirect;
-
-	// Number of blocks that can be accessed by:
-	size_t i_range = 12; // Direct blocks only.
-	size_t s_range = i_range + per_single; // Plus the first single indirect block.
-	size_t d_range = s_range + per_double; // Plus the first double indirect block.
-
-	co_await inode->readyEvent.wait();
+async::result<void> FileSystem::writeDataBlocks(const std::vector<BlockRange> &ranges,
+		arch::dma_buffer_view buf) {
+	assert(!(buf.size() & (blockSize - 1)));
 	// TODO: Assert that we do not write past the EOF.
 
 	protocols::ostrace::Timer timer;
 	uint64_t deviceTime = 0;
 
 	size_t progress = 0;
-	while(progress < num_blocks) {
-		// Block number and block count of the writeSectors() command that we will issue here.
-		std::pair<size_t, size_t> issue;
+	for(auto &range : ranges) {
+		assert(range.relativeStartBlock == ranges.front().relativeStartBlock + progress);
+		assert(!range.hole && range.absoluteStartBlock);
 
-		auto index = offset + progress;
-//		std::cout << "Write " << index << "-th block to inode " << inode->number
-//				<< " (" << progress << "/" << num_blocks << " in request)" << std::endl;
-
-		assert(index < d_range);
-		if(index >= d_range) {
-			assert(!"Fix triple indirect blocks");
-		}else if(index >= s_range) { // Use the double indirect block.
-			// TODO: Use shift/and instead of div/mod.
-			int64_t indirect_frame = (index - s_range) >> (blockShift - 2);
-			int64_t indirect_index = (index - s_range) & ((1 << (blockShift - 2)) - 1);
-
-			auto disk_inode = inode->diskInode();
-			assert(disk_inode->data.blocks.doubleIndirect);
-			uint32_t indirect_block;
-			co_await metadataCache->read(disk_inode->data.blocks.doubleIndirect,
-					indirect_frame * 4, 4, &indirect_block);
-			assert(indirect_block);
-
-			auto indirectWindow = co_await metadataCache->access(indirect_block, false);
-
-			issue = fuse(indirect_index, num_blocks - progress,
-					reinterpret_cast<uint32_t *>(indirectWindow.get()), per_indirect);
-		}else if(index >= i_range) { // Use the single indirect block.
-			auto disk_inode = inode->diskInode();
-			assert(disk_inode->data.blocks.singleIndirect);
-
-			auto indirectWindow = co_await metadataCache->access(
-					disk_inode->data.blocks.singleIndirect, false);
-
-			issue = fuse(index - i_range, num_blocks - progress,
-					reinterpret_cast<uint32_t *>(indirectWindow.get()), per_indirect);
-		}else{
-			auto disk_inode = inode->diskInode();
-
-			issue = fuse(index, num_blocks - progress,
-					disk_inode->data.blocks.direct, 12);
-		}
-
-//		std::cout << "Issuing write of " << issue.second
-//				<< " blocks, starting at " << issue.first << std::endl;
-
-		assert(issue.first);
 		protocols::ostrace::Timer deviceTimer;
 		co_await device->writeSectors(
-		    issue.first * sectorsPerBlock,
-		    buf.subview(progress * blockSize, issue.second * blockSize)
+		    range.absoluteStartBlock * sectorsPerBlock,
+		    buf.subview(progress * blockSize, range.size * blockSize)
 		);
 		deviceTime += deviceTimer.elapsed();
-		progress += issue.second;
+		progress += range.size;
 	}
+
+	assert(progress == (buf.size() >> blockShift));
 
 	ostContext.emit(
 		ostEvtExt2WriteDataBlocks,
