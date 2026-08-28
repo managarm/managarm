@@ -1024,7 +1024,18 @@ async::result<void> FileSystem::init() {
 	assert(blockSize >= device->sectorSize);
 	assert(blockSize % device->sectorSize == 0);
 
-	metadataCache.emplace(device, blocksCount, blockSize);
+	metadataCaches.reserve(numBlockGroups);
+	for(uint32_t bg = 0; bg < numBlockGroups; bg++) {
+		auto baseBlock = uint64_t{bg} * blocksPerGroup;
+		metadataCaches.push_back(
+			std::make_unique<MetadataCache>(
+				device,
+				baseBlock,
+				std::min<uint64_t>(blocksPerGroup, blocksCount - baseBlock),
+				blockSize
+			)
+		);
+	}
 
 	blockGroupDescriptorBuffer = arch::dma_buffer{
 	    pool,

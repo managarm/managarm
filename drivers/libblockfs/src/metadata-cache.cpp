@@ -17,8 +17,9 @@ namespace {
 	constexpr size_t lruCapacity = 128;
 }
 
-MetadataCache::MetadataCache(BlockDevice *device, uint64_t numBlocks, size_t blockSize)
-: device_{device}, numBlocks_{numBlocks}, blockSize_{blockSize} {
+MetadataCache::MetadataCache(BlockDevice *device, uint64_t baseBlock, uint64_t numBlocks,
+		size_t blockSize)
+: device_{device}, baseBlock_{baseBlock}, numBlocks_{numBlocks}, blockSize_{blockSize} {
 	assert(std::has_single_bit(blockSize));
 	assert(blockSize >= device->sectorSize);
 	auto blockShift = static_cast<uint32_t>(std::countr_zero(blockSize));
@@ -115,7 +116,7 @@ void MetadataCache::destroyCacheBlock_(CacheBlock *cacheBlock) {
 }
 
 async::result<MetadataCache::BlockWindow> MetadataCache::access(uint64_t block, bool writable) {
-	assert(block < numBlocks_);
+	assert(block >= baseBlock_ && block - baseBlock_ < numBlocks_);
 
 	protocols::ostrace::Timer timer;
 	uint64_t timePin = 0;
@@ -144,7 +145,7 @@ async::result<MetadataCache::BlockWindow> MetadataCache::access(uint64_t block, 
 
 	helix::LockMemoryView lockMemory;
 	auto &&submit = helix::submitLockMemoryView(frontal_, &lockMemory,
-			block << blockPagesShift_, frameSize, helix::Dispatcher::global());
+			blockOffset_(block), frameSize, helix::Dispatcher::global());
 	co_await submit.async_wait();
 	HEL_CHECK(lockMemory.error());
 	timePin = timer.split();
@@ -160,13 +161,13 @@ async::result<MetadataCache::BlockWindow> MetadataCache::access(uint64_t block, 
 }
 
 async::result<void> MetadataCache::read(uint64_t block, size_t offset, size_t length, void *buffer) {
-	assert(block < numBlocks_);
+	assert(block >= baseBlock_ && block - baseBlock_ < numBlocks_);
 	assert(offset + length <= blockSize_);
 
 	protocols::ostrace::Timer timer;
 
 	auto readMemory = co_await helix_ng::readMemory(frontal_,
-			(block << blockPagesShift_) + offset, length, buffer);
+			blockOffset_(block) + offset, length, buffer);
 	HEL_CHECK(readMemory.error());
 
 	ostContext.emit(
@@ -203,8 +204,8 @@ async::result<void> MetadataCache::serviceRequest_(helix::BorrowedDescriptor bac
 	auto importTime = timer.split();
 
 	for(size_t progress = 0; progress < length; progress += frameSize) {
-		auto block = (offset + progress) >> blockPagesShift_;
-		assert(block < numBlocks_);
+		auto block = baseBlock_ + ((offset + progress) >> blockPagesShift_);
+		assert(block - baseBlock_ < numBlocks_);
 
 		auto subview = view.view().subview(progress, blockSize_);
 
@@ -229,7 +230,7 @@ async::result<void> MetadataCache::serviceRequest_(helix::BorrowedDescriptor bac
 		type == kHelManageInitialize ? ostEvtMetadataInitialize : ostEvtMetadataWriteback,
 		ostAttrTime(timer.elapsed()),
 		ostAttrNumBytes(length),
-		ostAttrBlock(offset >> blockPagesShift_),
+		ostAttrBlock(baseBlock_ + (offset >> blockPagesShift_)),
 		ostAttrTimeImport(importTime),
 		ostAttrTimeDevice(deviceTime)
 	);

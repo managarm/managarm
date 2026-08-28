@@ -1,5 +1,6 @@
 #pragma once
 
+#include <assert.h>
 #include <expected>
 #include <functional>
 #include <string.h>
@@ -545,12 +546,18 @@ struct FileSystem final : BaseFileSystem {
 
 	// Locks a metadata block and returns a window into it.
 	async::result<MetadataCache::BlockWindow> accessMetadata(uint64_t block, bool writable) {
-		return metadataCache->access(block, writable);
+		return metadataCacheFor(block).access(block, writable);
 	}
 
 	// Reads bytes from a metadata block without mapping it.
 	async::result<void> readMetadata(uint64_t block, size_t offset, size_t length, void *buffer) {
-		return metadataCache->read(block, offset, length, buffer);
+		return metadataCacheFor(block).read(block, offset, length, buffer);
+	}
+
+	MetadataCache &metadataCacheFor(uint64_t block) {
+		auto index = block / blocksPerGroup;
+		assert(index < metadataCaches.size());
+		return *metadataCaches[index];
 	}
 
 	BlockDevice *device;
@@ -585,8 +592,9 @@ struct FileSystem final : BaseFileSystem {
 	bool metadataChecksum;
 	bool bgdtChecksum;
 
-	// Mount-wide cache of metadata blocks, indexed by disk block number.
-	std::optional<MetadataCache> metadataCache;
+	// We use one cache of metadata blocks per block group.
+	// This allows multiple block groups to be served in parallel on helix::DispatcherPool.
+	std::vector<std::unique_ptr<MetadataCache>> metadataCaches;
 
 	std::mutex activeInodesMutex;
 
