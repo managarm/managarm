@@ -2,7 +2,9 @@
 #include <async/basic.hpp>
 #include <frg/scope_exit.hpp>
 #include <helix/clock.hpp>
+#include <helix/dispatcher-pool.hpp>
 #include <stdlib.h>
+#include <algorithm>
 #include <iostream>
 #include <list>
 
@@ -49,7 +51,6 @@ UserRequest::UserRequest(bool write_, uint64_t sector_, arch::dma_buffer_view vi
 Device::Device(std::unique_ptr<virtio_core::Transport> transport, int64_t parent_id)
 : blockfs::BlockDevice{512, parent_id, &transport->memoryPool_},
   _transport{std::move(transport)},
-  _requestQueue{nullptr},
   _size{0} {}
 
 async::result<void> Device::runDevice() {
@@ -59,10 +60,36 @@ async::result<void> Device::runDevice() {
 		_transport->acknowledgeDriverFeature(VIRTIO_BLK_F_FLUSH);
 		_hasFlush = true;
 	}
+
+	// Multi-queue lets each pool thread submit to a virtq of its own.
+	auto hasMq = _transport->checkDeviceFeature(VIRTIO_BLK_F_MQ);
+	if(hasMq)
+		_transport->acknowledgeDriverFeature(VIRTIO_BLK_F_MQ);
+
 	_transport->finalizeFeatures();
-	_transport->claimQueues(1);
-	_requestQueue = co_await _transport->setupQueue(0);
-	async::detach(_requestQueue->serviceQueue());
+
+	unsigned int numQueues = 1;
+	if(hasMq) {
+		auto maxQueues = _transport->space().load(spec::regs::numQueues);
+		auto maxThreads = helix::DispatcherPool::global().maxThreads();
+		numQueues = std::min({
+			static_cast<unsigned int>(maxQueues),
+			static_cast<unsigned int>(maxThreads),
+			_transport->maxIrqsAvailableToQueues()
+		});
+		assert(numQueues);
+	}
+	std::cout << "virtio: Using " << numQueues << " request queues" << std::endl;
+
+	// Each virtq is submitted to by a single thread, hence they all want their own interrupt.
+	std::vector<virtio_core::QueueIrq> irqs(numQueues, virtio_core::QueueIrq::own);
+	_transport->claimQueues(irqs);
+	for(unsigned int i = 0; i < numQueues; ++i)
+		_queues.push_back(co_await _transport->setupQueue(i));
+	_queueLive = std::make_unique<std::atomic_flag[]>(numQueues);
+
+	// Service queue 0 from here. It is also used by threads that are not DispatcherPool members.
+	_startServicer(0);
 
 	auto size = static_cast<uint64_t>(_transport->space().load(spec::regs::capacity[0]))
 			| (static_cast<uint64_t>(_transport->space().load(spec::regs::capacity[1])) << 32);
@@ -74,6 +101,24 @@ async::result<void> Device::runDevice() {
 	blockfs::runDevice(this);
 }
 
+void Device::_startServicer(unsigned int index) {
+	if(_queueLive[index].test_and_set(std::memory_order_acq_rel))
+		return;
+	async::detach(_queues[index]->serviceQueue());
+}
+
+virtio_core::Queue *Device::_pickQueue() {
+	// Threads outside DispatcherPool always pick queue zero.
+	// TODO: We could alternatively let them pick a random queue that is already is use,
+	//       but that requires more book keeping and there are no such threads right now anyway.
+	// TODO: The modulo causes some queues to be utilized more than others if #queues < #threads.
+	//       We could potentially use a better strategy in that situation.
+	auto index = helix::DispatcherPool::global().thisThread().value_or(0) % _queues.size();
+	if(!_queueLive[index].test(std::memory_order_acquire))
+		_startServicer(index);
+	return _queues[index];
+}
+
 async::result<void> Device::readSectors(uint64_t sector, arch::dma_buffer_view view) {
 	// Natural alignment makes sure a sector does not cross a page boundary.
 	assert(!((uintptr_t)view.data() % 512));
@@ -81,8 +126,10 @@ async::result<void> Device::readSectors(uint64_t sector, arch::dma_buffer_view v
 
 	protocols::ostrace::Timer timer;
 
+	auto queue = _pickQueue();
+
 	// Limit to ensure that we don't monopolize the device.
-	auto max_sectors = _requestQueue->numDescriptors() / 4;
+	auto max_sectors = queue->numDescriptors() / 4;
 	assert(max_sectors >= 1);
 	auto num_sectors = view.size() >> sectorShift;
 
@@ -95,7 +142,7 @@ async::result<void> Device::readSectors(uint64_t sector, arch::dma_buffer_view v
 		);
 		auto &request = requests.emplace_back(false, sector + progress, subview, pagePool);
 		request.enqueueTs = currentNs();
-		co_await _issueRequest(&request);
+		co_await _issueRequest(queue, &request);
 	}
 
 	for(auto &request : requests) {
@@ -123,8 +170,10 @@ async::result<void> Device::writeSectors(uint64_t sector, arch::dma_buffer_view 
 
 	protocols::ostrace::Timer timer;
 
+	auto queue = _pickQueue();
+
 	// Limit to ensure that we don't monopolize the device.
-	auto max_sectors = _requestQueue->numDescriptors() / 4;
+	auto max_sectors = queue->numDescriptors() / 4;
 	assert(max_sectors >= 1);
 	auto num_sectors = view.size() >> sectorShift;
 
@@ -137,7 +186,7 @@ async::result<void> Device::writeSectors(uint64_t sector, arch::dma_buffer_view 
 		);
 		auto &request = requests.emplace_back(true, sector + progress, subview, pagePool);
 		request.enqueueTs = currentNs();
-		co_await _issueRequest(&request);
+		co_await _issueRequest(queue, &request);
 	}
 
 	for(auto &request : requests) {
@@ -179,9 +228,12 @@ async::result<void> Device::flush() {
 
 	UserRequest request{false, 0, {}, pagePool};
 
+	// VIRTIO_BLK_T_FLUSH is device-wide, so any queue covers the writes of all of them.
+	auto queue = _pickQueue();
+
 	std::array<virtio_core::Handle, 2> handles;
 	setupTime += timer.split();
-	co_await _requestQueue->obtainDescriptors(handles);
+	co_await queue->obtainDescriptors(handles);
 	obtainTime = timer.split();
 	handles[0].setupLink(handles[1]);
 
@@ -195,13 +247,13 @@ async::result<void> Device::flush() {
 	setupTime += timer.split();
 	request.submitTs = currentNs();
 
-	_requestQueue->postDescriptor(handles.front(), &request,
+	queue->postDescriptor(handles.front(), &request,
 			[] (virtio_core::Request *base_request) {
 		auto request = static_cast<UserRequest *>(base_request);
 		request->completeTs = currentNs();
 		request->event.raise();
 	});
-	_requestQueue->notify();
+	queue->notify();
 
 	co_await request.event.wait();
 	deviceTime = request.completeTs - request.submitTs;
@@ -216,19 +268,19 @@ async::result<size_t> Device::getSize() {
 	co_return _size * 512;
 }
 
-async::result<void> Device::_issueRequest(UserRequest *request) {
+async::result<void> Device::_issueRequest(virtio_core::Queue *queue, UserRequest *request) {
 	assert(request->view.size());
 
 	protocols::ostrace::Timer setupTimer;
 
 	// Split the view into DMA-contiguous chunks (and not into individual sectors)
 	// since setupBuffer() only requires contiguity in DMA space per descriptor.
-	auto chunks = co_await _requestQueue->splitContiguous(request->view);
+	auto chunks = co_await queue->splitContiguous(request->view);
 
 	// Acquire all descriptors of the chain at once to avoid potential deadlocks.
 	std::vector<virtio_core::Handle> handles(2 + chunks.size());
 	request->setupTime += setupTimer.split();
-	co_await _requestQueue->obtainDescriptors(handles);
+	co_await queue->obtainDescriptors(handles);
 	request->obtainTime = setupTimer.split();
 
 	for(size_t i = 1; i < handles.size(); i++)
@@ -269,7 +321,7 @@ async::result<void> Device::_issueRequest(UserRequest *request) {
 	request->submitTs = currentNs();
 
 	// Submit the request to the device
-	_requestQueue->postDescriptor(handles.front(), request,
+	queue->postDescriptor(handles.front(), request,
 			[] (virtio_core::Request *base_request) {
 		auto request = static_cast<UserRequest *>(base_request);
 		if(logInitiateRetire)
@@ -278,7 +330,7 @@ async::result<void> Device::_issueRequest(UserRequest *request) {
 		request->completeTs = currentNs();
 		request->event.raise();
 	});
-	_requestQueue->notify();
+	queue->notify();
 }
 
 } } // namespace block::virtio
