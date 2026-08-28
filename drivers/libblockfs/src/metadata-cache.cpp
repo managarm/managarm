@@ -7,6 +7,7 @@
 #include <helix/dispatcher-pool.hpp>
 
 #include "metadata-cache.hpp"
+#include "service-budget.hpp"
 #include "trace.hpp"
 
 namespace blockfs {
@@ -194,7 +195,8 @@ async::result<void> MetadataCache::manage_(helix::UniqueDescriptor backing) {
 		co_await submitManage.async_wait();
 		HEL_CHECK(manage.error());
 
-		async::detach(serviceRequest_(backing, manage.type(), manage.offset(), manage.length()));
+		async::detach(serviceRequest_(backing, manage.type(), manage.offset(),
+				manage.length()));
 	}
 }
 
@@ -206,6 +208,10 @@ async::result<void> MetadataCache::serviceRequest_(helix::BorrowedDescriptor bac
 
 	protocols::ostrace::Timer timer;
 	uint64_t deviceTime = 0;
+
+	// Acquire servicing budget before importMemory().
+	auto budgetToken = co_await servicingBudget().acquire(type == kHelManageWriteback, length);
+	auto budgetTime = timer.split();
 
 	auto view = device_->pagePool->importMemory(backing, offset, length);
 	auto importTime = timer.split();
@@ -238,6 +244,7 @@ async::result<void> MetadataCache::serviceRequest_(helix::BorrowedDescriptor bac
 		ostAttrTime(timer.elapsed()),
 		ostAttrNumBytes(length),
 		ostAttrBlock(baseBlock_ + (offset >> blockPagesShift_)),
+		ostAttrTimeBudget(budgetTime),
 		ostAttrTimeImport(importTime),
 		ostAttrTimeDevice(deviceTime)
 	);
