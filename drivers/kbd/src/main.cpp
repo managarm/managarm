@@ -239,19 +239,11 @@ std::optional<uint8_t> Controller::recvResponseByte(uint64_t timeout) {
 	assert(!_portsOwnData);
 
 	if (timeout) {
-		uint64_t start, end, current;
+		bool ready = helix::busyWaitUntil(timeout, [&] {
+			return _commandSpace.load(kbd_register::status) & status_bits::outBufferStatus;
+		});
 
-		HEL_CHECK(helGetClock(&start));
-		end = start + timeout;
-		current = start;
-
-		while (!(_commandSpace.load(kbd_register::status)
-				& status_bits::outBufferStatus) && current < end)
-			HEL_CHECK(helGetClock(&current));
-
-		bool cancelled = current >= end;
-
-		if (cancelled)
+		if (!ready)
 			return std::nullopt;
 
 		return _dataSpace.load(kbd_register::data);

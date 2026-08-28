@@ -6,6 +6,7 @@
 
 #include <arch/mem_space.hpp>
 #include <async/result.hpp>
+#include <helix/clock.hpp>
 #include <protocols/hw/client.hpp>
 #include <protocols/mbus/client.hpp>
 
@@ -371,10 +372,10 @@ void Controller::programDpll(PllParams params, int multiplier) {
 			| pll_control::enablePll(true));
 	_ctrl.load(regs::pllControl);
 
-	uint64_t ticks, now;
-	HEL_CHECK(helGetClock(&ticks));
+	auto ticks = helix::getClock();
+	uint64_t now;
 	do {
-		HEL_CHECK(helGetClock(&now));
+		now = helix::getClock();
 	} while(now - ticks <= 150000);
 	
 	std::cout << "State: " << (_ctrl.load(regs::pllControl) & pll_control::enablePll)
@@ -390,10 +391,10 @@ void Controller::programDpll(PllParams params, int multiplier) {
 				| pll_control::enablePll(true));
 		_ctrl.load(regs::pllControl);
 
-		uint64_t ticks, now;
-		HEL_CHECK(helGetClock(&ticks));
+		auto ticks = helix::getClock();
+		uint64_t now;
 		do {
-			HEL_CHECK(helGetClock(&now));
+			now = helix::getClock();
 		} while(now - ticks <= 150000);
 	
 		std::cout << "State: " << (_ctrl.load(regs::pllControl) & pll_control::enablePll)

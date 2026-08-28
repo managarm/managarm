@@ -201,8 +201,7 @@ void workqueueTimerHandler(void *arg) {
 
 nvkms_timer_handle_t *
 nvkms_alloc_timer(nvkms_timer_proc_t *proc, void *dataPtr, NvU32 dataU32, NvU64 usec) {
-	uint64_t now;
-	HEL_CHECK(helGetClock(&now));
+	auto now = helix::getClock();
 
 	auto timer = new nvkmsTimer{proc, dataPtr, dataU32, now + (usec * 1'000)};
 
@@ -219,8 +218,7 @@ nvkms_alloc_timer(nvkms_timer_proc_t *proc, void *dataPtr, NvU32 dataU32, NvU64 
 NvBool nvkms_alloc_timer_with_ref_ptr(
     nvkms_timer_proc_t *proc, struct nvkms_ref_ptr *ref_ptr, NvU32 dataU32, NvU64 usec
 ) {
-	uint64_t now;
-	HEL_CHECK(helGetClock(&now));
+	auto now = helix::getClock();
 
 	nvkms_inc_ref(ref_ptr);
 	auto timer = new nvkmsTimer{proc, ref_ptr, dataU32, now + (usec * 1'000), true};
