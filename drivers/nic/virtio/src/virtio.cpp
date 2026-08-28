@@ -79,6 +79,10 @@ async::result<void> VirtioNic::initialize() {
 	receiveVq_ = co_await transport_->setupQueue(0);
 	transmitVq_ = co_await transport_->setupQueue(1);
 
+	// This driver runs on a single thread, so both queues share one interrupt.
+	async::detach(receiveVq_->serviceQueue());
+	async::detach(transmitVq_->serviceQueue());
+
 	promiscuous_ = true;
 	all_multicast_ = true;
 	multicast_ = true;

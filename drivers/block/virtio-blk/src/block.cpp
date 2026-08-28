@@ -62,6 +62,7 @@ async::result<void> Device::runDevice() {
 	_transport->finalizeFeatures();
 	_transport->claimQueues(1);
 	_requestQueue = co_await _transport->setupQueue(0);
+	async::detach(_requestQueue->serviceQueue());
 
 	auto size = static_cast<uint64_t>(_transport->space().load(spec::regs::capacity[0]))
 			| (static_cast<uint64_t>(_transport->space().load(spec::regs::capacity[1])) << 32);
