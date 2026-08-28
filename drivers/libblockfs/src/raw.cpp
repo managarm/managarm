@@ -4,6 +4,7 @@
 
 #include <bragi/helpers-std.hpp>
 #include <core/dispatch.hpp>
+#include <helix/clock.hpp>
 #include <helix/dispatcher-pool.hpp>
 #include "fs.bragi.hpp"
 
@@ -93,8 +94,7 @@ namespace {
 
 async::result<protocols::fs::ReadResult> rawRead(void *object, helix_ng::CredentialsView,
 		void *buffer, size_t length, async::cancellation_token) {
-	uint64_t start;
-	HEL_CHECK(helGetClock(&start));
+	auto start = helix::getClock();
 
 	auto self = static_cast<raw::OpenFile *>(object);
 
@@ -125,8 +125,7 @@ async::result<protocols::fs::ReadResult> rawRead(void *object, helix_ng::Credent
 			chunk_offset, chunkSize, buffer);
 	HEL_CHECK(readMemory.error());
 
-	uint64_t end;
-	HEL_CHECK(helGetClock(&end));
+	auto end = helix::getClock();
 
 	ostContext.emit(
 		ostEvtRawRead,
@@ -141,8 +140,7 @@ async::result<protocols::fs::ReadResult>
 rawPread(void *object, int64_t offset, helix_ng::CredentialsView, void *buffer, size_t length) {
 	size_t unsignedOffset = offset;
 
-	uint64_t start;
-	HEL_CHECK(helGetClock(&start));
+	auto start = helix::getClock();
 
 	auto self = static_cast<raw::OpenFile *>(object);
 	// TODO(geert): pass cancellation token through here
@@ -162,8 +160,7 @@ rawPread(void *object, int64_t offset, helix_ng::CredentialsView, void *buffer, 
 			unsignedOffset, chunkSize, buffer);
 	HEL_CHECK(readMemory.error());
 
-	uint64_t end;
-	HEL_CHECK(helGetClock(&end));
+	auto end = helix::getClock();
 
 	ostContext.emit(
 		ostEvtRawRead,
