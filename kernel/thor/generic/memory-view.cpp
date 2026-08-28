@@ -951,6 +951,14 @@ ManagedSpace::ManagedPage::findMonitor(MonitorType type) {
 }
 
 frg::intrusive_shared_ptr<ManagedSpace::TransactionMonitor, Allocator>
+ManagedSpace::ManagedPage::requireMonitor(MonitorType type) {
+	auto monitor = findMonitor(type);
+	if(!monitor)
+		monitor = attachMonitor(type);
+	return monitor;
+}
+
+frg::intrusive_shared_ptr<ManagedSpace::TransactionMonitor, Allocator>
 ManagedSpace::ManagedPage::detachMonitor(MonitorType type) {
 	auto bit = uint8_t{1} << static_cast<unsigned int>(type);
 	if(!(attachedMonitors & bit))
@@ -2087,9 +2095,7 @@ coroutine<frg::expected<Error>> BackingMemory::invalidateRange(uintptr_t offset,
 				done = true;
 			} else {
 				waitCursor = it->cachePage.identity;
-				monitor = it->findMonitor(ManagedSpace::MonitorType::discard);
-				if(!monitor)
-					monitor = it->attachMonitor(ManagedSpace::MonitorType::discard);
+				monitor = it->requireMonitor(ManagedSpace::MonitorType::discard);
 			}
 		}
 		if(done)

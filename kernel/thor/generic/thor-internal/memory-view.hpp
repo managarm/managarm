@@ -764,6 +764,8 @@ struct ManagedSpace : CacheBundle {
 		frg::intrusive_shared_ptr<TransactionMonitor, Allocator> attachMonitor(MonitorType type);
 		// Returns the attached monitor of the given type, or null.
 		frg::intrusive_shared_ptr<TransactionMonitor, Allocator> findMonitor(MonitorType type);
+		// Returns the attached monitor of the given type, attaching one if there is none yet.
+		frg::intrusive_shared_ptr<TransactionMonitor, Allocator> requireMonitor(MonitorType type);
 		// Detaches and returns the monitor of the given type, or null.
 		frg::intrusive_shared_ptr<TransactionMonitor, Allocator> detachMonitor(MonitorType type);
 
