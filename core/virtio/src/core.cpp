@@ -319,6 +319,13 @@ void LegacyPciQueue::notifyTransport() {
 
 namespace {
 
+// Reserve the first vector for configMsiVector.
+// The MSI vector allocator only allocates MSI vectors above numReservedMsis.
+constexpr unsigned int numReservedMsis = 1;
+
+// MSI vector that the device raises when its configuration changes.
+constexpr unsigned int configMsiVector = 0;
+
 struct StandardPciQueue;
 
 struct StandardPciTransport : Transport {
@@ -329,7 +336,8 @@ struct StandardPciTransport : Transport {
 			Mapping common_mapping, Mapping notify_mapping,
 			Mapping isr_mapping, Mapping device_mapping,
 			unsigned int notify_multiplier, helix::UniqueDescriptor irq,
-			helix::UniqueDescriptor dmaSpace, bool iommuActive);
+			helix::UniqueDescriptor configMsi, helix::UniqueDescriptor dmaSpace,
+			bool iommuActive);
 
 	bool isLegacy() override {
 		return false;
@@ -340,7 +348,9 @@ struct StandardPciTransport : Transport {
 	}
 
 	unsigned int maxIrqsAvailableToQueues() override {
-		return std::max(_numMsis, 1u);
+		if(!_numMsis)
+			return 1;
+		return _numMsis - numReservedMsis;
 	}
 
 	uint8_t loadConfig8(size_t offset) override;
@@ -367,6 +377,7 @@ private:
 	arch::mem_space _deviceSpace() { return arch::mem_space{_deviceMapping.get()}; }
 
 	async::detached _processIrqs();
+	async::detached _processConfigMsi();
 
 	protocols::hw::Device _hwDevice;
 	// Number of MSI vectors that the device offers. Zero if MSIs are unavailable.
@@ -377,6 +388,7 @@ private:
 	Mapping _deviceMapping;
 	unsigned int _notifyMultiplier;
 	helix::UniqueDescriptor _irq;
+	helix::UniqueDescriptor _configMsi;
 
 	// MSI vectors that the device raises for virtq completions, indexed by vector.
 	std::vector<helix::UniqueDescriptor> _msis;
@@ -427,6 +439,7 @@ StandardPciTransport::StandardPciTransport(
     Mapping device_mapping,
     unsigned int notify_multiplier,
     helix::UniqueDescriptor irq,
+    helix::UniqueDescriptor configMsi,
     helix::UniqueDescriptor dmaSpace,
     bool iommuActive
 )
@@ -438,7 +451,8 @@ StandardPciTransport::StandardPciTransport(
   _isrMapping{std::move(isr_mapping)},
   _deviceMapping{std::move(device_mapping)},
   _notifyMultiplier{notify_multiplier},
-  _irq{std::move(irq)} {}
+  _irq{std::move(irq)},
+  _configMsi{std::move(configMsi)} {}
 
 uint8_t StandardPciTransport::loadConfig8(size_t offset) {
 	return _deviceSpace().load(arch::scalar_register<uint8_t>(offset));
@@ -488,11 +502,12 @@ void StandardPciTransport::claimQueues(std::span<const QueueIrq> irqs) {
 
 	// Assign all MSI vectors.
 	// MSI-X suppresses the device's pin, so every queue needs a vector of some kind.
+	auto budget = _numMsis - numReservedMsis;
 	size_t numOwn = std::ranges::count(irqs, QueueIrq::own);
-	bool needShared = std::ranges::contains(irqs, QueueIrq::shared) || numOwn > _numMsis;
-	numOwn = std::min<size_t>(numOwn, _numMsis - (needShared ? 1 : 0));
+	bool needShared = std::ranges::contains(irqs, QueueIrq::shared) || numOwn > budget;
+	numOwn = std::min<size_t>(numOwn, budget - (needShared ? 1 : 0));
 
-	unsigned int v = 0; // Next vector to allocate.
+	unsigned int v = numReservedMsis; // Next vector to allocate.
 	auto sharedVector = needShared ? v++ : VIRTIO_MSI_NO_VECTOR;
 	for(size_t i = 0; i < irqs.size(); ++i) {
 		if(irqs[i] == QueueIrq::own && numOwn) {
@@ -583,10 +598,21 @@ async::result<Queue *> StandardPciTransport::setupQueue(unsigned int queue_index
 }
 
 void StandardPciTransport::runDevice() {
+	if(_numMsis) {
+		_commonSpace().store(PCI_CONFIG_MSIX_VECTOR, configMsiVector);
+		if(_commonSpace().load(PCI_CONFIG_MSIX_VECTOR) != configMsiVector)
+			throw std::runtime_error("Device failed to allocate MSI-X interrupt");
+	}
+
 	// Finally set the DRIVER_OK bit to finish the configuration.
 	_commonSpace().store(PCI_DEVICE_STATUS, _commonSpace().load(PCI_DEVICE_STATUS) | DRIVER_OK);
 
+	// The pin can be shared with other devices, so it always needs to be acked or nacked.
+	// MSI-X only suppresses this device's own use of it: the ISR register then stays clear
+	// and the IRQ loop does nothing but nack.
 	_processIrqs();
+	if(_numMsis)
+		_processConfigMsi();
 }
 
 async::detached StandardPciTransport::_processIrqs() {
@@ -693,6 +719,21 @@ async::detached StandardPciTransport::_processIrqs() {
 				queue->processInterrupt();
 	}
 #endif
+}
+
+async::detached StandardPciTransport::_processConfigMsi() {
+	uint64_t sequence = 0;
+	while(true) {
+		auto await = co_await helix_ng::awaitEvent(_configMsi, sequence);
+		HEL_CHECK(await.error());
+		sequence = await.sequence();
+
+		HEL_CHECK(helAcknowledgeIrq(_configMsi.getHandle(), kHelAckAcknowledge, sequence));
+
+		std::cout << "core-virtio: Configuration change" << std::endl;
+		auto status = _commonSpace().load(PCI_DEVICE_STATUS);
+		assert(!(status & DEVICE_NEEDS_RESET));
+	}
 }
 
 async::result<void> StandardPciTransport::serviceVector(unsigned int queue_index) {
@@ -815,8 +856,13 @@ discover(protocols::hw::Device hw_device, DiscoverMode mode) {
 			assert(!common_space.load(PCI_DEVICE_STATUS));
 
 			// Enable MSI-X.
-			if (info.numMsis)
+			// One vector is reserved for configuration changes, hence we need at least two vectors.
+			helix::UniqueDescriptor configMsi;
+			auto numMsis = info.numMsis >= (numReservedMsis + 1) ? info.numMsis : 0;
+			if (numMsis) {
 				co_await hw_device.enableMsi();
+				configMsi = co_await hw_device.installMsi(configMsiVector);
+			}
 
 			// Set the ACKNOWLEDGE and DRIVER bits.
 			// The specification says this should be done in two steps
@@ -828,13 +874,14 @@ discover(protocols::hw::Device hw_device, DiscoverMode mode) {
 			std::cout << "virtio: Using standard PCI transport" << std::endl;
 			co_return std::make_unique<StandardPciTransport>(
 			    std::move(hw_device),
-			    info.numMsis,
+			    numMsis,
 			    std::move(*common_mapping),
 			    std::move(*notify_mapping),
 			    std::move(*isr_mapping),
 			    std::move(*device_mapping),
 			    notify_multiplier,
 			    std::move(irq),
+			    std::move(configMsi),
 			    std::move(dmaSpace),
 			    iommuActive
 			);
