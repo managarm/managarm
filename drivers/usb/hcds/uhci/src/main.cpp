@@ -14,6 +14,7 @@
 #include <async/result.hpp>
 #include <fafnir/dsl.hpp>
 #include <frg/list.hpp>
+#include <helix/clock.hpp>
 #include <helix/ipc.hpp>
 #include <protocols/hw/client.hpp>
 #include <protocols/kernlet/compiler.hpp>
@@ -265,8 +266,7 @@ async::detached Controller::_refreshFrame() {
 //		std::cout << "uhci: Frame update" << std::endl;
 		_updateFrame();
 
-		uint64_t tick;
-		HEL_CHECK(helGetClock(&tick));
+		auto tick = helix::getClock();
 
 		helix::AwaitClock await_clock;
 		auto &&submit = helix::submitAwaitClock(&await_clock, tick + 500'000'000,
@@ -353,8 +353,7 @@ Controller::RootHub::issueReset(int port) {
 	// Reset the port for 50 ms.
 	port_space.store(port_regs::statusCtrl, port_status_ctrl::portReset(true));
 
-	uint64_t tick;
-	HEL_CHECK(helGetClock(&tick));
+	auto tick = helix::getClock();
 
 	helix::AwaitClock await_clock;
 	auto &&submit = helix::submitAwaitClock(&await_clock, tick + 50'000'000,
@@ -371,15 +370,13 @@ Controller::RootHub::issueReset(int port) {
 	// Enable the port and wait until it is available.
 	port_space.store(port_regs::statusCtrl, port_status_ctrl::enableStatus(true));
 
-	uint64_t start;
-	HEL_CHECK(helGetClock(&start));
+	auto start = helix::getClock();
 	while(true) {
 		auto sc = port_space.load(port_regs::statusCtrl);
 		if((sc & port_status_ctrl::enableStatus))
 			break;
 
-		uint64_t now;
-		HEL_CHECK(helGetClock(&now));
+		auto now = helix::getClock();
 		if(now - start > 1000'000'000) {
 			std::cout << "\e[31muhci: Could not enable device after reset\e[39m" << std::endl;
 			co_return UsbError::timeout;

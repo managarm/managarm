@@ -1,6 +1,7 @@
 
 #include <async/basic.hpp>
 #include <frg/scope_exit.hpp>
+#include <helix/clock.hpp>
 #include <stdlib.h>
 #include <iostream>
 #include <list>
@@ -15,9 +16,7 @@ static bool logInitiateRetire = false;
 namespace {
 
 uint64_t currentNs() {
-	uint64_t ns;
-	HEL_CHECK(helGetClock(&ns));
-	return ns;
+	return helix::getClock();
 }
 
 void emitRequestTrace(UserRequest *request) {

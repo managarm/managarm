@@ -419,7 +419,41 @@ static const uint32_t kHelTransferDescriptorOut = UINT32_C(1) << 0;
 static const uint32_t kHelTransferDescriptorIn = UINT32_C(1) << 1;
 
 enum {
-	kHelObtainZeroMemory = 1
+	kHelObtainZeroMemory = 1,
+	kHelObtainClockPage = 2
+};
+
+//! Clocks that userspace can read without a syscall (see HelClockPage).
+enum {
+	//! No clock that is accessible to userspace (= helGetClock() has to be used).
+	kHelClockNone = 0,
+	//! x86: TSC.
+	kHelClockTsc = 1,
+	//! ARM: physical counter (CNTPCT_EL0).
+	kHelClockCntpct = 2,
+	//! ARM: virtual counter (CNTVCT_EL0).
+	kHelClockCntvct = 3,
+	//! RISC-V: time CSR.
+	kHelClockTime = 4
+};
+
+//! Parameters that allow userspace to compute the current time on the monotone clock
+//! (i.e., the clock read by helGetClock()) without performing syscalls.
+//!
+//! Obtained as a read-only memory object via helObtainHandle() with kHelObtainClockPage.
+//! All fields are protected by a seqlock:
+//! readers repeat the read while seqlock is odd or while it changes during the read.
+//!
+//! The conversion from clock ticks to nanoseconds is (tickFactor * ticks) >> tickShift.
+//! The multiplication is performed in 128-bit arithmetic.
+struct HelClockPage {
+	uint64_t seqlock;
+	//! One of the kHelClock* constants.
+	uint32_t clockType;
+	//! Scaling exponent of the tick -> nanosecond conversion.
+	int32_t tickShift;
+	//! Factor of the tick -> nanosecond conversion.
+	uint64_t tickFactor;
 };
 
 struct HelSgItem {

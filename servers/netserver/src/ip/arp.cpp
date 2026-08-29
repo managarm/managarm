@@ -1,5 +1,6 @@
 #include "arp.hpp"
 
+#include <helix/clock.hpp>
 #include <helix/ipc.hpp>
 #include <helix/timer.hpp>
 #include <arch/bit.hpp>
@@ -139,8 +140,7 @@ void Neighbours::feedArp(nic::MacAddress, arch::dma_buffer_view view, std::weak_
 }
 
 Neighbours::Entry &Neighbours::getEntry(uint32_t ip) {
-	uint64_t time;
-	HEL_CHECK(helGetClock(&time));
+	auto time = helix::getClock();
 	if (auto f = table_.find(ip); f != table_.end()) {
 		if (time + staleTimeMs * 1'000'000 <= f->second.mtime_ns) {
 			f->second.state = State::stale;

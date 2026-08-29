@@ -104,6 +104,11 @@ uint64_t getRawTimestampCounter() {
 
 uint64_t getClockNanos() { return tickDuration * getRawTimestampCounter(); }
 
+UserspaceClock getUserspaceClock() {
+	assert(tickDuration);
+	return {.type = UserspaceClockType::riscvTime, .tickDuration = tickDuration};
+}
+
 void setTimerDeadline(frg::optional<uint64_t> deadline) {
 	assert(!intsAreEnabled());
 

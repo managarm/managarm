@@ -10,6 +10,7 @@
 
 #include <async/result.hpp>
 #include <core/dispatch.hpp>
+#include <helix/clock.hpp>
 #include <helix/ipc.hpp>
 #include <protocols/fs/defs.hpp>
 #include <protocols/fs/server.hpp>
@@ -123,7 +124,7 @@ drm_core::File::importBufferObject(helix_ng::Credentials creds) {
 }
 
 void drm_core::File::postEvent(drm_core::Event event) {
-	HEL_CHECK(helGetClock(&event.timestamp));
+	event.timestamp = helix::getClock();
 
 	if(_pendingEvents.empty()) {
 		++_eventSequence;

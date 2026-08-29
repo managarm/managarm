@@ -1,4 +1,5 @@
 #include <frg/safe_int.hpp>
+#include <helix/clock.hpp>
 
 #include "interval-timer.hpp"
 
@@ -45,8 +46,7 @@ async::detached IntervalTimer::arm(std::shared_ptr<IntervalTimer> timer) {
 }
 
 void IntervalTimer::getTime(uint64_t &initial, uint64_t &interval) {
-	uint64_t now;
-	HEL_CHECK(helGetClock(&now));
+	auto now = helix::getClock();
 
 	if(nextExpiration_ > now)
 		initial = nextExpiration_ - now;

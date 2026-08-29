@@ -79,6 +79,7 @@ src = files(
 	'generic/servers.cpp',
 	'generic/ubsan.cpp',
 	'generic/universe.cpp',
+	'generic/user-clock.cpp',
 	'generic/work-queue.cpp',
 	'generic/asid.cpp',
 	'generic/cpu-data.cpp',

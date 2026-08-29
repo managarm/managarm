@@ -1,5 +1,6 @@
 
 #include <async/oneshot-event.hpp>
+#include <helix/clock.hpp>
 #include <helix/memory.hpp>
 #include <protocols/clock/defs.hpp>
 #include <protocols/mbus/client.hpp>
@@ -78,8 +79,7 @@ int64_t getRealtimeNanos() {
 	assert(__atomic_load_n(&page->seqlock, __ATOMIC_RELAXED) == seqlock);
 
 	// Calculate the current time.
-	uint64_t now;
-	HEL_CHECK(helGetClock(&now));
+	auto now = helix::getClock();
 
 	return base + (now - ref);
 }
@@ -93,8 +93,7 @@ struct timespec getRealtime() {
 }
 
 struct timespec getTimeSinceBoot() {
-	uint64_t now;
-	HEL_CHECK(helGetClock(&now));
+	auto now = helix::getClock();
 
 	struct timespec result;
 	result.tv_sec = now / 1'000'000'000;

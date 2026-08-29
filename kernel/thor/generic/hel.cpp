@@ -24,6 +24,7 @@
 #include <thor-internal/stream.hpp>
 #include <thor-internal/thread.hpp>
 #include <thor-internal/timer.hpp>
+#include <thor-internal/user-clock.hpp>
 #include <thor-internal/acpi/acpi.hpp>
 #ifdef THOR_HAS_DTB_SUPPORT
 #include <thor-internal/dtb/dtb.hpp>
@@ -415,6 +416,14 @@ HelError helObtainHandle(int kind, HelHandle *handle) {
 		*handle = thisUniverse->attachDescriptor(
 			AnyDescriptor::make<DescriptorType::memoryView>(
 				getZeroMemory(),
+				kHelRightRead | kHelRightAssign
+			)
+		);
+		break;
+	case kHelObtainClockPage:
+		*handle = thisUniverse->attachDescriptor(
+			AnyDescriptor::make<DescriptorType::memoryView>(
+				getUserClockMemory(),
 				kHelRightRead | kHelRightAssign
 			)
 		);

@@ -10,6 +10,7 @@
 #include <arch/dma_pool.hpp>
 #include <async/result.hpp>
 #include <fafnir/dsl.hpp>
+#include <helix/clock.hpp>
 #include <helix/ipc.hpp>
 #include <protocols/hw/client.hpp>
 #include <protocols/kernlet/compiler.hpp>
@@ -1076,8 +1077,7 @@ Controller::resetPort(int number) {
 //	std::cout << "ehci: Port reset." << std::endl;
 	port_space.store(port_regs::sc, portsc::portReset(true));
 
-	uint64_t tick;
-	HEL_CHECK(helGetClock(&tick));
+	auto tick = helix::getClock();
 
 	helix::AwaitClock await_clock;
 	auto &&submit = helix::submitAwaitClock(&await_clock, tick + 50'000'000,

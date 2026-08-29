@@ -253,6 +253,14 @@ void initializeThisProcessor() {
 
 	asm volatile ("msr sctlr_el1, %0" :: "r"(sctlr));
 
+	// Allow EL0 to read the counter that backs the monotonic clock.
+	// In EL2, the register is redirected to CNTHCTL_EL2, which eir and the SMP trampoline
+	// already program. Never preserve the other bits: the reset value is UNKNOWN.
+	if (!isKernelInEl2()) {
+		uint64_t cntkctl = uint64_t(1) << 1; // EL0VCTEN
+		asm volatile ("msr cntkctl_el1, %0" :: "r"(cntkctl));
+	}
+
 	uint64_t mpidr;
 	asm volatile("mrs %0, mpidr_el1" : "=r"(mpidr));
 	cpu_data->affinity = affinityFromMpidr(mpidr);

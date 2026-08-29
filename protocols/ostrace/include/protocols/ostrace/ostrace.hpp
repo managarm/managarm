@@ -7,6 +7,7 @@
 #include <async/mutex.hpp>
 #include <async/queue.hpp>
 #include <async/result.hpp>
+#include <helix/clock.hpp>
 #include <helix/ipc.hpp>
 #include <ostrace.bragi.hpp>
 
@@ -174,8 +175,7 @@ struct Context {
 	void emit(const Event &event, Args... args) {
 		if (!isActive())
 			return;
-		uint64_t ts;
-		HEL_CHECK(helGetClock(&ts));
+		auto ts = helix::getClock();
 		emitWithTimestamp(event, ts, std::forward<Args>(args)...);
 	}
 
@@ -192,8 +192,8 @@ private:
 };
 
 struct Timer {
-	Timer() {
-		HEL_CHECK(helGetClock(&_start));
+	Timer()
+	: _start{helix::getClock()} {
 		_split = _start;
 	}
 
@@ -201,17 +201,14 @@ struct Timer {
 	Timer &operator= (const Timer &) = delete;
 
 	uint64_t elapsed() {
-		uint64_t now;
-		HEL_CHECK(helGetClock(&now));
-		return now - _start;
+		return helix::getClock() - _start;
 	}
 
 	// Ends the current phase of the timed operation and returns its duration.
 	// Storing the result in a zero-initialized variable keeps phases that an early return never
 	// reaches at zero, whereas subtracting stored timestamps would underflow.
 	uint64_t split() {
-		uint64_t now;
-		HEL_CHECK(helGetClock(&now));
+		auto now = helix::getClock();
 		auto duration = now - _split;
 		_split = now;
 		return duration;

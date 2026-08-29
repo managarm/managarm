@@ -178,6 +178,9 @@ void initializeThisProcessor() {
 	senvcfg |= riscv::senvcfg::cbie | riscv::senvcfg::cbcfe;
 	riscv::writeCsr<riscv::Csr::senvcfg>(senvcfg);
 
+	// Allow U-mode to read the time CSR that backs the monotonic clock.
+	riscv::setCsrBits<riscv::Csr::scounteren>(riscv::scounteren::tm);
+
 	// Read back sstatus.
 	sstatus = riscv::readCsr<riscv::Csr::sstatus>();
 	if (sstatus & riscv::sstatus::ubeBit)

@@ -40,12 +40,10 @@ async::result<nic::PhyResult<void>> GenericEthernetPhy::configure() {
 	// Wait up to 500ms for reset to complete.
 	auto bmcr = FRG_CO_TRY(co_await mdio_->read(phyAddress_, miiBmcr));
 
-	uint64_t startNs;
-	HEL_CHECK(helGetClock(&startNs));
+	auto startNs = helix::getClock();
 
 	while (bmcr & bmcr::reset) {
-		uint64_t currNs;
-		HEL_CHECK(helGetClock(&currNs));
+		auto currNs = helix::getClock();
 
 		if (currNs - startNs > 500'000'000) { // 500ms
 			std::println("generic-phy: Waiting for PHY reset timed out after 500ms");
@@ -115,12 +113,10 @@ async::result<nic::PhyResult<void>> GenericEthernetPhy::updateLink() {
 		// Let's wait for auto-negotiation to complete.
 		std::println("generic-phy: Waiting for auto-negotiation to complete");
 
-		uint64_t startNs;
-		HEL_CHECK(helGetClock(&startNs));
+		auto startNs = helix::getClock();
 
 		while (!(bmsr & bmsr::anegComplete)) {
-			uint64_t currNs;
-			HEL_CHECK(helGetClock(&currNs));
+			auto currNs = helix::getClock();
 
 			if (currNs - startNs > 10'000'000'000) { // 10 seconds
 				std::println("generic-phy: Auto-negotiation timed out after 10 seconds");
@@ -137,8 +133,7 @@ async::result<nic::PhyResult<void>> GenericEthernetPhy::updateLink() {
 			co_await helix::sleepFor(500'000'000); // 500ms
 		}
 
-		uint64_t currNs;
-		HEL_CHECK(helGetClock(&currNs));
+		auto currNs = helix::getClock();
 
 		std::println(
 		    "generic-phy: Auto-negotiation complete in {}ms", (currNs - startNs) / 1'000'000
