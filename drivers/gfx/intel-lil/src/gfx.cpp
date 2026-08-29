@@ -51,7 +51,7 @@ GfxDevice::GfxDevice(
   _vramAllocator(26, 12),
   _pchDevId{pch_devid},
   dmaSpaceHandle_{std::move(dmaSpace)},
-  dmaSpace_{_pool.attachDmaSpace(dmaSpaceHandle_, iommuActive)} {
+  dmaSpace_{_dmaRealm.attachDmaSpace(dmaSpaceHandle_, iommuActive)} {
 
   };
 

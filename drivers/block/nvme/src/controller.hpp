@@ -72,7 +72,8 @@ protected:
 	std::string location_;
 	const ControllerType type_;
 
-	arch::contiguous_pool pool_{{.addressBits = 64, .allocateContigous = false}};
+	arch::dma_realm dmaRealm_;
+	arch::contiguous_pool pool_{&dmaRealm_, {.addressBits = 64, .allocateContigous = false}};
 
 	std::string serial;
 	std::string model;

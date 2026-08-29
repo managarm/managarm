@@ -568,9 +568,9 @@ async::result<Queue *> StandardPciTransport::setupQueue(unsigned int queue_index
 	);
 
 	// Hand the queue to the device.
-	auto table_physical = co_await contiguousDmaSpace_.iova_of(table);
-	auto available_physical = co_await contiguousDmaSpace_.iova_of(available);
-	auto used_physical = co_await contiguousDmaSpace_.iova_of(used);
+	auto table_physical = co_await dmaSpace_.iova_of(table);
+	auto available_physical = co_await dmaSpace_.iova_of(available);
+	auto used_physical = co_await dmaSpace_.iova_of(used);
 	_commonSpace().store(PCI_QUEUE_TABLE[0], table_physical);
 	_commonSpace().store(PCI_QUEUE_TABLE[1], table_physical >> 32);
 	_commonSpace().store(PCI_QUEUE_AVAILABLE[0], available_physical);

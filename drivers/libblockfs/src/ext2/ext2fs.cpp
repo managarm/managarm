@@ -1349,7 +1349,7 @@ async::result<void> FileSystem::serviceFileData(std::shared_ptr<Inode> inode,
 			budgetToken = co_await servicingBudget().acquire(false, length);
 			budgetTime = timer.split();
 
-			fileView = pool->importMemory(
+			fileView = pool->realm()->importMemory(
 			    helix::BorrowedDescriptor{inode->backingMemory}, offset, length
 			);
 			importTime = timer.split();
@@ -1432,7 +1432,7 @@ async::result<void> FileSystem::serviceFileData(std::shared_ptr<Inode> inode,
 			budgetToken = co_await servicingBudget().acquire(true, length);
 			budgetTime = timer.split();
 
-			fileView = pool->importMemory(
+			fileView = pool->realm()->importMemory(
 			    helix::BorrowedDescriptor{inode->backingMemory}, offset, length
 			);
 			importTime = timer.split();

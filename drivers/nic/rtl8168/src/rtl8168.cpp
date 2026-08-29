@@ -67,7 +67,7 @@ RealtekNic::RealtekNic(
 )
 : nic::Link(1500, &_dmaPool),
   dmaSpaceHandle_{std::move(dmaSpace)},
-  dmaSpace_{_dmaPool.attachDmaSpace(dmaSpaceHandle_, iommuActive)},
+  dmaSpace_{_dmaRealm.attachDmaSpace(dmaSpaceHandle_, iommuActive)},
   _device{std::move(device)} {}
 
 async::result<void> RealtekNic::getMmio() {

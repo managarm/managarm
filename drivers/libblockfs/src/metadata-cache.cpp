@@ -213,7 +213,7 @@ async::result<void> MetadataCache::serviceRequest_(helix::BorrowedDescriptor bac
 	auto budgetToken = co_await servicingBudget().acquire(type == kHelManageWriteback, length);
 	auto budgetTime = timer.split();
 
-	auto view = device_->pagePool->importMemory(backing, offset, length);
+	auto view = device_->pagePool->realm()->importMemory(backing, offset, length);
 	auto importTime = timer.split();
 
 	for(size_t progress = 0; progress < length; progress += frameSize) {

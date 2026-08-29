@@ -49,7 +49,8 @@ struct Controller {
 	struct termios activeSettings = {};
 	bool nonBlock_;
 	protocols::usb::Device hw_;
-	arch::contiguous_pool pool_{{.addressBits = 64}};
+	arch::dma_realm dmaRealm_;
+	arch::contiguous_pool pool_{&dmaRealm_, {.addressBits = 64}};
 };
 
 struct WriteRequest {

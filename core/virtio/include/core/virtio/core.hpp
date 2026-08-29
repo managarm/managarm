@@ -170,8 +170,7 @@ struct Transport {
 
 	Transport(helix::UniqueDescriptor dmaSpace, bool iommuActive)
 	: dmaSpaceHandle_{std::move(dmaSpace)},
-	  dmaSpace_{memoryPool_.attachDmaSpace(dmaSpaceHandle_, iommuActive)},
-	  contiguousDmaSpace_{contiguousPool_.attachDmaSpace(dmaSpaceHandle_, iommuActive)} {}
+	  dmaSpace_{dmaRealm_.attachDmaSpace(dmaSpaceHandle_, iommuActive)} {}
 
 	virtual ~Transport() = default;
 
@@ -205,11 +204,11 @@ struct Transport {
 
 	virtual void runDevice() = 0;
 
-	arch::contiguous_pool memoryPool_{{.addressBits = 64, .allocateContigous = false}};
-	arch::contiguous_pool contiguousPool_{{.addressBits = 64, .allocateContigous = true}};
+	arch::dma_realm dmaRealm_;
+	arch::contiguous_pool memoryPool_{&dmaRealm_, {.addressBits = 64, .allocateContigous = false}};
+	arch::contiguous_pool contiguousPool_{&dmaRealm_, {.addressBits = 64, .allocateContigous = true}};
 	helix::UniqueDescriptor dmaSpaceHandle_;
 	arch::dma_space dmaSpace_;
-	arch::dma_space contiguousDmaSpace_;
 };
 
 struct DeviceSpace {

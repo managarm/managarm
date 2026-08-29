@@ -145,7 +145,7 @@ Controller::Controller(
   _frameCounter{0},
   _entity{std::move(entity)},
   dmaSpaceHandle_{std::move(dmaSpaceHandle)},
-  dmaSpace_{pool_.attachDmaSpace(dmaSpaceHandle_, iommuActive)},
+  dmaSpace_{dmaRealm_.attachDmaSpace(dmaSpaceHandle_, iommuActive)},
   _enumerator{this} {
 	for (int i = 1; i < 128; i++) {
 		_addressStack.push(i);

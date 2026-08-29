@@ -88,6 +88,7 @@ private:
 		}
 	}
 
+	arch::dma_realm dmaRealm_;
 	arch::contiguous_pool dmaPool_;
 	helix::UniqueDescriptor dmaSpaceHandle_;
 	arch::dma_space dmaSpace_;

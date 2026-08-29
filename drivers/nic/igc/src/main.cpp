@@ -13,9 +13,9 @@ namespace nic::igc {
 
 IgcNic::IgcNic(protocols::hw::Device device, helix::UniqueDescriptor dmaSpace, bool iommuActive)
 : nic::Link(mtuSize, &dmaPool_),
-  dmaPool_{{.addressBits = 64, .allocateContigous = !iommuActive}},
+  dmaPool_{&dmaRealm_, {.addressBits = 64, .allocateContigous = !iommuActive}},
   dmaSpaceHandle_{std::move(dmaSpace)},
-  dmaSpace_{dmaPool_.attachDmaSpace(dmaSpaceHandle_, iommuActive)},
+  dmaSpace_{dmaRealm_.attachDmaSpace(dmaSpaceHandle_, iommuActive)},
   device_{std::move(device)} {}
 
 async::result<void> IgcNic::reset() {

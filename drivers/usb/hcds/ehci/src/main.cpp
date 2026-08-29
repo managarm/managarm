@@ -131,7 +131,7 @@ Controller::Controller(protocols::hw::Device hw_device, mbus_ng::EntityManager e
 		_space{_mapping.get()}, _enumerator{this},
 		_entity{std::move(entity)},
 		dmaSpaceHandle_{std::move(dmaSpaceHandle)},
-		dmaSpace_{pool_.attachDmaSpace(dmaSpaceHandle_, iommuActive)} {
+		dmaSpace_{dmaRealm_.attachDmaSpace(dmaSpaceHandle_, iommuActive)} {
 	auto offset = _space.load(cap_regs::caplength);
 	_operational = _space.subspace(offset);
 	_numPorts = _space.load(cap_regs::hcsparams) & hcsparams::nPorts;

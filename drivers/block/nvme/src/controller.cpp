@@ -53,7 +53,7 @@ PciExpressController::PciExpressController(
   regsMapping_{std::move(regsMapping)},
   regs_{regsMapping_.get()},
   ioSpace_{std::move(ioSpace)},
-  dmaSpace_{pool_.attachDmaSpace(ioSpace_, iommuActive)} {}
+  dmaSpace_{dmaRealm_.attachDmaSpace(ioSpace_, iommuActive)} {}
 
 async::detached PciExpressController::run(mbus_ng::EntityId subsystem) {
 	co_await reset();

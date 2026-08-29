@@ -22,24 +22,29 @@ struct contiguous_pool_options {
 	// TODO: default to non-continous, so that devices requiring contigous physical allocations
 	// have to opt-in to this behavior.
 	bool allocateContigous = true;
-	// Additional flags passed when mapping the memory into DMA space.
+};
+
+struct dma_realm_options {
+	// Additional flags passed when mapping memory into the DMA spaces of this realm.
 	uint32_t dmaMapFlags = 0;
 };
 
 struct dma_space;
+struct dma_realm;
 struct imported_dma_buffer;
-struct contiguous_pool;
 
 struct dma_memory_region : dma_region {
 	friend dma_space;
 
 	dma_memory_region(
+	    dma_realm *realm,
 	    dma_pool *pool,
 	    helix::UniqueDescriptor backingMemory,
 	    size_t backingMemoryOffset,
 	    size_t s
 	)
 	: dma_region{pool},
+	  realm_{realm},
 	  size{s},
 	  backingMemory_{std::move(backingMemory)},
 	  borrowedMemory_{backingMemory_},
@@ -52,6 +57,7 @@ struct dma_memory_region : dma_region {
 	}
 
 	dma_memory_region(
+	    dma_realm *realm,
 	    dma_pool *pool,
 	    helix::BorrowedDescriptor borrowedMemory,
 	    size_t backingMemoryOffset,
@@ -59,6 +65,7 @@ struct dma_memory_region : dma_region {
 	    bool imported = false
 	)
 	: dma_region{pool},
+	  realm_{realm},
 	  size{s},
 	  backingMemory_{},
 	  borrowedMemory_{std::move(borrowedMemory)},
@@ -81,6 +88,7 @@ struct dma_memory_region : dma_region {
 	}
 
 private:
+	dma_realm *realm_;
 	size_t size;
 
 	helix::UniqueDescriptor backingMemory_;
@@ -90,6 +98,31 @@ private:
 	// Holds the `ioVa` of the region in the DMA space, if already mapped there.
 	std::vector<std::optional<uintptr_t>> dmaSpaces_;
 	bool imported_;
+};
+
+// Set of DMA spaces that a driver uses. Pools attach to a realm.
+// The realm is responsible for mapping regions into DMA spaces and tearing them down again.
+struct dma_realm {
+	friend dma_space;
+	friend dma_memory_region;
+
+	dma_realm(dma_realm_options options = {})
+	: options_{options} {}
+
+	dma_realm(const dma_realm &) = delete;
+	dma_realm &operator=(const dma_realm &) = delete;
+
+	dma_space attachDmaSpace(helix::BorrowedDescriptor ioSpace, bool iommuActive);
+
+	// Wraps foreign memory into a region of this realm.
+	imported_dma_buffer importMemory(helix::BorrowedDescriptor memory, size_t offset, size_t size);
+
+private:
+	dma_realm_options options_;
+
+	size_t attachedDmaSpaces_ = 0;
+	std::mutex spacesMutex_;
+	std::vector<dma_space *> spaces_;
 };
 
 struct contiguous_pool : dma_pool {
@@ -106,17 +139,14 @@ private:
 	static constexpr int small_region_size = size_t{1} << 16;
 
 public:
-	friend dma_space;
-	friend dma_memory_region;
-
-	contiguous_pool(contiguous_pool_options options = {});
+	contiguous_pool(dma_realm *realm, contiguous_pool_options options = {});
 
 	dma_ptr allocate(size_t size, size_t count, size_t align) override;
 	void deallocate(dma_ptr ptr, size_t size, size_t count, size_t align) override;
 
-	dma_space attachDmaSpace(helix::BorrowedDescriptor ioSpace, bool iommuActive);
-
-	imported_dma_buffer importMemory(helix::BorrowedDescriptor memory, size_t offset, size_t size);
+	dma_realm *realm() const {
+		return realm_;
+	}
 
 private:
 	struct bucket {
@@ -128,11 +158,8 @@ private:
 	helix::UniqueDescriptor allocate_pages_(size_t region_size);
 	void deallocate_pages_(void *p, size_t region_size);
 
+	dma_realm *realm_;
 	contiguous_pool_options options_;
-
-	size_t attachedDmaSpaces_ = 0;
-	std::mutex spacesMutex_;
-	std::vector<dma_space *> spaces_;
 
 	std::mutex bucketMutex_;
 	// Protected by mutex_.
@@ -140,15 +167,15 @@ private:
 };
 
 struct imported_dma_buffer {
-	imported_dma_buffer() : pool_{nullptr}, ptr_{}, size_{0} {}
+	imported_dma_buffer() : realm_{nullptr}, ptr_{}, size_{0} {}
 
-	imported_dma_buffer(contiguous_pool *pool, dma_ptr ptr, size_t size)
-	: pool_{pool}, ptr_{ptr}, size_{size} {
-		assert(pool_);
+	imported_dma_buffer(dma_realm *realm, dma_ptr ptr, size_t size)
+	: realm_{realm}, ptr_{ptr}, size_{size} {
+		assert(realm_);
 	}
 
 	~imported_dma_buffer() {
-		if (pool_) {
+		if (realm_) {
 			auto rn = static_cast<dma_memory_region *>(ptr_.region());
 			delete rn;
 		}
@@ -156,7 +183,7 @@ struct imported_dma_buffer {
 
 	friend void swap(imported_dma_buffer &a, imported_dma_buffer &b) {
 		using std::swap;
-		swap(a.pool_, b.pool_);
+		swap(a.realm_, b.realm_);
 		swap(a.ptr_, b.ptr_);
 		swap(a.size_, b.size_);
 	}
@@ -182,16 +209,16 @@ struct imported_dma_buffer {
 	}
 
 private:
-	contiguous_pool *pool_;
+	dma_realm *realm_;
 	dma_ptr ptr_;
 	size_t size_;
 };
 
 struct dma_space {
-	dma_space(size_t i, contiguous_pool *p, helix::BorrowedDescriptor space, bool iommuActive)
-	: index_{i}, pool_{p}, space_{space}, iommuActive_{iommuActive} {
-		std::lock_guard lock{pool_->spacesMutex_};
-		pool_->spaces_.insert(pool_->spaces_.begin() + i, this);
+	dma_space(size_t i, dma_realm *realm, helix::BorrowedDescriptor space, bool iommuActive)
+	: index_{i}, realm_{realm}, space_{space}, iommuActive_{iommuActive} {
+		std::lock_guard lock{realm_->spacesMutex_};
+		realm_->spaces_.insert(realm_->spaces_.begin() + i, this);
 	}
 
 	dma_space(const dma_space &) = delete;
@@ -200,7 +227,7 @@ struct dma_space {
 	dma_space &operator=(dma_space &&) = delete;
 
 	~dma_space() {
-		// TODO(no92): we should detach the space from its pool and unmap all remaining memory
+		// TODO(no92): we should detach the space from its realm and unmap all remaining memory
 	}
 
 	template <dma_view T>
@@ -210,7 +237,7 @@ struct dma_space {
 		uintptr_t iova_base;
 
 		{
-			std::lock_guard guard{pool_->spacesMutex_};
+			std::lock_guard guard{realm_->spacesMutex_};
 
 			if (reg->dmaSpaces_.size() <= index_)
 				reg->dmaSpaces_.resize(index_ + 1);
@@ -225,7 +252,7 @@ struct dma_space {
 					nullptr,
 					reg->backingMemoryOffset_,
 					reg->size,
-					kHelMapProtRead | kHelMapProtWrite | kHelMapDontRequireBacking | pool_->options_.dmaMapFlags,
+					kHelMapProtRead | kHelMapProtWrite | kHelMapDontRequireBacking | realm_->options_.dmaMapFlags,
 					&p
 				));
 
@@ -260,7 +287,7 @@ struct dma_space {
 
 private:
 	size_t index_;
-	contiguous_pool *pool_;
+	dma_realm *realm_;
 	helix::BorrowedDescriptor space_;
 	bool iommuActive_;
 };

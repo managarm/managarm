@@ -224,7 +224,8 @@ private:
 	helix::Mapping _mmio_mapping;
 	arch::mem_space _mmio;
 
-	arch::contiguous_pool _dmaPool{{.addressBits = 64}};
+	arch::dma_realm _dmaRealm;
+	arch::contiguous_pool _dmaPool{&_dmaRealm, {.addressBits = 64}};
 	helix::UniqueDescriptor dmaSpaceHandle_;
 	arch::dma_space dmaSpace_;
 	protocols::hw::Device _device;

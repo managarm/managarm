@@ -65,6 +65,7 @@ private:
 	helix::Mapping _mmio_mapping;
 	arch::mem_space _mmio;
 
+	arch::dma_realm _dmaRealm;
 	arch::contiguous_pool _dmaPool;
 	helix::UniqueDescriptor dmaSpaceHandle_;
 	arch::dma_space dmaSpace_;

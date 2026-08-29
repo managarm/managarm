@@ -40,9 +40,9 @@
 
 E1000Nic::E1000Nic(protocols::hw::Device device, helix::UniqueDescriptor dmaSpace, bool iommuActive)
 : nic::Link(1500, &_dmaPool),
-  _dmaPool{{.addressBits = 64, .allocateContigous = !iommuActive}},
+  _dmaPool{&_dmaRealm, {.addressBits = 64, .allocateContigous = !iommuActive}},
   dmaSpaceHandle_{std::move(dmaSpace)},
-  dmaSpace_{_dmaPool.attachDmaSpace(dmaSpaceHandle_, iommuActive)},
+  dmaSpace_{_dmaRealm.attachDmaSpace(dmaSpaceHandle_, iommuActive)},
   _device{std::move(device)},
   _rxIndex(0, RX_QUEUE_SIZE),
   _txIndex(0, TX_QUEUE_SIZE) {}

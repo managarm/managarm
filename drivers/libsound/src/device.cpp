@@ -85,7 +85,7 @@ struct DeviceFile {
 
 		memory = helix::UniqueDescriptor{handle};
 
-		bufferMapping = device->card->pool->importMemory(memory, 0, SNDRV_PCM_MMAP_OFFSET_STATUS_OLD);
+		bufferMapping = device->card->pool->realm()->importMemory(memory, 0, SNDRV_PCM_MMAP_OFFSET_STATUS_OLD);
 		statusMapping = helix::Mapping{memory, SNDRV_PCM_MMAP_OFFSET_STATUS, statusSize};
 		controlMapping = helix::Mapping{memory, SNDRV_PCM_MMAP_OFFSET_CONTROL, controlSize};
 

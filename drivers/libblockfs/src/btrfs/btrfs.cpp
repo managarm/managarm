@@ -236,7 +236,7 @@ async::detached FileSystem::manageTree() {
 		HEL_CHECK(manage.error());
 		assert(manage.offset() + manage.length() <= superblock_.total_bytes);
 
-		auto view = device_->pagePool->importMemory(helix::BorrowedDescriptor{treeBackingMemory}, manage.offset(), manage.length());
+		auto view = device_->pagePool->realm()->importMemory(helix::BorrowedDescriptor{treeBackingMemory}, manage.offset(), manage.length());
 
 		if (manage.type() == kHelManageInitialize) {
 			assert(!(manage.offset() % superblock_.sector_size));
@@ -552,7 +552,7 @@ async::detached FileSystem::manageFileData(std::shared_ptr<Inode> inode) {
 			assert(!(manage.offset() % inode->fs_.superblock_.sector_size));
 
 			size_t progress = 0;
-			auto view = device_->pagePool->importMemory(
+			auto view = device_->pagePool->realm()->importMemory(
 			    helix::BorrowedDescriptor{inode->backingMemory}, manage.offset(), manage.length()
 			);
 
