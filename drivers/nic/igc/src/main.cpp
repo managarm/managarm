@@ -254,12 +254,14 @@ async::result<void> IgcNic::init() {
 
 	rxDescs_ = arch::dma_array<RxDescriptor>(&dmaPool_, ringSize);
 	rxBufs_ = arch::dma_array<Buffer>(&dmaPool_, ringSize);
+	co_await dmaSpace_.ensure_mapped(rxDescs_.view_buffer());
+	co_await dmaSpace_.ensure_mapped(rxBufs_.view_buffer());
 	for (size_t i = 0; i < ringSize; i++)
-		rxBufIova_.push_back(co_await dmaSpace_.iova_of(rxBufs_.object_view(i)));
+		rxBufIova_.push_back(dmaSpace_.iova_of(rxBufs_.object_view(i)));
 	for (size_t i = 0; i < ringSize; i++)
 		armRx(i);
 
-	uint64_t rxPhys = co_await dmaSpace_.iova_of(rxDescs_.view_buffer());
+	uint64_t rxPhys = dmaSpace_.iova_of(rxDescs_.view_buffer());
 	space_.store(reg::rxdctl0, arch::bit_value<uint32_t>{0});
 	space_.store(reg::rdbal0, uint32_t(rxPhys));
 	space_.store(reg::rdbah0, uint32_t(rxPhys >> 32));
@@ -292,10 +294,12 @@ async::result<void> IgcNic::init() {
 
 	txDescs_ = arch::dma_array<TxDescriptor>(&dmaPool_, ringSize);
 	txBufs_ = arch::dma_array<Buffer>(&dmaPool_, ringSize);
+	co_await dmaSpace_.ensure_mapped(txDescs_.view_buffer());
+	co_await dmaSpace_.ensure_mapped(txBufs_.view_buffer());
 	for (size_t i = 0; i < ringSize; i++)
-		txBufIova_.push_back(co_await dmaSpace_.iova_of(txBufs_.object_view(i)));
+		txBufIova_.push_back(dmaSpace_.iova_of(txBufs_.object_view(i)));
 
-	uint64_t txPhys = co_await dmaSpace_.iova_of(txDescs_.view_buffer());
+	uint64_t txPhys = dmaSpace_.iova_of(txDescs_.view_buffer());
 	space_.store(reg::txdctl0, arch::bit_value<uint32_t>{0});
 	wrfl();
 	space_.store(reg::tdbal0, uint32_t(txPhys));

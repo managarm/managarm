@@ -172,8 +172,9 @@ async::result<void> E1000Nic::init() {
 
 	memset(_rxd.data(), 0, RX_QUEUE_SIZE * sizeof(struct e1000_rx_desc));
 
+	co_await dmaSpace_.ensure_mapped(_rxdbuf.view_buffer());
 	for(size_t i = 0; i < RX_QUEUE_SIZE; i++) {
-		auto iova = co_await dmaSpace_.iova_of(_rxdbuf.object_view(i));
+		auto iova = dmaSpace_.iova_of(_rxdbuf.object_view(i));
 		rxdIova_.push_back(iova);
 	}
 
@@ -191,8 +192,9 @@ async::result<void> E1000Nic::init() {
 
 	memset(_txd.data(), 0, TX_QUEUE_SIZE * sizeof(struct e1000_tx_desc));
 
+	co_await dmaSpace_.ensure_mapped(_txdbuf.view_buffer());
 	for(size_t i = 0; i < TX_QUEUE_SIZE; i++) {
-		auto iova = co_await dmaSpace_.iova_of(_txdbuf.object_view(i));
+		auto iova = dmaSpace_.iova_of(_txdbuf.object_view(i));
 		txdIova_.push_back(iova);
 		_txd[i].buffer_addr = iova;
 		_txd[i].lower.data = 0;

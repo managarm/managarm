@@ -568,9 +568,10 @@ async::result<Queue *> StandardPciTransport::setupQueue(unsigned int queue_index
 	);
 
 	// Hand the queue to the device.
-	auto table_physical = co_await dmaSpace_.iova_of(table);
-	auto available_physical = co_await dmaSpace_.iova_of(available);
-	auto used_physical = co_await dmaSpace_.iova_of(used);
+	co_await dmaSpace_.ensure_mapped(table);
+	auto table_physical = dmaSpace_.iova_of(table);
+	auto available_physical = dmaSpace_.iova_of(available);
+	auto used_physical = dmaSpace_.iova_of(used);
 	_commonSpace().store(PCI_QUEUE_TABLE[0], table_physical);
 	_commonSpace().store(PCI_QUEUE_TABLE[1], table_physical >> 32);
 	_commonSpace().store(PCI_QUEUE_AVAILABLE[0], available_physical);
@@ -931,7 +932,8 @@ Handle::Handle(Queue *queue, size_t table_index)
 async::result<void>Handle::setupBuffer(HostToDeviceType, arch::dma_buffer_view view) {
 	assert(view.size());
 
-	uintptr_t physical = co_await this->_queue->dmaSpace().iova_of(view);
+	co_await this->_queue->dmaSpace().ensure_mapped(view);
+	uintptr_t physical = this->_queue->dmaSpace().iova_of(view);
 
 	auto descriptor = _queue->_table + _tableIndex;
 	descriptor->address.store(physical);
@@ -941,7 +943,8 @@ async::result<void>Handle::setupBuffer(HostToDeviceType, arch::dma_buffer_view v
 async::result<void>Handle::setupBuffer(DeviceToHostType, arch::dma_buffer_view view) {
 	assert(view.size());
 
-	uintptr_t physical = co_await this->_queue->dmaSpace().iova_of(view);
+	co_await this->_queue->dmaSpace().ensure_mapped(view);
+	uintptr_t physical = this->_queue->dmaSpace().iova_of(view);
 
 	auto descriptor = _queue->_table + _tableIndex;
 	descriptor->address.store(physical);
@@ -1045,11 +1048,13 @@ async::result<std::vector<DmaChunk>> Queue::splitContiguous(arch::dma_buffer_vie
 
 	// With an IOMMU, iova_of() maps the view's entire backing region contiguously
 	// into DMA space, hence the whole view fits into a single descriptor.
+	co_await dmaSpace().ensure_mapped(view);
+
 	if(dmaSpace().iommuActive()) {
 		size_t offset = 0;
 		while(offset < view.size()) {
 			auto chunkView = view.subview(offset, std::min(view.size() - offset, maxChunkSize));
-			auto address = co_await dmaSpace().iova_of(chunkView);
+			auto address = dmaSpace().iova_of(chunkView);
 			chunks.push_back({chunkView, address});
 			offset += chunkView.size();
 		}
@@ -1065,7 +1070,7 @@ async::result<std::vector<DmaChunk>> Queue::splitContiguous(arch::dma_buffer_vie
 	while(offset < view.size()) {
 		auto va = reinterpret_cast<uintptr_t>(view.data()) + offset;
 		auto piece = std::min(view.size() - offset, pageSize - (va & (pageSize - 1)));
-		auto address = co_await dmaSpace().iova_of(view.subview(offset, piece));
+		auto address = dmaSpace().iova_of(view.subview(offset, piece));
 		if(chunkSize && address == chunkAddress + chunkSize && chunkSize + piece <= maxChunkSize) {
 			chunkSize += piece;
 		}else{

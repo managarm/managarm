@@ -62,9 +62,14 @@ struct Tcp final : public Controller {
 	async::result<Command::Result> submitAdminCommand(std::unique_ptr<Command> cmd) override;
 	async::result<Command::Result> submitIoCommand(std::unique_ptr<Command> cmd) override;
 
-	async::result<std::optional<uintptr_t>> prpAddressOf(arch::dma_buffer_view) override {
+	async::result<void> ensureMapped(arch::dma_buffer_view) override {
 		// PRPs are not supported.
-		co_return std::nullopt;
+		co_return;
+	}
+
+	std::optional<uintptr_t> prpAddressOf(arch::dma_buffer_view) override {
+		// PRPs are not supported.
+		return std::nullopt;
 	}
 
 private:

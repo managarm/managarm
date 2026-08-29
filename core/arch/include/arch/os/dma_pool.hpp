@@ -279,10 +279,17 @@ struct dma_space {
 		return establish_(region);
 	}
 
+	// Device address of the view's first byte.
+	// The view has to be contiguous in device address space.
+	// Requires a prior ensure_mapped() of the view.
 	template <dma_view T>
-	async::result<uintptr_t> iova_of(T &&view) const {
-		co_await ensure_mapped(view);
-		co_return device_address_(view.get_dma_ptr(), view.size_bytes());
+	uintptr_t iova_of(T &&view) const {
+		dma_ptr dp = view.get_dma_ptr();
+		auto st = state_of_(dp);
+		assert(st && st->established.load(std::memory_order_acquire));
+		auto rg = range_of_(st, dp.offset());
+		assert(dp.offset() + view.size_bytes() <= rg->offset + rg->size);
+		return rg->address + (dp.offset() - rg->offset);
 	}
 
 	bool iommuActive() const {
@@ -309,15 +316,6 @@ private:
 		);
 		assert(it != st->ranges.begin());
 		return &*(it - 1);
-	}
-
-	uintptr_t device_address_(dma_ptr dp, size_t size) const {
-		auto st = state_of_(dp);
-		assert(st && st->established.load(std::memory_order_acquire));
-		auto rg = range_of_(st, dp.offset());
-		// The view has to be contiguous in device address space.
-		assert(dp.offset() + size <= rg->offset + rg->size);
-		return rg->address + (dp.offset() - rg->offset);
 	}
 
 	async::result<void> establish_(dma_memory_region *reg) const;

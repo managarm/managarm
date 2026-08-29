@@ -689,7 +689,8 @@ Controller::QueueEntity::QueueEntity(arch::dma_object<QueueHead> the_head,
 }
 
 async::result<void> Controller::QueueEntity::initialize(arch::dma_space &space) {
-	cachedHeadIova_ = co_await space.iova_of(head);
+	co_await space.ensure_mapped(head);
+	cachedHeadIova_ = space.iova_of(head);
 	head->horizontalPtr.store(qh_horizontal::terminate(false)
 			| qh_horizontal::typeSelect(0x01)
 			| qh_horizontal::horizontalPtr(cachedHeadIova_));
@@ -798,10 +799,12 @@ async::result<Controller::Transaction *> Controller::_buildControl(proto::XferFl
 	assert(num_data <= 1);
 	arch::dma_array<TransferDescriptor> transfers{memoryPool(), num_data + 2};
 
-	auto transfersIova = co_await dmaSpace_.iova_of(transfers);
+	co_await dmaSpace_.ensure_mapped(transfers);
+	co_await dmaSpace_.ensure_mapped(setup);
+	auto transfersIova = dmaSpace_.iova_of(transfers);
 	// TODO: This code is horribly broken if the setup packet or
 	// one of the data packets crosses a page boundary.
-	auto setupIova = co_await dmaSpace_.iova_of(setup);
+	auto setupIova = dmaSpace_.iova_of(setup);
 	assert((setupIova & ~0xFFFULL) == ((setupIova + sizeof(*setup) - 1) & ~0xFFFULL));
 
 	transfers[0].nextTd.store(td_ptr::ptr(transfersIova + sizeof(TransferDescriptor))
@@ -817,8 +820,10 @@ async::result<Controller::Transaction *> Controller::_buildControl(proto::XferFl
 	size_t progress = 0;
 
 	uintptr_t bufferIova = 0;
-	if (num_data)
-		bufferIova = co_await dmaSpace_.iova_of(buffer);
+	if (num_data) {
+		co_await dmaSpace_.ensure_mapped(buffer);
+		bufferIova = dmaSpace_.iova_of(buffer);
+	}
 	assert(!num_data || (bufferIova & ~0xFFFULL) == ((bufferIova + buffer.size() - 1) & ~0xFFFULL));
 
 	for(size_t i = 0; i < num_data; i++) {
@@ -876,8 +881,10 @@ async::result<Controller::Transaction *> Controller::_buildInterruptOrBulk(proto
 	// Finally construct each qTD.
 	arch::dma_array<TransferDescriptor> transfers{memoryPool(), num_data};
 
-	auto transfersIova = co_await dmaSpace_.iova_of(transfers);
-	auto bufferIova = co_await dmaSpace_.iova_of(buffer);
+	co_await dmaSpace_.ensure_mapped(transfers);
+	co_await dmaSpace_.ensure_mapped(buffer);
+	auto transfersIova = dmaSpace_.iova_of(transfers);
+	auto bufferIova = dmaSpace_.iova_of(buffer);
 
 	size_t progress = 0;
 	for(size_t i = 0; i < num_data; i++) {

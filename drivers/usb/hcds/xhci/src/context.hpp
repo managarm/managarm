@@ -36,9 +36,11 @@ struct ContextArray {
 
 	async::result<void> initialize(arch::dma_space &space) {
 		if (largeCtx_) {
-			_cachedIova = co_await space.iova_of(largeArr_);
+			co_await space.ensure_mapped(largeArr_);
+			_cachedIova = space.iova_of(largeArr_);
 		} else {
-			_cachedIova = co_await space.iova_of(smallArr_);
+			co_await space.ensure_mapped(smallArr_);
+			_cachedIova = space.iova_of(smallArr_);
 		}
 	}
 
@@ -49,9 +51,11 @@ struct ContextArray {
 
 	async::result<uintptr_t> iova(arch::dma_space &space) {
 		if (largeCtx_) {
-			co_return co_await space.iova_of(largeArr_);
+			co_await space.ensure_mapped(largeArr_);
+			co_return space.iova_of(largeArr_);
 		} else {
-			co_return co_await space.iova_of(smallArr_);
+			co_await space.ensure_mapped(smallArr_);
+			co_return space.iova_of(smallArr_);
 		}
 	}
 

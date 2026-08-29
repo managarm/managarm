@@ -186,12 +186,13 @@ async::result<void> Cmd::attachBacking(uint32_t resourceId, arch::dma_buffer_vie
 	size_t memEntries = space.iommuActive() ? 1 : pages;
 
 	arch::dma_array<spec::MemEntry> entries{&device->dmaPool(), memEntries};
+	co_await space.ensure_mapped(view);
 	if (space.iommuActive()) {
-		entries[0].address = co_await device->dmaSpace().iova_of(view);
+		entries[0].address = space.iova_of(view);
 		entries[0].length = pages << 12;
 	} else {
 		for(size_t page = 0; page < pages; page++) {
-			uintptr_t physical = co_await device->dmaSpace().iova_of(view.subview(page << 12, 0x1000));
+			uintptr_t physical = space.iova_of(view.subview(page << 12, 0x1000));
 			entries[page].address = physical;
 			entries[page].length = 4096;
 		}
