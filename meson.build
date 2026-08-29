@@ -164,7 +164,6 @@ if build_kernel
 	endforeach
 
 	subdir('hel')
-	subdir('core/arch')
 	subdir('kernel/eir')
 	subdir('kernel/thor')
 

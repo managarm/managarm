@@ -3,11 +3,13 @@
 #include <algorithm>
 #include <hel-syscalls.h>
 #include <hel.h>
-#include <ranges>
+#include <helix/ipc.hpp>
 
 namespace arch {
 
 namespace {
+
+constexpr size_t pageSize = 0x1000;
 
 } // namespace
 
@@ -77,7 +79,89 @@ dma_space dma_realm::attachDmaSpace(helix::BorrowedDescriptor ioSpace, bool iomm
 		std::lock_guard lock{spacesMutex_};
 		id = attachedDmaSpaces_++;
 	}
+	assert(id < max_dma_spaces);
 	return dma_space{id, this, ioSpace, iommuActive};
+}
+
+async::result<void> dma_space::establish_(dma_memory_region *reg) const {
+	assert(reg->size);
+
+	// Fast path: the state is immutable once established, hence no lock is required.
+	auto state = reg->spaceStates_[index_].load(std::memory_order_acquire);
+	if (state && state->established.load(std::memory_order_acquire))
+		co_return;
+
+	bool wait = false;
+	{
+		std::lock_guard guard{realm_->spacesMutex_};
+
+		state = reg->spaceStates_[index_].load(std::memory_order_relaxed);
+		if (!state) {
+			state = new dma_memory_region::per_space_state{};
+			reg->spaceStates_[index_].store(state, std::memory_order_release);
+		}
+
+		if (state->established.load(std::memory_order_relaxed))
+			co_return;
+		if (state->establishing) {
+			wait = true;
+		} else {
+			state->establishing = true;
+		}
+	}
+
+	// Another coroutine got here first. Wait for it to finish.
+	if (wait) {
+		co_await state->establishedEvent.wait();
+		co_return;
+	}
+
+	void *p = nullptr;
+	HEL_CHECK(helMapMemory(
+		reg->borrowedMemory_.getHandle(),
+		space_.getHandle(),
+		nullptr,
+		reg->backingMemoryOffset_,
+		reg->size,
+		kHelMapProtRead | kHelMapProtWrite | kHelMapDontRequireBacking
+				| realm_->options_.dmaMapFlags,
+		&p
+	));
+	auto deviceVa = reinterpret_cast<uintptr_t>(p);
+	state->deviceVa = deviceVa;
+
+	// Fault in the whole region asynchronously.
+	// With an IOMMU, this installs its PTEs. Without one, it keeps addressToPhysical() from faulting page by page.
+	auto populateResult = co_await helix_ng::populateSpace(space_, deviceVa, reg->size);
+	HEL_CHECK(populateResult.error());
+
+	if (iommuActive_) {
+		// The ioVa is contiguous, so a single range describes the region.
+		state->ranges.push_back({0, deviceVa, reg->size});
+	} else {
+		// The ioVa is fake and only useful for lifetime tracking.
+		// The device addresses are physical ones.
+		for (size_t offset = 0; offset < reg->size; offset += pageSize) {
+			auto chunk = std::min(pageSize, reg->size - offset);
+			auto physical = helix::addressToPhysical(space_, deviceVa + offset);
+
+			if (!state->ranges.empty()) {
+				auto &back = state->ranges.back();
+				if (back.address + back.size == physical) {
+					back.size += chunk;
+					continue;
+				}
+			}
+			state->ranges.push_back({offset, physical, chunk});
+		}
+	}
+
+	{
+		std::lock_guard guard{realm_->spacesMutex_};
+		state->establishing = false;
+		state->established.store(true, std::memory_order_release);
+	}
+	state->establishedEvent.raise();
 }
 
 imported_dma_buffer dma_realm::importMemory(helix::BorrowedDescriptor memory, size_t offset, size_t size) {
@@ -111,11 +195,15 @@ dma_memory_region::~dma_memory_region() {
 	{
 		std::lock_guard lock{realm_->spacesMutex_};
 		// Unmap the region from all DMA spaces first
-		for (auto [index, ioVa] : dmaSpaces_ | std::views::enumerate) {
-			if (ioVa) {
+		for (size_t index = 0; index < max_dma_spaces; ++index) {
+			auto state = spaceStates_[index].load(std::memory_order_relaxed);
+			if (!state)
+				continue;
+			if (state->deviceVa) {
 				auto dmaSpace = realm_->spaces_[index];
-				HEL_CHECK(helUnmapMemory(dmaSpace->descriptor().getHandle(), reinterpret_cast<void *>(*ioVa), size));
+				HEL_CHECK(helUnmapMemory(dmaSpace->descriptor().getHandle(), reinterpret_cast<void *>(*state->deviceVa), size));
 			}
+			delete state;
 		}
 	}
 

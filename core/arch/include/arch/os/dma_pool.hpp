@@ -1,8 +1,11 @@
 #pragma once
 
+#include <algorithm>
 #include <arch/dma_structs.hpp>
 #include <array>
+#include <async/oneshot-event.hpp>
 #include <async/result.hpp>
+#include <atomic>
 #include <helix/ipc.hpp>
 #include <helix/memory.hpp>
 #include <mutex>
@@ -33,8 +36,21 @@ struct dma_space;
 struct dma_realm;
 struct imported_dma_buffer;
 
+// Upper bound on the number of DMA spaces that can be attached to a single realm.
+inline constexpr size_t max_dma_spaces = 8;
+
+// Piece of a region that is contiguous in the device address space of a dma_space.
+struct dma_range {
+	// Offset into the region.
+	size_t offset;
+	// Device address that `offset` maps to.
+	uintptr_t address;
+	size_t size;
+};
+
 struct dma_memory_region : dma_region {
 	friend dma_space;
+	friend dma_realm;
 
 	dma_memory_region(
 	    dma_realm *realm,
@@ -88,6 +104,23 @@ struct dma_memory_region : dma_region {
 	}
 
 private:
+	// State of this region in one DMA space of its realm.
+	struct per_space_state {
+		// Address of the region in the DMA space.
+		// Immutable after established is true.
+		std::optional<uintptr_t> deviceVa;
+		// Device addresses of the whole region, in ascending offset order.
+		// Immutable after established is true.
+		std::vector<dma_range> ranges;
+		// Set once mapping, populating and translating is done.
+		std::atomic<bool> established{false};
+		// Set while a coroutine establishes this state.
+		// Protected by dma_realm::spacesMutex_.
+		bool establishing = false;
+		// Raised when established becomes true.
+		async::oneshot_event establishedEvent;
+	};
+
 	dma_realm *realm_;
 	size_t size;
 
@@ -95,8 +128,7 @@ private:
 	helix::BorrowedDescriptor borrowedMemory_;
 	size_t backingMemoryOffset_;
 
-	// Holds the `ioVa` of the region in the DMA space, if already mapped there.
-	std::vector<std::optional<uintptr_t>> dmaSpaces_;
+	std::array<std::atomic<per_space_state *>, max_dma_spaces> spaceStates_{};
 	bool imported_;
 };
 
@@ -230,51 +262,27 @@ struct dma_space {
 		// TODO(no92): we should detach the space from its realm and unmap all remaining memory
 	}
 
+	// True if the region backing the view is already established in this space.
+	// Lets hot paths skip the ensure_mapped() coroutine entirely.
+	template <dma_view T>
+	bool check_mapped(T &&view) const {
+		auto st = state_of_(view.get_dma_ptr());
+		return st && st->established.load(std::memory_order_acquire);
+	}
+
+	// Establishes the whole region backing the view in this space.
+	template <dma_view T>
+	async::result<void> ensure_mapped(T &&view) const {
+		// Obtain the region before forwarding to the coroutine
+		// such that we do not access dangling pointers when view is a reference.
+		auto region = static_cast<dma_memory_region *>(view.get_dma_ptr().region());
+		return establish_(region);
+	}
+
 	template <dma_view T>
 	async::result<uintptr_t> iova_of(T &&view) const {
-		dma_ptr dp = view.get_dma_ptr();
-		auto reg = static_cast<dma_memory_region *>(dp.region());
-		uintptr_t iova_base;
-
-		{
-			std::lock_guard guard{realm_->spacesMutex_};
-
-			if (reg->dmaSpaces_.size() <= index_)
-				reg->dmaSpaces_.resize(index_ + 1);
-
-			if (!reg->dmaSpaces_[index_]) {
-				assert(reg->size);
-
-				void *p = nullptr;
-				HEL_CHECK(helMapMemory(
-					reg->borrowedMemory_.getHandle(),
-					space_.getHandle(),
-					nullptr,
-					reg->backingMemoryOffset_,
-					reg->size,
-					kHelMapProtRead | kHelMapProtWrite | kHelMapDontRequireBacking | realm_->options_.dmaMapFlags,
-					&p
-				));
-
-				reg->dmaSpaces_[index_] = reinterpret_cast<uintptr_t>(p);
-			}
-
-			iova_base = reg->dmaSpaces_[index_].value();
-		}
-
-		// Ensure that the backing pages of the view are already present, or faulted in.
-		auto populateResult = co_await helix_ng::populateSpace(
-		    space_, iova_base + dp.offset(), view.size_bytes()
-		);
-		HEL_CHECK(populateResult.error());
-
-		// If no IOMMU is active, the ioVa address is fake and only useful for lifetime tracking.
-		// We need to return a physical address instead.
-		if (!iommuActive_)
-			co_return helix::addressToPhysical(space_, iova_base + dp.offset());
-
-		// If we have an IOMMU, we can simply return the ioVa.
-		co_return iova_base + dp.offset();
+		co_await ensure_mapped(view);
+		co_return device_address_(view.get_dma_ptr(), view.size_bytes());
 	}
 
 	bool iommuActive() const {
@@ -286,6 +294,34 @@ struct dma_space {
 	}
 
 private:
+	dma_memory_region::per_space_state *state_of_(dma_ptr dp) const {
+		auto reg = static_cast<dma_memory_region *>(dp.region());
+		return reg->spaceStates_[index_].load(std::memory_order_acquire);
+	}
+
+	// Range that covers `offset`. The ranges are sorted and cover the whole region.
+	static const dma_range *range_of_(dma_memory_region::per_space_state *st, size_t offset) {
+		auto it = std::upper_bound(
+		    st->ranges.begin(),
+		    st->ranges.end(),
+		    offset,
+		    [](size_t o, const dma_range &r) { return o < r.offset; }
+		);
+		assert(it != st->ranges.begin());
+		return &*(it - 1);
+	}
+
+	uintptr_t device_address_(dma_ptr dp, size_t size) const {
+		auto st = state_of_(dp);
+		assert(st && st->established.load(std::memory_order_acquire));
+		auto rg = range_of_(st, dp.offset());
+		// The view has to be contiguous in device address space.
+		assert(dp.offset() + size <= rg->offset + rg->size);
+		return rg->address + (dp.offset() - rg->offset);
+	}
+
+	async::result<void> establish_(dma_memory_region *reg) const;
+
 	size_t index_;
 	dma_realm *realm_;
 	helix::BorrowedDescriptor space_;
