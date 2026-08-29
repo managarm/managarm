@@ -102,7 +102,8 @@ async::detached Device::runDevice() {
 
 			// The chunk buffer is not allocated from a contiguous pool, hence it can
 			// need more than one descriptor.
-			auto chunks = co_await txQueue_->splitContiguous(chunkBuffer.subview(0, size));
+			co_await txQueue_->dmaSpace().ensure_mapped(chunkBuffer);
+			auto chunks = txQueue_->splitContiguous(chunkBuffer.subview(0, size));
 
 			// Acquire all descriptors of the chain at once to avoid potential deadlocks.
 			std::vector<virtio_core::Handle> handles(chunks.size());

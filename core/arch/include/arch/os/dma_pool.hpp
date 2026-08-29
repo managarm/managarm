@@ -292,6 +292,28 @@ struct dma_space {
 		return rg->address + (dp.offset() - rg->offset);
 	}
 
+	// Invokes f(address, size) for each maximal piece of the view that is contiguous in device address space,
+	// in ascending order.
+	// Requires a prior ensure_mapped() of the view.
+	template <dma_view T, typename F>
+	void for_iova_ranges_of(T &&view, F &&f) const {
+		dma_ptr dp = view.get_dma_ptr();
+		auto st = state_of_(dp);
+		assert(st && st->established.load(std::memory_order_acquire));
+
+		auto rg = range_of_(st, dp.offset());
+		size_t offset = dp.offset();
+		size_t remaining = view.size_bytes();
+		while (remaining) {
+			assert(rg != st->ranges.data() + st->ranges.size());
+			auto piece = std::min(remaining, rg->offset + rg->size - offset);
+			f(rg->address + (offset - rg->offset), piece);
+			offset += piece;
+			remaining -= piece;
+			++rg;
+		}
+	}
+
 	bool iommuActive() const {
 		return iommuActive_;
 	}

@@ -232,6 +232,10 @@ async::result<void> Device::flush() {
 	// VIRTIO_BLK_T_FLUSH is device-wide, so any queue covers the writes of all of them.
 	auto queue = _pickQueue();
 
+	auto &space = queue->dmaSpace();
+	co_await space.ensure_mapped(request.header.view_buffer());
+	co_await space.ensure_mapped(request.status.view_buffer());
+
 	std::array<virtio_core::Handle, 2> handles;
 	setupTime += timer.split();
 	co_await queue->obtainDescriptors(handles);
@@ -242,8 +246,8 @@ async::result<void> Device::flush() {
 	request.header->reserved = 0;
 	request.header->sector = 0;
 
-	co_await handles[0].setupBuffer(virtio_core::hostToDevice, request.header.view_buffer());
-	co_await handles[1].setupBuffer(virtio_core::deviceToHost, request.status.view_buffer());
+	handles[0].setupBuffer(virtio_core::hostToDevice, request.header.view_buffer());
+	handles[1].setupBuffer(virtio_core::deviceToHost, request.status.view_buffer());
 
 	setupTime += timer.split();
 	request.submitTs = currentNs();
@@ -274,9 +278,15 @@ async::result<void> Device::_issueRequest(virtio_core::Queue *queue, UserRequest
 
 	protocols::ostrace::Timer setupTimer;
 
+	// Establish the DMA mappings of all involved regions.
+	auto &space = queue->dmaSpace();
+	for(auto view : {request->view, request->header.view_buffer(), request->status.view_buffer()})
+		if(!space.check_mapped(view))
+			co_await space.ensure_mapped(view);
+
 	// Split the view into DMA-contiguous chunks (and not into individual sectors)
 	// since setupBuffer() only requires contiguity in DMA space per descriptor.
-	auto chunks = co_await queue->splitContiguous(request->view);
+	auto chunks = queue->splitContiguous(request->view);
 
 	// Acquire all descriptors of the chain at once to avoid potential deadlocks.
 	std::vector<virtio_core::Handle> handles(2 + chunks.size());
@@ -296,7 +306,7 @@ async::result<void> Device::_issueRequest(virtio_core::Queue *queue, UserRequest
 	request->header->reserved = 0;
 	request->header->sector = request->sector;
 
-	co_await handles.front().setupBuffer(virtio_core::hostToDevice, request->header.view_buffer());
+	handles.front().setupBuffer(virtio_core::hostToDevice, request->header.view_buffer());
 
 	// Setup descriptors for the transfered data.
 	for(size_t i = 0; i < chunks.size(); i++) {
@@ -311,10 +321,7 @@ async::result<void> Device::_issueRequest(virtio_core::Queue *queue, UserRequest
 		std::cout << "Submitting " << chunks.size() << " data descriptors" << std::endl;
 
 	// Setup a descriptor for the status byte.
-	co_await handles.back().setupBuffer(
-	    virtio_core::deviceToHost,
-	    request->status.view_buffer()
-	);
+	handles.back().setupBuffer(virtio_core::deviceToHost, request->status.view_buffer());
 
 	// Stamp the submission before posting: the completion callback may run
 	// as soon as the descriptor is posted.
