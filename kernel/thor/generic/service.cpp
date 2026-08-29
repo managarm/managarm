@@ -1024,18 +1024,13 @@ namespace posix {
 				launchGdbServer(info.thread, _name, WorkQueue::generalQueue());
 				break;
 			}else if(interrupt == kIntrSuperCall + ::posix::superAnonAllocate) { // ANON_ALLOCATE.
-				// TODO: Use some always-zero memory for private anonymous mappings.
 				uintptr_t size;
 				auto readOutcome = info.thread->accessRegisters([&](Executor *executor) {
 					size = *executor->arg0();
 				});
 				if(!readOutcome)
 					panicLogger() << "thor: Failed to access server registers" << frg::endlog;
-				auto fileMemoryOutcome = AllocatedMemory::create(size);
-				if(!fileMemoryOutcome)
-					panicLogger() << "thor: Failed to create memory" << frg::endlog;
-				auto cowOutcome = CopyOnWriteMemory::create(
-						std::move(*fileMemoryOutcome), 0, size);
+				auto cowOutcome = CopyOnWriteMemory::create(getZeroMemory(), 0, size);
 				if(!cowOutcome)
 					panicLogger() << "thor: Failed to create copy-on-write memory" << frg::endlog;
 				auto sliceOutcome = MemorySlice::create(std::move(*cowOutcome), 0, size);

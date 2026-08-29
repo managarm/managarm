@@ -7,6 +7,7 @@
 #include <helix/dispatcher-pool.hpp>
 
 #include "metadata-cache.hpp"
+#include "service-budget.hpp"
 #include "trace.hpp"
 
 namespace blockfs {
@@ -17,8 +18,9 @@ namespace {
 	constexpr size_t lruCapacity = 128;
 }
 
-MetadataCache::MetadataCache(BlockDevice *device, uint64_t numBlocks, size_t blockSize)
-: device_{device}, numBlocks_{numBlocks}, blockSize_{blockSize} {
+MetadataCache::MetadataCache(BlockDevice *device, uint64_t baseBlock, uint64_t numBlocks,
+		size_t blockSize)
+: device_{device}, baseBlock_{baseBlock}, numBlocks_{numBlocks}, blockSize_{blockSize} {
 	assert(std::has_single_bit(blockSize));
 	assert(blockSize >= device->sectorSize);
 	auto blockShift = static_cast<uint32_t>(std::countr_zero(blockSize));
@@ -35,8 +37,9 @@ MetadataCache::MetadataCache(BlockDevice *device, uint64_t numBlocks, size_t blo
 			static_cast<size_t>(numBlocks << blockPagesShift_),
 			kHelMapProtRead | kHelMapProtWrite | kHelMapDontRequireBacking};
 
-	manage_(helix::UniqueDescriptor{backing});
-	flushDirty_();
+	// Distribute MetadataCache servicing coroutines over the helix::DispatcherPool,
+	// but keep manage_() and flushDirty_() on the same thread.
+	helix::DispatcherPool::global().detach(run_(helix::UniqueDescriptor{backing}));
 }
 
 void MetadataCache::CacheBlockPolicy::increment() const {
@@ -115,7 +118,7 @@ void MetadataCache::destroyCacheBlock_(CacheBlock *cacheBlock) {
 }
 
 async::result<MetadataCache::BlockWindow> MetadataCache::access(uint64_t block, bool writable) {
-	assert(block < numBlocks_);
+	assert(block >= baseBlock_ && block - baseBlock_ < numBlocks_);
 
 	protocols::ostrace::Timer timer;
 	uint64_t timePin = 0;
@@ -144,7 +147,7 @@ async::result<MetadataCache::BlockWindow> MetadataCache::access(uint64_t block, 
 
 	helix::LockMemoryView lockMemory;
 	auto &&submit = helix::submitLockMemoryView(frontal_, &lockMemory,
-			block << blockPagesShift_, frameSize, helix::Dispatcher::global());
+			blockOffset_(block), frameSize, helix::Dispatcher::global());
 	co_await submit.async_wait();
 	HEL_CHECK(lockMemory.error());
 	timePin = timer.split();
@@ -160,13 +163,13 @@ async::result<MetadataCache::BlockWindow> MetadataCache::access(uint64_t block, 
 }
 
 async::result<void> MetadataCache::read(uint64_t block, size_t offset, size_t length, void *buffer) {
-	assert(block < numBlocks_);
+	assert(block >= baseBlock_ && block - baseBlock_ < numBlocks_);
 	assert(offset + length <= blockSize_);
 
 	protocols::ostrace::Timer timer;
 
 	auto readMemory = co_await helix_ng::readMemory(frontal_,
-			(block << blockPagesShift_) + offset, length, buffer);
+			blockOffset_(block) + offset, length, buffer);
 	HEL_CHECK(readMemory.error());
 
 	ostContext.emit(
@@ -177,7 +180,14 @@ async::result<void> MetadataCache::read(uint64_t block, size_t offset, size_t le
 	);
 }
 
-async::detached MetadataCache::manage_(helix::UniqueDescriptor backing) {
+async::result<void> MetadataCache::run_(helix::UniqueDescriptor backing) {
+	co_await async::when_all(
+		flushDirty_(),
+		manage_(std::move(backing))
+	);
+}
+
+async::result<void> MetadataCache::manage_(helix::UniqueDescriptor backing) {
 	while(true) {
 		helix::ManageMemory manage;
 		auto &&submitManage = helix::submitManageMemory(backing,
@@ -185,8 +195,8 @@ async::detached MetadataCache::manage_(helix::UniqueDescriptor backing) {
 		co_await submitManage.async_wait();
 		HEL_CHECK(manage.error());
 
-		helix::DispatcherPool::global().detach(
-				serviceRequest_(backing, manage.type(), manage.offset(), manage.length()));
+		async::detach(serviceRequest_(backing, manage.type(), manage.offset(),
+				manage.length()));
 	}
 }
 
@@ -199,12 +209,16 @@ async::result<void> MetadataCache::serviceRequest_(helix::BorrowedDescriptor bac
 	protocols::ostrace::Timer timer;
 	uint64_t deviceTime = 0;
 
+	// Acquire servicing budget before importMemory().
+	auto budgetToken = co_await servicingBudget().acquire(type == kHelManageWriteback, length);
+	auto budgetTime = timer.split();
+
 	auto view = device_->pagePool->importMemory(backing, offset, length);
 	auto importTime = timer.split();
 
 	for(size_t progress = 0; progress < length; progress += frameSize) {
-		auto block = (offset + progress) >> blockPagesShift_;
-		assert(block < numBlocks_);
+		auto block = baseBlock_ + ((offset + progress) >> blockPagesShift_);
+		assert(block - baseBlock_ < numBlocks_);
 
 		auto subview = view.view().subview(progress, blockSize_);
 
@@ -229,7 +243,8 @@ async::result<void> MetadataCache::serviceRequest_(helix::BorrowedDescriptor bac
 		type == kHelManageInitialize ? ostEvtMetadataInitialize : ostEvtMetadataWriteback,
 		ostAttrTime(timer.elapsed()),
 		ostAttrNumBytes(length),
-		ostAttrBlock(offset >> blockPagesShift_),
+		ostAttrBlock(baseBlock_ + (offset >> blockPagesShift_)),
+		ostAttrTimeBudget(budgetTime),
 		ostAttrTimeImport(importTime),
 		ostAttrTimeDevice(deviceTime)
 	);
@@ -249,7 +264,7 @@ void MetadataCache::markDirty_(uint64_t block) {
 	dirtyEvent_.raise();
 }
 
-async::detached MetadataCache::flushDirty_() {
+async::result<void> MetadataCache::flushDirty_() {
 	// Blocks dirtied while a batch is being synchronized are picked up by the next iteration.
 	uint64_t seenSeq = 0;
 	std::vector<uint64_t> batch;

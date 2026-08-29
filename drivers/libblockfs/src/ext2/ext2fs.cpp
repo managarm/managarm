@@ -24,6 +24,7 @@
 #include "ext2fs.hpp"
 #include "extents.hpp"
 #include "../checksums.hpp"
+#include "../service-budget.hpp"
 #include "../trace.hpp"
 
 namespace blockfs {
@@ -1024,7 +1025,18 @@ async::result<void> FileSystem::init() {
 	assert(blockSize >= device->sectorSize);
 	assert(blockSize % device->sectorSize == 0);
 
-	metadataCache.emplace(device, blocksCount, blockSize);
+	metadataCaches.reserve(numBlockGroups);
+	for(uint32_t bg = 0; bg < numBlockGroups; bg++) {
+		auto baseBlock = uint64_t{bg} * blocksPerGroup;
+		metadataCaches.push_back(
+			std::make_unique<MetadataCache>(
+				device,
+				baseBlock,
+				std::min<uint64_t>(blocksPerGroup, blocksCount - baseBlock),
+				blockSize
+			)
+		);
+	}
 
 	blockGroupDescriptorBuffer = arch::dma_buffer{
 	    pool,
@@ -1146,7 +1158,7 @@ async::result<std::shared_ptr<BaseInode>> FileSystem::createRegular(int uid, int
 	assert(ino);
 
 	auto [inodeBlock, inodeOffset] = locateDiskInode(ino);
-	auto inodeWindow = co_await metadataCache->access(inodeBlock, true);
+	auto inodeWindow = co_await accessMetadata(inodeBlock, true);
 
 	// TODO: Set the UID, GID, timestamps.
 	auto disk_inode = reinterpret_cast<DiskInode *>(
@@ -1179,7 +1191,7 @@ async::result<std::shared_ptr<Inode>> FileSystem::createDirectory() {
 	assert(ino);
 
 	auto [inodeBlock, inodeOffset] = locateDiskInode(ino);
-	auto inodeWindow = co_await metadataCache->access(inodeBlock, true);
+	auto inodeWindow = co_await accessMetadata(inodeBlock, true);
 
 	// TODO: Set the UID, GID, timestamps.
 	auto disk_inode = reinterpret_cast<DiskInode *>(
@@ -1210,7 +1222,7 @@ async::result<std::shared_ptr<Inode>> FileSystem::createSymlink() {
 	assert(ino);
 
 	auto [inodeBlock, inodeOffset] = locateDiskInode(ino);
-	auto inodeWindow = co_await metadataCache->access(inodeBlock, true);
+	auto inodeWindow = co_await accessMetadata(inodeBlock, true);
 
 	// TODO: Set the UID, GID, timestamps.
 	auto disk_inode = reinterpret_cast<DiskInode *>(
@@ -1240,7 +1252,7 @@ async::result<void> FileSystem::initiateInode(std::shared_ptr<Inode> inode) {
 	protocols::ostrace::Timer timer;
 
 	auto [inodeBlock, inodeOffset] = locateDiskInode(inode->number);
-	inode->diskInodeWindow = co_await metadataCache->access(inodeBlock, true);
+	inode->diskInodeWindow = co_await accessMetadata(inodeBlock, true);
 	inode->diskInodeOffset = inodeOffset;
 	uint64_t accessDone = timer.elapsed();
 
@@ -1299,10 +1311,6 @@ async::result<void> FileSystem::manageFileData(std::shared_ptr<Inode> inode) {
 		assert(manage.offset() + manage.length() <= ((inode->fileSize() + 0xFFF) & ~size_t(0xFFF)));
 
 		protocols::ostrace::Timer timer;
-		auto fileView = pool->importMemory(
-		    helix::BorrowedDescriptor{inode->backingMemory}, manage.offset(), manage.length()
-		);
-		uint64_t importDone = timer.elapsed();
 
 		if(manage.type() == kHelManageInitialize) {
 			assert(!(manage.offset() % inode->fs.blockSize));
@@ -1310,19 +1318,38 @@ async::result<void> FileSystem::manageFileData(std::shared_ptr<Inode> inode) {
 			size_t num_blocks = (backed_size + (inode->fs.blockSize - 1)) / inode->fs.blockSize;
 			assert(num_blocks * inode->fs.blockSize <= manage.length());
 
-			uint64_t lockDone;
-			uint64_t readDone;
+			uint64_t lockTime = 0;
+			uint64_t lookupTime = 0;
+			uint64_t budgetTime = 0;
+			uint64_t importTime = 0;
+			uint64_t readTime = 0;
+			ServiceBudget::Token budgetToken;
+			arch::imported_dma_buffer fileView;
 			{
 				co_await inode->blockMapMutex.async_lock();
 				frg::unique_lock blockMapLock{frg::adopt_lock, inode->blockMapMutex};
-				lockDone = timer.elapsed();
+
+				// We must resolve any metadata before acquiring servicing budget below;
+				// otherwise, we could deadlock if metadata reads are stuck on budget acquisition.
+				lockTime = timer.split();
 				auto blockRanges = co_await inode->fs.lookupBlocks(inode.get(),
 						manage.offset() / inode->fs.blockSize, num_blocks);
+				lookupTime = timer.split();
+
+				// Acquire servicing budget before importMemory().
+				budgetToken = co_await servicingBudget().acquire(false, manage.length());
+				budgetTime = timer.split();
+
+				fileView = pool->importMemory(
+				    helix::BorrowedDescriptor{inode->backingMemory}, manage.offset(), manage.length()
+				);
+				importTime = timer.split();
+
 				// For blockSize < pageSize, the manage request (= fileView) may extend beyond the last block of the file.
 				// Clamp fileView to the number of blocks that we actually want to read.
 				co_await inode->fs.readDataBlocks(blockRanges,
 						fileView.view().subview(0, num_blocks * inode->fs.blockSize));
-				readDone = timer.elapsed();
+				readTime = timer.split();
 			}
 
 			HEL_CHECK(helUpdateMemory(inode->backingMemory, kHelManageInitialize,
@@ -1332,9 +1359,11 @@ async::result<void> FileSystem::manageFileData(std::shared_ptr<Inode> inode) {
 				ostEvtExt2InitializeFile,
 				ostAttrTime(timer.elapsed()),
 				ostAttrNumBytes(manage.length()),
-				ostAttrTimeImport(importDone),
-				ostAttrTimeLock(lockDone - importDone),
-				ostAttrTimeRead(readDone - lockDone)
+				ostAttrTimeLock(lockTime),
+				ostAttrTimeLookup(lookupTime),
+				ostAttrTimeBudget(budgetTime),
+				ostAttrTimeImport(importTime),
+				ostAttrTimeRead(readTime)
 			);
 		}else{
 			assert(manage.type() == kHelManageWriteback);
@@ -1346,22 +1375,41 @@ async::result<void> FileSystem::manageFileData(std::shared_ptr<Inode> inode) {
 
 			assert(numBlocks * inode->fs.blockSize <= manage.length());
 
-			uint64_t lockDone;
-			uint64_t assignDone;
-			uint64_t writeDone;
+			uint64_t lockTime = 0;
+			uint64_t assignTime = 0;
+			uint64_t lookupTime = 0;
+			uint64_t budgetTime = 0;
+			uint64_t importTime = 0;
+			uint64_t writeTime = 0;
+			ServiceBudget::Token budgetToken;
+			arch::imported_dma_buffer fileView;
 			{
 				co_await inode->blockMapMutex.async_lock();
 				frg::unique_lock blockMapLock{frg::adopt_lock, inode->blockMapMutex};
-				lockDone = timer.elapsed();
+
+				// We must resolve any metadata before acquiring servicing budget below;
+				// otherwise, we could deadlock if metadata reads are stuck on budget acquisition.
+				lockTime = timer.split();
 				co_await inode->fs.assignDataBlocks(inode.get(), blockOffset, numBlocks);
-				assignDone = timer.elapsed();
+				assignTime = timer.split();
 				auto blockRanges = co_await inode->fs.lookupBlocks(inode.get(),
 						blockOffset, numBlocks);
+				lookupTime = timer.split();
+
+				// Acquire servicing budget before importMemory().
+				budgetToken = co_await servicingBudget().acquire(true, manage.length());
+				budgetTime = timer.split();
+
+				fileView = pool->importMemory(
+				    helix::BorrowedDescriptor{inode->backingMemory}, manage.offset(), manage.length()
+				);
+				importTime = timer.split();
+
 				// For blockSize < pageSize, the manage request (= fileView) may extend beyond the last block of the file.
 				// Clamp fileView to the number of blocks that we actually want to write.
 				co_await inode->fs.writeDataBlocks(blockRanges,
 						fileView.view().subview(0, numBlocks * inode->fs.blockSize));
-				writeDone = timer.elapsed();
+				writeTime = timer.split();
 			}
 
 			HEL_CHECK(helUpdateMemory(inode->backingMemory, kHelManageWriteback,
@@ -1371,10 +1419,12 @@ async::result<void> FileSystem::manageFileData(std::shared_ptr<Inode> inode) {
 				ostEvtExt2WritebackFile,
 				ostAttrTime(timer.elapsed()),
 				ostAttrNumBytes(manage.length()),
-				ostAttrTimeImport(importDone),
-				ostAttrTimeLock(lockDone - importDone),
-				ostAttrTimeAssign(assignDone - lockDone),
-				ostAttrTimeWrite(writeDone - assignDone)
+				ostAttrTimeLock(lockTime),
+				ostAttrTimeAssign(assignTime),
+				ostAttrTimeLookup(lookupTime),
+				ostAttrTimeBudget(budgetTime),
+				ostAttrTimeImport(importTime),
+				ostAttrTimeWrite(writeTime)
 			);
 		}
 	}
@@ -1393,7 +1443,7 @@ async::result<std::vector<uint32_t>> FileSystem::allocateBlocks(size_t num, std:
 	// Accesses the bitmap of a block group, accounting the access to the emitted event.
 	auto accessBitmap = [&] (uint64_t block) -> async::result<MetadataCache::BlockWindow> {
 		protocols::ostrace::Timer accessTimer;
-		auto window = co_await metadataCache->access(block, true);
+		auto window = co_await accessMetadata(block, true);
 		accessTime += accessTimer.elapsed();
 		++numGroups;
 		co_return window;
@@ -1509,7 +1559,7 @@ async::result<uint32_t> FileSystem::allocateInode(uint32_t parentIno, bool direc
 	auto searchBlockGroup = [&](uint32_t bg) -> async::result<std::optional<uint32_t>> {
 		assert(bgdt[bg].inodeBitmap);
 		protocols::ostrace::Timer accessTimer;
-		auto bitmapWindow = co_await metadataCache->access(bgdt[bg].inodeBitmap, true);
+		auto bitmapWindow = co_await accessMetadata(bgdt[bg].inodeBitmap, true);
 		accessTime += accessTimer.elapsed();
 		++numGroups;
 		auto words = reinterpret_cast<uint32_t *>(bitmapWindow.get());
@@ -1755,7 +1805,7 @@ async::result<void> FileSystem::assignDataBlocksUsingExtents(Inode *inode,
 
 						diskInode->blocks += blockSize / 512;
 
-						newBlockWindow = co_await metadataCache->access(newBlock[0], true);
+						newBlockWindow = co_await accessMetadata(newBlock[0], true);
 						auto newHdr = reinterpret_cast<ExtentHeader *>(newBlockWindow.get());
 
 						newHdr->magic = EXT4_EXTENT_MAGIC;
@@ -1809,7 +1859,7 @@ async::result<void> FileSystem::assignDataBlocksUsingExtents(Inode *inode,
 
 							diskInode->blocks += blockSize / 512;
 
-							newRootWindow = co_await metadataCache->access(newRoot[0], true);
+							newRootWindow = co_await accessMetadata(newRoot[0], true);
 							auto newRootHdr = reinterpret_cast<ExtentHeader *>(newRootWindow.get());
 
 							memcpy(newRootHdr, info.hdr, sizeof(ExtentHeader) + info.hdr->entries * sizeof(Extent));
@@ -2034,18 +2084,18 @@ async::result<std::vector<BlockRange>> FileSystem::lookupBlocksOnDisk(Inode *ino
 			auto disk_inode = inode->diskInode();
 			uint32_t indirect_block = 0;
 			if(disk_inode->data.blocks.doubleIndirect)
-				co_await metadataCache->read(disk_inode->data.blocks.doubleIndirect,
+				co_await readMetadata(disk_inode->data.blocks.doubleIndirect,
 						indirect_frame * 4, 4, &indirect_block);
 
 			if(!indirect_block) {
 				// Nothing to do: the whole range is a hole.
 			} else if (remaining > indirectBufferSize) {
-				indirectWindow = co_await metadataCache->access(indirect_block, false);
+				indirectWindow = co_await accessMetadata(indirect_block, false);
 
 				list = reinterpret_cast<const uint32_t *>(indirectWindow.get())
 						+ indirect_index;
 			} else {
-				co_await metadataCache->read(indirect_block,
+				co_await readMetadata(indirect_block,
 						indirect_index * 4, count * 4, indirectBuffer.data());
 
 				list = indirectBuffer.data();
@@ -2060,12 +2110,12 @@ async::result<std::vector<BlockRange>> FileSystem::lookupBlocksOnDisk(Inode *ino
 			if(!indirect_block) {
 				// Nothing to do: the whole range is a hole.
 			} else if (remaining > indirectBufferSize) {
-				indirectWindow = co_await metadataCache->access(indirect_block, false);
+				indirectWindow = co_await accessMetadata(indirect_block, false);
 
 				list = reinterpret_cast<const uint32_t *>(indirectWindow.get())
 						+ indirect_index;
 			} else {
-				co_await metadataCache->read(indirect_block,
+				co_await readMetadata(indirect_block,
 						indirect_index * 4, count * 4, indirectBuffer.data());
 
 				list = indirectBuffer.data();
@@ -2153,7 +2203,7 @@ async::result<void> FileSystem::assignDataBlocks(Inode *inode,
 				needsReset = true;
 			}
 
-			auto indirectWindow = co_await metadataCache->access(
+			auto indirectWindow = co_await accessMetadata(
 					disk_inode->data.blocks.singleIndirect, true);
 			auto window = reinterpret_cast<uint32_t *>(indirectWindow.get());
 
@@ -2198,7 +2248,7 @@ async::result<void> FileSystem::assignDataBlocks(Inode *inode,
 				doubleNeedsReset = true;
 			}
 
-			auto doubleIndirectWindow = co_await metadataCache->access(
+			auto doubleIndirectWindow = co_await accessMetadata(
 					disk_inode->data.blocks.doubleIndirect, true);
 			auto double_window = reinterpret_cast<uint32_t *>(doubleIndirectWindow.get());
 
@@ -2220,7 +2270,7 @@ async::result<void> FileSystem::assignDataBlocks(Inode *inode,
 					needsReset = true;
 				}
 
-				auto indirectWindow = co_await metadataCache->access(
+				auto indirectWindow = co_await accessMetadata(
 						double_window[indirect_frame], true);
 				auto window = reinterpret_cast<uint32_t *>(indirectWindow.get());
 

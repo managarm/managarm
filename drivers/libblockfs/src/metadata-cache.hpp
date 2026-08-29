@@ -20,7 +20,7 @@
 
 namespace blockfs {
 
-// Mount-wide page cache for filesystem metadata blocks, indexed by disk block number.
+// Page cache for a range of filesystem metadata blocks, indexed by disk block number.
 // The cache offset of a block is a fixed function of its block number alone;
 // hence, servicing a page reads no mutable filesystem state (such as block maps).
 // Each block occupies its own page-aligned frame, i.e., blocks smaller than a page
@@ -124,9 +124,10 @@ public:
 		bool writable_ = false;
 	};
 
-	MetadataCache(BlockDevice *device, uint64_t numBlocks, size_t blockSize);
+	// The cache covers the blocks [baseBlock, baseBlock + numBlocks).
+	MetadataCache(BlockDevice *device, uint64_t baseBlock, uint64_t numBlocks, size_t blockSize);
 
-	// The servicer coroutine started by the constructor refers back to this object.
+	// The coroutines started by the constructor refer back to this object.
 	MetadataCache(const MetadataCache &) = delete;
 	MetadataCache &operator=(const MetadataCache &) = delete;
 
@@ -138,19 +139,25 @@ public:
 	async::result<void> read(uint64_t block, size_t offset, size_t length, void *buffer);
 
 private:
-	async::detached manage_(helix::UniqueDescriptor backing);
+	async::result<void> run_(helix::UniqueDescriptor backing);
+	async::result<void> manage_(helix::UniqueDescriptor backing);
 	async::result<void> serviceRequest_(helix::BorrowedDescriptor backing,
 			int type, uintptr_t offset, size_t length);
+	// Offset of the given block within this cache's mapping.
+	uintptr_t blockOffset_(uint64_t block) {
+		return (block - baseBlock_) << blockPagesShift_;
+	}
 	void *blockAddress_(uint64_t block) {
-		return static_cast<std::byte *>(mapping_.get()) + (block << blockPagesShift_);
+		return static_cast<std::byte *>(mapping_.get()) + blockOffset_(block);
 	}
 	CacheBlockPtr findCacheBlock_(uint64_t block);
 	CacheBlockPtr touchLru_(CacheBlock *cacheBlock);
 	void destroyCacheBlock_(CacheBlock *cacheBlock);
 	void markDirty_(uint64_t block);
-	async::detached flushDirty_();
+	async::result<void> flushDirty_();
 
 	BlockDevice *device_;
+	uint64_t baseBlock_;
 	uint64_t numBlocks_;
 	size_t blockSize_;
 	uint32_t blockPagesShift_;

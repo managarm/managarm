@@ -89,6 +89,11 @@ inline constinit protocols::ostrace::UintAttribute ostAttrTimeLock{"timeLock"};
 inline constinit protocols::ostrace::UintAttribute ostAttrTimePin{"timePin"};
 // Importing the managed memory range into the DMA pool.
 inline constinit protocols::ostrace::UintAttribute ostAttrTimeImport{"timeImport"};
+// Waiting for servicing budget, i.e. for the memory that in-flight manage requests
+// pin to drop back below the per-thread limit.
+inline constinit protocols::ostrace::UintAttribute ostAttrTimeBudget{"timeBudget"};
+// Resolving the file range to runs of disk blocks, i.e. walking the block map.
+inline constinit protocols::ostrace::UintAttribute ostAttrTimeLookup{"timeLookup"};
 // Reading file data blocks off the device.
 inline constinit protocols::ostrace::UintAttribute ostAttrTimeRead{"timeRead"};
 // Assigning disk blocks to the file range that is being written back.
@@ -203,6 +208,8 @@ inline protocols::ostrace::Vocabulary ostVocabulary{
 	ostAttrTimeLock,
 	ostAttrTimePin,
 	ostAttrTimeImport,
+	ostAttrTimeBudget,
+	ostAttrTimeLookup,
 	ostAttrTimeRead,
 	ostAttrTimeAssign,
 	ostAttrTimeWrite,
