@@ -1310,7 +1310,10 @@ async::result<void> FileSystem::manageFileData(std::shared_ptr<Inode> inode) {
 		// This is guaranteed by our resizing logic (since shrinking of fileSize() happens after backing memory resize).
 		assert(manage.offset() + manage.length() <= ((inode->fileSize() + 0xFFF) & ~size_t(0xFFF)));
 
-		co_await serviceFileData(inode, manage.type(), manage.offset(), manage.length());
+		// TODO: If we ever run into memory exhaustion issues due to the metadata phase that happens
+		//       before service budget is acquired inside serviceFileData(),
+		//       we may want to limit concurrency with an async::counting_semaphore here before detaching.
+		async::detach(serviceFileData(inode, manage.type(), manage.offset(), manage.length()));
 	}
 }
 
