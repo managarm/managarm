@@ -1310,146 +1310,151 @@ async::result<void> FileSystem::manageFileData(std::shared_ptr<Inode> inode) {
 		// This is guaranteed by our resizing logic (since shrinking of fileSize() happens after backing memory resize).
 		assert(manage.offset() + manage.length() <= ((inode->fileSize() + 0xFFF) & ~size_t(0xFFF)));
 
-		protocols::ostrace::Timer timer;
+		co_await serviceFileData(inode, manage.type(), manage.offset(), manage.length());
+	}
+}
 
-		if(manage.type() == kHelManageInitialize) {
-			assert(!(manage.offset() % inode->fs.blockSize));
-			size_t backed_size = std::min(manage.length(), inode->fileSize() - manage.offset());
-			size_t num_blocks = (backed_size + (inode->fs.blockSize - 1)) / inode->fs.blockSize;
-			assert(num_blocks * inode->fs.blockSize <= manage.length());
+async::result<void> FileSystem::serviceFileData(std::shared_ptr<Inode> inode,
+		int type, uintptr_t offset, size_t length) {
+	protocols::ostrace::Timer timer;
 
-			uint64_t lockTime = 0;
-			uint64_t lookupTime = 0;
-			uint64_t budgetTime = 0;
-			uint64_t importTime = 0;
-			uint64_t readTime = 0;
-			ServiceBudget::Token budgetToken;
-			arch::imported_dma_buffer fileView;
-			{
-				co_await inode->blockMapMutex.async_lock_shared();
-				frg::shared_lock blockMapLock{frg::adopt_lock, inode->blockMapMutex};
+	if(type == kHelManageInitialize) {
+		assert(!(offset % inode->fs.blockSize));
+		size_t backed_size = std::min(length, inode->fileSize() - offset);
+		size_t num_blocks = (backed_size + (inode->fs.blockSize - 1)) / inode->fs.blockSize;
+		assert(num_blocks * inode->fs.blockSize <= length);
 
-				// We must resolve any metadata before acquiring servicing budget below;
-				// otherwise, we could deadlock if metadata reads are stuck on budget acquisition.
-				lockTime = timer.split();
-				auto blockRanges = co_await inode->fs.lookupBlocks(inode.get(),
-						manage.offset() / inode->fs.blockSize, num_blocks);
-				lookupTime = timer.split();
+		uint64_t lockTime = 0;
+		uint64_t lookupTime = 0;
+		uint64_t budgetTime = 0;
+		uint64_t importTime = 0;
+		uint64_t readTime = 0;
+		ServiceBudget::Token budgetToken;
+		arch::imported_dma_buffer fileView;
+		{
+			co_await inode->blockMapMutex.async_lock_shared();
+			frg::shared_lock blockMapLock{frg::adopt_lock, inode->blockMapMutex};
 
-				// Acquire servicing budget before importMemory().
-				budgetToken = co_await servicingBudget().acquire(false, manage.length());
-				budgetTime = timer.split();
+			// We must resolve any metadata before acquiring servicing budget below;
+			// otherwise, we could deadlock if metadata reads are stuck on budget acquisition.
+			lockTime = timer.split();
+			auto blockRanges = co_await inode->fs.lookupBlocks(inode.get(),
+					offset / inode->fs.blockSize, num_blocks);
+			lookupTime = timer.split();
 
-				fileView = pool->importMemory(
-				    helix::BorrowedDescriptor{inode->backingMemory}, manage.offset(), manage.length()
-				);
-				importTime = timer.split();
+			// Acquire servicing budget before importMemory().
+			budgetToken = co_await servicingBudget().acquire(false, length);
+			budgetTime = timer.split();
 
-				// For blockSize < pageSize, the manage request (= fileView) may extend beyond the last block of the file.
-				// Clamp fileView to the number of blocks that we actually want to read.
-				co_await inode->fs.readDataBlocks(blockRanges,
-						fileView.view().subview(0, num_blocks * inode->fs.blockSize));
-				readTime = timer.split();
-			}
-
-			HEL_CHECK(helUpdateMemory(inode->backingMemory, kHelManageInitialize,
-					manage.offset(), manage.length()));
-
-			ostContext.emit(
-				ostEvtExt2InitializeFile,
-				ostAttrTime(timer.elapsed()),
-				ostAttrNumBytes(manage.length()),
-				ostAttrTimeLock(lockTime),
-				ostAttrTimeLookup(lookupTime),
-				ostAttrTimeBudget(budgetTime),
-				ostAttrTimeImport(importTime),
-				ostAttrTimeRead(readTime)
+			fileView = pool->importMemory(
+			    helix::BorrowedDescriptor{inode->backingMemory}, offset, length
 			);
-		}else{
-			assert(manage.type() == kHelManageWriteback);
+			importTime = timer.split();
 
-			assert(!(manage.offset() % inode->fs.blockSize));
-			size_t backedSize = std::min(manage.length(), inode->fileSize() - manage.offset());
-			auto blockOffset = manage.offset() / inode->fs.blockSize;
-			size_t numBlocks = (backedSize + (inode->fs.blockSize - 1)) / inode->fs.blockSize;
-
-			assert(numBlocks * inode->fs.blockSize <= manage.length());
-
-			uint64_t lockTime = 0;
-			uint64_t assignTime = 0;
-			uint64_t lookupTime = 0;
-			uint64_t budgetTime = 0;
-			uint64_t importTime = 0;
-			uint64_t writeTime = 0;
-			ServiceBudget::Token budgetToken;
-			arch::imported_dma_buffer fileView;
-			{
-				co_await inode->blockMapMutex.async_lock_shared();
-				frg::shared_lock blockMapLock{frg::adopt_lock, inode->blockMapMutex};
-
-				// We must resolve any metadata before acquiring servicing budget below;
-				// otherwise, we could deadlock if metadata reads are stuck on budget acquisition.
-				lockTime = timer.split();
-				auto blockRanges = co_await inode->fs.lookupBlocks(inode.get(),
-						blockOffset, numBlocks);
-				bool fullyMapped = true;
-				for(auto &range : blockRanges)
-					if(range.hole)
-						fullyMapped = false;
-				lookupTime = timer.split();
-
-				if(!fullyMapped) {
-					// Drop the shared lock and acquire an exclusive lock; then downgrade back to shared below.
-					// Note that blockRanges may become stale between the unlock and re-lock,
-					// so we need to call lookupBlocks() again here.
-					blockMapLock.unlock();
-					co_await inode->blockMapMutex.async_lock();
-					frg::scope_exit downgradeOnExit{[&] {
-						inode->blockMapMutex.downgrade();
-						blockMapLock = frg::shared_lock{frg::adopt_lock, inode->blockMapMutex};
-					}};
-					lockTime += timer.split();
-
-					co_await inode->fs.assignDataBlocks(inode.get(), blockOffset, numBlocks);
-					assignTime = timer.split();
-					blockRanges = co_await inode->fs.lookupBlocks(inode.get(),
-							blockOffset, numBlocks);
-					lookupTime += timer.split();
-				}
-
-				// All budget acquisition and I/O happens under the shared lock (as in read case).
-
-				// Acquire servicing budget before importMemory().
-				budgetToken = co_await servicingBudget().acquire(true, manage.length());
-				budgetTime = timer.split();
-
-				fileView = pool->importMemory(
-				    helix::BorrowedDescriptor{inode->backingMemory}, manage.offset(), manage.length()
-				);
-				importTime = timer.split();
-
-				// For blockSize < pageSize, the manage request (= fileView) may extend beyond the last block of the file.
-				// Clamp fileView to the number of blocks that we actually want to write.
-				co_await inode->fs.writeDataBlocks(blockRanges,
-						fileView.view().subview(0, numBlocks * inode->fs.blockSize));
-				writeTime = timer.split();
-			}
-
-			HEL_CHECK(helUpdateMemory(inode->backingMemory, kHelManageWriteback,
-					manage.offset(), manage.length()));
-
-			ostContext.emit(
-				ostEvtExt2WritebackFile,
-				ostAttrTime(timer.elapsed()),
-				ostAttrNumBytes(manage.length()),
-				ostAttrTimeLock(lockTime),
-				ostAttrTimeAssign(assignTime),
-				ostAttrTimeLookup(lookupTime),
-				ostAttrTimeBudget(budgetTime),
-				ostAttrTimeImport(importTime),
-				ostAttrTimeWrite(writeTime)
-			);
+			// For blockSize < pageSize, the manage request (= fileView) may extend beyond the last block of the file.
+			// Clamp fileView to the number of blocks that we actually want to read.
+			co_await inode->fs.readDataBlocks(blockRanges,
+					fileView.view().subview(0, num_blocks * inode->fs.blockSize));
+			readTime = timer.split();
 		}
+
+		HEL_CHECK(helUpdateMemory(inode->backingMemory, kHelManageInitialize,
+				offset, length));
+
+		ostContext.emit(
+			ostEvtExt2InitializeFile,
+			ostAttrTime(timer.elapsed()),
+			ostAttrNumBytes(length),
+			ostAttrTimeLock(lockTime),
+			ostAttrTimeLookup(lookupTime),
+			ostAttrTimeBudget(budgetTime),
+			ostAttrTimeImport(importTime),
+			ostAttrTimeRead(readTime)
+		);
+	}else{
+		assert(type == kHelManageWriteback);
+
+		assert(!(offset % inode->fs.blockSize));
+		size_t backedSize = std::min(length, inode->fileSize() - offset);
+		auto blockOffset = offset / inode->fs.blockSize;
+		size_t numBlocks = (backedSize + (inode->fs.blockSize - 1)) / inode->fs.blockSize;
+
+		assert(numBlocks * inode->fs.blockSize <= length);
+
+		uint64_t lockTime = 0;
+		uint64_t assignTime = 0;
+		uint64_t lookupTime = 0;
+		uint64_t budgetTime = 0;
+		uint64_t importTime = 0;
+		uint64_t writeTime = 0;
+		ServiceBudget::Token budgetToken;
+		arch::imported_dma_buffer fileView;
+		{
+			co_await inode->blockMapMutex.async_lock_shared();
+			frg::shared_lock blockMapLock{frg::adopt_lock, inode->blockMapMutex};
+
+			// We must resolve any metadata before acquiring servicing budget below;
+			// otherwise, we could deadlock if metadata reads are stuck on budget acquisition.
+			lockTime = timer.split();
+			auto blockRanges = co_await inode->fs.lookupBlocks(inode.get(),
+					blockOffset, numBlocks);
+			bool fullyMapped = true;
+			for(auto &range : blockRanges)
+				if(range.hole)
+					fullyMapped = false;
+			lookupTime = timer.split();
+
+			if(!fullyMapped) {
+				// Drop the shared lock and acquire an exclusive lock; then downgrade back to shared below.
+				// Note that blockRanges may become stale between the unlock and re-lock,
+				// so we need to call lookupBlocks() again here.
+				blockMapLock.unlock();
+				co_await inode->blockMapMutex.async_lock();
+				frg::scope_exit downgradeOnExit{[&] {
+					inode->blockMapMutex.downgrade();
+					blockMapLock = frg::shared_lock{frg::adopt_lock, inode->blockMapMutex};
+				}};
+				lockTime += timer.split();
+
+				co_await inode->fs.assignDataBlocks(inode.get(), blockOffset, numBlocks);
+				assignTime = timer.split();
+				blockRanges = co_await inode->fs.lookupBlocks(inode.get(),
+						blockOffset, numBlocks);
+				lookupTime += timer.split();
+			}
+
+			// All budget acquisition and I/O happens under the shared lock (as in read case).
+
+			// Acquire servicing budget before importMemory().
+			budgetToken = co_await servicingBudget().acquire(true, length);
+			budgetTime = timer.split();
+
+			fileView = pool->importMemory(
+			    helix::BorrowedDescriptor{inode->backingMemory}, offset, length
+			);
+			importTime = timer.split();
+
+			// For blockSize < pageSize, the manage request (= fileView) may extend beyond the last block of the file.
+			// Clamp fileView to the number of blocks that we actually want to write.
+			co_await inode->fs.writeDataBlocks(blockRanges,
+					fileView.view().subview(0, numBlocks * inode->fs.blockSize));
+			writeTime = timer.split();
+		}
+
+		HEL_CHECK(helUpdateMemory(inode->backingMemory, kHelManageWriteback,
+				offset, length));
+
+		ostContext.emit(
+			ostEvtExt2WritebackFile,
+			ostAttrTime(timer.elapsed()),
+			ostAttrNumBytes(length),
+			ostAttrTimeLock(lockTime),
+			ostAttrTimeAssign(assignTime),
+			ostAttrTimeLookup(lookupTime),
+			ostAttrTimeBudget(budgetTime),
+			ostAttrTimeImport(importTime),
+			ostAttrTimeWrite(writeTime)
+		);
 	}
 }
 

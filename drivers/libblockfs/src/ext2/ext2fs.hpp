@@ -510,6 +510,8 @@ struct FileSystem final : BaseFileSystem {
 
 	async::result<void> initiateInode(std::shared_ptr<Inode> inode);
 	async::result<void> manageFileData(std::shared_ptr<Inode> inode);
+	async::result<void> serviceFileData(std::shared_ptr<Inode> inode,
+			int type, uintptr_t offset, size_t length);
 
 	// Allocate up to num blocks for the given inode.
 	// This function does not write back the BGDT, this is the caller's responsibility.
