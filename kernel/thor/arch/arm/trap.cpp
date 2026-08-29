@@ -37,7 +37,10 @@ initgraph::Stage *getIrqControllerReadyStage() {
 	return &s;
 }
 
-void initializeIrqVectors() { asm volatile("msr vbar_el1, %0" ::"r"(&thorExcVectors)); }
+void initializeIrqVectors() {
+	// The ISB ensures that an exception taken right afterwards already uses our vectors.
+	asm volatile("msr vbar_el1, %0; isb" ::"r"(&thorExcVectors) : "memory");
+}
 
 extern "C" void onPlatformInvalidException(FaultImageAccessor) {
 	thor::panicLogger() << "thor: an invalid exception has occured" << frg::endlog;
@@ -107,11 +110,15 @@ constexpr bool logUpdatePageAccess = false;
 extern "C" void onPlatformSyncFault(FaultImageAccessor image) {
 	iplSave(*image.iplState());
 
+	auto esr = *image.code();
 	if (*image.rflags() & ((1 << 6) | (1 << 7) | (1 << 8) | (1 << 9))) // DAIF.
 		panicLogger() << "thor: Synchronous fault with interrupts disabled"
-		              << " at IP 0x" << frg::hex_fmt{*image.ip()} << frg::endlog;
+		              << " at IP 0x" << frg::hex_fmt{*image.ip()} << ", ESR 0x"
+		              << frg::hex_fmt{esr} << ", FAR 0x" << frg::hex_fmt{*image.faultAddr()}
+		              << ", SP 0x" << frg::hex_fmt{*image.sp()} << ", SPSR 0x"
+		              << frg::hex_fmt{*image.rflags()} << frg::endlog;
 
-	auto ec = *image.code() >> 26;
+	auto ec = esr >> 26;
 	switch (ec) {
 		case 0x00: // Invalid
 		case 0x18: // Trapped MSR, MRS, or System instruction

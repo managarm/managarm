@@ -35,12 +35,20 @@ fn main() {
 
     let mut b = cc::Build::new();
     for src in sourcefiles.split(';').filter(|s| !s.is_empty()) {
-        b.file(installdir.join(src));
+        let path = installdir.join(src);
+        println!("cargo:rerun-if-changed={}", path.display());
+        b.file(path);
     }
 
     b.include(&includedir).pic(true);
 
     b.compile("uacpi");
+
+    // pkg_config emits rerun-if-env-changed, which turns off cargo's default of scanning
+    // the entire package for changes, and neither cc nor bindgen track their own inputs.
+    // Cargo scans rerun-if-changed directories recursively, hence includedir covers all headers.
+    println!("cargo:rerun-if-changed={includedir}");
+    println!("cargo:rerun-if-changed=src/wrapper.h");
 
     let bindings = bindgen::builder()
         .wrap_unsafe_ops(true)

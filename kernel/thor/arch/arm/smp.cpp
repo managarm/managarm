@@ -1,3 +1,4 @@
+#include <arch/cache.hpp>
 #include <frg/scope_exit.hpp>
 #include <frg/utility.hpp>
 #include <stddef.h>
@@ -26,6 +27,11 @@ namespace thor {
 
 extern "C" uint8_t _binary_kernel_thor_arch_arm_trampoline_bin_start[];
 extern "C" uint8_t _binary_kernel_thor_arch_arm_trampoline_bin_end[];
+
+// The SMCCC permits the conduit to clobber x0-x17, which we cannot express in an inline asm statement.
+// The last argument is the context ID that PSCI hands back to the AP.
+extern "C" int64_t thorPsciSmcCall(uint64_t function, uint64_t arg0, uint64_t arg1, uint64_t arg2);
+extern "C" int64_t thorPsciHvcCall(uint64_t function, uint64_t arg0, uint64_t arg1, uint64_t arg2);
 
 namespace {
 	struct StatusBlock {
@@ -107,17 +113,9 @@ namespace {
 		}
 
 		int turnOnCpu(uint64_t id, uintptr_t addr) {
-			register int64_t regResult asm("x0");
-			register uint64_t regCmd asm("x0") = cpuOn_;
-			register uint64_t regCpu asm("x1") = id;
-			register uint64_t regAddr asm("x2") = addr;
-			if (usesHvc_) {
-				asm volatile ("hvc #0" : "=r"(regResult) : "r"(regCmd), "r"(regCpu), "r"(regAddr));
-			} else {
-				asm volatile ("smc #0" : "=r"(regResult) : "r"(regCmd), "r"(regCpu), "r"(regAddr));
-			}
-
-			return regResult;
+			if (usesHvc_)
+				return thorPsciHvcCall(cpuOn_, id, addr, 0);
+			return thorPsciSmcCall(cpuOn_, id, addr, 0);
 		}
 
 	private:
@@ -203,14 +201,14 @@ bool bootSecondary(uint64_t id, size_t cpuIndex, EnableInfo enable) {
 	auto codePhysPtr = physicalAllocator->allocate(kPageSize);
 	auto codeVirtPtr = KernelVirtualMemory::global().allocate(kPageSize);
 
+	// We have to map as normal memory here to avoid mismatch with the AP's view.
 	KernelPageSpace::global().mapSingle4k(VirtualAddr(codeVirtPtr), codePhysPtr,
-			page_access::write, CachingMode::uncached);
+			page_access::write, CachingMode::null);
 
 	// We use a ClientPageSpace here to create an identity mapping for the trampoline
 	ClientPageSpace lowMapping;
 	ClientPageSpace::Cursor cursor{&lowMapping, codePhysPtr};
-	cursor.map4k(codePhysPtr, page_access::execute, CachingMode::null);
-	*cursor.getPtePtr() &= ~kPagePXN; // Workaround: clear PXN so the AP can execute code from the page.
+	cursor.map4k(codePhysPtr, page_access::write, CachingMode::null);
 
 	auto imageSize = (uintptr_t)_binary_kernel_thor_arch_arm_trampoline_bin_end
 			- (uintptr_t)_binary_kernel_thor_arch_arm_trampoline_bin_start;
@@ -231,6 +229,17 @@ bool bootSecondary(uint64_t id, size_t cpuIndex, EnableInfo enable) {
 	statusBlock->main = &secondaryMain;
 	statusBlock->cpuContext = context;
 	statusBlock->cpuId = static_cast<int>(cpuIndex);
+
+	// Only make the mapping executable now:
+	// both map4k() and remap4k() synchronize the I-cache before they update the PTE,
+	// hence doing this earlier would synchronize it against stale contents of the page.
+	cursor.remap4k(codePhysPtr, page_access::execute, CachingMode::null);
+	*cursor.getPtePtr() &= ~kPagePXN; // Workaround: clear PXN so the AP can execute code from the page.
+	asm volatile("dsb ishst; isb" ::: "memory"); // Publish the PTE to the page table walkers.
+
+	// The AP runs the trampoline with its MMU off (and thus caching disabled).
+	// Flush its code page (and thus the status block) such that it does not see stale memory contents.
+	arch::cache_writeback(reinterpret_cast<uintptr_t>(codeVirtPtr), kPageSize);
 
 	bool dontWait = false;
 

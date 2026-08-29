@@ -60,9 +60,28 @@ fn check(status: uacpi_status, what: &str) -> Result<()> {
     }
 }
 
+/// The _OSI feature strings that we answer to, which are the ones that Linux advertises.
+///
+/// Platform AML picks its code path based on these and firmware is only ever tested against
+/// the set that Linux answers to.
+const HOST_INTERFACES: &[uacpi_sys::uacpi_host_interface] = &[
+    // The OS understands ACPI0004 module devices, i.e., containers of other devices.
+    uacpi_sys::UACPI_HOST_INTERFACE_MODULE_DEVICE,
+    // Processors may be described as ACPI0007 devices instead of Processor() objects.
+    uacpi_sys::UACPI_HOST_INTERFACE_PROCESSOR_DEVICE,
+    // The platform may ask for idle CPUs through an ACPI000C processor aggregator.
+    uacpi_sys::UACPI_HOST_INTERFACE_PROCESSOR_AGGREGATOR_DEVICE,
+];
+
 pub fn uacpi_init() -> Result<()> {
     unsafe {
         check(uacpi_sys::uacpi_initialize(0), "uacpi_initialize")?;
+        for &interface in HOST_INTERFACES {
+            check(
+                uacpi_sys::uacpi_enable_host_interface(interface),
+                "uacpi_enable_host_interface",
+            )?;
+        }
         crate::pci::config::discover_config_spaces()?;
         check(uacpi_sys::uacpi_namespace_load(), "uacpi_namespace_load")?;
         check(

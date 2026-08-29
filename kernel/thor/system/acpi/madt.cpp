@@ -21,6 +21,7 @@
 #include <uacpi/acpi.h>
 #include <uacpi/context.h>
 #include <uacpi/event.h>
+#include <uacpi/osi.h>
 #include <uacpi/sleep.h>
 #include <uacpi/tables.h>
 #include <uacpi/utilities.h>
@@ -493,6 +494,19 @@ static initgraph::Task loadAcpiNamespaceTask{
 	    initGlue();
 
 	    auto ret = uacpi_initialize(0);
+	    assert(ret == UACPI_STATUS_OK);
+
+	    // Advertise the same _OSI feature strings as Linux does. AML branches based on these
+	    // and firmware may only ever be tested against the set that Linux reports.
+
+	    // The OS understands ACPI0004 module devices, i.e., containers of other devices.
+	    ret = uacpi_enable_host_interface(UACPI_HOST_INTERFACE_MODULE_DEVICE);
+	    assert(ret == UACPI_STATUS_OK);
+	    // Processors may be described as ACPI0007 devices instead of Processor() objects.
+	    ret = uacpi_enable_host_interface(UACPI_HOST_INTERFACE_PROCESSOR_DEVICE);
+	    assert(ret == UACPI_STATUS_OK);
+	    // The platform may ask for idle CPUs through an ACPI000C processor aggregator.
+	    ret = uacpi_enable_host_interface(UACPI_HOST_INTERFACE_PROCESSOR_AGGREGATOR_DEVICE);
 	    assert(ret == UACPI_STATUS_OK);
 
 	    ret = uacpi_namespace_load();
