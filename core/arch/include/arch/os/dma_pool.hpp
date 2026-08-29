@@ -28,6 +28,69 @@ struct contiguous_pool_options {
 
 struct dma_space;
 struct imported_dma_buffer;
+struct contiguous_pool;
+
+struct dma_memory_region : dma_region {
+	friend dma_space;
+
+	dma_memory_region(
+	    dma_pool *pool,
+	    helix::UniqueDescriptor backingMemory,
+	    size_t backingMemoryOffset,
+	    size_t s
+	)
+	: dma_region{pool},
+	  size{s},
+	  backingMemory_{std::move(backingMemory)},
+	  borrowedMemory_{backingMemory_},
+	  backingMemoryOffset_{backingMemoryOffset},
+	  imported_{false} {
+		void *p = nullptr;
+		HEL_CHECK(helMapMemory(borrowedMemory_.getHandle(), kHelNullHandle, nullptr, backingMemoryOffset, s,
+		kHelMapProtRead | kHelMapProtWrite, &p));
+		base_va = reinterpret_cast<uintptr_t>(p);
+	}
+
+	dma_memory_region(
+	    dma_pool *pool,
+	    helix::BorrowedDescriptor borrowedMemory,
+	    size_t backingMemoryOffset,
+	    size_t s,
+	    bool imported = false
+	)
+	: dma_region{pool},
+	  size{s},
+	  backingMemory_{},
+	  borrowedMemory_{std::move(borrowedMemory)},
+	  backingMemoryOffset_{backingMemoryOffset},
+	  imported_{imported} {
+		void *p = nullptr;
+		HEL_CHECK(helMapMemory(borrowedMemory_.getHandle(), kHelNullHandle, nullptr, backingMemoryOffset, s,
+		kHelMapProtRead | kHelMapProtWrite, &p));
+		base_va = reinterpret_cast<uintptr_t>(p);
+	}
+
+	~dma_memory_region();
+
+	bool imported() const {
+		return imported_;
+	}
+
+	std::pair<helix::BorrowedDescriptor, uint64_t> getMemory() const {
+		return {borrowedMemory_, backingMemoryOffset_};
+	}
+
+private:
+	size_t size;
+
+	helix::UniqueDescriptor backingMemory_;
+	helix::BorrowedDescriptor borrowedMemory_;
+	size_t backingMemoryOffset_;
+
+	// Holds the `ioVa` of the region in the DMA space, if already mapped there.
+	std::vector<std::optional<uintptr_t>> dmaSpaces_;
+	bool imported_;
+};
 
 struct contiguous_pool : dma_pool {
 private:
@@ -44,6 +107,7 @@ private:
 
 public:
 	friend dma_space;
+	friend dma_memory_region;
 
 	contiguous_pool(contiguous_pool_options options = {});
 
@@ -53,68 +117,6 @@ public:
 	dma_space attachDmaSpace(helix::BorrowedDescriptor ioSpace, bool iommuActive);
 
 	imported_dma_buffer importMemory(helix::BorrowedDescriptor memory, size_t offset, size_t size);
-
-	struct region : dma_region {
-		friend dma_space;
-
-		region(
-		    contiguous_pool *pool,
-		    helix::UniqueDescriptor backingMemory,
-		    size_t backingMemoryOffset,
-		    size_t s
-		)
-		: dma_region{pool},
-		  size{s},
-		  backingMemory_{std::move(backingMemory)},
-		  borrowedMemory_{backingMemory_},
-		  backingMemoryOffset_{backingMemoryOffset},
-		  imported_{false} {
-			void *p = nullptr;
-			HEL_CHECK(helMapMemory(borrowedMemory_.getHandle(), kHelNullHandle, nullptr, backingMemoryOffset, s,
-			kHelMapProtRead | kHelMapProtWrite, &p));
-			base_va = reinterpret_cast<uintptr_t>(p);
-		}
-
-		region(
-		    contiguous_pool *pool,
-		    helix::BorrowedDescriptor borrowedMemory,
-		    size_t backingMemoryOffset,
-		    size_t s,
-		    bool imported = false
-		)
-		: dma_region{pool},
-		  size{s},
-		  backingMemory_{},
-		  borrowedMemory_{std::move(borrowedMemory)},
-		  backingMemoryOffset_{backingMemoryOffset},
-		  imported_{imported} {
-			void *p = nullptr;
-			HEL_CHECK(helMapMemory(borrowedMemory_.getHandle(), kHelNullHandle, nullptr, backingMemoryOffset, s,
-			kHelMapProtRead | kHelMapProtWrite, &p));
-			base_va = reinterpret_cast<uintptr_t>(p);
-		}
-
-		~region();
-
-		bool imported() const {
-			return imported_;
-		}
-
-		std::pair<helix::BorrowedDescriptor, uint64_t> getMemory() const {
-			return {borrowedMemory_, backingMemoryOffset_};
-		}
-
-	private:
-		size_t size;
-
-		helix::UniqueDescriptor backingMemory_;
-		helix::BorrowedDescriptor borrowedMemory_;
-		size_t backingMemoryOffset_;
-
-		// Holds the `ioVa` of the region in the DMA space, if already mapped there.
-		std::vector<std::optional<uintptr_t>> dmaSpaces_;
-		bool imported_;
-	};
 
 private:
 	struct bucket {
@@ -147,7 +149,7 @@ struct imported_dma_buffer {
 
 	~imported_dma_buffer() {
 		if (pool_) {
-			auto rn = static_cast<contiguous_pool::region *>(ptr_.region());
+			auto rn = static_cast<dma_memory_region *>(ptr_.region());
 			delete rn;
 		}
 	}
@@ -204,7 +206,7 @@ struct dma_space {
 	template <dma_view T>
 	async::result<uintptr_t> iova_of(T &&view) const {
 		dma_ptr dp = view.get_dma_ptr();
-		auto reg = static_cast<contiguous_pool::region *>(dp.region());
+		auto reg = static_cast<dma_memory_region *>(dp.region());
 		uintptr_t iova_base;
 
 		{

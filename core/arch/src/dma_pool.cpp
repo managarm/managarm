@@ -27,7 +27,7 @@ dma_ptr contiguous_pool::allocate(size_t size, size_t count, size_t align) {
 
 		if (bkt->freelist.empty()) {
 			auto handle = allocate_pages_(small_region_size);
-			auto rn = new region{this, std::move(handle), 0, small_region_size};
+			auto rn = new dma_memory_region{this, std::move(handle), 0, small_region_size};
 			for (size_t off = 0; off + alloc_size <= small_region_size; off += alloc_size) {
 				bkt->freelist.push_back({static_cast<arch::dma_region *>(rn), off});
 			}
@@ -39,7 +39,7 @@ dma_ptr contiguous_pool::allocate(size_t size, size_t count, size_t align) {
 	} else {
 		// Large allocation. Allocate directly from the kernel.
 		auto handle = allocate_pages_(alloc_size);
-		auto rn = new region{this, std::move(handle), 0, alloc_size};
+		auto rn = new dma_memory_region{this, std::move(handle), 0, alloc_size};
 		ptr = {static_cast<arch::dma_region *>(rn), 0};
 	}
 
@@ -50,7 +50,7 @@ dma_ptr contiguous_pool::allocate(size_t size, size_t count, size_t align) {
 }
 
 void contiguous_pool::deallocate(dma_ptr ptr, size_t size, size_t count, size_t align) {
-	auto rn = static_cast<region *>(ptr.region());
+	auto rn = static_cast<dma_memory_region *>(ptr.region());
 	assert(!rn->imported());
 	assert(ptr.pool() == this);
 	auto b = shift_of_(size, count, align);
@@ -80,7 +80,7 @@ dma_space contiguous_pool::attachDmaSpace(helix::BorrowedDescriptor ioSpace, boo
 }
 
 imported_dma_buffer contiguous_pool::importMemory(helix::BorrowedDescriptor memory, size_t offset, size_t size) {
-	auto rn = new contiguous_pool::region{this, std::move(memory), offset, size, true};
+	auto rn = new dma_memory_region{this, std::move(memory), offset, size, true};
 	dma_ptr ptr{rn, 0};
 	return imported_dma_buffer{this, ptr, size};
 }
@@ -106,7 +106,7 @@ void contiguous_pool::deallocate_pages_(void *p, size_t region_size) {
 	HEL_CHECK(helUnmapMemory(kHelNullHandle, p, region_size));
 }
 
-contiguous_pool::region::~region() {
+dma_memory_region::~dma_memory_region() {
 	auto regionPool = static_cast<contiguous_pool *>(pool());
 
 	if (regionPool) {
