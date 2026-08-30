@@ -578,6 +578,12 @@ struct FileSystem final : BaseFileSystem {
 		return metadataCacheFor(block).read(block, offset, length, buffer);
 	}
 
+	// Discard a cached metadata block without writeback.
+	// See MetadataCache::forget() for its preconditions.
+	async::result<void> forgetMetadata(uint64_t block) {
+		return metadataCacheFor(block).forget(block);
+	}
+
 	MetadataCache &metadataCacheFor(uint64_t block) {
 		auto index = block / blocksPerGroup;
 		assert(index < metadataCaches.size());
