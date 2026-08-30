@@ -71,6 +71,10 @@ async::detached Device::runDevice() {
 	rxQueue_ = co_await transport_->setupQueue(0);
 	txQueue_ = co_await transport_->setupQueue(1);
 
+	// This driver runs on a single thread, so both queues share one interrupt.
+	async::detach(rxQueue_->serviceQueue());
+	async::detach(txQueue_->serviceQueue());
+
 	auto maxPorts = transport_->space().load(spec::regs::maxPorts);
 	std::cout << "virtio-console: Device supports " << maxPorts << " ports" << std::endl;
 

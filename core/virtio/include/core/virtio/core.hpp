@@ -40,6 +40,7 @@ inline constexpr arch::scalar_register<uint32_t> PCI_DEVICE_FEATURE_SELECT(0);
 inline constexpr arch::scalar_register<uint32_t> PCI_DEVICE_FEATURE_WINDOW(4);
 inline constexpr arch::scalar_register<uint32_t> PCI_DRIVER_FEATURE_SELECT(8);
 inline constexpr arch::scalar_register<uint32_t> PCI_DRIVER_FEATURE_WINDOW(12);
+inline constexpr arch::scalar_register<uint16_t> PCI_CONFIG_MSIX_VECTOR(16);
 inline constexpr arch::scalar_register<uint8_t> PCI_DEVICE_STATUS(20);
 inline constexpr arch::scalar_register<uint16_t> PCI_QUEUE_SELECT(22);
 inline constexpr arch::scalar_register<uint16_t> PCI_QUEUE_SIZE(24);
@@ -57,6 +58,9 @@ inline constexpr arch::scalar_register<uint32_t> PCI_QUEUE_USED[] = {
 		arch::scalar_register<uint32_t>{52}};
 
 inline constexpr arch::scalar_register<uint8_t> PCI_ISR(0);
+
+// Detaches a queue from any MSI-X vector.
+inline constexpr unsigned int VIRTIO_MSI_NO_VECTOR = 0xFFFF;
 
 enum {
 	PCI_L_DEVICE_SPECIFIC = 20
@@ -139,6 +143,14 @@ struct QueueInfo {
 	ptrdiff_t notifyOffset;
 };
 
+// What a driver wants for the completion notifications of a virtq.
+enum class QueueIrq {
+	// One interrupt shared with every other queue that asks to share.
+	shared,
+	// An interrupt of its own, if the device has vectors to spare. Degrades to shared.
+	own
+};
+
 /* This class represents a virtio device.
  *
  * Usual initialization works as follows:
@@ -147,6 +159,7 @@ struct QueueInfo {
  * - Call Transport::finalizeFeatures().
  * - Call Transport::claimQueues().
  * - Call Transport::setupQueue() for each virtq.
+ * - Detach Queue::serviceQueue() for each virtq, on the thread that should run its completions.
  * - Call Transport::runDevice().
  *
  * Queues are thread-safe but this class is not:
@@ -166,6 +179,10 @@ struct Transport {
 
 	virtual protocols::hw::Device &hwDevice() = 0;
 
+	// Number of interrupts that this transport has available for virtqs.
+	// At least one, even if the transport does not use MSIs at all.
+	virtual unsigned int maxIrqsAvailableToQueues() = 0;
+
 	virtual uint8_t loadConfig8(size_t offset) = 0;
 	virtual uint16_t loadConfig16(size_t offset) = 0;
 	virtual uint32_t loadConfig32(size_t offset) = 0;
@@ -174,7 +191,15 @@ struct Transport {
 	virtual void acknowledgeDriverFeature(unsigned int feature) = 0;
 	virtual void finalizeFeatures() = 0;
 
-	virtual void claimQueues(unsigned int max_index) = 0;
+	// Fixes the number of virtqs. All of them share a single interrupt.
+	void claimQueues(unsigned int max_index) {
+		std::vector<QueueIrq> irqs(max_index, QueueIrq::shared);
+		claimQueues(irqs);
+	}
+
+	// Fixes the number of virtqs and the interrupt that each of them asks for.
+	// Which vectors these end up being is up to the transport.
+	virtual void claimQueues(std::span<const QueueIrq> irqs) = 0;
 
 	virtual async::result<Queue *> setupQueue(unsigned int index) = 0;
 
@@ -387,6 +412,10 @@ public:
 	// Processes interrupts for this virtq.
 	// Calls retrieveDescriptor() to complete individual requests.
 	void processInterrupt();
+
+	// Services the interrupt that delivers this queue's completions.
+	// Should be started on an appropriate thread to improve locality and reduce contention.
+	virtual async::result<void> serviceQueue() = 0;
 
 protected:
 	virtual void notifyTransport() = 0;

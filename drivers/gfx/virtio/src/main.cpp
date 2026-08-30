@@ -76,6 +76,10 @@ async::result<std::unique_ptr<drm_core::Configuration>> GfxDevice::initialize() 
 	_controlQ = co_await _transport->setupQueue(0);
 	_cursorQ = co_await _transport->setupQueue(1);
 
+	// This driver runs on a single thread, so both queues share one interrupt.
+	async::detach(_controlQ->serviceQueue());
+	async::detach(_cursorQ->serviceQueue());
+
 	_transport->runDevice();
 
 	std::vector<drm_core::Assignment> assignments;

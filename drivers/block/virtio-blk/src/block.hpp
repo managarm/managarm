@@ -1,5 +1,7 @@
 
+#include <atomic>
 #include <memory>
+#include <vector>
 
 #include <blockfs.hpp>
 #include <core/virtio/core.hpp>
@@ -27,7 +29,8 @@ enum {
 };
 
 enum {
-	VIRTIO_BLK_F_FLUSH = 9
+	VIRTIO_BLK_F_FLUSH = 9,
+	VIRTIO_BLK_F_MQ = 12,
 };
 
 enum {
@@ -40,6 +43,7 @@ namespace spec::regs {
 	inline constexpr arch::scalar_register<uint32_t> capacity[] = {
 			arch::scalar_register<uint32_t>{0},
 			arch::scalar_register<uint32_t>{4}};
+	inline constexpr arch::scalar_register<uint16_t> numQueues{34};
 }
 
 struct Device;
@@ -87,14 +91,23 @@ struct Device : blockfs::BlockDevice {
 	async::result<size_t> getSize() override;
 
 private:
-	// Sets up the descriptor chain of the request and posts it to the device.
+	// Returns the virtq that the calling thread submits to.
+	virtio_core::Queue *_pickQueue();
+
+	// Starts the completion servicer of a queue on the calling thread, at most once.
+	void _startServicer(unsigned int index);
+
+	// Sets up the descriptor chain of the request and posts it to the given queue.
 	// Returns after submission without waiting for the request's completion.
-	async::result<void> _issueRequest(UserRequest *request);
+	async::result<void> _issueRequest(virtio_core::Queue *queue, UserRequest *request);
 
 	std::unique_ptr<virtio_core::Transport> _transport;
 
-	// The single virtq of this device.
-	virtio_core::Queue *_requestQueue;
+	// The request virtqs of this device.
+	std::vector<virtio_core::Queue *> _queues;
+
+	// Whether the completion servicer of each virtq was already started.
+	std::unique_ptr<std::atomic_flag[]> _queueLive;
 
 	// The size of the disk
 	size_t _size;

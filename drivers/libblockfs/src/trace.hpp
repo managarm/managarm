@@ -83,6 +83,8 @@ inline constinit protocols::ostrace::UintAttribute ostAttrIno{"ino"};
 inline constinit protocols::ostrace::UintAttribute ostAttrFound{"found"};
 // Whether the access was for writing (1) or reading (0).
 inline constinit protocols::ostrace::UintAttribute ostAttrIsWrite{"isWrite"};
+// Index of the device queue that the request was submitted to.
+inline constinit protocols::ostrace::UintAttribute ostAttrQueueIndex{"queueIndex"};
 // Waiting to acquire mutexes. Excludes page pinning, which is timePin.
 inline constinit protocols::ostrace::UintAttribute ostAttrTimeLock{"timeLock"};
 // Pinning pages into memory via LockMemoryView, i.e. faulting them in if absent.
@@ -205,6 +207,7 @@ inline protocols::ostrace::Vocabulary ostVocabulary{
 	ostAttrIno,
 	ostAttrFound,
 	ostAttrIsWrite,
+	ostAttrQueueIndex,
 	ostAttrTimeLock,
 	ostAttrTimePin,
 	ostAttrTimeImport,
