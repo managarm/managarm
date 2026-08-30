@@ -573,6 +573,17 @@ struct FileSystem final : BaseFileSystem {
 	async::result<void> assignDataBlocksUsingExtents(Inode *inode,
 			uint64_t block_offset, size_t num_blocks);
 
+	// Callers must hold inode->blockMapMutex (exclusive).
+	async::result<void> freeDataBlocksUsingExtents(Inode *inode, uint64_t firstBlock);
+
+	// Removes all extents at or after fromBlock from the subtree rooted at hdr,
+	// freeing their disk blocks and the tree nodes that become empty.
+	// block is the disk block backing hdr, or nullopt for the inode-embedded root.
+	// Returns whether the node itself ended up empty.
+	// Callers must hold inode->blockMapMutex (exclusive).
+	async::result<bool> removeExtentsFrom(Inode *inode, ExtentHeader *hdr,
+			std::optional<uint64_t> block, uint64_t fromBlock, size_t &numFreed);
+
 	// Locks a metadata block and returns a window into it.
 	async::result<MetadataCache::BlockWindow> accessMetadata(uint64_t block, bool writable) {
 		return metadataCacheFor(block).access(block, writable);

@@ -33,6 +33,7 @@ inline constinit protocols::ostrace::Event ostEvtExt2RemoveEntry{"ext2.removeEnt
 inline constinit protocols::ostrace::Event ostEvtExt2IsDirectoryEmpty{"ext2.isDirectoryEmpty"};
 inline constinit protocols::ostrace::Event ostEvtExt2UpdateDotDot{"ext2.updateDotDot"};
 inline constinit protocols::ostrace::Event ostEvtExt2AssignDataBlocks{"ext2.assignDataBlocks"};
+inline constinit protocols::ostrace::Event ostEvtExt2FreeDataBlocks{"ext2.freeDataBlocks"};
 inline constinit protocols::ostrace::Event ostEvtExt2ReadDataBlocks{"ext2.readDataBlocks"};
 inline constinit protocols::ostrace::Event ostEvtExt2WriteDataBlocks{"ext2.writeDataBlocks"};
 inline constinit protocols::ostrace::Event ostEvtExt2ResizeFile{"ext2.resizeFile"};
@@ -177,6 +178,7 @@ inline protocols::ostrace::Vocabulary ostVocabulary{
 	ostEvtExt2IsDirectoryEmpty,
 	ostEvtExt2UpdateDotDot,
 	ostEvtExt2AssignDataBlocks,
+	ostEvtExt2FreeDataBlocks,
 	ostEvtExt2ReadDataBlocks,
 	ostEvtExt2WriteDataBlocks,
 	ostEvtExt2ResizeFile,

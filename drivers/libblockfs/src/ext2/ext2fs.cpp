@@ -2399,6 +2399,110 @@ async::result<void> FileSystem::assignDataBlocks(Inode *inode,
 	);
 }
 
+async::result<bool> FileSystem::removeExtentsFrom(Inode *inode, ExtentHeader *hdr,
+		std::optional<uint64_t> block, uint64_t fromBlock, size_t &numFreed) {
+	assert(hdr->magic == EXT4_EXTENT_MAGIC);
+
+	std::vector<uint32_t> batch;
+
+	if(!hdr->depth) {
+		auto extents = hdr->extents();
+
+		// Extents are ordered by file block, so walking backwards stops at the first
+		// extent that lies entirely before fromBlock.
+		while(hdr->entries) {
+			auto &extent = extents[hdr->entries - 1];
+			// TODO: Support uninitialized extents. A len above 32768 marks the extent as
+			// uninitialized and encodes the real length as len - 32768.
+			assert(extent.len <= 32768);
+			if(extent.block + extent.len <= fromBlock)
+				break;
+
+			uint64_t start = extent.start();
+			// An extent that straddles fromBlock only loses its tail.
+			size_t keep = extent.block < fromBlock ? fromBlock - extent.block : 0;
+
+			for(size_t i = keep; i < extent.len; i++)
+				batch.push_back(start + i);
+
+			if(keep) {
+				extent.len = keep;
+				break;
+			}
+			hdr->entries--;
+		}
+	}else{
+		auto indices = hdr->indices();
+
+		while(hdr->entries) {
+			auto &index = indices[hdr->entries - 1];
+			uint64_t child = index.leaf();
+			// Only the last child that starts before fromBlock can straddle it;
+			// every child after that one is removed in its entirety.
+			bool straddles = index.block < fromBlock;
+
+			bool empty;
+			{
+				// No need to dirty the child if it gets dropped below anyway.
+				auto childWindow = co_await accessMetadata(child, straddles);
+				auto childHdr = reinterpret_cast<ExtentHeader *>(childWindow.get());
+				empty = co_await removeExtentsFrom(inode, childHdr, child,
+						fromBlock, numFreed);
+			}
+
+			// A child that starts at or after fromBlock loses all of its extents.
+			assert(empty || straddles);
+
+			if(empty) {
+				// The block can be reallocated as file data right away, and a writeback
+				// that is still pending for it would then clobber that data.
+				co_await forgetMetadata(child);
+				batch.push_back(child);
+				hdr->entries--;
+			}
+
+			if(straddles || !empty)
+				break;
+		}
+	}
+
+	numFreed += batch.size();
+	co_await freeBlocks(std::move(batch));
+
+	// A node that is about to be freed itself does not need a valid checksum.
+	if(block && hdr->entries)
+		updateExtentChecksum(*this, inode, hdr);
+
+	co_return !hdr->entries;
+}
+
+async::result<void> FileSystem::freeDataBlocksUsingExtents(Inode *inode, uint64_t firstBlock) {
+	protocols::ostrace::Timer timer;
+
+	auto diskInode = inode->diskInode();
+	auto hdr = &diskInode->data.extents.hdr;
+	size_t numFreed = 0;
+
+	if(co_await removeExtentsFrom(inode, hdr, std::nullopt, firstBlock, numFreed)) {
+		// Leave the root as a valid empty tree that assignDataBlocksUsingExtents() can grow again.
+		hdr->depth = 0;
+	}
+
+	assert(diskInode->blocks >= numFreed * (blockSize / 512));
+	diskInode->blocks -= numFreed * (blockSize / 512);
+
+	updateInodeChecksum(*this, diskInode, inode->number);
+
+	bgdtWriteback.raise();
+	inode->diskInodeWindow.markDirty();
+
+	ostContext.emit(
+		ostEvtExt2FreeDataBlocks,
+		ostAttrTime(timer.elapsed()),
+		ostAttrNumBlocks(numFreed)
+	);
+}
+
 async::result<void> FileSystem::readDataBlocks(const std::vector<BlockRange> &ranges,
 		arch::dma_buffer_view buf) {
 	assert(!(buf.size() & (blockSize - 1)));
