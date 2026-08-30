@@ -905,6 +905,18 @@ Inode::resizeFile(size_t newSize) {
 		// Shrink fileSize() last (after no initialization/writeback is in flight anymore).
 		setFileSize(newSize);
 		timeResizeMemory = timer.split();
+
+		// Zero the tail of the last page as it remains reachable by mmap().
+		// TODO: When we support (block size) > (page size), we have to guarantee that the tail
+		//       of the block is also zerod (either through an invariant or through explicit zeroing.
+		if (newSize < newMappingSize) {
+			// TODO: A dedicated zeroMemory() operation would be more efficient here.
+			static constexpr std::array<std::byte, 0x1000> zeroes{};
+			auto writeResult = co_await helix_ng::writeMemory(
+					helix::BorrowedDescriptor{frontalMemory},
+					newSize, newMappingSize - newSize, zeroes.data());
+			HEL_CHECK(writeResult.error());
+		}
 	} else {
 		// Nothing to do.
 		co_return frg::success;
