@@ -865,13 +865,15 @@ Inode::resizeFile(size_t newSize) {
 
 	protocols::ostrace::Timer timer;
 	uint64_t timeResizeMemory = 0;
+	uint64_t timeFreeBlocks = 0;
 	frg::scope_exit evtOnExit{[&] {
 		ostContext.emit(
 			ostEvtExt2ResizeFile,
 			ostAttrTime(timer.elapsed()),
 			ostAttrOldSize(oldSize),
 			ostAttrNewSize(newSize),
-			ostAttrTimeResizeMemory(timeResizeMemory)
+			ostAttrTimeResizeMemory(timeResizeMemory),
+			ostAttrTimeFreeBlocks(timeFreeBlocks)
 		);
 	}};
 
@@ -885,9 +887,6 @@ Inode::resizeFile(size_t newSize) {
 		HEL_CHECK(resizeResult.error());
 		timeResizeMemory = timer.split();
 	} else if (newSize < oldSize) {
-		// TODO(qookie): Deallocate blocks if they're no longer within the file.
-		std::println("libblockfs: Shrinking an Ext2 file does not free data blocks!");
-
 		// Shrink the memory object first so that no new pages appear beyond the new size.
 		auto resizeResult = co_await helix_ng::resizeMemory(
 				helix::BorrowedDescriptor{backingMemory}, newMappingSize);
@@ -904,7 +903,6 @@ Inode::resizeFile(size_t newSize) {
 
 		// Shrink fileSize() last (after no initialization/writeback is in flight anymore).
 		setFileSize(newSize);
-		timeResizeMemory = timer.split();
 
 		// Zero the tail of the last page as it remains reachable by mmap().
 		// TODO: When we support (block size) > (page size), we have to guarantee that the tail
@@ -917,6 +915,19 @@ Inode::resizeFile(size_t newSize) {
 					newSize, newMappingSize - newSize, zeroes.data());
 			HEL_CHECK(writeResult.error());
 		}
+		timeResizeMemory = timer.split();
+
+		// Only free the blocks once the invalidation above is done.
+		// Otherwise, in-flight writebacks may re-allocate new blocks.
+		{
+			co_await blockMapMutex.async_lock();
+			frg::unique_lock blockMapLock{frg::adopt_lock, blockMapMutex};
+
+			auto firstBlock = (newSize + fs.blockSize - 1) / fs.blockSize;
+			co_await fs.freeDataBlocks(this, firstBlock);
+			blockMapCache.truncate(firstBlock);
+		}
+		timeFreeBlocks = timer.split();
 	} else {
 		// Nothing to do.
 		co_return frg::success;

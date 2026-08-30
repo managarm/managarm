@@ -110,6 +110,8 @@ inline constinit protocols::ostrace::UintAttribute ostAttrTimeDevice{"timeDevice
 inline constinit protocols::ostrace::UintAttribute ostAttrTimeAccess{"timeAccess"};
 // Resizing the page cache backing the file.
 inline constinit protocols::ostrace::UintAttribute ostAttrTimeResizeMemory{"timeResizeMemory"};
+// Releasing the disk blocks past the new end of a shrunk file.
+inline constinit protocols::ostrace::UintAttribute ostAttrTimeFreeBlocks{"timeFreeBlocks"};
 // Waiting for readyEvent, i.e. for the inode to finish being initiated.
 inline constinit protocols::ostrace::UintAttribute ostAttrTimeReady{"timeReady"};
 // Growing the file so that the write fits.
@@ -221,6 +223,7 @@ inline protocols::ostrace::Vocabulary ostVocabulary{
 	ostAttrTimeDevice,
 	ostAttrTimeAccess,
 	ostAttrTimeResizeMemory,
+	ostAttrTimeFreeBlocks,
 	ostAttrTimeReady,
 	ostAttrTimeResize,
 	ostAttrTimeCopy,
