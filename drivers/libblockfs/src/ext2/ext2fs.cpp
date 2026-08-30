@@ -1476,7 +1476,8 @@ async::result<std::vector<uint32_t>> FileSystem::allocateBlocks(size_t num, std:
 			auto bitmapWindow = co_await accessBitmap(bgdt[preferred_bg].blockBitmap);
 			auto words = reinterpret_cast<uint32_t *>(bitmapWindow.get());
 
-			for(unsigned int i = 0; i < (blocksPerGroup + 31) / 32; i++) {
+			for(unsigned int i = 0; i < (blocksPerGroup + 31) / 32
+					&& bgdt[preferred_bg].freeBlocksCount; i++) {
 				if(words[i] == 0xFFFFFFFF)
 					continue;
 				for(int j = 0; j < 32; j++) {
@@ -1484,6 +1485,10 @@ async::result<std::vector<uint32_t>> FileSystem::allocateBlocks(size_t num, std:
 						break;
 					if(words[i] & (static_cast<uint32_t>(1) << j))
 						continue;
+					// Never hand out more blocks than the group is accounted for, even if
+					// its bitmap has more of them: freeBlocksCount would wrap around.
+					if(!bgdt[preferred_bg].freeBlocksCount)
+						break;
 					// TODO: Make sure we never return reserved blocks.
 					// TODO: Make sure we never return blocks higher than the max. block in the SB.
 					auto block = preferred_bg * blocksPerGroup + i * 32 + j;
@@ -1525,7 +1530,8 @@ async::result<std::vector<uint32_t>> FileSystem::allocateBlocks(size_t num, std:
 		assert(bgdt[bg_idx].blockBitmap);
 		auto bitmapWindow = co_await accessBitmap(bgdt[bg_idx].blockBitmap);
 		auto words = reinterpret_cast<uint32_t *>(bitmapWindow.get());
-		for(unsigned int i = 0; i < (blocksPerGroup + 31) / 32; i++) {
+		for(unsigned int i = 0; i < (blocksPerGroup + 31) / 32
+				&& bgdt[bg_idx].freeBlocksCount; i++) {
 			if(words[i] == 0xFFFFFFFF)
 				continue;
 			for(int j = 0; j < 32; j++) {
@@ -1533,6 +1539,10 @@ async::result<std::vector<uint32_t>> FileSystem::allocateBlocks(size_t num, std:
 					break;
 				if(words[i] & (static_cast<uint32_t>(1) << j))
 					continue;
+				// Never hand out more blocks than the group is accounted for, even if
+				// its bitmap has more of them: freeBlocksCount would wrap around.
+				if(!bgdt[bg_idx].freeBlocksCount)
+					break;
 				// TODO: Make sure we never return reserved blocks.
 				// TODO: Make sure we never return blocks higher than the max. block in the SB.
 				auto block = bg_idx * blocksPerGroup + i * 32 + j;
