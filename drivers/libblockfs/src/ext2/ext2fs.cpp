@@ -1576,6 +1576,59 @@ async::result<std::vector<uint32_t>> FileSystem::allocateBlocks(size_t num, std:
 	assert(!"Failed to find zero-bit");
 }
 
+async::result<void> FileSystem::freeBlocks(std::vector<uint32_t> blocks) {
+	if(blocks.empty())
+		co_return;
+
+	protocols::ostrace::Timer timer;
+	uint64_t accessTime = 0;
+	unsigned int numGroups = 0;
+
+	// Group the blocks so that each block group's bitmap is accessed only once.
+	std::sort(blocks.begin(), blocks.end());
+
+	co_await allocationMutex.async_lock();
+	frg::unique_lock allocationLock{frg::adopt_lock, allocationMutex};
+	uint64_t lockDone = timer.elapsed();
+
+	size_t i = 0;
+	while(i < blocks.size()) {
+		auto bg = blocks[i] / blocksPerGroup;
+
+		assert(bgdt[bg].blockBitmap);
+		protocols::ostrace::Timer accessTimer;
+		auto bitmapWindow = co_await accessMetadata(bgdt[bg].blockBitmap, true);
+		accessTime += accessTimer.elapsed();
+		++numGroups;
+		auto words = reinterpret_cast<uint32_t *>(bitmapWindow.get());
+
+		for(; i < blocks.size() && blocks[i] / blocksPerGroup == bg; i++) {
+			auto block = blocks[i];
+			assert(block);
+			assert(block < blocksCount);
+
+			auto index = block % blocksPerGroup;
+			// Double free would imply that the block was allocated twice.
+			assert(words[index / 32] & (static_cast<uint32_t>(1) << (index % 32)));
+			words[index / 32] &= ~(static_cast<uint32_t>(1) << (index % 32));
+
+			bgdt[bg].freeBlocksCount++;
+		}
+
+		updateBlockBitmapChecksum(*this, &bgdt[bg], words, blockSize);
+		updateBlockGroupChecksum(*this, &bgdt[bg], bg);
+	}
+
+	ostContext.emit(
+		ostEvtExt2FreeBlocks,
+		ostAttrTime(timer.elapsed()),
+		ostAttrNumBlocks(blocks.size()),
+		ostAttrNumGroups(numGroups),
+		ostAttrTimeLock(lockDone),
+		ostAttrTimeAccess(accessTime)
+	);
+}
+
 async::result<uint32_t> FileSystem::allocateInode(uint32_t parentIno, bool directory) {
 	protocols::ostrace::Timer timer;
 	uint64_t accessTime = 0;

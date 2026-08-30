@@ -39,6 +39,7 @@ inline constinit protocols::ostrace::Event ostEvtExt2ResizeFile{"ext2.resizeFile
 inline constinit protocols::ostrace::Event ostEvtExt2InitializeFile{"ext2.initializeFile"};
 inline constinit protocols::ostrace::Event ostEvtExt2WritebackFile{"ext2.writebackFile"};
 inline constinit protocols::ostrace::Event ostEvtExt2AllocateBlocks{"ext2.allocateBlocks"};
+inline constinit protocols::ostrace::Event ostEvtExt2FreeBlocks{"ext2.freeBlocks"};
 inline constinit protocols::ostrace::Event ostEvtExt2AllocateInode{"ext2.allocateInode"};
 inline constinit protocols::ostrace::Event ostEvtExt2BgdtWriteback{"ext2.bgdtWriteback"};
 inline constinit protocols::ostrace::Event ostEvtVirtioBlkReadSectors{"virtio-blk.readSectors"};
@@ -182,6 +183,7 @@ inline protocols::ostrace::Vocabulary ostVocabulary{
 	ostEvtExt2InitializeFile,
 	ostEvtExt2WritebackFile,
 	ostEvtExt2AllocateBlocks,
+	ostEvtExt2FreeBlocks,
 	ostEvtExt2AllocateInode,
 	ostEvtExt2BgdtWriteback,
 	ostEvtVirtioBlkReadSectors,

@@ -535,6 +535,11 @@ struct FileSystem final : BaseFileSystem {
 	// Allocate up to num blocks for the given inode.
 	// This function does not write back the BGDT, this is the caller's responsibility.
 	async::result<std::vector<uint32_t>> allocateBlocks(size_t num, std::optional<uint32_t> ino = std::nullopt);
+
+	// Release the given blocks back to the block bitmaps.
+	// This function does not write back the BGDT, this is the caller's responsibility.
+	async::result<void> freeBlocks(std::vector<uint32_t> blocks);
+
 	async::result<uint32_t> allocateInode(uint32_t parentIno = 0, bool directory = false);
 
 	// Callers must hold inode->blockMapMutex (exclusive).
