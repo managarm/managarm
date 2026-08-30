@@ -546,6 +546,11 @@ struct FileSystem final : BaseFileSystem {
 	async::result<void> assignDataBlocks(Inode *inode,
 			uint64_t block_offset, size_t num_blocks);
 
+	// Releases the blocks backing the file blocks at or after firstBlock,
+	// including the indirection metadata that becomes unreachable.
+	// Callers must hold inode->blockMapMutex (exclusive).
+	async::result<void> freeDataBlocks(Inode *inode, uint64_t firstBlock);
+
 	// Resolves a range of file blocks to runs of disk blocks and holes.
 	// Callers must hold inode->blockMapMutex (shared or exclusive).
 	async::result<std::vector<BlockRange>> lookupBlocks(Inode *inode,

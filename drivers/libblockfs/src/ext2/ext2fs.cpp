@@ -2503,6 +2503,126 @@ async::result<void> FileSystem::freeDataBlocksUsingExtents(Inode *inode, uint64_
 	);
 }
 
+async::result<void> FileSystem::freeDataBlocks(Inode *inode, uint64_t firstBlock) {
+	if(inode->usesExtents) {
+		co_await freeDataBlocksUsingExtents(inode, firstBlock);
+		co_await helix_ng::asyncNop();
+		co_return;
+	}
+
+	protocols::ostrace::Timer timer;
+
+	size_t per_indirect = blockSize / 4;
+	size_t per_single = per_indirect;
+	size_t per_double = per_indirect * per_indirect;
+
+	// Number of blocks that can be accessed by:
+	size_t i_range = 12; // Direct blocks only.
+	size_t s_range = i_range + per_single; // Plus the first single indirect block.
+	size_t d_range = s_range + per_double; // Plus the first double indirect block.
+
+	auto disk_inode = inode->diskInode();
+	size_t numFreed = 0;
+
+	// Releases the blocks that an indirect block points to, starting at the file block from,
+	// relative to the range that the indirection block covers.
+	// Level is 1/2/3 indicates single/double/triple indirect blocks.
+	// If drop is set, also release the indirect block itself.
+	auto drainIndirect = [&] (this auto &&self, uint32_t indirectBlock, unsigned int level,
+			size_t from, bool drop) -> async::result<void> {
+		// Each entry of the block covers 2^shift file blocks.
+		auto shift = (level - 1) * (blockShift - 2);
+		auto offset = from & ((size_t{1} << shift) - 1);
+
+		std::vector<uint32_t> entries;
+		uint32_t partial = 0;
+		{
+			auto indirectWindow = co_await accessMetadata(indirectBlock, !drop);
+			auto window = reinterpret_cast<uint32_t *>(indirectWindow.get());
+
+			auto i = from >> shift;
+			// The entry that from points into keeps its block and only loses its tail.
+			if(offset)
+				partial = window[i++];
+
+			for(; i < per_indirect; i++) {
+				if(!window[i])
+					continue;
+				entries.push_back(window[i]);
+				// No need to dirty the block if it gets dropped anyway.
+				if(!drop)
+					window[i] = 0;
+			}
+		}
+
+		if(partial)
+			co_await self(partial, level - 1, offset, false);
+
+		// Above the data blocks the entries are indirection blocks that release themselves.
+		if(level > 1) {
+			for(auto entry : entries)
+				co_await self(entry, level - 1, 0, true);
+			entries.clear();
+		}
+
+		if(drop) {
+			// Discard the block from the MetadataCache before freeing it.
+			co_await forgetMetadata(indirectBlock);
+			entries.push_back(indirectBlock);
+		}
+
+		numFreed += entries.size();
+		co_await freeBlocks(std::move(entries));
+	};
+
+	// Triple indirect blocks are not supported by lookupBlocksOnDisk() either.
+	assert(!disk_inode->data.blocks.tripleIndirect);
+
+	if(firstBlock < i_range) {
+		std::vector<uint32_t> batch;
+		for(size_t i = firstBlock; i < i_range; i++) {
+			if(!disk_inode->data.blocks.direct[i])
+				continue;
+			batch.push_back(disk_inode->data.blocks.direct[i]);
+			disk_inode->data.blocks.direct[i] = 0;
+		}
+		numFreed += batch.size();
+		co_await freeBlocks(std::move(batch));
+	}
+
+	if(firstBlock < s_range && disk_inode->data.blocks.singleIndirect) {
+		auto indirectBlock = disk_inode->data.blocks.singleIndirect;
+		auto from = firstBlock > i_range ? firstBlock - i_range : 0;
+
+		if(!from)
+			disk_inode->data.blocks.singleIndirect = 0;
+		co_await drainIndirect(indirectBlock, 1, from, !from);
+	}
+
+	if(firstBlock < d_range && disk_inode->data.blocks.doubleIndirect) {
+		auto doubleBlock = disk_inode->data.blocks.doubleIndirect;
+		auto from = firstBlock > s_range ? firstBlock - s_range : 0;
+
+		if(!from)
+			disk_inode->data.blocks.doubleIndirect = 0;
+		co_await drainIndirect(doubleBlock, 2, from, !from);
+	}
+
+	assert(disk_inode->blocks >= numFreed * (blockSize / 512));
+	disk_inode->blocks -= numFreed * (blockSize / 512);
+
+	updateInodeChecksum(*this, disk_inode, inode->number);
+
+	bgdtWriteback.raise();
+	inode->diskInodeWindow.markDirty();
+
+	ostContext.emit(
+		ostEvtExt2FreeDataBlocks,
+		ostAttrTime(timer.elapsed()),
+		ostAttrNumBlocks(numFreed)
+	);
+}
+
 async::result<void> FileSystem::readDataBlocks(const std::vector<BlockRange> &ranges,
 		arch::dma_buffer_view buf) {
 	assert(!(buf.size() & (blockSize - 1)));
