@@ -877,6 +877,7 @@ Inode::ensureBackingBlocks(size_t offset, size_t length) {
 async::result<frg::expected<protocols::fs::Error>>
 Inode::resizeFile(size_t newSize) {
 	auto oldSize = fileSize();
+	auto oldMappingSize = (oldSize + 0xFFF) & ~size_t(0xFFF);
 	auto newMappingSize = (newSize + 0xFFF) & ~size_t(0xFFF);
 
 	protocols::ostrace::Timer timer;
@@ -904,21 +905,24 @@ Inode::resizeFile(size_t newSize) {
 		setFileSize(newSize);
 
 		// Resize the memory object last (afterwards, initialization requests can appear for pages in the new range).
-		auto resizeResult = co_await helix_ng::resizeMemory(
-				helix::BorrowedDescriptor{backingMemory}, newMappingSize);
-		HEL_CHECK(resizeResult.error());
-		timeResizeMemory = timer.split();
+		if (newMappingSize != oldMappingSize) {
+			auto resizeResult = co_await helix_ng::resizeMemory(
+					helix::BorrowedDescriptor{backingMemory}, newMappingSize);
+			HEL_CHECK(resizeResult.error());
+			timeResizeMemory = timer.split();
+		}
 	} else if (newSize < oldSize) {
 		// TODO(qookie): Deallocate blocks if they're no longer within the file.
 		std::println("libblockfs: Shrinking an Ext2 file does not free data blocks!");
 
 		// Shrink the memory object first so that no new pages appear beyond the new size.
-		auto resizeResult = co_await helix_ng::resizeMemory(
-				helix::BorrowedDescriptor{backingMemory}, newMappingSize);
-		HEL_CHECK(resizeResult.error());
+		if (newMappingSize != oldMappingSize) {
+			auto resizeResult = co_await helix_ng::resizeMemory(
+					helix::BorrowedDescriptor{backingMemory}, newMappingSize);
+			HEL_CHECK(resizeResult.error());
+		}
 
 		// Discard the truncated pages without writeback.
-		auto oldMappingSize = (oldSize + 0xFFF) & ~size_t(0xFFF);
 		if (oldMappingSize > newMappingSize) {
 			auto invalidateResult = co_await helix_ng::invalidateMemory(
 					helix::BorrowedDescriptor{backingMemory}, newMappingSize,
