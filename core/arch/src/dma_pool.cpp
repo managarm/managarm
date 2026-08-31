@@ -74,13 +74,7 @@ void contiguous_pool::deallocate(dma_ptr ptr, size_t size, size_t count, size_t 
 }
 
 dma_space dma_realm::attachDmaSpace(helix::BorrowedDescriptor ioSpace, bool iommuActive) {
-	size_t id;
-	{
-		std::lock_guard lock{spacesMutex_};
-		id = attachedDmaSpaces_++;
-	}
-	assert(id < max_dma_spaces);
-	return dma_space{id, this, ioSpace, iommuActive};
+	return dma_space{this, ioSpace, iommuActive};
 }
 
 async::result<void> dma_space::establish_(dma_memory_region *reg) const {

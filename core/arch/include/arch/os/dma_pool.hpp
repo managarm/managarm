@@ -152,7 +152,6 @@ struct dma_realm {
 private:
 	dma_realm_options options_;
 
-	size_t attachedDmaSpaces_ = 0;
 	std::mutex spacesMutex_;
 	std::vector<dma_space *> spaces_;
 };
@@ -247,10 +246,13 @@ private:
 };
 
 struct dma_space {
-	dma_space(size_t i, dma_realm *realm, helix::BorrowedDescriptor space, bool iommuActive)
-	: index_{i}, realm_{realm}, space_{space}, iommuActive_{iommuActive} {
+	dma_space(dma_realm *realm, helix::BorrowedDescriptor space, bool iommuActive)
+	: realm_{realm}, space_{space}, iommuActive_{iommuActive} {
+		// The index doubles as the position in spaces_, so both are assigned atomically.
 		std::lock_guard lock{realm_->spacesMutex_};
-		realm_->spaces_.insert(realm_->spaces_.begin() + i, this);
+		index_ = realm_->spaces_.size();
+		assert(index_ < max_dma_spaces);
+		realm_->spaces_.push_back(this);
 	}
 
 	dma_space(const dma_space &) = delete;
