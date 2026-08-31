@@ -41,6 +41,7 @@ struct Event {
  */
 struct File {
 	File(std::shared_ptr<Device> device);
+	static smarter::shared_ptr<File> create(std::shared_ptr<Device> device);
 
 	struct HandleIoctl;
 
@@ -101,13 +102,15 @@ struct File {
 	}
 
 private:
-	async::detached pageFlipEvent(std::unique_ptr<drm_core::Configuration> config,
-		drm_core::File *self, uint64_t cookie, uint32_t crtc_id);
-	async::detached pageFlipEvent(std::unique_ptr<drm_core::Configuration> config,
-		drm_core::File *self, uint64_t cookie, std::unordered_set<uint32_t> crtc_id);
+	static async::detached pageFlipEvent(std::unique_ptr<drm_core::Configuration> config,
+		smarter::shared_ptr<drm_core::File> self, uint64_t cookie, uint32_t crtc_id);
+	static async::detached pageFlipEvent(std::unique_ptr<drm_core::Configuration> config,
+		smarter::shared_ptr<drm_core::File> self, uint64_t cookie,
+		std::unordered_set<uint32_t> crtc_id);
 	void _retirePageFlip(uint64_t cookie, uint32_t crtc_id);
 
 	std::shared_ptr<Device> _device;
+	smarter::weak_ptr<File> _self;
 
 	helix::UniqueDescriptor _memory;
 
@@ -212,4 +215,3 @@ void addDmtModes(std::vector<drm_mode_modeinfo> &supported_modes,
 #endif
 
 } //namespace drm_core
-

@@ -36,6 +36,12 @@ drm_core::File::File(std::shared_ptr<Device> device)
 	_statusPage.update(_eventSequence, 0);
 };
 
+smarter::shared_ptr<drm_core::File> drm_core::File::create(std::shared_ptr<Device> device) {
+	auto file = smarter::make_shared<drm_core::File>(std::move(device));
+	file->_self = file;
+	return file;
+}
+
 void drm_core::File::setBlocking(bool blocking) {
 	_isBlocking = blocking;
 }
@@ -299,7 +305,7 @@ struct ServeDeviceVisitor {
 
 			helix::UniqueLane local_lane, remote_lane;
 			std::tie(local_lane, remote_lane) = helix::createStream();
-			auto file = smarter::make_shared<drm_core::File>(device);
+			auto file = drm_core::File::create(device);
 
 			if(req.flags() & managarm::fs::OpenFlags::OF_NONBLOCK)
 				file->setBlocking(false);
@@ -777,4 +783,3 @@ void drm_core::addDmtModes(std::vector<drm_mode_modeinfo> &supported_modes,
 			supported_modes.push_back(modes[i]);
 	}
 }
-
