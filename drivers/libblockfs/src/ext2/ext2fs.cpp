@@ -10,7 +10,6 @@
 #include <linux/magic.h>
 
 #include <async/result.hpp>
-#include <core/align.hpp>
 #include <core/clock.hpp>
 #include <core/logging.hpp>
 #include <frg/scope_exit.hpp>
@@ -860,27 +859,11 @@ async::result<protocols::fs::Error> Inode::updateTimes(
 
 
 async::result<frg::expected<protocols::fs::Error>>
-Inode::ensureBackingBlocks(size_t offset, size_t length) {
-	auto [alignedOffset, alignedSize] = core::alignExtend({offset, length}, fs.blockSize);
-	size_t blockOffset = alignedOffset / fs.blockSize;
-	size_t blockCount = alignedSize / fs.blockSize;
-
-	{
-		co_await blockMapMutex.async_lock();
-		frg::unique_lock blockMapLock{frg::adopt_lock, blockMapMutex};
-		co_await fs.assignDataBlocks(this, blockOffset, blockCount);
-	}
-
-	co_return frg::success;
-}
-
-async::result<frg::expected<protocols::fs::Error>>
 Inode::resizeFile(size_t newSize) {
 	auto oldSize = fileSize();
 	auto newMappingSize = (newSize + 0xFFF) & ~size_t(0xFFF);
 
 	protocols::ostrace::Timer timer;
-	uint64_t timeEnsureBlocks = 0;
 	uint64_t timeResizeMemory = 0;
 	frg::scope_exit evtOnExit{[&] {
 		ostContext.emit(
@@ -888,18 +871,11 @@ Inode::resizeFile(size_t newSize) {
 			ostAttrTime(timer.elapsed()),
 			ostAttrOldSize(oldSize),
 			ostAttrNewSize(newSize),
-			ostAttrTimeEnsureBlocks(timeEnsureBlocks),
 			ostAttrTimeResizeMemory(timeResizeMemory)
 		);
 	}};
 
 	if (newSize > oldSize) {
-		// TODO(qookie): Technically we only need to assign 0
-		// blocks here, not allocate new ones. We also should
-		// zero out the new blocks.
-		FRG_CO_TRY(co_await ensureBackingBlocks(oldSize, newSize - oldSize));
-		timeEnsureBlocks = timer.split();
-
 		// Grow fileSize() first so the backing memory never covers a page beyond EOF.
 		setFileSize(newSize);
 
@@ -929,6 +905,18 @@ Inode::resizeFile(size_t newSize) {
 		// Shrink fileSize() last (after no initialization/writeback is in flight anymore).
 		setFileSize(newSize);
 		timeResizeMemory = timer.split();
+
+		// Zero the tail of the last page as it remains reachable by mmap().
+		// TODO: When we support (block size) > (page size), we have to guarantee that the tail
+		//       of the block is also zerod (either through an invariant or through explicit zeroing.
+		if (newSize < newMappingSize) {
+			// TODO: A dedicated zeroMemory() operation would be more efficient here.
+			static constexpr std::array<std::byte, 0x1000> zeroes{};
+			auto writeResult = co_await helix_ng::writeMemory(
+					helix::BorrowedDescriptor{frontalMemory},
+					newSize, newMappingSize - newSize, zeroes.data());
+			HEL_CHECK(writeResult.error());
+		}
 	} else {
 		// Nothing to do.
 		co_return frg::success;

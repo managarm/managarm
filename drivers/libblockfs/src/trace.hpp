@@ -106,8 +106,6 @@ inline constinit protocols::ostrace::UintAttribute ostAttrTimeWrite{"timeWrite"}
 inline constinit protocols::ostrace::UintAttribute ostAttrTimeDevice{"timeDevice"};
 // Obtaining MetadataCache windows, summed over all accesses in the operation.
 inline constinit protocols::ostrace::UintAttribute ostAttrTimeAccess{"timeAccess"};
-// Allocating and assigning the blocks that back a file growth.
-inline constinit protocols::ostrace::UintAttribute ostAttrTimeEnsureBlocks{"timeEnsureBlocks"};
 // Resizing the page cache backing the file.
 inline constinit protocols::ostrace::UintAttribute ostAttrTimeResizeMemory{"timeResizeMemory"};
 // Waiting for readyEvent, i.e. for the inode to finish being initiated.
@@ -218,7 +216,6 @@ inline protocols::ostrace::Vocabulary ostVocabulary{
 	ostAttrTimeWrite,
 	ostAttrTimeDevice,
 	ostAttrTimeAccess,
-	ostAttrTimeEnsureBlocks,
 	ostAttrTimeResizeMemory,
 	ostAttrTimeReady,
 	ostAttrTimeResize,

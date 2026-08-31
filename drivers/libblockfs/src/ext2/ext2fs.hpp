@@ -445,10 +445,6 @@ struct Inode final : BaseInode, std::enable_shared_from_this<Inode> {
 
 	// Callers must hold inodeMutex (exclusive).
 	async::result<frg::expected<protocols::fs::Error>>
-	ensureBackingBlocks(size_t offset, size_t length);
-
-	// Callers must hold inodeMutex (exclusive).
-	async::result<frg::expected<protocols::fs::Error>>
 	resizeFile(size_t newSize);
 
 	bool usesExtents;
