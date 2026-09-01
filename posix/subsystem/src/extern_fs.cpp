@@ -105,6 +105,7 @@ private:
 	frg::default_list_hook<Link> _cacheHashHook;
 	// Hook for the name cache's LRU list.
 	frg::default_list_hook<Link> _cacheLruHook;
+	frg::default_list_hook<Link> _cacheOwnerHook;
 };
 
 struct Superblock final : FsSuperblock {
@@ -146,6 +147,11 @@ struct Superblock final : FsSuperblock {
 	std::optional<smarter::shared_ptr<FsLink>> nameCacheLookup(FsNode *dir, const std::string &name);
 	void nameCacheInsert(Link *link);
 	void nameCacheInvalidate(FsNode *dir, const std::string &name);
+
+	using NameCacheOwnerList = frg::intrusive_list<Link,
+			frg::locate_member<Link, frg::default_list_hook<Link>, &Link::_cacheOwnerHook>>;
+
+	void nameCachePurge(DirectoryNode *dir);
 
 private:
 	using NameCacheBucket = frg::intrusive_list<Link,
@@ -986,6 +992,8 @@ private:
 
 	async::result<frg::expected<Error>> rmdir(FsLink *link) override {
 		auto name = link->getName();
+		// Pin the directory such that we can purge the cache entries below.
+		auto removed = link->getTarget();
 
 		managarm::fs::RmdirRequest req;
 		req.set_path(name);
@@ -1010,6 +1018,10 @@ private:
 			co_return resp.error() | toPosixError;
 
 		invalidateCache(name);
+		// While the positive entries should have been removed anyway,
+		// negative entries can survive until rmdir(), so purge them explicitly here.
+		assert(removed->getType() == VfsType::directory);
+		_sb->nameCachePurge(static_cast<DirectoryNode *>(removed.get()));
 		co_return {};
 	}
 
@@ -1092,8 +1104,15 @@ public:
 	: Node{inode, std::move(lane), sb} { }
 
 	~DirectoryNode() {
+		assert(_cacheEntries.empty());
 		_sb->forgetStructural(getInode());
 	}
+
+private:
+	friend struct Superblock;
+
+	// Entries that a directory owns, so that they can be dropped when the directory itself is removed.
+	Superblock::NameCacheOwnerList _cacheEntries;
 };
 
 Superblock::Superblock(helix::UniqueLane lane, std::shared_ptr<UnixDevice> device,
@@ -1291,6 +1310,9 @@ void Superblock::nameCacheInsert(Link *link) {
 	link->_cacheHash = hash;
 	_nameCacheBuckets[hash & (kNameCacheBuckets - 1)].push_front(link);
 	_nameCacheLru.push_front(link);
+	// Let the containing directory remember the link such that we can purge it on rmdir().
+	assert(link->ownerNode()->getType() == VfsType::directory);
+	static_cast<DirectoryNode *>(link->ownerNode())->_cacheEntries.push_front(link);
 	++_nameCacheSize;
 	nameCacheTrim();
 }
@@ -1304,8 +1326,17 @@ void Superblock::nameCacheEvict(Link *link) {
 	auto &bucket = _nameCacheBuckets[link->_cacheHash & (kNameCacheBuckets - 1)];
 	bucket.erase(bucket.iterator_to(link));
 	_nameCacheLru.erase(_nameCacheLru.iterator_to(link));
+	auto &owned = static_cast<DirectoryNode *>(link->ownerNode())->_cacheEntries;
+	owned.erase(owned.iterator_to(link));
 	--_nameCacheSize;
 	link->selfPtr().policy().decrement();
+}
+
+void Superblock::nameCachePurge(DirectoryNode *dir) {
+	// Note that nameCacheEvict() can only remove from the subtree rooted at the deleted link;
+	// hence, the iteration here is safe.
+	while(!dir->_cacheEntries.empty())
+		nameCacheEvict(dir->_cacheEntries.front());
 }
 
 void Superblock::nameCacheTrim() {
