@@ -153,6 +153,12 @@ struct Superblock final : FsSuperblock {
 
 	void nameCachePurge(DirectoryNode *dir);
 
+	// Epoch number that protects against caching stale entries when lookup races mutation.
+	// Bumped by nameCacheInvalidate() and validated by DirectoryNode::cacheLink().
+	uint64_t nameCacheEpoch() {
+		return _nameCacheEpoch;
+	}
+
 private:
 	using NameCacheBucket = frg::intrusive_list<Link,
 			frg::locate_member<Link, frg::default_list_hook<Link>, &Link::_cacheHashHook>>;
@@ -172,6 +178,7 @@ private:
 	std::vector<NameCacheBucket> _nameCacheBuckets;
 	NameCacheLruList _nameCacheLru;
 	size_t _nameCacheSize = 0;
+	uint64_t _nameCacheEpoch = 0;
 
 	std::shared_ptr<UnixDevice> device_;
 };
@@ -684,6 +691,8 @@ private:
 
 	async::result<frg::expected<Error, std::pair<smarter::shared_ptr<FsLink>, size_t>>>
 	remoteTraverseLinks(FsLink *parent, std::deque<std::string> path) {
+		auto epoch = _sb->nameCacheEpoch();
+
 		managarm::fs::NodeTraverseLinksRequest req;
 		for (auto &i : path)
 			req.add_path_segments(i);
@@ -734,7 +743,7 @@ private:
 		if(resp.error() != managarm::fs::Errors::SUCCESS) {
 			// Only a single-component traversal identifies which name is absent.
 			if(resp.error() == managarm::fs::Errors::FILE_NOT_FOUND && path.size() == 1)
-				cacheLink(parent, path.front(), nullptr);
+				cacheLink(parent, path.front(), nullptr, epoch);
 			co_return resp.error() | toPosixError;
 		}
 
@@ -777,7 +786,7 @@ private:
 				link = _sb->internalizeLink(dirStack.back().get(), path[i], std::move(child));
 			}
 			static_cast<DirectoryNode *>(dirStack.back()->getTarget().get())
-					->cacheLink(dirStack.back().get(), path[i], link.get());
+					->cacheLink(dirStack.back().get(), path[i], link.get(), epoch);
 
 			if (!last)
 				dirStack.push_back(link);
@@ -881,6 +890,8 @@ private:
 			co_return std::move(*cached);
 		}
 
+		auto epoch = _sb->nameCacheEpoch();
+
 		managarm::fs::GetLinkRequest req;
 		req.set_path(name);
 
@@ -912,11 +923,11 @@ private:
 						pull_node.descriptor());
 				result = _sb->internalizeLink(parent, name, std::move(child));
 			}
-			cacheLink(parent, name, result.get());
+			cacheLink(parent, name, result.get(), epoch);
 			co_return result;
 		}else{
 			if(resp.error() == managarm::fs::Errors::FILE_NOT_FOUND)
-				cacheLink(parent, name, nullptr);
+				cacheLink(parent, name, nullptr, epoch);
 			co_return resp.error() | toPosixError;
 		}
 	}
@@ -1079,8 +1090,10 @@ public:
 	}
 
 	// Passing nullptr for link creates a negative cache entry.
-	void cacheLink(FsLink *parent, const std::string &name, FsLink *link) {
+	void cacheLink(FsLink *parent, const std::string &name, FsLink *link, uint64_t epoch) {
 		if(!_sb->nameCacheEnabled())
+			return;
+		if(epoch != _sb->nameCacheEpoch())
 			return;
 		// PathResolver never resolves these through the cache.
 		if(name == "." || name == "..")
@@ -1318,6 +1331,7 @@ void Superblock::nameCacheInsert(Link *link) {
 }
 
 void Superblock::nameCacheInvalidate(FsNode *dir, const std::string &name) {
+	++_nameCacheEpoch;
 	if(auto link = nameCacheFind(dir, name, nameCacheHash(dir, name)))
 		nameCacheEvict(link);
 }
