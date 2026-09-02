@@ -291,7 +291,7 @@ HandleRequest::operator()(managarm::posix::MkfifoAtRequest &&req,
 
 	ViewPath relative_to;
 	smarter::shared_ptr<File, FileHandle> file;
-	std::shared_ptr<FsLink> target_link;
+	smarter::shared_ptr<FsLink> target_link;
 
 	if (req.fd() == AT_FDCWD) {
 		relative_to = self->fsContext()->getWorkingDirectory();
@@ -718,7 +718,7 @@ HandleRequest::operator()(managarm::posix::UnlinkAtRequest &&req,
 
 	ViewPath relative_to;
 	smarter::shared_ptr<File, FileHandle> file;
-	std::shared_ptr<FsLink> target_link;
+	smarter::shared_ptr<FsLink> target_link;
 
 	if(req.flags() & ~AT_REMOVEDIR) {
 		std::cout << "posix: UNLINKAT flag handling unimplemented with unknown flag: " << req.flags() << std::endl;
@@ -800,7 +800,7 @@ HandleRequest::operator()(managarm::posix::RmdirRequest &&req,
 		co_return std::unexpected(tailRes.error());
 	logBragiRequest(req);
 
-	std::shared_ptr<FsLink> target_link;
+	smarter::shared_ptr<FsLink> target_link;
 
 	PathResolver resolver;
 	resolver.setup(self->fsContext()->getRoot(), self->fsContext()->getWorkingDirectory(),
@@ -858,7 +858,7 @@ HandleRequest::operator()(managarm::posix::FstatAtRequest &&req,
 
 	ViewPath relative_to;
 	smarter::shared_ptr<File, FileHandle> file;
-	std::shared_ptr<FsLink> target_link;
+	smarter::shared_ptr<FsLink> target_link;
 	std::shared_ptr<MountView> target_mount;
 
 	if (req.fd() == AT_FDCWD) {
@@ -906,7 +906,7 @@ HandleRequest::operator()(managarm::posix::FstatAtRequest &&req,
 
 	// This catches cases where associatedLink is called on a file, but the file doesn't implement that.
 	// Instead of blowing up, return ENOENT.
-	if(target_link == nullptr) {
+	if(!target_link) {
 		co_await sendErrorResponse<managarm::posix::FstatAtResponse>(conversation, managarm::posix::Errors::FILE_NOT_FOUND);
 		co_return {};
 	}
@@ -917,7 +917,7 @@ HandleRequest::operator()(managarm::posix::FstatAtRequest &&req,
 	if (statsResult) {
 		constexpr int statxAttrMask = STATX_ATTR_MOUNT_ROOT;
 		int attr = 0;
-		if(target_mount && target_link == target_mount->getOrigin())
+		if(target_mount && target_link.get() == target_mount->getOrigin().get())
 			attr |= STATX_ATTR_MOUNT_ROOT;
 		auto stats = statsResult.value();
 		assert((attr & ~statxAttrMask) == 0);
@@ -1003,7 +1003,7 @@ HandleRequest::operator()(managarm::posix::FstatfsRequest &&req,
 	logRequest(logRequests, self, "FSTATFS");
 
 	smarter::shared_ptr<File, FileHandle> file;
-	std::shared_ptr<FsLink> targetLink;
+	smarter::shared_ptr<FsLink> targetLink;
 	managarm::posix::FstatfsResponse resp;
 
 	if(req.fd() >= 0) {
@@ -1019,7 +1019,7 @@ HandleRequest::operator()(managarm::posix::FstatfsRequest &&req,
 		// This catches cases where associatedLink is called on a file, but the file doesn't implement that.
 		// Instead of blowing up, return ENOENT.
 		// TODO: fstatfs can't return ENOENT, verify this is needed
-		if(targetLink == nullptr) {
+		if(!targetLink) {
 			co_await sendErrorResponse<managarm::posix::FstatfsResponse>(conversation, managarm::posix::Errors::FILE_NOT_FOUND);
 			co_return {};
 		}
@@ -1091,7 +1091,7 @@ HandleRequest::operator()(managarm::posix::FchmodAtRequest &&req,
 
 	ViewPath relative_to;
 	smarter::shared_ptr<File, FileHandle> file;
-	std::shared_ptr<FsLink> target_link;
+	smarter::shared_ptr<FsLink> target_link;
 
 	if(req.fd() == AT_FDCWD) {
 		relative_to = self->fsContext()->getWorkingDirectory();
@@ -1162,7 +1162,7 @@ HandleRequest::operator()(managarm::posix::FchownAtRequest &&req,
 
 	ViewPath relativeTo;
 	smarter::shared_ptr<File, FileHandle> file;
-	std::shared_ptr<FsLink> targetLink;
+	smarter::shared_ptr<FsLink> targetLink;
 
 	if(req.fd() == AT_FDCWD) {
 		relativeTo = self->fsContext()->getWorkingDirectory();
@@ -1236,7 +1236,7 @@ HandleRequest::operator()(managarm::posix::UtimensAtRequest &&req,
 
 	ViewPath relativeTo;
 	smarter::shared_ptr<File, FileHandle> file;
-	std::shared_ptr<FsNode> target = nullptr;
+	smarter::shared_ptr<FsNode> target = nullptr;
 
 	if(!req.path().size() && (req.flags() & AT_EMPTY_PATH)) {
 		target = self->fileContext()->getFile(req.fd())->associatedLink()->getTarget();
@@ -1363,7 +1363,7 @@ HandleRequest::operator()(managarm::posix::OpenAtRequest &&req,
 
 	ViewPath relative_to;
 	smarter::shared_ptr<File, FileHandle> file;
-	std::shared_ptr<FsLink> target_link;
+	smarter::shared_ptr<FsLink> target_link;
 
 	if(req.fd() == AT_FDCWD) {
 		relative_to = self->fsContext()->getWorkingDirectory();

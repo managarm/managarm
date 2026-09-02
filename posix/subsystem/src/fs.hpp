@@ -1,5 +1,6 @@
 #pragma once
 
+#include <concepts>
 #include <iostream>
 #include <set>
 #include <deque>
@@ -9,6 +10,7 @@
 #include <core/id-allocator.hpp>
 #include <frg/container_of.hpp>
 #include <hel.h>
+#include <smarter.hpp>
 #include <sys/types.h>
 
 #include <fcntl.h>
@@ -67,11 +69,24 @@ protected:
 	~FsLink() = default;
 
 public:
-	virtual std::shared_ptr<FsNode> getOwner() = 0;
+	virtual smarter::shared_ptr<FsNode> getOwner() = 0;
 	virtual std::string getName() = 0;
-	virtual std::shared_ptr<FsNode> getTarget() = 0;
+	virtual smarter::shared_ptr<FsNode> getTarget() = 0;
 	virtual async::result<frg::expected<Error>> obstruct();
 	virtual std::optional<std::string> getProcFsDescription();
+
+	// Only to be called by makeFsShared().
+	void setupSelfPtr(smarter::borrowed_ptr<FsLink> ptr) {
+		selfPtr_ = ptr;
+	}
+
+	smarter::shared_ptr<FsLink> sharedFromThis() {
+		assert(selfPtr_);
+		return selfPtr_.lock();
+	}
+
+private:
+	smarter::borrowed_ptr<FsLink> selfPtr_;
 };
 
 struct FsSuperblock {
@@ -79,9 +94,9 @@ protected:
 	~FsSuperblock() = default;
 
 public:
-	virtual FutureMaybe<std::shared_ptr<FsNode>> createRegular(Process *) = 0;
+	virtual FutureMaybe<smarter::shared_ptr<FsNode>> createRegular(Process *) = 0;
 
-	virtual async::result<frg::expected<Error, std::shared_ptr<FsLink>>>
+	virtual async::result<frg::expected<Error, smarter::shared_ptr<FsLink>>>
 			rename(FsLink *source, FsNode *directory, std::string name) = 0;
 	virtual async::result<frg::expected<Error, FsStats>> getFsStats() = 0;
 	virtual std::string getFsType() = 0;
@@ -150,36 +165,36 @@ public:
 
 	// For directories only: Returns a pointer to the link
 	// that links this directory from its parent.
-	virtual std::shared_ptr<FsLink> treeLink();
+	virtual smarter::shared_ptr<FsLink> treeLink();
 
 	virtual void addObserver(std::shared_ptr<FsObserver> observer);
 
 	virtual void removeObserver(FsObserver *observer);
 
 	//! Get an existing link or create one (directories only).
-	virtual async::result<std::expected<std::shared_ptr<FsLink>, Error>>
+	virtual async::result<std::expected<smarter::shared_ptr<FsLink>, Error>>
 	getLinkOrCreate(Process *, std::string name, mode_t mode, bool exclusive = false);
 
 	//! Resolves a file in a directory (directories only).
-	virtual async::result<frg::expected<Error, std::shared_ptr<FsLink>>> getLink(std::string name);
+	virtual async::result<frg::expected<Error, smarter::shared_ptr<FsLink>>> getLink(std::string name);
 
 	//! Links an existing node to this directory (directories only).
-	virtual async::result<frg::expected<Error, std::shared_ptr<FsLink>>> link(std::string name,
-			std::shared_ptr<FsNode> target);
+	virtual async::result<frg::expected<Error, smarter::shared_ptr<FsLink>>> link(std::string name,
+			smarter::shared_ptr<FsNode> target);
 
 	//! Creates a new directory (directories only).
-	virtual async::result<std::variant<Error, std::shared_ptr<FsLink>>>
+	virtual async::result<std::variant<Error, smarter::shared_ptr<FsLink>>>
 	mkdir(Process *, std::string name, mode_t mode);
 
 	//! Creates a new symlink (directories only).
-	virtual async::result<std::variant<Error, std::shared_ptr<FsLink>>>
+	virtual async::result<std::variant<Error, smarter::shared_ptr<FsLink>>>
 	symlink(std::string name, std::string path);
 
 	//! Creates a new device file (directories only).
-	virtual async::result<frg::expected<Error, std::shared_ptr<FsLink>>> mkdev(std::string name,
+	virtual async::result<frg::expected<Error, smarter::shared_ptr<FsLink>>> mkdev(std::string name,
 			VfsType type, DeviceId id);
 
-	virtual async::result<frg::expected<Error, std::shared_ptr<FsLink>>> mkfifo(std::string name, mode_t mode);
+	virtual async::result<frg::expected<Error, smarter::shared_ptr<FsLink>>> mkfifo(std::string name, mode_t mode);
 
 	virtual async::result<frg::expected<Error>> unlink(std::string name);
 
@@ -188,7 +203,7 @@ public:
 	//! Opens the file (regular files only).
 	// TODO: Move this to the link instead of the inode?
 	virtual async::result<frg::expected<Error, smarter::shared_ptr<File, FileHandle>>>
-	open(Process *process, std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link,
+	open(Process *process, std::shared_ptr<MountView> mount, smarter::shared_ptr<FsLink> link,
 			SemanticFlags semantic_flags);
 
 	// Reads the target of a symlink (symlinks only).
@@ -208,17 +223,28 @@ public:
 	virtual async::result<Error> utimensat(std::optional<timespec> atime, std::optional<timespec> mtime, timespec ctime);
 
 	// Creates an socket
-	virtual async::result<frg::expected<Error, std::shared_ptr<FsLink>>> mksocket(std::string name, mode_t mode, uid_t uid, gid_t gid);
+	virtual async::result<frg::expected<Error, smarter::shared_ptr<FsLink>>> mksocket(std::string name, mode_t mode, uid_t uid, gid_t gid);
 
 	// Recursive path traversal
 	virtual bool hasTraverseLinks();
-	virtual async::result<frg::expected<Error, std::pair<std::shared_ptr<FsLink>, size_t>>> traverseLinks(std::deque<std::string> path);
+	virtual async::result<frg::expected<Error, std::pair<smarter::shared_ptr<FsLink>, size_t>>> traverseLinks(std::deque<std::string> path);
 
 	void notifyObservers(uint32_t inotifyEvents, const std::string &name, uint32_t cookie, bool isDir = false);
+
+	// Only to be called by makeFsShared().
+	void setupSelfPtr(smarter::borrowed_ptr<FsNode> ptr) {
+		selfPtr_ = ptr;
+	}
+
+	smarter::shared_ptr<FsNode> sharedFromThis() {
+		assert(selfPtr_);
+		return selfPtr_.lock();
+	}
 
 	protocols::fs::FlockManager flockManager;
 
 private:
+	smarter::borrowed_ptr<FsNode> selfPtr_;
 	FsSuperblock *_superblock;
 	DefaultOps _defaultOps;
 
@@ -226,30 +252,39 @@ private:
 	std::unordered_map<FsObserver *, std::shared_ptr<FsObserver>> _observers;
 };
 
+// Allocates an FsLink or FsNode and installs the self-pointer that sharedFromThis() returns.
+template<typename T, typename... Args>
+requires std::derived_from<T, FsLink> || std::derived_from<T, FsNode>
+smarter::shared_ptr<T> makeFsShared(Args &&...args) {
+	auto ptr = smarter::make_shared<T>(std::forward<Args>(args)...);
+	ptr->setupSelfPtr(ptr);
+	return ptr;
+}
+
 // ----------------------------------------------------------------------------
 // SpecialLink class.
 // ----------------------------------------------------------------------------
 
 // This class can be used to construct FsLinks for anonymous special files
 // such as epoll, signalfd, timerfd, etc.
-struct SpecialLink final : FsLink, std::enable_shared_from_this<SpecialLink> {
+struct SpecialLink final : FsLink {
 private:
 	struct PrivateTag { }; // To tag-dispatch to private methods.
 
 public:
-	static std::shared_ptr<SpecialLink> makeSpecialLink(VfsType fileType, int mode) {
-		return std::make_shared<SpecialLink>(PrivateTag{}, fileType, mode);
+	static smarter::shared_ptr<SpecialLink> makeSpecialLink(VfsType fileType, int mode) {
+		return makeFsShared<SpecialLink>(PrivateTag{}, fileType, mode);
 	}
 
 	SpecialLink(PrivateTag, VfsType fileType, int mode)
 	: fileType_{fileType}, mode_{mode} { }
 
 public:
-	std::shared_ptr<FsNode> getTarget() override {
-		return {shared_from_this(), &embeddedNode_};
+	smarter::shared_ptr<FsNode> getTarget() override {
+		return {sharedFromThis(), &embeddedNode_};
 	}
 
-	std::shared_ptr<FsNode> getOwner() override {
+	smarter::shared_ptr<FsNode> getOwner() override {
 		return nullptr;
 	}
 

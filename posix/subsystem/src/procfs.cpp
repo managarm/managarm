@@ -23,15 +23,15 @@ SuperBlock procfsSuperblock;
 // LinkCompare implementation.
 // ----------------------------------------------------------------------------
 
-bool LinkCompare::operator() (const std::shared_ptr<Link> &a, const std::shared_ptr<Link> &b) const {
+bool LinkCompare::operator() (const smarter::shared_ptr<Link> &a, const smarter::shared_ptr<Link> &b) const {
 	return a->getName() < b->getName();
 }
 
-bool LinkCompare::operator() (const std::shared_ptr<Link> &link, const std::string &name) const {
+bool LinkCompare::operator() (const smarter::shared_ptr<Link> &link, const std::string &name) const {
 	return link->getName() < name;
 }
 
-bool LinkCompare::operator() (const std::string &name, const std::shared_ptr<Link> &link) const {
+bool LinkCompare::operator() (const std::string &name, const smarter::shared_ptr<Link> &link) const {
 	return name < link->getName();
 }
 
@@ -48,7 +48,7 @@ void RegularFile::serve(smarter::shared_ptr<RegularFile> file) {
 			file, &File::fileOperations, file->_cancelServe));
 }
 
-RegularFile::RegularFile(std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link)
+RegularFile::RegularFile(std::shared_ptr<MountView> mount, smarter::shared_ptr<FsLink> link)
 : FileWithDefaults{FileKind::unknown,  StructName::get("procfs.attr"), std::move(mount), std::move(link)},
 		_cached{false}, _offset{0} { }
 
@@ -139,7 +139,7 @@ void DirectoryFile::serve(smarter::shared_ptr<DirectoryFile> file) {
 			file, &File::fileOperations, file->_cancelServe));
 }
 
-DirectoryFile::DirectoryFile(std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link)
+DirectoryFile::DirectoryFile(std::shared_ptr<MountView> mount, smarter::shared_ptr<FsLink> link)
 : FileWithDefaults{FileKind::unknown,  StructName::get("procfs.dir"), std::move(mount), std::move(link)},
 		_node{static_cast<DirectoryNode *>(associatedLink()->getTarget().get())},
 		_iter{_node->_entries.begin()} { }
@@ -175,16 +175,16 @@ helix::BorrowedDescriptor DirectoryFile::getPassthroughLane() {
 // Link implementation.
 // ----------------------------------------------------------------------------
 
-Link::Link(std::shared_ptr<FsNode> target)
+Link::Link(smarter::shared_ptr<FsNode> target)
 : _target{std::move(target)} { }
 
-Link::Link(std::shared_ptr<FsNode> owner, std::string name, std::shared_ptr<FsNode> target)
+Link::Link(smarter::shared_ptr<FsNode> owner, std::string name, smarter::shared_ptr<FsNode> target)
 : _owner{std::move(owner)}, _name{std::move(name)}, _target{std::move(target)} {
 	assert(_owner);
 	assert(!_name.empty());
 }
 
-std::shared_ptr<FsNode> Link::getOwner() {
+smarter::shared_ptr<FsNode> Link::getOwner() {
 	return _owner;
 }
 
@@ -194,14 +194,14 @@ std::string Link::getName() {
 	return _name;
 }
 
-std::shared_ptr<FsNode> Link::getTarget() {
+smarter::shared_ptr<FsNode> Link::getTarget() {
 	return _target;
 }
 
 void Link::unlinkSelf() {
 	assert(_target->getType() == VfsType::directory);
 
-	auto node = std::static_pointer_cast<DirectoryNode>(_owner);
+	auto node = smarter::static_pointer_cast<DirectoryNode>(_owner);
 	auto err = node->directUnlink(_name);
 	assert(err == Error::success);
 }
@@ -257,7 +257,7 @@ async::result<frg::expected<Error, FileStats>> RegularNode::getStatsInternal(Thr
 }
 
 async::result<frg::expected<Error, smarter::shared_ptr<File, FileHandle>>>
-RegularNode::open(Process *, std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link,
+RegularNode::open(Process *, std::shared_ptr<MountView> mount, smarter::shared_ptr<FsLink> link,
 		SemanticFlags semantic_flags) {
 	if(semantic_flags & ~(semanticNonBlock | semanticRead | semanticWrite)){
 		std::cout << "\e[31mposix: procfs RegularNode open() received illegal arguments:"
@@ -273,12 +273,12 @@ RegularNode::open(Process *, std::shared_ptr<MountView> mount, std::shared_ptr<F
 	co_return File::constructHandle(std::move(file));
 }
 
-FutureMaybe<std::shared_ptr<FsNode>> SuperBlock::createRegular(Process *) {
+FutureMaybe<smarter::shared_ptr<FsNode>> SuperBlock::createRegular(Process *) {
 	std::cout << "posix: createRegular on procfs Superblock unsupported" << std::endl;
 	co_return nullptr;
 }
 
-async::result<frg::expected<Error, std::shared_ptr<FsLink>>>
+async::result<frg::expected<Error, smarter::shared_ptr<FsLink>>>
 SuperBlock::rename(FsLink *, FsNode *, std::string) {
 	co_return Error::noSuchFile;
 };
@@ -293,34 +293,34 @@ async::result<frg::expected<Error, FsStats>> SuperBlock::getFsStats() {
 // DirectoryNode implementation.
 // ----------------------------------------------------------------------------
 
-std::shared_ptr<Link> DirectoryNode::createRootDirectory() {
-	auto node = std::make_shared<DirectoryNode>();
+smarter::shared_ptr<Link> DirectoryNode::createRootDirectory() {
+	auto node = makeFsShared<DirectoryNode>();
 	auto the_node = node.get();
-	auto link = std::make_shared<Link>(std::move(node));
+	auto link = makeFsShared<Link>(std::move(node));
 	the_node->_treeLink = link.get();
 
-	auto self_link = std::make_shared<Link>(the_node->shared_from_this(), "self", std::make_shared<SelfLink>());
+	auto self_link = makeFsShared<Link>(the_node->sharedFromThis(), "self", makeFsShared<SelfLink>());
 	the_node->_entries.insert(std::move(self_link));
 
-	auto self_thread_link = std::make_shared<Link>(the_node->shared_from_this(), "thread-self", std::make_shared<SelfThreadLink>());
+	auto self_thread_link = makeFsShared<Link>(the_node->sharedFromThis(), "thread-self", makeFsShared<SelfThreadLink>());
 	the_node->_entries.insert(std::move(self_thread_link));
 
-	the_node->directMkregular("uptime", std::make_shared<UptimeNode>());
-	the_node->directMknode("mounts", std::make_shared<MountsLink>());
+	the_node->directMkregular("uptime", makeFsShared<UptimeNode>());
+	the_node->directMknode("mounts", makeFsShared<MountsLink>());
 
 	auto sysLink = the_node->directMkdir("sys");
-	auto sys = std::static_pointer_cast<DirectoryNode>(sysLink->getTarget());
+	auto sys = smarter::static_pointer_cast<DirectoryNode>(sysLink->getTarget());
 	auto kernelLink = sys->directMkdir("kernel");
-	auto kernel = std::static_pointer_cast<DirectoryNode>(kernelLink->getTarget());
+	auto kernel = smarter::static_pointer_cast<DirectoryNode>(kernelLink->getTarget());
 	auto randomLink = kernel->directMkdir("random");
-	auto random = std::static_pointer_cast<DirectoryNode>(randomLink->getTarget());
+	auto random = smarter::static_pointer_cast<DirectoryNode>(randomLink->getTarget());
 
-	kernel->directMkregular("ostype", std::make_shared<OstypeNode>());
-	kernel->directMkregular("osrelease", std::make_shared<OsreleaseNode>());
-	kernel->directMkregular("arch", std::make_shared<ArchNode>());
-	kernel->directMkregular("hostname", std::make_shared<HostnameNode>());
+	kernel->directMkregular("ostype", makeFsShared<OstypeNode>());
+	kernel->directMkregular("osrelease", makeFsShared<OsreleaseNode>());
+	kernel->directMkregular("arch", makeFsShared<ArchNode>());
+	kernel->directMkregular("hostname", makeFsShared<HostnameNode>());
 
-	random->directMkregular("boot_id", std::make_shared<BootIdNode>());
+	random->directMkregular("boot_id", makeFsShared<BootIdNode>());
 
 	return link;
 }
@@ -328,19 +328,19 @@ std::shared_ptr<Link> DirectoryNode::createRootDirectory() {
 DirectoryNode::DirectoryNode()
 : FsNode{&procfsSuperblock}, _treeLink{nullptr} { }
 
-std::shared_ptr<Link> DirectoryNode::directMkregular(std::string name,
-		std::shared_ptr<RegularNode> regular) {
+smarter::shared_ptr<Link> DirectoryNode::directMkregular(std::string name,
+		smarter::shared_ptr<RegularNode> regular) {
 	assert(_entries.find(name) == _entries.end());
-	auto link = std::make_shared<Link>(shared_from_this(), name, std::move(regular));
+	auto link = makeFsShared<Link>(sharedFromThis(), name, std::move(regular));
 	_entries.insert(link);
 	return link;
 }
 
-std::shared_ptr<Link> DirectoryNode::directMkdir(std::string name) {
+smarter::shared_ptr<Link> DirectoryNode::directMkdir(std::string name) {
 	assert(_entries.find(name) == _entries.end());
-	auto node = std::make_shared<DirectoryNode>();
+	auto node = makeFsShared<DirectoryNode>();
 	auto the_node = node.get();
-	auto link = std::make_shared<Link>(shared_from_this(), std::move(name), std::move(node));
+	auto link = makeFsShared<Link>(sharedFromThis(), std::move(name), std::move(node));
 	_entries.insert(link);
 	the_node->_treeLink = link.get();
 	return link;
@@ -348,46 +348,46 @@ std::shared_ptr<Link> DirectoryNode::directMkdir(std::string name) {
 
 template<typename T>
 requires requires (T t) { {t._treeLink} -> std::same_as<Link *&>; }
-std::shared_ptr<Link> DirectoryNode::directMknodeDir(std::string name, std::shared_ptr<T> dirnode) {
+smarter::shared_ptr<Link> DirectoryNode::directMknodeDir(std::string name, smarter::shared_ptr<T> dirnode) {
 	assert(_entries.find(name) == _entries.end());
 	auto dirnodePtr = dirnode.get();
-	auto link = std::make_shared<Link>(shared_from_this(), name, std::move(dirnode));
+	auto link = makeFsShared<Link>(sharedFromThis(), name, std::move(dirnode));
 	dirnodePtr->_treeLink = link.get();
 	_entries.insert(link);
 	return link;
 }
 
-std::shared_ptr<Link> DirectoryNode::directMknode(std::string name, std::shared_ptr<FsNode> node) {
+smarter::shared_ptr<Link> DirectoryNode::directMknode(std::string name, smarter::shared_ptr<FsNode> node) {
 	assert(_entries.find(name) == _entries.end());
-	auto link = std::make_shared<Link>(shared_from_this(), name, std::move(node));
+	auto link = makeFsShared<Link>(sharedFromThis(), name, std::move(node));
 	_entries.insert(link);
 	return link;
 }
 
-std::shared_ptr<Link> DirectoryNode::createProcDirectory(Process *process) {
+smarter::shared_ptr<Link> DirectoryNode::createProcDirectory(Process *process) {
 	auto link = directMkdir(std::to_string(process->pid()));
 	auto proc_dir = static_cast<DirectoryNode*>(link->getTarget().get());
 
-	proc_dir->directMknode("exe", std::make_shared<ExeLink>(process));
-	proc_dir->directMknode("root", std::make_shared<RootLink>(process));
-	proc_dir->directMknode("cwd", std::make_shared<CwdLink>(process));
-	proc_dir->directMknodeDir("fd", std::make_shared<FdDirectoryNode>(process));
-	proc_dir->directMknodeDir("fdinfo", std::make_shared<FdInfoDirectoryNode>(process));
-	proc_dir->directMkregular("maps", std::make_shared<MapNode>(process));
-	proc_dir->directMkregular("comm", std::make_shared<CommNode>(process));
-	proc_dir->directMkregular("stat", std::make_shared<StatNode>(process));
-	proc_dir->directMkregular("statm", std::make_shared<StatmNode>(process));
-	proc_dir->directMkregular("status", std::make_shared<ProcessStatusNode>(process->threadGroup()->weak_from_this()));
-	proc_dir->directMkregular("cgroup", std::make_shared<CgroupNode>(process));
-	proc_dir->directMkregular("mounts", std::make_shared<MountsNode>(process));
-	proc_dir->directMkregular("mountinfo", std::make_shared<MountInfoNode>(process));
+	proc_dir->directMknode("exe", makeFsShared<ExeLink>(process));
+	proc_dir->directMknode("root", makeFsShared<RootLink>(process));
+	proc_dir->directMknode("cwd", makeFsShared<CwdLink>(process));
+	proc_dir->directMknodeDir("fd", makeFsShared<FdDirectoryNode>(process));
+	proc_dir->directMknodeDir("fdinfo", makeFsShared<FdInfoDirectoryNode>(process));
+	proc_dir->directMkregular("maps", makeFsShared<MapNode>(process));
+	proc_dir->directMkregular("comm", makeFsShared<CommNode>(process));
+	proc_dir->directMkregular("stat", makeFsShared<StatNode>(process));
+	proc_dir->directMkregular("statm", makeFsShared<StatmNode>(process));
+	proc_dir->directMkregular("status", makeFsShared<ProcessStatusNode>(process->threadGroup()->weak_from_this()));
+	proc_dir->directMkregular("cgroup", makeFsShared<CgroupNode>(process));
+	proc_dir->directMkregular("mounts", makeFsShared<MountsNode>(process));
+	proc_dir->directMkregular("mountinfo", makeFsShared<MountInfoNode>(process));
 
 	proc_dir->directMkdir("task");
 
 	return link;
 }
 
-std::shared_ptr<Link> DirectoryNode::createProcTaskDirectory(Process *process) {
+smarter::shared_ptr<Link> DirectoryNode::createProcTaskDirectory(Process *process) {
 	auto pidProcfsLink = process->threadGroup()->procfsLink();
 	// Create /proc/[pid] on demand to minimize observable states of /proc/[pid] being visible
 	// without any /proc/[pid]/task/[tid] attached.
@@ -407,8 +407,8 @@ std::shared_ptr<Link> DirectoryNode::createProcTaskDirectory(Process *process) {
 	auto tid_link = task_dir->directMkdir(std::to_string(process->tid()));
 	auto tid_dir = static_cast<DirectoryNode *>(tid_link->getTarget().get());
 
-	tid_dir->directMkregular("comm", std::make_shared<CommNode>(process));
-	tid_dir->directMkregular("status", std::make_shared<StatusNode>(process->weak_from_this()));
+	tid_dir->directMkregular("comm", makeFsShared<CommNode>(process));
+	tid_dir->directMkregular("status", makeFsShared<StatusNode>(process->weak_from_this()));
 
 	return tid_link;
 }
@@ -417,8 +417,8 @@ VfsType DirectoryNode::getType() {
 	return VfsType::directory;
 }
 
-async::result<frg::expected<Error, std::shared_ptr<FsLink>>> DirectoryNode::link(std::string,
-		std::shared_ptr<FsNode>) {
+async::result<frg::expected<Error, smarter::shared_ptr<FsLink>>> DirectoryNode::link(std::string,
+		smarter::shared_ptr<FsNode>) {
 	co_return Error::noSuchFile;
 }
 
@@ -427,15 +427,15 @@ async::result<frg::expected<Error, FileStats>> DirectoryNode::getStats() {
 	co_return FileStats{};
 }
 
-std::shared_ptr<FsLink> DirectoryNode::treeLink() {
+smarter::shared_ptr<FsLink> DirectoryNode::treeLink() {
 	assert(_treeLink);
-	auto s = _treeLink->shared_from_this();
+	auto s = _treeLink->sharedFromThis();
 	assert(s);
 	return s;
 }
 
 async::result<frg::expected<Error, smarter::shared_ptr<File, FileHandle>>>
-DirectoryNode::open(Process *, std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link,
+DirectoryNode::open(Process *, std::shared_ptr<MountView> mount, smarter::shared_ptr<FsLink> link,
 		SemanticFlags semantic_flags) {
 	if(semantic_flags & ~(semanticNonBlock | semanticRead | semanticWrite)){
 		std::cout << "\e[31mposix: procfs DirectoryNode open() received illegal arguments:"
@@ -451,7 +451,7 @@ DirectoryNode::open(Process *, std::shared_ptr<MountView> mount, std::shared_ptr
 	co_return File::constructHandle(std::move(file));
 }
 
-async::result<frg::expected<Error, std::shared_ptr<FsLink>>> DirectoryNode::getLink(std::string name) {
+async::result<frg::expected<Error, smarter::shared_ptr<FsLink>>> DirectoryNode::getLink(std::string name) {
 	auto it = _entries.find(name);
 	if(it != _entries.end())
 		co_return *it;
@@ -1159,7 +1159,7 @@ void FdDirectoryFile::serve(smarter::shared_ptr<FdDirectoryFile> file) {
 			file, &File::fileOperations, file->_cancelServe));
 }
 
-FdDirectoryFile::FdDirectoryFile(std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link, Process *process)
+FdDirectoryFile::FdDirectoryFile(std::shared_ptr<MountView> mount, smarter::shared_ptr<FsLink> link, Process *process)
 : FileWithDefaults{FileKind::unknown,  StructName::get("procfs.fddir"), std::move(mount), std::move(link)},
 		_process{process->weak_from_this()}, _fileTable{process->fileContext()->fileTable()}, _iter{_fileTable.begin()} {}
 
@@ -1200,15 +1200,15 @@ async::result<frg::expected<Error, FileStats>> FdDirectoryNode::getStats() {
 	co_return FileStats{};
 }
 
-std::shared_ptr<FsLink> FdDirectoryNode::treeLink() {
+smarter::shared_ptr<FsLink> FdDirectoryNode::treeLink() {
 	assert(_treeLink);
-	auto s = _treeLink->shared_from_this();
+	auto s = _treeLink->sharedFromThis();
 	assert(s);
 	return s;
 }
 
 async::result<frg::expected<Error, smarter::shared_ptr<File, FileHandle>>>
-FdDirectoryNode::open(Process *, std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link,
+FdDirectoryNode::open(Process *, std::shared_ptr<MountView> mount, smarter::shared_ptr<FsLink> link,
 		SemanticFlags semantic_flags) {
 	if(semantic_flags & ~(semanticNonBlock | semanticRead | semanticWrite)){
 		std::cout << "\e[31mposix: procfs FdDirectoryNode open() received illegal arguments:"
@@ -1228,7 +1228,7 @@ FdDirectoryNode::open(Process *, std::shared_ptr<MountView> mount, std::shared_p
 	co_return File::constructHandle(std::move(file));
 }
 
-async::result<frg::expected<Error, std::shared_ptr<FsLink>>> FdDirectoryNode::getLink(std::string name) {
+async::result<frg::expected<Error, smarter::shared_ptr<FsLink>>> FdDirectoryNode::getLink(std::string name) {
 	auto p = _process.lock();
 	if (!p)
 		co_return Error::noSuchProcess;
@@ -1236,13 +1236,13 @@ async::result<frg::expected<Error, std::shared_ptr<FsLink>>> FdDirectoryNode::ge
 	for(const auto &[fdnum, fd] : p->fileContext()->fileTable()) {
 		if(name != std::to_string(fdnum))
 			continue;
-		auto pointee = std::make_shared<SymlinkNode>(p.get(), fd.file->associatedMount(), fd.file->associatedLink());
-		co_return std::make_shared<Link>(shared_from_this(), name, pointee);
+		auto pointee = makeFsShared<SymlinkNode>(p.get(), fd.file->associatedMount(), fd.file->associatedLink());
+		co_return makeFsShared<Link>(sharedFromThis(), name, pointee);
 	}
 	co_return Error::noSuchFile;
 }
 
-SymlinkNode::SymlinkNode(Process* proc, std::shared_ptr<MountView> mount, std::weak_ptr<FsLink> link)
+SymlinkNode::SymlinkNode(Process* proc, std::shared_ptr<MountView> mount, smarter::weak_ptr<FsLink> link)
 : _process{proc->weak_from_this()}, _mount{std::move(mount)}, _link{std::move(link)} { }
 
 expected<std::string> SymlinkNode::readSymlink(FsLink *, Process *process) {
@@ -1406,15 +1406,15 @@ async::result<frg::expected<Error, FileStats>> FdInfoDirectoryNode::getStats() {
 	co_return FileStats{};
 }
 
-std::shared_ptr<FsLink> FdInfoDirectoryNode::treeLink() {
+smarter::shared_ptr<FsLink> FdInfoDirectoryNode::treeLink() {
 	assert(_treeLink);
-	auto s = _treeLink->shared_from_this();
+	auto s = _treeLink->sharedFromThis();
 	assert(s);
 	return s;
 }
 
 async::result<frg::expected<Error, smarter::shared_ptr<File, FileHandle>>>
-FdInfoDirectoryNode::open(Process *, std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link,
+FdInfoDirectoryNode::open(Process *, std::shared_ptr<MountView> mount, smarter::shared_ptr<FsLink> link,
 		SemanticFlags semantic_flags) {
 	if(semantic_flags & ~(semanticNonBlock | semanticRead | semanticWrite)){
 		std::cout << "\e[31mposix: procfs FdInfoDirectoryNode open() received illegal arguments:"
@@ -1434,7 +1434,7 @@ FdInfoDirectoryNode::open(Process *, std::shared_ptr<MountView> mount, std::shar
 	co_return File::constructHandle(std::move(file));
 }
 
-async::result<frg::expected<Error, std::shared_ptr<FsLink>>> FdInfoDirectoryNode::getLink(std::string name) {
+async::result<frg::expected<Error, smarter::shared_ptr<FsLink>>> FdInfoDirectoryNode::getLink(std::string name) {
 	if(!std::all_of(name.begin(), name.end(), isdigit))
 		co_return Error::noSuchFile;
 
@@ -1445,8 +1445,8 @@ async::result<frg::expected<Error, std::shared_ptr<FsLink>>> FdInfoDirectoryNode
 	auto nameNum = std::stoi(name);
 	if(p->fileContext()->fileTable().contains(nameNum)) {
 		auto file = p->fileContext()->fileTable().at(nameNum).file;
-		auto pointee = std::make_shared<FdInfoNode>(file->associatedMount(), file);
-		co_return std::make_shared<Link>(shared_from_this(), name, pointee);
+		auto pointee = makeFsShared<FdInfoNode>(file->associatedMount(), file);
+		co_return makeFsShared<Link>(sharedFromThis(), name, pointee);
 	}
 
 	co_return Error::noSuchFile;
@@ -1459,7 +1459,7 @@ void FdInfoDirectoryFile::serve(smarter::shared_ptr<FdInfoDirectoryFile> file) {
 			file, &File::fileOperations, file->_cancelServe));
 }
 
-FdInfoDirectoryFile::FdInfoDirectoryFile(std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link, Process* process)
+FdInfoDirectoryFile::FdInfoDirectoryFile(std::shared_ptr<MountView> mount, smarter::shared_ptr<FsLink> link, Process* process)
 : FileWithDefaults{FileKind::unknown,  StructName::get("procfs.fdinfodir"), std::move(mount), std::move(link)},
 		_process{process->weak_from_this()}, _fileTable{process->fileContext()->fileTable()}, _iter{_fileTable.begin()} {}
 
@@ -1505,7 +1505,7 @@ async::result<void> FdInfoNode::store(std::string) {
 
 } // namespace procfs
 
-std::shared_ptr<FsLink> getProcfs() {
-	static std::shared_ptr<FsLink> procfs = procfs::DirectoryNode::createRootDirectory();
+smarter::shared_ptr<FsLink> getProcfs() {
+	static smarter::shared_ptr<FsLink> procfs = procfs::DirectoryNode::createRootDirectory();
 	return procfs;
 }

@@ -38,9 +38,8 @@ static constexpr bool logSockets = false;
 struct OpenFile;
 
 // This map associates bound sockets with FS nodes.
-// TODO: Use plain pointers instead of weak_ptrs and store a shared_ptr inside the OpenFile.
-std::map<std::weak_ptr<FsNode>, OpenFile *,
-		std::owner_less<std::weak_ptr<FsNode>>> globalBindMap;
+// TODO: Store a shared_ptr to the node inside the OpenFile.
+std::map<FsNode *, OpenFile *> globalBindMap;
 std::unordered_map<std::string, OpenFile *> abstractSocketsBindMap;
 
 std::array<int, 3> supportedSocketTypes = {
@@ -425,7 +424,7 @@ public:
 
 					// Lookup the socket associated with the node.
 					auto node = resolver.currentLink()->getTarget();
-					remote = globalBindMap.at(node);
+					remote = globalBindMap.at(node.get());
 				}
 
 			}
@@ -595,7 +594,7 @@ public:
 			assert(nodeResult);
 			auto node = nodeResult.value();
 			// Associate the current socket with the node.
-			auto res = globalBindMap.insert({std::weak_ptr<FsNode>{node->getTarget()}, this});
+			auto res = globalBindMap.insert({node->getTarget().get(), this});
 			if(!res.second)
 				co_return protocols::fs::Error::addressInUse;
 			co_return protocols::fs::Error::none;
@@ -679,7 +678,7 @@ public:
 
 			// Lookup the socket associated with the node.
 			auto node = resolver.currentLink()->getTarget();
-			auto server = globalBindMap.at(node);
+			auto server = globalBindMap.at(node.get());
 			if(socktype_ == SOCK_STREAM) {
 				server->_acceptQueue.push_back(this);
 				server->_inSeq = ++server->_currentSeq;

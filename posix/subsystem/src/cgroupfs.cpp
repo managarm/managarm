@@ -17,15 +17,15 @@ SuperBlock cgroupfsSuperblock;
 // LinkCompare implementation.
 // ----------------------------------------------------------------------------
 
-bool LinkCompare::operator() (const std::shared_ptr<Link> &a, const std::shared_ptr<Link> &b) const {
+bool LinkCompare::operator() (const smarter::shared_ptr<Link> &a, const smarter::shared_ptr<Link> &b) const {
 	return a->getName() < b->getName();
 }
 
-bool LinkCompare::operator() (const std::shared_ptr<Link> &link, const std::string &name) const {
+bool LinkCompare::operator() (const smarter::shared_ptr<Link> &link, const std::string &name) const {
 	return link->getName() < name;
 }
 
-bool LinkCompare::operator() (const std::string &name, const std::shared_ptr<Link> &link) const {
+bool LinkCompare::operator() (const std::string &name, const smarter::shared_ptr<Link> &link) const {
 	return name < link->getName();
 }
 
@@ -42,7 +42,7 @@ void RegularFile::serve(smarter::shared_ptr<RegularFile> file) {
 			file, &File::fileOperations, file->_cancelServe));
 }
 
-RegularFile::RegularFile(std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link)
+RegularFile::RegularFile(std::shared_ptr<MountView> mount, smarter::shared_ptr<FsLink> link)
 : FileWithDefaults{FileKind::unknown,  StructName::get("cgroupfs.file"), std::move(mount), std::move(link)},
 		_cached{false}, _offset{0} { }
 
@@ -105,7 +105,7 @@ void DirectoryFile::serve(smarter::shared_ptr<DirectoryFile> file) {
 			file, &File::fileOperations, file->_cancelServe));
 }
 
-DirectoryFile::DirectoryFile(std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link)
+DirectoryFile::DirectoryFile(std::shared_ptr<MountView> mount, smarter::shared_ptr<FsLink> link)
 : FileWithDefaults{FileKind::unknown,  StructName::get("cgroupfs.dir"), std::move(mount), std::move(link)},
 		_node{static_cast<DirectoryNode *>(associatedLink()->getTarget().get())},
 		_iter{_node->_entries.begin()} { }
@@ -141,16 +141,16 @@ helix::BorrowedDescriptor DirectoryFile::getPassthroughLane() {
 // Link implementation.
 // ----------------------------------------------------------------------------
 
-Link::Link(std::shared_ptr<FsNode> target)
+Link::Link(smarter::shared_ptr<FsNode> target)
 : _target{std::move(target)} { }
 
-Link::Link(std::shared_ptr<FsNode> owner, std::string name, std::shared_ptr<FsNode> target)
+Link::Link(smarter::shared_ptr<FsNode> owner, std::string name, smarter::shared_ptr<FsNode> target)
 : _owner{std::move(owner)}, _name{std::move(name)}, _target{std::move(target)} {
 	assert(_owner);
 	assert(!_name.empty());
 }
 
-std::shared_ptr<FsNode> Link::getOwner() {
+smarter::shared_ptr<FsNode> Link::getOwner() {
 	return _owner;
 }
 
@@ -160,7 +160,7 @@ std::string Link::getName() {
 	return _name;
 }
 
-std::shared_ptr<FsNode> Link::getTarget() {
+smarter::shared_ptr<FsNode> Link::getTarget() {
 	return _target;
 }
 
@@ -196,7 +196,7 @@ async::result<frg::expected<Error, FileStats>> RegularNode::getStats() {
 }
 
 async::result<frg::expected<Error, smarter::shared_ptr<File, FileHandle>>>
-RegularNode::open(Process *, std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link,
+RegularNode::open(Process *, std::shared_ptr<MountView> mount, smarter::shared_ptr<FsLink> link,
 		SemanticFlags semantic_flags) {
 	if(semantic_flags & ~(semanticNonBlock | semanticRead | semanticWrite)){
 		std::cout << "\e[31mposix: cgroupfs RegularNode open() received illegal arguments:"
@@ -212,12 +212,12 @@ RegularNode::open(Process *, std::shared_ptr<MountView> mount, std::shared_ptr<F
 	co_return File::constructHandle(std::move(file));
 }
 
-FutureMaybe<std::shared_ptr<FsNode>> SuperBlock::createRegular(Process *) {
+FutureMaybe<smarter::shared_ptr<FsNode>> SuperBlock::createRegular(Process *) {
 	std::cout << "posix: createRegular on cgroupfs Superblock unsupported" << std::endl;
 	co_return nullptr;
 }
 
-async::result<frg::expected<Error, std::shared_ptr<FsLink>>>
+async::result<frg::expected<Error, smarter::shared_ptr<FsLink>>>
 SuperBlock::rename(FsLink *, FsNode *, std::string) {
 	co_return Error::noSuchFile;
 };
@@ -232,13 +232,13 @@ async::result<frg::expected<Error, FsStats>> SuperBlock::getFsStats() {
 // DirectoryNode implementation.
 // ----------------------------------------------------------------------------
 
-std::shared_ptr<Link> DirectoryNode::createRootDirectory() {
-	auto node = std::make_shared<DirectoryNode>();
+smarter::shared_ptr<Link> DirectoryNode::createRootDirectory() {
+	auto node = makeFsShared<DirectoryNode>();
 	auto the_node = node.get();
-	auto link = std::make_shared<Link>(std::move(node));
+	auto link = makeFsShared<Link>(std::move(node));
 	the_node->_treeLink = link.get();
 
-	// the_node->directMkregular("cgroup.controllers", std::make_shared<ControllersNode>());
+	// the_node->directMkregular("cgroup.controllers", makeFsShared<ControllersNode>());
 	the_node->createCgroupFiles();
 
 	return link;
@@ -247,34 +247,34 @@ std::shared_ptr<Link> DirectoryNode::createRootDirectory() {
 DirectoryNode::DirectoryNode()
 : FsNode{&cgroupfsSuperblock}, _treeLink{nullptr} { }
 
-std::shared_ptr<Link> DirectoryNode::directMkregular(std::string name,
-		std::shared_ptr<RegularNode> regular) {
+smarter::shared_ptr<Link> DirectoryNode::directMkregular(std::string name,
+		smarter::shared_ptr<RegularNode> regular) {
 	assert(_entries.find(name) == _entries.end());
-	auto link = std::make_shared<Link>(shared_from_this(), name, std::move(regular));
+	auto link = makeFsShared<Link>(sharedFromThis(), name, std::move(regular));
 	_entries.insert(link);
 	return link;
 }
 
-std::shared_ptr<Link> DirectoryNode::directMkdir(std::string name) {
+smarter::shared_ptr<Link> DirectoryNode::directMkdir(std::string name) {
 	assert(_entries.find(name) == _entries.end());
-	auto node = std::make_shared<DirectoryNode>();
+	auto node = makeFsShared<DirectoryNode>();
 	auto the_node = node.get();
-	auto link = std::make_shared<Link>(shared_from_this(), std::move(name), std::move(node));
+	auto link = makeFsShared<Link>(sharedFromThis(), std::move(name), std::move(node));
 	_entries.insert(link);
 	the_node->_treeLink = link.get();
 	return link;
 }
 
-async::result<std::variant<Error, std::shared_ptr<FsLink>>> DirectoryNode::mkdir(Process *, std::string name, mode_t) {
+async::result<std::variant<Error, smarter::shared_ptr<FsLink>>> DirectoryNode::mkdir(Process *, std::string name, mode_t) {
 	if(!(_entries.find(name) == _entries.end()))
 		co_return Error::alreadyExists;
 	auto link = createCgroupDirectory(name);
 	co_return link;
 }
 
-std::shared_ptr<Link> DirectoryNode::directMknode(std::string name, std::shared_ptr<FsNode> node) {
+smarter::shared_ptr<Link> DirectoryNode::directMknode(std::string name, smarter::shared_ptr<FsNode> node) {
 	assert(_entries.find(name) == _entries.end());
-	auto link = std::make_shared<Link>(shared_from_this(), name, std::move(node));
+	auto link = makeFsShared<Link>(sharedFromThis(), name, std::move(node));
 	_entries.insert(link);
 	return link;
 }
@@ -283,8 +283,8 @@ VfsType DirectoryNode::getType() {
 	return VfsType::directory;
 }
 
-async::result<frg::expected<Error, std::shared_ptr<FsLink>>> DirectoryNode::link(std::string,
-		std::shared_ptr<FsNode>) {
+async::result<frg::expected<Error, smarter::shared_ptr<FsLink>>> DirectoryNode::link(std::string,
+		smarter::shared_ptr<FsNode>) {
 	co_return Error::noSuchFile;
 }
 
@@ -308,13 +308,13 @@ async::result<frg::expected<Error, FileStats>> DirectoryNode::getStats() {
 	co_return stats;
 }
 
-std::shared_ptr<FsLink> DirectoryNode::treeLink() {
+smarter::shared_ptr<FsLink> DirectoryNode::treeLink() {
 	// TODO: Even the root should return a valid link.
-	return _treeLink ? _treeLink->shared_from_this() : nullptr;
+	return _treeLink ? _treeLink->sharedFromThis() : nullptr;
 }
 
 async::result<frg::expected<Error, smarter::shared_ptr<File, FileHandle>>>
-DirectoryNode::open(Process *, std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link,
+DirectoryNode::open(Process *, std::shared_ptr<MountView> mount, smarter::shared_ptr<FsLink> link,
 		SemanticFlags semantic_flags) {
 	if(semantic_flags & ~(semanticNonBlock | semanticRead | semanticWrite)){
 		std::cout << "\e[31mposix: cgroup DirectoryNode open() received illegal arguments:"
@@ -330,7 +330,7 @@ DirectoryNode::open(Process *, std::shared_ptr<MountView> mount, std::shared_ptr
 	co_return File::constructHandle(std::move(file));
 }
 
-async::result<frg::expected<Error, std::shared_ptr<FsLink>>> DirectoryNode::getLink(std::string name) {
+async::result<frg::expected<Error, smarter::shared_ptr<FsLink>>> DirectoryNode::getLink(std::string name) {
 	auto it = _entries.find(name);
 	if(it != _entries.end())
 		co_return *it;
@@ -345,7 +345,7 @@ async::result<frg::expected<Error>> DirectoryNode::unlink(std::string name) {
 	co_return frg::expected<Error>{};
 }
 
-std::shared_ptr<Link> DirectoryNode::createCgroupDirectory(std::string name) {
+smarter::shared_ptr<Link> DirectoryNode::createCgroupDirectory(std::string name) {
 	auto link = directMkdir(name);
 	auto cgroup_dir = static_cast<DirectoryNode*>(link->getTarget().get());
 
@@ -355,8 +355,8 @@ std::shared_ptr<Link> DirectoryNode::createCgroupDirectory(std::string name) {
 }
 
 void DirectoryNode::createCgroupFiles() {
-	this->directMkregular("cgroup.procs", std::make_shared<ProcsNode>());
-	this->directMkregular("cgroup.controllers", std::make_shared<ControllersNode>());
+	this->directMkregular("cgroup.procs", makeFsShared<ProcsNode>());
+	this->directMkregular("cgroup.controllers", makeFsShared<ControllersNode>());
 }
 
 async::result<std::string> ProcsNode::show() {
@@ -394,7 +394,7 @@ LinkNode::LinkNode()
 
 } // namespace cgroupfs
 
-std::shared_ptr<FsLink> getCgroupfs() {
-	static std::shared_ptr<FsLink> cgroupfs = cgroupfs::DirectoryNode::createRootDirectory();
+smarter::shared_ptr<FsLink> getCgroupfs() {
+	static smarter::shared_ptr<FsLink> cgroupfs = cgroupfs::DirectoryNode::createRootDirectory();
 	return cgroupfs;
 }

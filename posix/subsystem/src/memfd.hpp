@@ -14,7 +14,7 @@ public:
 				file, &fileOperations, file->_cancelServe));
 	}
 
-	MemoryFile(std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link, bool allowSealing)
+	MemoryFile(std::shared_ptr<MountView> mount, smarter::shared_ptr<FsLink> link, bool allowSealing)
 	: FileWithDefaults{FileKind::unknown,  StructName::get("memfd-file"), mount, link}, _offset{0} {
 		if(!allowSealing) {
 			_seals = F_SEAL_SEAL;
@@ -66,13 +66,13 @@ private:
 // MemoryFileLink class.
 // ----------------------------------------------------------------------------
 
-struct MemoryFileLink final : FsLink, std::enable_shared_from_this<MemoryFileLink> {
+struct MemoryFileLink final : FsLink {
 private:
 	struct PrivateTag { }; // To tag-dispatch to private methods.
 
 public:
-	static std::shared_ptr<MemoryFileLink> makeMemoryFileLink(int mode) {
-		return std::make_shared<MemoryFileLink>(PrivateTag{}, mode);
+	static smarter::shared_ptr<MemoryFileLink> makeMemoryFileLink(int mode) {
+		return makeFsShared<MemoryFileLink>(PrivateTag{}, mode);
 	}
 
 	MemoryFileLink(PrivateTag, int mode)
@@ -83,11 +83,11 @@ public:
 	}
 
 public:
-	std::shared_ptr<FsNode> getTarget() override {
-		return {shared_from_this(), &embeddedNode_};
+	smarter::shared_ptr<FsNode> getTarget() override {
+		return {sharedFromThis(), &embeddedNode_};
 	}
 
-	std::shared_ptr<FsNode> getOwner() override {
+	smarter::shared_ptr<FsNode> getOwner() override {
 		return nullptr;
 	}
 
