@@ -312,11 +312,6 @@ private:
 		return VfsType::directory;
 	}
 
-	smarter::shared_ptr<FsLink> treeLink() override {
-		assert(_treeLink);
-		return _treeLink;
-	}
-
 	async::result<frg::expected<Error, smarter::shared_ptr<File, FileHandle>>>
 	open(Process *, std::shared_ptr<MountView> mount, smarter::shared_ptr<FsLink> link,
 			SemanticFlags semantic_flags) override {
@@ -411,7 +406,6 @@ public:
 
 private:
 	// TODO: This creates a circular reference -- fix this.
-	smarter::shared_ptr<Link> _treeLink;
 	std::set<smarter::shared_ptr<Link>, LinkCompare> _entries;
 };
 
@@ -622,8 +616,7 @@ struct Superblock final : FsSuperblock {
 		dest_dir->_entries.insert(new_link);
 
 		if(target->getType() == VfsType::directory) {
-			// The moved directory's tree link and '..' backlink follow it to dest_dir.
-			static_cast<DirectoryNode *>(target.get())->_treeLink = new_link;
+			// Account for the moved directory's '..' backlink.
 			if(src_dir != dest_dir) {
 				src_dir->adjustLinkCount(-1);
 				dest_dir->adjustLinkCount(1);
@@ -826,7 +819,7 @@ DirectoryFile::readEntries() {
 	// '.' and '..' are not stored in _entries; synthesize them before iterating.
 	if(_dots != DotEntriesPhase::done) {
 		// The parent of the root directory is the root itself.
-		auto owner = _node->treeLink()->getParentNode();
+		auto owner = associatedLink()->getParentNode();
 		auto parent = owner ? static_cast<Node *>(owner.get()) : static_cast<Node *>(_node);
 		if(auto entry = nextDotEntry(_dots, _node->inodeNumber(), parent->inodeNumber()); entry)
 			co_return *entry;
@@ -924,9 +917,7 @@ SocketNode::SocketNode(Superblock *superblock, mode_t mode, uid_t uid, gid_t gid
 
 smarter::shared_ptr<Link> DirectoryNode::createRootDirectory(Superblock *superblock, int mode, uid_t uid, gid_t gid) {
 	auto node = makeFsShared<DirectoryNode>(superblock, mode, uid, gid);
-	auto the_node = node.get();
 	auto link = makeFsShared<Link>(std::move(node));
-	the_node->_treeLink = link;
 	return link;
 }
 
@@ -965,9 +956,7 @@ DirectoryNode::mkdir(FsLink *parent, Process *proc, std::string name, mode_t mod
 	auto gid = proc ? proc->threadGroup()->gid() : 0;
 
 	auto node = makeFsShared<DirectoryNode>(static_cast<Superblock *>(superblock()), mode & ~umask, uid, gid);
-	auto the_node = node.get();
 	auto link = makeFsShared<Link>(parent->sharedFromThis(), name, std::move(node));
-	the_node->_treeLink = link;
 	_entries.insert(link);
 	// Account for the new subdirectory's '..' backlink.
 	adjustLinkCount(1);

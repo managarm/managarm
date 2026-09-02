@@ -77,10 +77,6 @@ async::result<frg::expected<Error, FileStats>> FsNode::getStats() {
 	co_return Error::illegalOperationTarget;
 }
 
-smarter::shared_ptr<FsLink> FsNode::treeLink() {
-	throw std::runtime_error("treeLink() is not implemented for this FsNode");
-}
-
 void FsNode::addObserver(std::shared_ptr<FsObserver> observer) {
 	if(!(_defaultOps & defaultSupportsObservers))
 		std::cout << "\e[31m" "posix: FsNode does not support observers" "\e[39m" << std::endl;

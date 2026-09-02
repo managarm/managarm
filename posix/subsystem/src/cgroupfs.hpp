@@ -144,17 +144,16 @@ struct DirectoryNode final : FsNode {
 
 	DirectoryNode();
 
-	smarter::shared_ptr<Link> directMkregular(std::string name,
+	smarter::shared_ptr<Link> directMkregular(FsLink *parent, std::string name,
 			smarter::shared_ptr<RegularNode> regular);
-	smarter::shared_ptr<Link> directMknode(std::string name,
+	smarter::shared_ptr<Link> directMknode(FsLink *parent, std::string name,
 			smarter::shared_ptr<FsNode> node);
-	smarter::shared_ptr<Link> directMkdir(std::string name);
+	smarter::shared_ptr<Link> directMkdir(FsLink *parent, std::string name);
 	async::result<std::variant<Error, smarter::shared_ptr<FsLink>>>
 	mkdir(FsLink *parent, Process *, std::string name, mode_t mode) override;
 
 	VfsType getType() override;
 	async::result<frg::expected<Error, FileStats>> getStats() override;
-	smarter::shared_ptr<FsLink> treeLink() override;
 
 	async::result<frg::expected<Error, smarter::shared_ptr<FsLink>>> link(FsLink *parent, std::string name,
 			smarter::shared_ptr<FsNode> target) override;
@@ -169,11 +168,10 @@ struct DirectoryNode final : FsNode {
 		co_return Error::success;
 	}
 
-	smarter::shared_ptr<Link> createCgroupDirectory(std::string name);
-	void createCgroupFiles();
+	smarter::shared_ptr<Link> createCgroupDirectory(FsLink *parent, std::string name);
+	void createCgroupFiles(FsLink *parent);
 
 private:
-	Link *_treeLink;
 	std::set<smarter::shared_ptr<Link>, LinkCompare> _entries;
 };
 

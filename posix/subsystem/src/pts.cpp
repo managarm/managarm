@@ -617,13 +617,10 @@ public:
 		return VfsType::directory;
 	}
 
-	void linkDevice(std::string name, smarter::shared_ptr<DeviceNode> node) {
-		auto link = makeFsShared<Link>(treeLink(), name, std::move(node));
+	void linkDevice(FsLink *parent, std::string name,
+			smarter::shared_ptr<DeviceNode> node) {
+		auto link = makeFsShared<Link>(parent->sharedFromThis(), name, std::move(node));
 		_entries.insert(std::move(link));
-	}
-
-	smarter::shared_ptr<FsLink> treeLink() override {
-		return globalRootLink;
 	}
 
 	async::result<frg::expected<Error, FileStats>> getStats() override {
@@ -919,7 +916,7 @@ MasterFile::MasterFile(std::shared_ptr<MountView> mount, smarter::shared_ptr<FsL
 	auto slave_device = std::make_shared<SlaveDevice>(_channel);
 	charRegistry.install(std::move(slave_device));
 
-	globalRootLink->rootNode()->linkDevice(std::to_string(_channel->ptsIndex),
+	globalRootLink->rootNode()->linkDevice(globalRootLink.get(), std::to_string(_channel->ptsIndex),
 			makeFsShared<DeviceNode>(DeviceId{136, _channel->ptsIndex}));
 }
 

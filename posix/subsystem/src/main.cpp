@@ -186,7 +186,7 @@ async::result<void> enumerateKerncfg() {
 	affinityMaskSize = (numCpuResp->num_cpu() + 7) / 8;
 
 	auto procfsRoot = smarter::static_pointer_cast<procfs::DirectoryNode>(getProcfs()->getTarget());
-	procfsRoot->directMkregular("cmdline", makeFsShared<CmdlineNode>());
+	procfsRoot->directMkregular(getProcfs().get(), "cmdline", makeFsShared<CmdlineNode>());
 }
 
 async::result<void> enumeratePm() {

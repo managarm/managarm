@@ -95,7 +95,7 @@ Device::Device(std::shared_ptr<Device> parent, std::shared_ptr<sysfs::Object> pa
 
 std::string Device::getSysfsPath() {
 	std::string path = name();
-	auto link = directoryNode()->treeLink()->getParent();
+	auto link = dirLink()->getParent();
 	while(link->getParent()) {
 		path = link->getName() + '/' + path;
 		link = link->getParent();

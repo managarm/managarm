@@ -236,45 +236,41 @@ smarter::shared_ptr<Link> DirectoryNode::createRootDirectory() {
 	auto node = makeFsShared<DirectoryNode>();
 	auto the_node = node.get();
 	auto link = makeFsShared<Link>(std::move(node));
-	the_node->_treeLink = link.get();
 
-	// the_node->directMkregular("cgroup.controllers", makeFsShared<ControllersNode>());
-	the_node->createCgroupFiles();
+	the_node->createCgroupFiles(link.get());
 
 	return link;
 }
 
 DirectoryNode::DirectoryNode()
-: FsNode{&cgroupfsSuperblock}, _treeLink{nullptr} { }
+: FsNode{&cgroupfsSuperblock} { }
 
-smarter::shared_ptr<Link> DirectoryNode::directMkregular(std::string name,
+smarter::shared_ptr<Link> DirectoryNode::directMkregular(FsLink *parent, std::string name,
 		smarter::shared_ptr<RegularNode> regular) {
 	assert(_entries.find(name) == _entries.end());
-	auto link = makeFsShared<Link>(treeLink(), name, std::move(regular));
+	auto link = makeFsShared<Link>(parent->sharedFromThis(), name, std::move(regular));
 	_entries.insert(link);
 	return link;
 }
 
-smarter::shared_ptr<Link> DirectoryNode::directMkdir(std::string name) {
+smarter::shared_ptr<Link> DirectoryNode::directMkdir(FsLink *parent, std::string name) {
 	assert(_entries.find(name) == _entries.end());
 	auto node = makeFsShared<DirectoryNode>();
-	auto the_node = node.get();
-	auto link = makeFsShared<Link>(treeLink(), std::move(name), std::move(node));
+	auto link = makeFsShared<Link>(parent->sharedFromThis(), std::move(name), std::move(node));
 	_entries.insert(link);
-	the_node->_treeLink = link.get();
 	return link;
 }
 
 async::result<std::variant<Error, smarter::shared_ptr<FsLink>>> DirectoryNode::mkdir(FsLink *parent, Process *, std::string name, mode_t) {
 	if(!(_entries.find(name) == _entries.end()))
 		co_return Error::alreadyExists;
-	auto link = createCgroupDirectory(name);
+	auto link = createCgroupDirectory(parent, name);
 	co_return link;
 }
 
-smarter::shared_ptr<Link> DirectoryNode::directMknode(std::string name, smarter::shared_ptr<FsNode> node) {
+smarter::shared_ptr<Link> DirectoryNode::directMknode(FsLink *parent, std::string name, smarter::shared_ptr<FsNode> node) {
 	assert(_entries.find(name) == _entries.end());
-	auto link = makeFsShared<Link>(treeLink(), name, std::move(node));
+	auto link = makeFsShared<Link>(parent->sharedFromThis(), name, std::move(node));
 	_entries.insert(link);
 	return link;
 }
@@ -306,11 +302,6 @@ async::result<frg::expected<Error, FileStats>> DirectoryNode::getStats() {
 	stats.ctimeSecs = now.tv_sec;
 	stats.ctimeNanos = now.tv_nsec;
 	co_return stats;
-}
-
-smarter::shared_ptr<FsLink> DirectoryNode::treeLink() {
-	// TODO: Even the root should return a valid link.
-	return _treeLink ? _treeLink->sharedFromThis() : nullptr;
 }
 
 async::result<frg::expected<Error, smarter::shared_ptr<File, FileHandle>>>
@@ -345,18 +336,18 @@ async::result<frg::expected<Error>> DirectoryNode::unlink(std::string name) {
 	co_return frg::expected<Error>{};
 }
 
-smarter::shared_ptr<Link> DirectoryNode::createCgroupDirectory(std::string name) {
-	auto link = directMkdir(name);
+smarter::shared_ptr<Link> DirectoryNode::createCgroupDirectory(FsLink *parent, std::string name) {
+	auto link = directMkdir(parent, name);
 	auto cgroup_dir = static_cast<DirectoryNode*>(link->getTarget().get());
 
-	cgroup_dir->createCgroupFiles();
+	cgroup_dir->createCgroupFiles(link.get());
 
 	return link;
 }
 
-void DirectoryNode::createCgroupFiles() {
-	this->directMkregular("cgroup.procs", makeFsShared<ProcsNode>());
-	this->directMkregular("cgroup.controllers", makeFsShared<ControllersNode>());
+void DirectoryNode::createCgroupFiles(FsLink *parent) {
+	this->directMkregular(parent, "cgroup.procs", makeFsShared<ProcsNode>());
+	this->directMkregular(parent, "cgroup.controllers", makeFsShared<ControllersNode>());
 }
 
 async::result<std::string> ProcsNode::show() {

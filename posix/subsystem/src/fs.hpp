@@ -181,10 +181,6 @@ public:
 	// TODO: This should be async.
 	virtual async::result<frg::expected<Error, FileStats>> getStats();
 
-	// For directories only: Returns a pointer to the link
-	// that links this directory from its parent.
-	virtual smarter::shared_ptr<FsLink> treeLink();
-
 	virtual void addObserver(std::shared_ptr<FsObserver> observer);
 
 	virtual void removeObserver(FsObserver *observer);
