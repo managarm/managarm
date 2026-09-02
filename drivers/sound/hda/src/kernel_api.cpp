@@ -154,7 +154,8 @@ UhdaStatus uhda_kernel_allocate_physical(uintptr_t handle, size_t size, uintptr_
 	auto controller = reinterpret_cast<Controller *>(handle);
 
 	arch::dma_buffer buf{controller->pool, size};
-	auto iova = async::run(controller->dmaSpace.iova_of(buf), helix::currentDispatcher);
+	async::run(controller->dmaSpace.ensure_mapped(buf), helix::currentDispatcher);
+	auto iova = controller->dmaSpace.iova_of(buf);
 	controller->physicalMappings.emplace(iova, std::move(buf));
 
 	*res = iova;
@@ -180,7 +181,8 @@ UhdaStatus uhda_kernel_allocate_scatter(uintptr_t handle, size_t count, size_t s
 	for (size_t i = 0; i < count; i++) {
 		auto &chunk = res[i];
 		chunk.virt = globalPeriodChunks[i].data();
-		chunk.phys = async::run(controller->dmaSpace.iova_of(globalPeriodChunks[i]), helix::currentDispatcher);
+		async::run(controller->dmaSpace.ensure_mapped(globalPeriodChunks[i]), helix::currentDispatcher);
+		chunk.phys = controller->dmaSpace.iova_of(globalPeriodChunks[i]);
 	}
 
 	return UHDA_STATUS_SUCCESS;

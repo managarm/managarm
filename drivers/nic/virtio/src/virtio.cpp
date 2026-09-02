@@ -113,13 +113,15 @@ async::result<void> VirtioNic::initialize() {
 async::result<size_t> VirtioNic::receive(arch::dma_buffer_view frame) {
 	arch::dma_object<VirtHeader> header { &transport_->memoryPool_ };
 
+	auto &space = receiveVq_->dmaSpace();
+	co_await space.ensure_mapped(header.view_buffer());
+	co_await space.ensure_mapped(frame);
+
 	virtio_core::Chain chain;
 	chain.append(co_await receiveVq_->obtainDescriptor());
-	co_await chain.setupBuffer(
-	    virtio_core::deviceToHost, header.view_buffer().subview(0, headerSize_)
-	);
+	chain.setupBuffer(virtio_core::deviceToHost, header.view_buffer().subview(0, headerSize_));
 	chain.append(co_await receiveVq_->obtainDescriptor());
-	co_await chain.setupBuffer(virtio_core::deviceToHost, frame);
+	chain.setupBuffer(virtio_core::deviceToHost, frame);
 
 	co_return (co_await receiveVq_->submitDescriptor(chain.front()) - headerSize_);
 }
@@ -132,13 +134,17 @@ async::result<void> VirtioNic::send(const arch::dma_buffer_view payload) {
 	arch::dma_object<VirtHeader> header { &transport_->memoryPool_ };
 	memset(header.data(), 0, sizeof(VirtHeader));
 
+	arch::dma_buffer_view payloadView{payload};
+
+	auto &space = transmitVq_->dmaSpace();
+	co_await space.ensure_mapped(header.view_buffer());
+	co_await space.ensure_mapped(payloadView);
+
 	virtio_core::Chain chain;
 	chain.append(co_await transmitVq_->obtainDescriptor());
-	co_await chain.setupBuffer(
-	    virtio_core::hostToDevice, header.view_buffer().subview(0, headerSize_)
-	);
+	chain.setupBuffer(virtio_core::hostToDevice, header.view_buffer().subview(0, headerSize_));
 	chain.append(co_await transmitVq_->obtainDescriptor());
-	co_await chain.setupBuffer(virtio_core::hostToDevice, payload);
+	chain.setupBuffer(virtio_core::hostToDevice, payloadView);
 
 	if(logFrames) {
 		std::cout << "virtio-driver: sending frame" << std::endl;

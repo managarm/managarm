@@ -1,6 +1,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <iostream>
+#include <vector>
 
 #include "console.hpp"
 
@@ -90,6 +91,7 @@ async::detached Device::runDevice() {
 		while (true) {
 			auto [size, effectiveDequeue, newDequeue] = co_await getKerncfgByteRingPart(
 					lane, chunkBuffer, dequeue, watermark);
+			assert(size);
 
 			// TODO: improve this by passing the "true" dequeue pointer to userspace.
 			if (dequeue != effectiveDequeue)
@@ -98,10 +100,21 @@ async::detached Device::runDevice() {
 
 			dequeue = newDequeue;
 
-			virtio_core::Chain chain;
-			chain.append(co_await txQueue_->obtainDescriptor());
-			co_await chain.setupBuffer(virtio_core::hostToDevice, chunkBuffer.subview(0, size));
-			co_await txQueue_->submitDescriptor(chain.front());
+			// The chunk buffer is not allocated from a contiguous pool, hence it can
+			// need more than one descriptor.
+			co_await txQueue_->dmaSpace().ensure_mapped(chunkBuffer);
+			auto chunks = txQueue_->splitContiguous(chunkBuffer.subview(0, size));
+
+			// Acquire all descriptors of the chain at once to avoid potential deadlocks.
+			std::vector<virtio_core::Handle> handles(chunks.size());
+			co_await txQueue_->obtainDescriptors(handles);
+
+			for(size_t i = 1; i < handles.size(); i++)
+				handles[i - 1].setupLink(handles[i]);
+			for(size_t i = 0; i < chunks.size(); i++)
+				handles[i].setupBuffer(virtio_core::hostToDevice, chunks[i]);
+
+			co_await txQueue_->submitDescriptor(handles.front());
 		}
 	};
 

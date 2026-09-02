@@ -62,9 +62,8 @@ private:
 
 	mbus_ng::EntityManager _entity;
 
-	arch::contiguous_pool pool_{
-	    {.addressBits = 32, .allocateContigous = true, .dmaMapFlags = kHelMapPreferBottom}
-	};
+	arch::dma_realm dmaRealm_{{.dmaMapFlags = kHelMapPreferBottom}};
+	arch::contiguous_pool pool_{&dmaRealm_, {.addressBits = 32, .allocateContigous = true}};
 	helix::UniqueDescriptor dmaSpaceHandle_;
 	arch::dma_space dmaSpace_;
 	arch::dma_object<FrameList> _frameListObj{memoryPool()};

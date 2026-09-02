@@ -170,8 +170,7 @@ struct Transport {
 
 	Transport(helix::UniqueDescriptor dmaSpace, bool iommuActive)
 	: dmaSpaceHandle_{std::move(dmaSpace)},
-	  dmaSpace_{memoryPool_.attachDmaSpace(dmaSpaceHandle_, iommuActive)},
-	  contiguousDmaSpace_{contiguousPool_.attachDmaSpace(dmaSpaceHandle_, iommuActive)} {}
+	  dmaSpace_{dmaRealm_.attachDmaSpace(dmaSpaceHandle_, iommuActive)} {}
 
 	virtual ~Transport() = default;
 
@@ -205,11 +204,11 @@ struct Transport {
 
 	virtual void runDevice() = 0;
 
-	arch::contiguous_pool memoryPool_{{.addressBits = 64, .allocateContigous = false}};
-	arch::contiguous_pool contiguousPool_{{.addressBits = 64, .allocateContigous = true}};
+	arch::dma_realm dmaRealm_;
+	arch::contiguous_pool memoryPool_{&dmaRealm_, {.addressBits = 64, .allocateContigous = false}};
+	arch::contiguous_pool contiguousPool_{&dmaRealm_, {.addressBits = 64, .allocateContigous = true}};
 	helix::UniqueDescriptor dmaSpaceHandle_;
 	arch::dma_space dmaSpace_;
-	arch::dma_space contiguousDmaSpace_;
 };
 
 struct DeviceSpace {
@@ -282,10 +281,11 @@ struct Handle {
 		return _tableIndex;
 	}
 
-	// setupBuffer() assumes that the buffer is contiguous in DMA space.
+	// setupBuffer() assumes that the buffer is contiguous in DMA space and that its
+	// region has been established via arch::dma_space::ensure_mapped().
 	// Use Queue::splitContiguous() or scatterGather() to handle arbitrary buffers.
-	async::result<void> setupBuffer(HostToDeviceType, arch::dma_buffer_view view);
-	async::result<void> setupBuffer(DeviceToHostType, arch::dma_buffer_view view);
+	void setupBuffer(HostToDeviceType, arch::dma_buffer_view view);
+	void setupBuffer(DeviceToHostType, arch::dma_buffer_view view);
 
 	// These overloads take a chunk with an already resolved DMA address.
 	void setupBuffer(HostToDeviceType, DmaChunk chunk);
@@ -321,11 +321,11 @@ struct Chain {
 	}
 
 	// Note the remarks on Handle::setupBuffer().
-	async::result<void> setupBuffer(HostToDeviceType, arch::dma_buffer_view view) {
-		return _back.setupBuffer(hostToDevice, view);
+	void setupBuffer(HostToDeviceType, arch::dma_buffer_view view) {
+		_back.setupBuffer(hostToDevice, view);
 	}
-	async::result<void> setupBuffer(DeviceToHostType, arch::dma_buffer_view view) {
-		return _back.setupBuffer(deviceToHost, view);
+	void setupBuffer(DeviceToHostType, arch::dma_buffer_view view) {
+		_back.setupBuffer(deviceToHost, view);
 	}
 
 	void setupBuffer(HostToDeviceType, DmaChunk chunk) {
@@ -374,10 +374,13 @@ public:
 		return _queueSize;
 	}
 
+	virtual arch::dma_space &dmaSpace() = 0;
+
 	// Splits the view into a minimal sequence of chunks that are each contiguous
 	// in DMA space, i.e., that satisfy the requirement of Handle::setupBuffer().
 	// The returned chunks carry their resolved DMA addresses.
-	async::result<std::vector<DmaChunk>> splitContiguous(arch::dma_buffer_view view);
+	// Requires a prior arch::dma_space::ensure_mapped() of the view.
+	std::vector<DmaChunk> splitContiguous(arch::dma_buffer_view view);
 
 	// Allocates a single descriptor. Special case of obtainDescriptors(), see below.
 	async::result<Handle> obtainDescriptor();
@@ -419,7 +422,6 @@ public:
 
 protected:
 	virtual void notifyTransport() = 0;
-	virtual arch::dma_space &dmaSpace() = 0;
 
 private:
 	// Index of this queue as part of its owning device.

@@ -15,6 +15,8 @@ async::result<void> Command::setupBuffer(Controller *controller, arch::dma_buffe
 	if(policy == spec::DataTransfer::PRP) {
 		static size_t pageSize = getpagesize();
 
+		co_await controller->ensureMapped(view);
+
 		// Offset of the first byte of the buffer relative to page base.
 		auto startingOffset = reinterpret_cast<uintptr_t>(view.data()) % pageSize;
 		// Offset into the buffer, starting from the beginning of the buffer.
@@ -23,15 +25,15 @@ async::result<void> Command::setupBuffer(Controller *controller, arch::dma_buffe
 		// If the transfer crosses no more than a single page boundary
 		if (startingOffset + view.size() <= pageSize * 2) {
 			// Inline
+			auto firstPrpLen = std::min(pageSize - startingOffset, view.size());
 			command_.common.dataPtr.prp.prp1 = convert_endian<endian::little, endian::native>(
-			    (co_await controller->prpAddressOf(view)).value()
+			    controller->prpAddressOf(view.subview(0, firstPrpLen)).value()
 			);
 
 			// If the transfer crosses a single page boundary, use the page base address.
-			auto firstPrpLen = pageSize - startingOffset;
 			if (view.size() > firstPrpLen) {
 				command_.common.dataPtr.prp.prp2 = convert_endian<endian::little, endian::native>(
-				    (co_await controller->prpAddressOf(view.subview(firstPrpLen))).value()
+				    controller->prpAddressOf(view.subview(firstPrpLen)).value()
 				);
 			} else {
 				command_.common.dataPtr.prp.prp2 = 0;
@@ -43,15 +45,16 @@ async::result<void> Command::setupBuffer(Controller *controller, arch::dma_buffe
 		uintptr_t prp1, prp2;
 		auto size = view.size();
 
-		prp1 = (co_await controller->prpAddressOf(view)).value();
 		size_t prp1Len = std::min(pageSize - startingOffset, size);
+		prp1 = controller->prpAddressOf(view.subview(0, prp1Len)).value();
 		size -= prp1Len;
 		offset += prp1Len;
 
 		auto prpObj = arch::dma_array<uint64_t>{&controller->memoryPool(), pageSize >> 3};
 		auto *prpList = prpObj.data();
 
-		prp2 = (co_await controller->prpAddressOf(prpObj.view_buffer())).value();
+		co_await controller->ensureMapped(prpObj.view_buffer());
+		prp2 = controller->prpAddressOf(prpObj.view_buffer()).value();
 		prpLists.push_back(std::move(prpObj));
 
 		size_t i = 0;
@@ -61,15 +64,16 @@ async::result<void> Command::setupBuffer(Controller *controller, arch::dma_buffe
 				prpObj = arch::dma_array<uint64_t>{&controller->memoryPool(), pageSize >> 3};
 				prpList = prpObj.data();
 
+				co_await controller->ensureMapped(prpObj.view_buffer());
 				prpList[0] = oldPrpList[i - 1];
 				oldPrpList[i - 1] = convert_endian<endian::little, endian::native>(
-					(co_await controller->prpAddressOf(prpObj.view_buffer())).value());
+					controller->prpAddressOf(prpObj.view_buffer()).value());
 				i = 1;
 
 				prpLists.push_back(std::move(prpObj));
 			}
 			prpList[i++] = convert_endian<endian::little, endian::native>(
-			    (co_await controller->prpAddressOf(view.subview(offset))).value()
+			    controller->prpAddressOf(view.subview(offset, std::min(pageSize, size))).value()
 			);
 			offset += pageSize;
 

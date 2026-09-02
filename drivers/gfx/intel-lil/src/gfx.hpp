@@ -25,7 +25,8 @@ private:
 	LilGpu *_gpu;
 	uint16_t _pchDevId;
 	helix::UniqueDescriptor apertureHandle_;
-	arch::contiguous_pool _pool{{.addressBits = 64}};
+	arch::dma_realm _dmaRealm;
+	arch::contiguous_pool _pool{&_dmaRealm, {.addressBits = 64}};
 
 	arch::dma_buffer gttScratch_;
 

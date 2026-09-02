@@ -32,7 +32,8 @@ struct Controller {
 	virtual async::result<Command::Result> submitAdminCommand(std::unique_ptr<Command> cmd) = 0;
 	virtual async::result<Command::Result> submitIoCommand(std::unique_ptr<Command> cmd) = 0;
 
-	virtual async::result<std::optional<uintptr_t>> prpAddressOf(arch::dma_buffer_view) = 0;
+	virtual async::result<void> ensureMapped(arch::dma_buffer_view) = 0;
+	virtual std::optional<uintptr_t> prpAddressOf(arch::dma_buffer_view) = 0;
 
 	inline int64_t getParentId() const {
 		return parentId_;
@@ -72,7 +73,8 @@ protected:
 	std::string location_;
 	const ControllerType type_;
 
-	arch::contiguous_pool pool_{{.addressBits = 64, .allocateContigous = false}};
+	arch::dma_realm dmaRealm_;
+	arch::contiguous_pool pool_{&dmaRealm_, {.addressBits = 64, .allocateContigous = false}};
 
 	std::string serial;
 	std::string model;
@@ -97,7 +99,8 @@ struct PciExpressController final : public Controller {
 	async::result<Command::Result> submitAdminCommand(std::unique_ptr<Command> cmd) override;
 	async::result<Command::Result> submitIoCommand(std::unique_ptr<Command> cmd) override;
 
-	async::result<std::optional<uintptr_t>> prpAddressOf(arch::dma_buffer_view) override;
+	async::result<void> ensureMapped(arch::dma_buffer_view) override;
+	std::optional<uintptr_t> prpAddressOf(arch::dma_buffer_view) override;
 
 private:
 	async::result<void> setupIOQueueInterrupts(size_t queueId, size_t vector);

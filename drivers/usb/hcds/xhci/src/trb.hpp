@@ -170,12 +170,15 @@ namespace Transfer {
 		assert(std::popcount(maxPacketSize) == 1);
 		size_t tdPacketCount = (view.size() + maxPacketSize - 1) / maxPacketSize;
 
+		if(view.size())
+			co_await space.ensure_mapped(view);
+
 		size_t progress = 0;
 		while(progress < view.size()) {
 			uintptr_t ptr = (uintptr_t)view.data() + progress;
-			uintptr_t pptr = co_await space.iova_of(view) + progress;
-
 			auto chunk = std::min(view.size() - progress, 0x1000 - (ptr & 0xFFF));
+
+			uintptr_t pptr = space.iova_of(view.subview(progress, chunk));
 
 			bool chain = (progress + chunk) < view.size();
 

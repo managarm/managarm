@@ -42,7 +42,8 @@ struct StorageDevice : scsi::StorageDevice {
 	async::result<frg::expected<scsi::Error, size_t>> sendScsiCommand(const scsi::CommandInfo &info) override;
 
 private:
-	arch::contiguous_pool pool_{{.addressBits = 64}};
+	arch::dma_realm dmaRealm_;
+	arch::contiguous_pool pool_{&dmaRealm_, {.addressBits = 64}};
 
 	// Bulk-only transport allows only one command at a time.
 	async::mutex transportMutex_;

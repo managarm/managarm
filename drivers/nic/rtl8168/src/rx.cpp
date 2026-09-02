@@ -86,7 +86,8 @@ async::result<std::unique_ptr<RxQueue>> RxQueue::create(RealtekNic &nic, size_t 
 		descriptorBuffers.emplace_back(nic.dmaPool(), 2048);
 		memset(descriptorBuffers.back().data(), 0, 2048);
 
-		uintptr_t addr = co_await nic.dmaSpace().iova_of(descriptorBuffers.back());
+		co_await nic.dmaSpace().ensure_mapped(descriptorBuffers.back());
+		uintptr_t addr = nic.dmaSpace().iova_of(descriptorBuffers.back());
 
 		descriptors[i].flags = flags::rx::ownership(flags::rx::owner_nic) | flags::rx::frame_length(2048);
 		descriptors[i].vlan = 0;
@@ -96,7 +97,8 @@ async::result<std::unique_ptr<RxQueue>> RxQueue::create(RealtekNic &nic, size_t 
 
 	descriptors[descriptorCount - 1].flags |= flags::rx::eor(true);
 
-	auto descriptorIova = co_await nic.dmaSpace().iova_of(descriptors);
+	co_await nic.dmaSpace().ensure_mapped(descriptors);
+	auto descriptorIova = nic.dmaSpace().iova_of(descriptors);
 	auto rx = std::make_unique<RxQueue>(std::move(descriptors), std::move(descriptorBuffers));
 	rx->_descriptorIova = descriptorIova;
 	co_return rx;

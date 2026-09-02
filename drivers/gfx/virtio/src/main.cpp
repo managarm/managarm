@@ -427,7 +427,7 @@ async::result<void> GfxDevice::BufferObject::wait() {
 }
 
 std::pair<helix::BorrowedDescriptor, uint64_t> GfxDevice::BufferObject::getMemory() {
-	auto region = static_cast<arch::contiguous_pool::region *>(dmaObject_.get_dma_ptr().region());
+	auto region = static_cast<arch::dma_memory_region *>(dmaObject_.get_dma_ptr().region());
 	return region->getMemory();
 }
 

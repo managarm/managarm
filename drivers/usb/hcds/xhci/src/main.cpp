@@ -66,9 +66,9 @@ Controller::Controller(
   _irq{std::move(irq)},
   _space{_mapping.get()},
   _name{name},
-  _memoryPool{{.addressBits = dmaAddressBits(_space)}},
+  _memoryPool{&_dmaRealm, {.addressBits = dmaAddressBits(_space)}},
   _dmaSpaceHandle{std::move(dmaSpaceHandle)},
-  _dmaSpace{_memoryPool.attachDmaSpace(_dmaSpaceHandle, iommuActive)},
+  _dmaSpace{_dmaRealm.attachDmaSpace(_dmaSpaceHandle, iommuActive)},
   _dcbaa{&_memoryPool, 256},
   _cmdRing{this},
   _eventRing{this},
@@ -233,18 +233,22 @@ async::detached Controller::initialize() {
 		memset(_scratchpadBufs.back().data(), 0, pageSize);
 
 		forcedBarrier.writeback(_scratchpadBufs.back());
-		_scratchpadBufArray[i] = co_await _dmaSpace.iova_of(_scratchpadBufs.back());
+		co_await _dmaSpace.ensure_mapped(_scratchpadBufs.back());
+		_scratchpadBufArray[i] = _dmaSpace.iova_of(_scratchpadBufs.back());
 	}
 	forcedBarrier.writeback(_scratchpadBufArray.view_buffer());
 
 	// Initialize the device context pointer array
 	for (size_t i = 0; i < 256; i++)
 		_dcbaa[i] = 0;
-	_dcbaa[0] = nScratchpadBufs ? co_await _dmaSpace.iova_of(_scratchpadBufArray) : 0;
+	if(nScratchpadBufs)
+		co_await _dmaSpace.ensure_mapped(_scratchpadBufArray);
+	_dcbaa[0] = nScratchpadBufs ? _dmaSpace.iova_of(_scratchpadBufArray) : 0;
 	barrier.writeback(_dcbaa.view_buffer());
 
 	// Tell the controller about our device context pointer array
-	auto dcbaaPtr = co_await _dmaSpace.iova_of(_dcbaa);
+	co_await _dmaSpace.ensure_mapped(_dcbaa);
+	auto dcbaaPtr = _dmaSpace.iova_of(_dcbaa);
 	operational.store(op_regs::dcbaapLow, dcbaaPtr & 0xFFFFFFFF);
 	operational.store(op_regs::dcbaapHi, dcbaaPtr >> 32);
 

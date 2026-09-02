@@ -54,7 +54,7 @@ Controller::Controller(
   regs_{regsMapping_.get()},
   irq_{std::move(irq)},
   dmaSpaceHandle_{std::move(dmaSpace)},
-  dmaSpace_{pool_.attachDmaSpace(dmaSpaceHandle_, iommuActive)},
+  dmaSpace_{dmaRealm_.attachDmaSpace(dmaSpaceHandle_, iommuActive)},
   parentId_{parentId},
   useMsis_{useMsis} {}
 

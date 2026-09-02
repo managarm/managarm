@@ -51,7 +51,7 @@ GfxDevice::GfxDevice(
   _vramAllocator(26, 12),
   _pchDevId{pch_devid},
   dmaSpaceHandle_{std::move(dmaSpace)},
-  dmaSpace_{_pool.attachDmaSpace(dmaSpaceHandle_, iommuActive)} {
+  dmaSpace_{_dmaRealm.attachDmaSpace(dmaSpaceHandle_, iommuActive)} {
 
   };
 
@@ -66,7 +66,8 @@ async::result<std::unique_ptr<drm_core::Configuration>> GfxDevice::initialize() 
 	std::println("gfx/intel-lil: GPU init done");
 
 	gttScratch_ = arch::dma_buffer{&_pool, 0x1000};
-	uintptr_t phys = co_await dmaSpace_.iova_of(gttScratch_);
+	co_await dmaSpace_.ensure_mapped(gttScratch_);
+	uintptr_t phys = dmaSpace_.iova_of(gttScratch_);
 
 	for (size_t i = 0; i < _gpu->gtt_size / 8; i++) {
 		_gpu->vmem_map(_gpu, phys, i << 12);
@@ -231,8 +232,9 @@ GfxDevice::createDumb(uint32_t width, uint32_t height, uint32_t bpp) {
 	auto gpuVa = _vramAllocator.allocate(size);
 	auto dmaBuffer = arch::dma_buffer{&_pool, size};
 
+	async::run(dmaSpace_.ensure_mapped(dmaBuffer), helix::currentDispatcher);
 	for (size_t page = 0; page < mappingSize; page += 0x1000) {
-		auto phys = async::run(dmaSpace_.iova_of(dmaBuffer.subview(page, 0x1000)), helix::currentDispatcher);
+		auto phys = dmaSpace_.iova_of(dmaBuffer.subview(page, 0x1000));
 
 		_gpu->vmem_map(_gpu, phys, gpuVa + page);
 	}

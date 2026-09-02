@@ -252,7 +252,8 @@ private:
 	helix::UniqueDescriptor _irq;
 	arch::dma_barrier _barrier{false};
 	arch::mem_space _mmio;
-	arch::contiguous_pool _dmaPool;
+	arch::dma_realm _dmaRealm;
+	arch::contiguous_pool _dmaPool{&_dmaRealm};
 	EmacDescriptorRing _rxRing;
 	EmacDescriptorRing _txRing;
 	arch::dma_buffer _rxBuffer;

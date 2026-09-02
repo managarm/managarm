@@ -31,7 +31,8 @@ void Command::notifyCompletion() {
 }
 
 async::result<void> Command::prepare(arch::dma_object_view<commandTable> table, commandHeader& header) {
-	auto tablePhys = co_await controller_->dmaSpace().iova_of(table);
+	co_await controller_->dmaSpace().ensure_mapped(table);
+	auto tablePhys = controller_->dmaSpace().iova_of(table);
 	assert((tablePhys & 0x7F) == 0);
 	assert(numSectors_ < std::numeric_limits<uint16_t>::max());
 
@@ -89,10 +90,13 @@ async::result<size_t> Command::writeScatterGather_(arch::dma_object_view<command
 	// TODO: Grab the page size for each individual address
 	size_t pageSize = getpagesize();
 
+	if(numBytes_)
+		co_await controller_->dmaSpace().ensure_mapped(view_);
+
 	size_t prdtIndex = 0;
-	auto addEntry = [&](arch::dma_buffer_view view) -> async::result<void> {
+	auto addEntry = [&](arch::dma_buffer_view view) {
 		assert(view.size() <= pageSize);
-		uintptr_t phys = co_await controller_->dmaSpace().iova_of(view);
+		uintptr_t phys = controller_->dmaSpace().iova_of(view);
 
 		assert(prdtIndex < commandTable::prdtEntries && !(phys & 1));
 
@@ -115,7 +119,7 @@ async::result<size_t> Command::writeScatterGather_(arch::dma_object_view<command
 		auto bytesUntilAligned = nextAlignedAddr - virtStart;
 		auto bytesToWrite = std::min(numBytes_, bytesUntilAligned);
 
-		co_await addEntry(view_.subview(0, bytesToWrite));
+		addEntry(view_.subview(0, bytesToWrite));
 		progress += bytesToWrite;
 	}
 
@@ -125,7 +129,7 @@ async::result<size_t> Command::writeScatterGather_(arch::dma_object_view<command
 
 		// TODO: As a small optimisation, we could accumulate into the previous entry if they
 		// happen to be physically contiguous.
-		co_await addEntry(subview);
+		addEntry(subview);
 	}
 
 	co_return prdtIndex;

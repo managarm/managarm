@@ -25,7 +25,7 @@ struct Controller final : sound::Card {
 	  msiAvailable{msiAvailable},
 	  useMsi{},
 	  dmaSpaceHandle_{std::move(dmaSpaceHandle)},
-	  dmaSpace{pool_.attachDmaSpace(dmaSpaceHandle_, iommuActive)} {}
+	  dmaSpace{dmaRealm_.attachDmaSpace(dmaSpaceHandle_, iommuActive)} {}
 
 	async::result<void> run(uint64_t numDevices);
 
@@ -37,7 +37,8 @@ struct Controller final : sound::Card {
 	bool useMsi;
 
 private:
-	arch::contiguous_pool pool_{{.addressBits = 64, .allocateContigous = true}};
+	arch::dma_realm dmaRealm_;
+	arch::contiguous_pool pool_{&dmaRealm_, {.addressBits = 64, .allocateContigous = true}};
 	helix::UniqueDescriptor dmaSpaceHandle_;
 
 public:

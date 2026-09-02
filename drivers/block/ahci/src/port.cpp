@@ -152,8 +152,10 @@ async::result<bool> Port::run() {
 	commandTables_ = {arch::dma_array<commandTable>{&controller_->pool(), numCommandSlots_}};
 	receivedFis_ = {arch::dma_object<receivedFis>{&controller_->pool()}};
 
-	auto clPhys = co_await controller_->dmaSpace().iova_of(commandList_);
-	auto rfPhys = co_await controller_->dmaSpace().iova_of(receivedFis_);
+	co_await controller_->dmaSpace().ensure_mapped(commandList_);
+	co_await controller_->dmaSpace().ensure_mapped(receivedFis_);
+	auto clPhys = controller_->dmaSpace().iova_of(commandList_);
+	auto rfPhys = controller_->dmaSpace().iova_of(receivedFis_);
 
 	regs_.store(regs::clBase, static_cast<uint32_t>(clPhys));
 	regs_.store(regs::clBaseUpper, 0);

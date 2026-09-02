@@ -53,7 +53,7 @@ PciExpressController::PciExpressController(
   regsMapping_{std::move(regsMapping)},
   regs_{regsMapping_.get()},
   ioSpace_{std::move(ioSpace)},
-  dmaSpace_{pool_.attachDmaSpace(ioSpace_, iommuActive)} {}
+  dmaSpace_{dmaRealm_.attachDmaSpace(ioSpace_, iommuActive)} {}
 
 async::detached PciExpressController::run(mbus_ng::EntityId subsystem) {
 	co_await reset();
@@ -192,8 +192,10 @@ async::result<void> PciExpressController::reset() {
 
 	uint32_t aqa = (31 << 16) | 31;
 	regs_.store(regs::aqa, aqa);
-	regs_.store(regs::asq, co_await dmaSpace_.iova_of(adminQ->getSq()));
-	regs_.store(regs::acq, co_await dmaSpace_.iova_of(adminQ->getCq()));
+	co_await dmaSpace_.ensure_mapped(adminQ->getSq());
+	co_await dmaSpace_.ensure_mapped(adminQ->getCq());
+	regs_.store(regs::asq, dmaSpace_.iova_of(adminQ->getSq()));
+	regs_.store(regs::acq, dmaSpace_.iova_of(adminQ->getCq()));
 
 	adminQ->run();
 	activeQueues_.push_back(std::move(adminQ));
@@ -248,8 +250,10 @@ async::result<Command::Result> PciExpressController::createCQ(PciExpressQueue *q
 
 	uint16_t flags = spec::kQueuePhysContig | spec::kCQIrqEnabled;
 
+	co_await dmaSpace_.ensure_mapped(q->getCq());
+
 	cmdBuf.opcode = static_cast<uint8_t>(spec::AdminOpcode::CreateCQ);
-	cmdBuf.prp1 = convert_endian<endian::little, endian::native>(co_await dmaSpace_.iova_of(q->getCq()));
+	cmdBuf.prp1 = convert_endian<endian::little, endian::native>(dmaSpace_.iova_of(q->getCq()));
 	cmdBuf.cqid = convert_endian<endian::little, endian::native>((uint16_t)q->getQueueId());
 	cmdBuf.qSize = convert_endian<endian::little, endian::native>((uint16_t)q->getQueueDepth() - 1);
 	cmdBuf.cqFlags = convert_endian<endian::little, endian::native>((uint16_t)flags);
@@ -268,8 +272,10 @@ async::result<Command::Result> PciExpressController::createSQ(PciExpressQueue *q
 
 	uint16_t flags = spec::kQueuePhysContig;
 
+	co_await dmaSpace_.ensure_mapped(q->getSq());
+
 	cmdBuf.opcode = static_cast<uint8_t>(spec::AdminOpcode::CreateSQ);
-	cmdBuf.prp1 = convert_endian<endian::little, endian::native>(co_await dmaSpace_.iova_of(q->getSq()));
+	cmdBuf.prp1 = convert_endian<endian::little, endian::native>(dmaSpace_.iova_of(q->getSq()));
 	cmdBuf.sqid = convert_endian<endian::little, endian::native>((uint16_t)q->getQueueId());
 	cmdBuf.qSize = convert_endian<endian::little, endian::native>((uint16_t)q->getQueueDepth() - 1);
 	cmdBuf.sqFlags = convert_endian<endian::little, endian::native>((uint16_t)flags);
@@ -415,6 +421,10 @@ async::result<Command::Result> PciExpressController::submitIoCommand(std::unique
 	return ioQ->submitCommand(std::move(cmd));
 }
 
-async::result<std::optional<uintptr_t>> PciExpressController::prpAddressOf(arch::dma_buffer_view view) {
-	co_return co_await dmaSpace_.iova_of(view);
+async::result<void> PciExpressController::ensureMapped(arch::dma_buffer_view view) {
+	return dmaSpace_.ensure_mapped(view);
+}
+
+std::optional<uintptr_t> PciExpressController::prpAddressOf(arch::dma_buffer_view view) {
+	return dmaSpace_.iova_of(view);
 }

@@ -3,16 +3,19 @@
 #include <algorithm>
 #include <hel-syscalls.h>
 #include <hel.h>
-#include <ranges>
+#include <helix/ipc.hpp>
 
 namespace arch {
 
 namespace {
 
+constexpr size_t pageSize = 0x1000;
+
 } // namespace
 
-contiguous_pool::contiguous_pool(contiguous_pool_options options)
-: options_{options} {
+contiguous_pool::contiguous_pool(dma_realm *realm, contiguous_pool_options options)
+: realm_{realm}, options_{options} {
+	assert(realm_ && "contiguous_pool must be attached to a dma_realm");
 	assert(options.addressBits != 0 && "options.addressBits must be provided");
 }
 
@@ -27,7 +30,7 @@ dma_ptr contiguous_pool::allocate(size_t size, size_t count, size_t align) {
 
 		if (bkt->freelist.empty()) {
 			auto handle = allocate_pages_(small_region_size);
-			auto rn = new region{this, std::move(handle), 0, small_region_size};
+			auto rn = new dma_memory_region{realm_, this, std::move(handle), 0, small_region_size};
 			for (size_t off = 0; off + alloc_size <= small_region_size; off += alloc_size) {
 				bkt->freelist.push_back({static_cast<arch::dma_region *>(rn), off});
 			}
@@ -39,7 +42,7 @@ dma_ptr contiguous_pool::allocate(size_t size, size_t count, size_t align) {
 	} else {
 		// Large allocation. Allocate directly from the kernel.
 		auto handle = allocate_pages_(alloc_size);
-		auto rn = new region{this, std::move(handle), 0, alloc_size};
+		auto rn = new dma_memory_region{realm_, this, std::move(handle), 0, alloc_size};
 		ptr = {static_cast<arch::dma_region *>(rn), 0};
 	}
 
@@ -50,7 +53,7 @@ dma_ptr contiguous_pool::allocate(size_t size, size_t count, size_t align) {
 }
 
 void contiguous_pool::deallocate(dma_ptr ptr, size_t size, size_t count, size_t align) {
-	auto rn = static_cast<region *>(ptr.region());
+	auto rn = static_cast<dma_memory_region *>(ptr.region());
 	assert(!rn->imported());
 	assert(ptr.pool() == this);
 	auto b = shift_of_(size, count, align);
@@ -70,17 +73,93 @@ void contiguous_pool::deallocate(dma_ptr ptr, size_t size, size_t count, size_t 
 	}
 }
 
-dma_space contiguous_pool::attachDmaSpace(helix::BorrowedDescriptor ioSpace, bool iommuActive) {
-	size_t id;
-	{
-		std::lock_guard lock{spacesMutex_};
-		id = attachedDmaSpaces_++;
-	}
-	return dma_space{id, this, ioSpace, iommuActive};
+dma_space dma_realm::attachDmaSpace(helix::BorrowedDescriptor ioSpace, bool iommuActive) {
+	return dma_space{this, ioSpace, iommuActive};
 }
 
-imported_dma_buffer contiguous_pool::importMemory(helix::BorrowedDescriptor memory, size_t offset, size_t size) {
-	auto rn = new contiguous_pool::region{this, std::move(memory), offset, size, true};
+async::result<void> dma_space::establish_(dma_memory_region *reg) const {
+	assert(reg->size);
+
+	// Fast path: the state is immutable once established, hence no lock is required.
+	auto state = reg->spaceStates_[index_].load(std::memory_order_acquire);
+	if (state && state->established.load(std::memory_order_acquire))
+		co_return;
+
+	bool wait = false;
+	{
+		std::lock_guard guard{realm_->spacesMutex_};
+
+		state = reg->spaceStates_[index_].load(std::memory_order_relaxed);
+		if (!state) {
+			state = new dma_memory_region::per_space_state{};
+			reg->spaceStates_[index_].store(state, std::memory_order_release);
+		}
+
+		if (state->established.load(std::memory_order_relaxed))
+			co_return;
+		if (state->establishing) {
+			wait = true;
+		} else {
+			state->establishing = true;
+		}
+	}
+
+	// Another coroutine got here first. Wait for it to finish.
+	if (wait) {
+		co_await state->establishedEvent.wait();
+		co_return;
+	}
+
+	void *p = nullptr;
+	HEL_CHECK(helMapMemory(
+		reg->borrowedMemory_.getHandle(),
+		space_.getHandle(),
+		nullptr,
+		reg->backingMemoryOffset_,
+		reg->size,
+		kHelMapProtRead | kHelMapProtWrite | kHelMapDontRequireBacking
+				| realm_->options_.dmaMapFlags,
+		&p
+	));
+	auto deviceVa = reinterpret_cast<uintptr_t>(p);
+	state->deviceVa = deviceVa;
+
+	// Fault in the whole region asynchronously.
+	// With an IOMMU, this installs its PTEs. Without one, it keeps addressToPhysical() from faulting page by page.
+	auto populateResult = co_await helix_ng::populateSpace(space_, deviceVa, reg->size);
+	HEL_CHECK(populateResult.error());
+
+	if (iommuActive_) {
+		// The ioVa is contiguous, so a single range describes the region.
+		state->ranges.push_back({0, deviceVa, reg->size});
+	} else {
+		// The ioVa is fake and only useful for lifetime tracking.
+		// The device addresses are physical ones.
+		for (size_t offset = 0; offset < reg->size; offset += pageSize) {
+			auto chunk = std::min(pageSize, reg->size - offset);
+			auto physical = helix::addressToPhysical(space_, deviceVa + offset);
+
+			if (!state->ranges.empty()) {
+				auto &back = state->ranges.back();
+				if (back.address + back.size == physical) {
+					back.size += chunk;
+					continue;
+				}
+			}
+			state->ranges.push_back({offset, physical, chunk});
+		}
+	}
+
+	{
+		std::lock_guard guard{realm_->spacesMutex_};
+		state->establishing = false;
+		state->established.store(true, std::memory_order_release);
+	}
+	state->establishedEvent.raise();
+}
+
+imported_dma_buffer dma_realm::importMemory(helix::BorrowedDescriptor memory, size_t offset, size_t size) {
+	auto rn = new dma_memory_region{this, nullptr, std::move(memory), offset, size, true};
 	dma_ptr ptr{rn, 0};
 	return imported_dma_buffer{this, ptr, size};
 }
@@ -106,17 +185,19 @@ void contiguous_pool::deallocate_pages_(void *p, size_t region_size) {
 	HEL_CHECK(helUnmapMemory(kHelNullHandle, p, region_size));
 }
 
-contiguous_pool::region::~region() {
-	auto regionPool = static_cast<contiguous_pool *>(pool());
-
-	if (regionPool) {
-		std::lock_guard lock{regionPool->spacesMutex_};
+dma_memory_region::~dma_memory_region() {
+	{
+		std::lock_guard lock{realm_->spacesMutex_};
 		// Unmap the region from all DMA spaces first
-		for (auto [index, ioVa] : dmaSpaces_ | std::views::enumerate) {
-			if (ioVa) {
-				auto dmaSpace = regionPool->spaces_[index];
-				HEL_CHECK(helUnmapMemory(dmaSpace->descriptor().getHandle(), reinterpret_cast<void *>(*ioVa), size));
+		for (size_t index = 0; index < max_dma_spaces; ++index) {
+			auto state = spaceStates_[index].load(std::memory_order_relaxed);
+			if (!state)
+				continue;
+			if (state->deviceVa) {
+				auto dmaSpace = realm_->spaces_[index];
+				HEL_CHECK(helUnmapMemory(dmaSpace->descriptor().getHandle(), reinterpret_cast<void *>(*state->deviceVa), size));
 			}
+			delete state;
 		}
 	}
 

@@ -36,7 +36,7 @@ async::result<void> RawFs::manageMapping() {
 		auto cache_size = (device_size + 0xFFF) & ~size_t(0xFFF);
 		assert(manage.offset() + manage.length() <= cache_size);
 
-		auto view = device->pagePool->importMemory(
+		auto view = device->pagePool->realm()->importMemory(
 		    helix::BorrowedDescriptor{backingMemory}, manage.offset(), manage.length()
 		);
 

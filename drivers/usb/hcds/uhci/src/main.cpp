@@ -69,7 +69,8 @@ async::result<frg::expected<proto::UsbError, size_t>> DeviceState::transfer(prot
 // ----------------------------------------------------------------------------
 
 async::result<void> Controller::QueueEntity::initialize(arch::dma_space &space) {
-	cachedHeadIova_ = co_await space.iova_of(head);
+	co_await space.ensure_mapped(head);
+	cachedHeadIova_ = space.iova_of(head);
 }
 
 // ----------------------------------------------------------------------------
@@ -145,7 +146,7 @@ Controller::Controller(
   _frameCounter{0},
   _entity{std::move(entity)},
   dmaSpaceHandle_{std::move(dmaSpaceHandle)},
-  dmaSpace_{pool_.attachDmaSpace(dmaSpaceHandle_, iommuActive)},
+  dmaSpace_{dmaRealm_.attachDmaSpace(dmaSpaceHandle_, iommuActive)},
   _enumerator{this} {
 	for (int i = 1; i < 128; i++) {
 		_addressStack.push(i);
@@ -170,7 +171,8 @@ async::result<void> Controller::initialize() {
 		_frameList->entries[i].store(FrameListPointer{}._bits);
 
 	// Pass the frame list to the controller and run it.
-	auto frameListIova = co_await dmaSpace_.iova_of(_frameListObj);
+	co_await dmaSpace_.ensure_mapped(_frameListObj);
+	auto frameListIova = dmaSpace_.iova_of(_frameListObj);
 	assert((frameListIova % 0x1000) == 0);
 	_ioSpace.store(op_regs::frameListBase, frameListIova);
 	_ioSpace.store(op_regs::command, command::runStop(true));
@@ -782,8 +784,10 @@ async::result<Controller::Transaction *> Controller::_buildControl(int address, 
 	size_t num_data = (buffer.size() + max_packet_size - 1) / max_packet_size;
 	arch::dma_array<TransferDescriptor> transfers{memoryPool(), num_data + 2};
 
-	auto transfersIova = co_await dmaSpace_.iova_of(transfers);
-	auto setupIova = co_await dmaSpace_.iova_of(setup);
+	co_await dmaSpace_.ensure_mapped(transfers);
+	co_await dmaSpace_.ensure_mapped(setup);
+	auto transfersIova = dmaSpace_.iova_of(transfers);
+	auto setupIova = dmaSpace_.iova_of(setup);
 
 	transfers[0].status.store(td_status::active(true) | td_status::detectShort(true)
 			| td_status::lowSpeed(low_speed));
@@ -794,8 +798,10 @@ async::result<Controller::Transaction *> Controller::_buildControl(int address, 
 
 	size_t progress = 0;
 	uintptr_t bufferIova = 0;
-	if (num_data > 0)
-		bufferIova = co_await dmaSpace_.iova_of(buffer);
+	if (num_data > 0) {
+		co_await dmaSpace_.ensure_mapped(buffer);
+		bufferIova = dmaSpace_.iova_of(buffer);
+	}
 
 	for(size_t i = 0; i < num_data; i++) {
 		size_t chunk = std::min(max_packet_size, buffer.size() - progress);
@@ -835,10 +841,13 @@ async::result<Controller::Transaction *> Controller::_buildInterruptOrBulk(int a
 	size_t num_data = (buffer.size() + max_packet_size - 1) / max_packet_size;
 	arch::dma_array<TransferDescriptor> transfers{memoryPool(), num_data};
 
-	auto transfersIova = co_await dmaSpace_.iova_of(transfers);
+	co_await dmaSpace_.ensure_mapped(transfers);
+	auto transfersIova = dmaSpace_.iova_of(transfers);
 	uintptr_t bufferIova = 0;
-	if (num_data > 0)
-		bufferIova = co_await dmaSpace_.iova_of(buffer);
+	if (num_data > 0) {
+		co_await dmaSpace_.ensure_mapped(buffer);
+		bufferIova = dmaSpace_.iova_of(buffer);
+	}
 
 	size_t progress = 0;
 	for(size_t i = 0; i < num_data; i++) {

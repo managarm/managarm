@@ -159,8 +159,10 @@ EventRing::EventRing(Controller *controller)
 }
 
 async::result<void> EventRing::init() {
-	_cachedEventRingIova = co_await _controller->dmaSpace().iova_of(_eventRing);
-	_cachedErstIova = co_await _controller->dmaSpace().iova_of(_erst);
+	co_await _controller->dmaSpace().ensure_mapped(_eventRing);
+	co_await _controller->dmaSpace().ensure_mapped(_erst);
+	_cachedEventRingIova = _controller->dmaSpace().iova_of(_eventRing);
+	_cachedErstIova = _controller->dmaSpace().iova_of(_erst);
 
 	_erst[0].ringSegmentBaseLow = _cachedEventRingIova & 0xFFFFFFFF;
 	_erst[0].ringSegmentBaseHi = _cachedEventRingIova >> 32;
@@ -212,7 +214,8 @@ ProducerRing::ProducerRing(Controller *controller)
 }
 
 async::result<void> ProducerRing::initialize() {
-	_cachedRingIova = co_await _controller->dmaSpace().iova_of(_ring);
+	co_await _controller->dmaSpace().ensure_mapped(_ring);
+	_cachedRingIova = _controller->dmaSpace().iova_of(_ring);
 	assert(!(_cachedRingIova & 63));
 }
 
