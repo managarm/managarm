@@ -63,16 +63,34 @@ struct ViewPath;
 // FsLink class.
 // ----------------------------------------------------------------------------
 
-// Represents a directory entry on an actual file system (i.e. not in the VFS).
+// Represents a directory entry on an actual file system.
+// FsLinks know their parent FsLink. Hence, FsLinks form a rooted directory tree.
+// The chain of parents terminates at the root of the superblock, not at the root of the VFS.
 struct FsLink {
 protected:
 	~FsLink() = default;
 
 public:
-	virtual smarter::shared_ptr<FsNode> getOwner() = 0;
+	// Returns the link of the directory that this link lives in.
+	// Null for the root of a mount and for anonymous links.
+	virtual smarter::shared_ptr<FsLink> getParent() = 0;
+
+	// Name of the link. Empty for the root link.
 	virtual std::string getName() = 0;
+
+	// Target of the link:
+	// directory entry (getParent(), getName()) points to getTarget().
 	virtual smarter::shared_ptr<FsNode> getTarget() = 0;
+
 	virtual async::result<frg::expected<Error>> obstruct();
+
+	smarter::shared_ptr<FsNode> getParentNode() {
+		auto parent = getParent();
+		if(!parent)
+			return nullptr;
+		return parent->getTarget();
+	}
+
 	virtual std::optional<std::string> getProcFsDescription();
 
 	// Only to be called by makeFsShared().
@@ -284,7 +302,7 @@ public:
 		return {sharedFromThis(), &embeddedNode_};
 	}
 
-	smarter::shared_ptr<FsNode> getOwner() override {
+	smarter::shared_ptr<FsLink> getParent() override {
 		return nullptr;
 	}
 

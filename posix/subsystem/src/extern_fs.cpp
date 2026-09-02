@@ -400,7 +400,7 @@ public:
 
 struct Link : FsLink {
 public:
-	smarter::shared_ptr<FsNode> getOwner() override {
+	smarter::shared_ptr<FsLink> getParent() override {
 		return _owner;
 	}
 
@@ -409,7 +409,7 @@ public:
 		managarm::fs::ObstructLinkRequest req;
 		req.set_link_name(_name);
 
-		auto lane = static_cast<Node *>(_owner.get())->getLane();
+		auto lane = static_cast<Node *>(_owner->getTarget().get())->getLane();
 
 		auto [offer, send_req, send_tail, recv_resp] = co_await helix_ng::exchangeMsgs(
 			lane,
@@ -440,7 +440,7 @@ private:
 public:
 	Link() = default;
 
-	Link(smarter::shared_ptr<FsNode> owner, std::string name)
+	Link(smarter::shared_ptr<FsLink> owner, std::string name)
 	: _owner{std::move(owner)}, _name{std::move(name)} {
 		assert(_owner);
 	}
@@ -449,7 +449,7 @@ protected:
 	~Link() = default;
 
 private:
-	smarter::shared_ptr<FsNode> _owner;
+	smarter::shared_ptr<FsLink> _owner;
 	std::string _name;
 };
 
@@ -461,7 +461,7 @@ private:
 	}
 
 public:
-	PeripheralLink(smarter::shared_ptr<FsNode> owner,
+	PeripheralLink(smarter::shared_ptr<FsLink> owner,
 			std::string name, smarter::shared_ptr<FsNode> target)
 	: Link{std::move(owner), std::move(name)}, _target{std::move(target)} { }
 
@@ -481,7 +481,7 @@ public:
 		assert(_target);
 	}
 
-	StructuralLink(smarter::shared_ptr<FsNode> owner, DirectoryNode *target, std::string name)
+	StructuralLink(smarter::shared_ptr<FsLink> owner, DirectoryNode *target, std::string name)
 	: Link{std::move(owner), std::move(name)}, _target{std::move(target)} {
 		assert(_target);
 	}
@@ -899,7 +899,7 @@ public:
 	: Node{inode, std::move(lane), sb}, _sb{sb},
 			_treeLink{this} { }
 
-	DirectoryNode(Superblock *sb, smarter::shared_ptr<FsNode> owner, std::string name,
+	DirectoryNode(Superblock *sb, smarter::shared_ptr<FsLink> owner, std::string name,
 			uint64_t inode, helix::UniqueLane lane)
 	: Node{inode, std::move(lane), sb}, _sb{sb},
 			_treeLink{std::move(owner), this, std::move(name)} { }
@@ -952,7 +952,7 @@ async::result<frg::expected<Error, smarter::shared_ptr<FsLink>>>
 
 	managarm::fs::RenameRequest req;
 	Link *slink = static_cast<Link *>(source);
-	Node *source_node = static_cast<Node *>(slink->getOwner().get());
+	Node *source_node = static_cast<Node *>(slink->getParentNode().get());
 	Node *target_node = static_cast<Node *>(directory);
 	smarter::shared_ptr<Node> shared_node = smarter::static_pointer_cast<Node>(source->getTarget());
 	req.set_inode_source(source_node->getInode());
@@ -999,7 +999,7 @@ smarter::shared_ptr<Node> Superblock::internalizeStructural(Node *parent, std::s
 	if(intern)
 		return intern;
 
-	auto node = makeFsShared<DirectoryNode>(this, parent->sharedFromThis(),
+	auto node = makeFsShared<DirectoryNode>(this, parent->treeLink(),
 			std::move(name), id, std::move(lane));
 	*entry = node;
 	return node;
@@ -1034,7 +1034,7 @@ smarter::shared_ptr<FsLink> Superblock::internalizePeripheralLink(Node *parent, 
 	if(intern)
 		return intern;
 
-	auto link = makeFsShared<PeripheralLink>(parent->sharedFromThis(),
+	auto link = makeFsShared<PeripheralLink>(parent->treeLink(),
 			std::move(name), std::move(target));
 	*entry = link;
 	return link;

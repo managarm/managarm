@@ -210,13 +210,13 @@ helix::BorrowedDescriptor DirectoryFile::getPassthroughLane() {
 Link::Link(smarter::shared_ptr<FsNode> target)
 : _target{std::move(target)} { }
 
-Link::Link(smarter::shared_ptr<FsNode> owner, std::string name, smarter::shared_ptr<FsNode> target)
+Link::Link(smarter::shared_ptr<FsLink> owner, std::string name, smarter::shared_ptr<FsNode> target)
 : _owner{std::move(owner)}, _name{std::move(name)}, _target{std::move(target)} {
 	assert(_owner);
 	assert(!_name.empty());
 }
 
-smarter::shared_ptr<FsNode> Link::getOwner() {
+smarter::shared_ptr<FsLink> Link::getParent() {
 	return _owner;
 }
 
@@ -308,24 +308,12 @@ expected<std::string> SymlinkNode::readSymlink(FsLink *link, Process *) {
 	std::string path;
 
 	// Walk from the target to the root to discover the path.
-	auto ref = object->directoryNode();
-	while(true) {
-		auto link = ref->treeLink();
-		if(!link->getOwner())
-			break;
-		path = path.empty() ? link->getName() : link->getName() + "/" + path;
-		ref = smarter::static_pointer_cast<DirectoryNode>(link->getOwner());
-	}
+	for(auto ref = object->directoryNode()->treeLink(); ref->getParent(); ref = ref->getParent())
+		path = path.empty() ? ref->getName() : ref->getName() + "/" + path;
 
 	// Walk from the symlink to the root to discover the number of ../ prefixes.
-	ref = smarter::static_pointer_cast<DirectoryNode>(link->getOwner());
-	while(true) {
-		auto link = ref->treeLink();
-		if(!link->getOwner())
-			break;
+	for(auto ref = link->getParent(); ref->getParent(); ref = ref->getParent())
 		path = "../" + path;
-		ref = smarter::static_pointer_cast<DirectoryNode>(link->getOwner());
-	}
 
 	co_return path;
 }
@@ -350,7 +338,7 @@ DirectoryNode::DirectoryNode()
 smarter::shared_ptr<Link> DirectoryNode::directMkattr(Object *object, Attribute *attr) {
 	assert(_entries.find(attr->name()) == _entries.end());
 	auto node = makeFsShared<AttributeNode>(object, attr);
-	auto link = makeFsShared<Link>(sharedFromThis(), attr->name(), std::move(node));
+	auto link = makeFsShared<Link>(treeLink(), attr->name(), std::move(node));
 	_entries.insert(link);
 	return link;
 }
@@ -358,7 +346,7 @@ smarter::shared_ptr<Link> DirectoryNode::directMkattr(Object *object, Attribute 
 smarter::shared_ptr<Link> DirectoryNode::directMklink(std::string name, std::weak_ptr<Object> target) {
 	assert(_entries.find(name) == _entries.end());
 	auto node = makeFsShared<SymlinkNode>(std::move(target));
-	auto link = makeFsShared<Link>(sharedFromThis(), std::move(name), std::move(node));
+	auto link = makeFsShared<Link>(treeLink(), std::move(name), std::move(node));
 	_entries.insert(link);
 	return link;
 }
@@ -370,7 +358,7 @@ smarter::shared_ptr<Link> DirectoryNode::directMkdir(std::string name) {
 	}
 	auto node = makeFsShared<DirectoryNode>();
 	auto the_node = node.get();
-	auto link = makeFsShared<Link>(sharedFromThis(), std::move(name), std::move(node));
+	auto link = makeFsShared<Link>(treeLink(), std::move(name), std::move(node));
 	_entries.insert(link);
 	the_node->_treeLink = link.get();
 	return link;

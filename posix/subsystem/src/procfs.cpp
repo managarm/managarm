@@ -178,13 +178,13 @@ helix::BorrowedDescriptor DirectoryFile::getPassthroughLane() {
 Link::Link(smarter::shared_ptr<FsNode> target)
 : _target{std::move(target)} { }
 
-Link::Link(smarter::shared_ptr<FsNode> owner, std::string name, smarter::shared_ptr<FsNode> target)
+Link::Link(smarter::shared_ptr<FsLink> owner, std::string name, smarter::shared_ptr<FsNode> target)
 : _owner{std::move(owner)}, _name{std::move(name)}, _target{std::move(target)} {
 	assert(_owner);
 	assert(!_name.empty());
 }
 
-smarter::shared_ptr<FsNode> Link::getOwner() {
+smarter::shared_ptr<FsLink> Link::getParent() {
 	return _owner;
 }
 
@@ -201,7 +201,7 @@ smarter::shared_ptr<FsNode> Link::getTarget() {
 void Link::unlinkSelf() {
 	assert(_target->getType() == VfsType::directory);
 
-	auto node = smarter::static_pointer_cast<DirectoryNode>(_owner);
+	auto node = smarter::static_pointer_cast<DirectoryNode>(_owner->getTarget());
 	auto err = node->directUnlink(_name);
 	assert(err == Error::success);
 }
@@ -299,10 +299,10 @@ smarter::shared_ptr<Link> DirectoryNode::createRootDirectory() {
 	auto link = makeFsShared<Link>(std::move(node));
 	the_node->_treeLink = link.get();
 
-	auto self_link = makeFsShared<Link>(the_node->sharedFromThis(), "self", makeFsShared<SelfLink>());
+	auto self_link = makeFsShared<Link>(the_node->treeLink(), "self", makeFsShared<SelfLink>());
 	the_node->_entries.insert(std::move(self_link));
 
-	auto self_thread_link = makeFsShared<Link>(the_node->sharedFromThis(), "thread-self", makeFsShared<SelfThreadLink>());
+	auto self_thread_link = makeFsShared<Link>(the_node->treeLink(), "thread-self", makeFsShared<SelfThreadLink>());
 	the_node->_entries.insert(std::move(self_thread_link));
 
 	the_node->directMkregular("uptime", makeFsShared<UptimeNode>());
@@ -331,7 +331,7 @@ DirectoryNode::DirectoryNode()
 smarter::shared_ptr<Link> DirectoryNode::directMkregular(std::string name,
 		smarter::shared_ptr<RegularNode> regular) {
 	assert(_entries.find(name) == _entries.end());
-	auto link = makeFsShared<Link>(sharedFromThis(), name, std::move(regular));
+	auto link = makeFsShared<Link>(treeLink(), name, std::move(regular));
 	_entries.insert(link);
 	return link;
 }
@@ -340,7 +340,7 @@ smarter::shared_ptr<Link> DirectoryNode::directMkdir(std::string name) {
 	assert(_entries.find(name) == _entries.end());
 	auto node = makeFsShared<DirectoryNode>();
 	auto the_node = node.get();
-	auto link = makeFsShared<Link>(sharedFromThis(), std::move(name), std::move(node));
+	auto link = makeFsShared<Link>(treeLink(), std::move(name), std::move(node));
 	_entries.insert(link);
 	the_node->_treeLink = link.get();
 	return link;
@@ -351,7 +351,7 @@ requires requires (T t) { {t._treeLink} -> std::same_as<Link *&>; }
 smarter::shared_ptr<Link> DirectoryNode::directMknodeDir(std::string name, smarter::shared_ptr<T> dirnode) {
 	assert(_entries.find(name) == _entries.end());
 	auto dirnodePtr = dirnode.get();
-	auto link = makeFsShared<Link>(sharedFromThis(), name, std::move(dirnode));
+	auto link = makeFsShared<Link>(treeLink(), name, std::move(dirnode));
 	dirnodePtr->_treeLink = link.get();
 	_entries.insert(link);
 	return link;
@@ -359,7 +359,7 @@ smarter::shared_ptr<Link> DirectoryNode::directMknodeDir(std::string name, smart
 
 smarter::shared_ptr<Link> DirectoryNode::directMknode(std::string name, smarter::shared_ptr<FsNode> node) {
 	assert(_entries.find(name) == _entries.end());
-	auto link = makeFsShared<Link>(sharedFromThis(), name, std::move(node));
+	auto link = makeFsShared<Link>(treeLink(), name, std::move(node));
 	_entries.insert(link);
 	return link;
 }
@@ -1237,7 +1237,7 @@ async::result<frg::expected<Error, smarter::shared_ptr<FsLink>>> FdDirectoryNode
 		if(name != std::to_string(fdnum))
 			continue;
 		auto pointee = makeFsShared<SymlinkNode>(p.get(), fd.file->associatedMount(), fd.file->associatedLink());
-		co_return makeFsShared<Link>(sharedFromThis(), name, pointee);
+		co_return makeFsShared<Link>(treeLink(), name, pointee);
 	}
 	co_return Error::noSuchFile;
 }
@@ -1446,7 +1446,7 @@ async::result<frg::expected<Error, smarter::shared_ptr<FsLink>>> FdInfoDirectory
 	if(p->fileContext()->fileTable().contains(nameNum)) {
 		auto file = p->fileContext()->fileTable().at(nameNum).file;
 		auto pointee = makeFsShared<FdInfoNode>(file->associatedMount(), file);
-		co_return makeFsShared<Link>(sharedFromThis(), name, pointee);
+		co_return makeFsShared<Link>(treeLink(), name, pointee);
 	}
 
 	co_return Error::noSuchFile;

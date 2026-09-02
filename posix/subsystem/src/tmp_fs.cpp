@@ -233,13 +233,13 @@ public:
 	explicit Link(smarter::shared_ptr<FsNode> target)
 	: _target(std::move(target)) { }
 
-	explicit Link(smarter::shared_ptr<FsNode> owner, std::string name, smarter::shared_ptr<FsNode> target)
+	explicit Link(smarter::shared_ptr<FsLink> owner, std::string name, smarter::shared_ptr<FsNode> target)
 	: _owner(std::move(owner)), _name(std::move(name)), _target(std::move(target)) {
 		assert(_owner);
 		assert(!_name.empty());
 	}
 
-	smarter::shared_ptr<FsNode> getOwner() override {
+	smarter::shared_ptr<FsLink> getParent() override {
 		return _owner;
 	}
 
@@ -254,7 +254,7 @@ public:
 	}
 
 private:
-	smarter::shared_ptr<FsNode> _owner;
+	smarter::shared_ptr<FsLink> _owner;
 	std::string _name;
 	smarter::shared_ptr<FsNode> _target;
 };
@@ -347,7 +347,7 @@ private:
 		if(!(_entries.find(name) == _entries.end()))
 			co_return Error::alreadyExists;
 		static_cast<Node *>(target.get())->adjustLinkCount(1);
-		auto link = makeFsShared<Link>(sharedFromThis(), std::move(name), std::move(target));
+		auto link = makeFsShared<Link>(treeLink(), std::move(name), std::move(target));
 		_entries.insert(link);
 		co_return link;
 	}
@@ -584,7 +584,7 @@ struct Superblock final : FsSuperblock {
 			co_return Error::notDirectory;
 		auto dest_dir = static_cast<DirectoryNode *>(dest_fs_dir);
 
-		auto src_dir = static_cast<DirectoryNode *>(src_link->getOwner().get());
+		auto src_dir = static_cast<DirectoryNode *>(src_link->getParentNode().get());
 		auto it = src_dir->_entries.find(src_link->getName());
 		if(it == src_dir->_entries.end() || it->get() != src_link)
 			co_return Error::alreadyExists;
@@ -614,7 +614,7 @@ struct Superblock final : FsSuperblock {
 			dest_dir->_entries.erase(dest_it);
 		}
 
-		auto new_link = makeFsShared<Link>(dest_dir->sharedFromThis(),
+		auto new_link = makeFsShared<Link>(dest_dir->treeLink(),
 				std::move(dest_name), target);
 		src_dir->_entries.erase(it);
 		dest_dir->_entries.insert(new_link);
@@ -824,7 +824,7 @@ DirectoryFile::readEntries() {
 	// '.' and '..' are not stored in _entries; synthesize them before iterating.
 	if(_dots != DotEntriesPhase::done) {
 		// The parent of the root directory is the root itself.
-		auto owner = _node->treeLink()->getOwner();
+		auto owner = _node->treeLink()->getParentNode();
 		auto parent = owner ? static_cast<Node *>(owner.get()) : static_cast<Node *>(_node);
 		if(auto entry = nextDotEntry(_dots, _node->inodeNumber(), parent->inodeNumber()); entry)
 			co_return *entry;
@@ -946,7 +946,7 @@ DirectoryNode::getLinkOrCreate(Process *, std::string name, mode_t mode, bool ex
 
 	auto node = makeFsShared<MemoryNode>(static_cast<Superblock *>(superblock()));
 	co_await node->chmod(mode);
-	auto link = makeFsShared<Link>(sharedFromThis(), name, std::move(node));
+	auto link = makeFsShared<Link>(treeLink(), name, std::move(node));
 	_entries.insert(link);
 	notifyObservers(FsObserver::createEvent, name, 0, false);
 	co_return link;
@@ -963,7 +963,7 @@ DirectoryNode::mkdir(Process *proc, std::string name, mode_t mode) {
 
 	auto node = makeFsShared<DirectoryNode>(static_cast<Superblock *>(superblock()), mode & ~umask, uid, gid);
 	auto the_node = node.get();
-	auto link = makeFsShared<Link>(sharedFromThis(), name, std::move(node));
+	auto link = makeFsShared<Link>(treeLink(), name, std::move(node));
 	the_node->_treeLink = link;
 	_entries.insert(link);
 	// Account for the new subdirectory's '..' backlink.
@@ -978,7 +978,7 @@ DirectoryNode::symlink(std::string name, std::string path) {
 		co_return Error::alreadyExists;
 	auto node = makeFsShared<SymlinkNode>(static_cast<Superblock *>(superblock()),
 			std::move(path));
-	auto link = makeFsShared<Link>(sharedFromThis(), std::move(name), std::move(node));
+	auto link = makeFsShared<Link>(treeLink(), std::move(name), std::move(node));
 	_entries.insert(link);
 	co_return link;
 }
@@ -989,7 +989,7 @@ DirectoryNode::mkdev(std::string name, VfsType type, DeviceId id) {
 		co_return Error::alreadyExists;
 	auto node = makeFsShared<DeviceNode>(static_cast<Superblock *>(superblock()),
 			type, id);
-	auto link = makeFsShared<Link>(sharedFromThis(), name, std::move(node));
+	auto link = makeFsShared<Link>(treeLink(), name, std::move(node));
 	_entries.insert(link);
 	notifyObservers(FsObserver::createEvent, name, 0);
 	co_return link;
@@ -1000,7 +1000,7 @@ DirectoryNode::mkfifo(std::string name, mode_t mode) {
 	if(!(_entries.find(name) == _entries.end()))
 		co_return Error::alreadyExists;
 	auto node = makeFsShared<FifoNode>(static_cast<Superblock *>(superblock()), mode);
-	auto link = makeFsShared<Link>(sharedFromThis(), name, std::move(node));
+	auto link = makeFsShared<Link>(treeLink(), name, std::move(node));
 	_entries.insert(link);
 	notifyObservers(FsObserver::createEvent, name, 0);
 	co_return link;
@@ -1010,7 +1010,7 @@ async::result<frg::expected<Error, smarter::shared_ptr<FsLink>>> DirectoryNode::
 	if(!(_entries.find(name) == _entries.end()))
 		co_return Error::alreadyExists;
 	auto node = makeFsShared<SocketNode>(static_cast<Superblock *>(superblock()), mode, uid, gid);
-	auto link = makeFsShared<Link>(sharedFromThis(), name, std::move(node));
+	auto link = makeFsShared<Link>(treeLink(), name, std::move(node));
 	_entries.insert(link);
 	notifyObservers(FsObserver::createEvent, name, 0);
 	co_return link;

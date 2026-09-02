@@ -79,15 +79,15 @@ private:
 struct Link final : FsLink {
 	explicit Link(smarter::shared_ptr<FsNode> target);
 
-	explicit Link(smarter::shared_ptr<FsNode> owner,
+	explicit Link(smarter::shared_ptr<FsLink> owner,
 			std::string name, smarter::shared_ptr<FsNode> target);
 
-	smarter::shared_ptr<FsNode> getOwner() override;
+	smarter::shared_ptr<FsLink> getParent() override;
 	std::string getName() override;
 	smarter::shared_ptr<FsNode> getTarget() override;
 
 private:
-	smarter::shared_ptr<FsNode> _owner;
+	smarter::shared_ptr<FsLink> _owner;
 	std::string _name;
 	smarter::shared_ptr<FsNode> _target;
 };

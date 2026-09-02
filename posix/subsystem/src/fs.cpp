@@ -59,8 +59,8 @@ id_allocator<unsigned int> &getUnnamedDeviceIdAllocator() {
 // --------------------------------------------------------
 
 async::result<frg::expected<Error>> FsLink::obstruct() {
-	if(getOwner())
-		assert(!getOwner()->hasTraverseLinks() && "Node has traverseLinks but no obstruct?");
+	if(auto parent = getParentNode(); parent)
+		assert(!parent->hasTraverseLinks() && "Node has traverseLinks but no obstruct?");
 	co_return Error::illegalOperationTarget;
 }
 

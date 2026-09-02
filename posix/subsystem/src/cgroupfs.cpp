@@ -144,13 +144,13 @@ helix::BorrowedDescriptor DirectoryFile::getPassthroughLane() {
 Link::Link(smarter::shared_ptr<FsNode> target)
 : _target{std::move(target)} { }
 
-Link::Link(smarter::shared_ptr<FsNode> owner, std::string name, smarter::shared_ptr<FsNode> target)
+Link::Link(smarter::shared_ptr<FsLink> owner, std::string name, smarter::shared_ptr<FsNode> target)
 : _owner{std::move(owner)}, _name{std::move(name)}, _target{std::move(target)} {
 	assert(_owner);
 	assert(!_name.empty());
 }
 
-smarter::shared_ptr<FsNode> Link::getOwner() {
+smarter::shared_ptr<FsLink> Link::getParent() {
 	return _owner;
 }
 
@@ -250,7 +250,7 @@ DirectoryNode::DirectoryNode()
 smarter::shared_ptr<Link> DirectoryNode::directMkregular(std::string name,
 		smarter::shared_ptr<RegularNode> regular) {
 	assert(_entries.find(name) == _entries.end());
-	auto link = makeFsShared<Link>(sharedFromThis(), name, std::move(regular));
+	auto link = makeFsShared<Link>(treeLink(), name, std::move(regular));
 	_entries.insert(link);
 	return link;
 }
@@ -259,7 +259,7 @@ smarter::shared_ptr<Link> DirectoryNode::directMkdir(std::string name) {
 	assert(_entries.find(name) == _entries.end());
 	auto node = makeFsShared<DirectoryNode>();
 	auto the_node = node.get();
-	auto link = makeFsShared<Link>(sharedFromThis(), std::move(name), std::move(node));
+	auto link = makeFsShared<Link>(treeLink(), std::move(name), std::move(node));
 	_entries.insert(link);
 	the_node->_treeLink = link.get();
 	return link;
@@ -274,7 +274,7 @@ async::result<std::variant<Error, smarter::shared_ptr<FsLink>>> DirectoryNode::m
 
 smarter::shared_ptr<Link> DirectoryNode::directMknode(std::string name, smarter::shared_ptr<FsNode> node) {
 	assert(_entries.find(name) == _entries.end());
-	auto link = makeFsShared<Link>(sharedFromThis(), name, std::move(node));
+	auto link = makeFsShared<Link>(treeLink(), name, std::move(node));
 	_entries.insert(link);
 	return link;
 }

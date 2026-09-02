@@ -1268,15 +1268,15 @@ void Process::dumpRegisters() {
 					traversed = vp;
 				}
 
-				auto owner = traversed.second->getOwner();
-				if(!owner) { // We did not reach the root.
+				auto parentLink = traversed.second->getParent();
+				if(!parentLink) { // We did not reach the root.
 					// TODO: Can we get rid of this case?
 					path = "?" + path;
 					break;
 				}
 
 				path = "/" + traversed.second->getName() + path;
-				vp = ViewPath{traversed.first, owner->treeLink()};
+				vp = ViewPath{traversed.first, std::move(parentLink)};
 			}
 		}else{
 			path = "anon";

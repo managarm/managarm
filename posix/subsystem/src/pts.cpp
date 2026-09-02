@@ -509,18 +509,18 @@ private:
 
 struct Link final : FsLink {
 public:
-	explicit Link(smarter::shared_ptr<FsNode> root, std::string name,
+	explicit Link(smarter::shared_ptr<FsLink> root, std::string name,
 			smarter::shared_ptr<DeviceNode> device)
 	: _root{std::move(root)}, _name{std::move(name)}, _device{std::move(device)} { }
 
-	smarter::shared_ptr<FsNode> getOwner() override;
+	smarter::shared_ptr<FsLink> getParent() override;
 
 	std::string getName() override;
 
 	smarter::shared_ptr<FsNode> getTarget() override;
 
 private:
-	smarter::shared_ptr<FsNode> _root;
+	smarter::shared_ptr<FsLink> _root;
 	std::string _name;
 	smarter::shared_ptr<DeviceNode> _device;
 };
@@ -532,8 +532,8 @@ struct RootLink final : FsLink {
 		return _root.get();
 	}
 
-	smarter::shared_ptr<FsNode> getOwner() override {
-		throw std::logic_error("posix: pts RootLink has no owner");
+	smarter::shared_ptr<FsLink> getParent() override {
+		return nullptr;
 	}
 
 	std::string getName() override {
@@ -618,7 +618,7 @@ public:
 	}
 
 	void linkDevice(std::string name, smarter::shared_ptr<DeviceNode> node) {
-		auto link = makeFsShared<Link>(sharedFromThis(), name, std::move(node));
+		auto link = makeFsShared<Link>(treeLink(), name, std::move(node));
 		_entries.insert(std::move(link));
 	}
 
@@ -1528,7 +1528,7 @@ void SlaveFile::handleClose() {
 // Link and RootLink implementation.
 //-----------------------------------------------------------------------------
 
-smarter::shared_ptr<FsNode> Link::getOwner() {
+smarter::shared_ptr<FsLink> Link::getParent() {
 	return _root;
 }
 

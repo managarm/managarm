@@ -286,18 +286,18 @@ async::result<frg::expected<protocols::fs::Error, void>> PathResolver::resolve(R
 				if(auto parent = _currentPath.first->getParent(); parent) {
 					auto anchor = _currentPath.first->getAnchor();
 					assert(anchor); // Non-root mounts must have anchors in their parents.
-					auto owner = anchor->getOwner();
+					auto anchorParent = anchor->getParent();
 					// TODO: We have to decide if the following is something we want to support:
-					assert(owner && "FS mounted over root of parent mount");
-					_currentPath = ViewPath{parent, owner->treeLink()};
+					assert(anchorParent && "FS mounted over root of parent mount");
+					_currentPath = ViewPath{parent, std::move(anchorParent)};
 				}else{
 					// We are at the root -- do not modify _currentPath at all.
 				}
 			}else{
-				auto owner = _currentPath.second->getOwner();
-				assert(owner && "VFS resolution crosses root directory of non-root"
+				auto parentLink = _currentPath.second->getParent();
+				assert(parentLink && "VFS resolution crosses root directory of non-root"
 							" mount! (Mount configuration broken?)");
-				_currentPath = ViewPath{_currentPath.first, owner->treeLink()};
+				_currentPath = ViewPath{_currentPath.first, std::move(parentLink)};
 			}
 		}else{
 			if (_currentPath.second->getTarget()->hasTraverseLinks()) {
@@ -380,7 +380,7 @@ async::result<frg::expected<protocols::fs::Error, void>> PathResolver::resolve(R
 					if(!link.isRelative())
 						_currentPath = _rootPath;
 					else
-						_currentPath = ViewPath{_currentPath.first, next.second->getOwner()->treeLink()};
+						_currentPath = ViewPath{_currentPath.first, next.second->getParent()};
 					_components.insert(_components.begin(), link.begin(), link.end());
 				}else{
 					_currentPath = std::move(next);
@@ -514,11 +514,11 @@ std::string ViewPath::getPath(ViewPath root) const {
 			traversed = dir;
 		}
 
-		auto owner = traversed.second->getOwner();
-		assert(owner); // Otherwise, we would have been at the root.
+		auto parentLink = traversed.second->getParent();
+		assert(parentLink); // Otherwise, we would have been at the root.
 		path = "/" + traversed.second->getName() + path;
 
-		dir = ViewPath{traversed.first, owner->treeLink()};
+		dir = ViewPath{traversed.first, std::move(parentLink)};
 	}
 
 	return path;

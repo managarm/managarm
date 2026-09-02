@@ -766,7 +766,7 @@ HandleRequest::operator()(managarm::posix::UnlinkAtRequest &&req,
 
 	target_link = resolver.currentLink();
 
-	auto owner = target_link->getOwner();
+	auto owner = target_link->getParentNode();
 	if(!owner) {
 		co_await sendErrorResponse<managarm::posix::UnlinkAtResponse>(conversation, managarm::posix::Errors::RESOURCE_IN_USE);
 		co_return {};
@@ -826,7 +826,7 @@ HandleRequest::operator()(managarm::posix::RmdirRequest &&req,
 
 	target_link = resolver.currentLink();
 
-	auto owner = target_link->getOwner();
+	auto owner = target_link->getParentNode();
 	auto result = co_await owner->rmdir(target_link->getName());
 	if(!result) {
 		co_await sendErrorResponse<managarm::posix::RmdirResponse>(conversation, result.error() | toPosixProtoError);
