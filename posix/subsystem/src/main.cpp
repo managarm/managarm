@@ -185,8 +185,8 @@ async::result<void> enumerateKerncfg() {
 	auto numCpuResp = bragi::parse_head_only<managarm::kerncfg::GetNumCpuResponse>(recvResp);
 	affinityMaskSize = (numCpuResp->num_cpu() + 7) / 8;
 
-	auto procfsRoot = std::static_pointer_cast<procfs::DirectoryNode>(getProcfs()->getTarget());
-	procfsRoot->directMkregular("cmdline", std::make_shared<CmdlineNode>());
+	auto procfsRoot = smarter::static_pointer_cast<procfs::DirectoryNode>(getProcfs()->getTarget());
+	procfsRoot->directMkregular("cmdline", makeFsShared<CmdlineNode>());
 }
 
 async::result<void> enumeratePm() {

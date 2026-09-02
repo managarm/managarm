@@ -12,12 +12,12 @@ struct AnonymousSuperblock : FsSuperblock {
 		deviceMinor_ = getUnnamedDeviceIdAllocator().allocate();
 	}
 
-	FutureMaybe<std::shared_ptr<FsNode>> createRegular(Process *) override {
+	FutureMaybe<smarter::shared_ptr<FsNode>> createRegular(Process *) override {
 		std::cout << "posix: createRegular on AnonymousSuperblock unsupported" << std::endl;
 		co_return nullptr;
 	}
 
-	async::result<frg::expected<Error, std::shared_ptr<FsLink>>>
+	async::result<frg::expected<Error, smarter::shared_ptr<FsLink>>>
 	rename(FsLink *, FsNode *, std::string) override {
 		co_return Error::noSuchFile;
 	}
@@ -59,7 +59,7 @@ id_allocator<unsigned int> &getUnnamedDeviceIdAllocator() {
 // --------------------------------------------------------
 
 async::result<frg::expected<Error>> FsLink::obstruct() {
-	if(getOwner() != nullptr)
+	if(getOwner())
 		assert(!getOwner()->hasTraverseLinks() && "Node has traverseLinks but no obstruct?");
 	co_return Error::illegalOperationTarget;
 }
@@ -77,7 +77,7 @@ async::result<frg::expected<Error, FileStats>> FsNode::getStats() {
 	co_return Error::illegalOperationTarget;
 }
 
-std::shared_ptr<FsLink> FsNode::treeLink() {
+smarter::shared_ptr<FsLink> FsNode::treeLink() {
 	throw std::runtime_error("treeLink() is not implemented for this FsNode");
 }
 
@@ -98,40 +98,40 @@ void FsNode::removeObserver(FsObserver *observer) {
 	_observers.erase(it);
 }
 
-async::result<std::expected<std::shared_ptr<FsLink>, Error>>
+async::result<std::expected<smarter::shared_ptr<FsLink>, Error>>
 FsNode::getLinkOrCreate(Process *, std::string, mode_t, bool) {
 	std::println("posix: getLink() is not implemented for this FsNode");
 	co_return std::unexpected{Error::illegalOperationTarget};
 }
 
-async::result<frg::expected<Error, std::shared_ptr<FsLink>>> FsNode::getLink(std::string) {
+async::result<frg::expected<Error, smarter::shared_ptr<FsLink>>> FsNode::getLink(std::string) {
 	std::cout << "posix: getLink() is not implemented for this FsNode" << std::endl;
 	co_return Error::illegalOperationTarget;
 }
 
-async::result<frg::expected<Error, std::shared_ptr<FsLink>>> FsNode::link(std::string, std::shared_ptr<FsNode>) {
+async::result<frg::expected<Error, smarter::shared_ptr<FsLink>>> FsNode::link(std::string, smarter::shared_ptr<FsNode>) {
 	std::cout << "posix: link() is not implemented for this FsNode" << std::endl;
 	co_return Error::illegalOperationTarget;
 }
 
-async::result<std::variant<Error, std::shared_ptr<FsLink>>>
+async::result<std::variant<Error, smarter::shared_ptr<FsLink>>>
 FsNode::mkdir(Process *, std::string, mode_t) {
 	std::cout << "posix: mkdir() is not implemented for this FsNode" << std::endl;
 	co_return Error::illegalOperationTarget;
 }
 
-async::result<std::variant<Error, std::shared_ptr<FsLink>>>
+async::result<std::variant<Error, smarter::shared_ptr<FsLink>>>
 FsNode::symlink(std::string, std::string) {
 	std::cout << "posix: symlink() is not implemented for this FsNode" << std::endl;
 	co_return Error::illegalOperationTarget;
 }
 
-async::result<frg::expected<Error, std::shared_ptr<FsLink>>> FsNode::mkdev(std::string, VfsType, DeviceId) {
+async::result<frg::expected<Error, smarter::shared_ptr<FsLink>>> FsNode::mkdev(std::string, VfsType, DeviceId) {
 	std::cout << "posix: mkdev() is not implemented for this FsNode" << std::endl;
 	co_return Error::illegalOperationTarget;
 }
 
-async::result<frg::expected<Error, std::shared_ptr<FsLink>>> FsNode::mkfifo(std::string, mode_t) {
+async::result<frg::expected<Error, smarter::shared_ptr<FsLink>>> FsNode::mkfifo(std::string, mode_t) {
 	std::cout << "posix: mkfifo() is not implemented for this FsNode" << std::endl;
 	co_return Error::illegalOperationTarget;
 }
@@ -148,7 +148,7 @@ async::result<frg::expected<Error>> FsNode::rmdir(std::string) {
 }
 
 async::result<frg::expected<Error, smarter::shared_ptr<File, FileHandle>>>
-FsNode::open(Process *, std::shared_ptr<MountView>, std::shared_ptr<FsLink>, SemanticFlags) {
+FsNode::open(Process *, std::shared_ptr<MountView>, smarter::shared_ptr<FsLink>, SemanticFlags) {
 	std::cout << "posix: open() is not implemented for this FsNode" << std::endl;
 	co_return Error::illegalOperationTarget;
 }
@@ -165,7 +165,7 @@ bool FsNode::hasTraverseLinks() {
 	return false;
 }
 
-async::result<frg::expected<Error, std::pair<std::shared_ptr<FsLink>, size_t>>> FsNode::traverseLinks(std::deque<std::string>) {
+async::result<frg::expected<Error, std::pair<smarter::shared_ptr<FsLink>, size_t>>> FsNode::traverseLinks(std::deque<std::string>) {
 	std::cout << "posix: traverseLinks() is not implemented for this FsNode" << std::endl;
 	co_return Error::illegalOperationTarget;
 }
@@ -192,7 +192,7 @@ async::result<Error> FsNode::utimensat(std::optional<timespec> atime, std::optio
 	co_return Error::accessDenied;
 }
 
-async::result<frg::expected<Error, std::shared_ptr<FsLink>>> FsNode::mksocket(std::string name, mode_t mode, uid_t uid, gid_t gid) {
+async::result<frg::expected<Error, smarter::shared_ptr<FsLink>>> FsNode::mksocket(std::string name, mode_t mode, uid_t uid, gid_t gid) {
 	(void) name;
 	(void) mode;
 	(void) uid;

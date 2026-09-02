@@ -185,7 +185,7 @@ private:
 	}
 
 	async::result<frg::expected<Error, smarter::shared_ptr<File, FileHandle>>> open(Process *process, std::shared_ptr<MountView> mount,
-			std::shared_ptr<FsLink> link, SemanticFlags semantic_flags) override {
+			smarter::shared_ptr<FsLink> link, SemanticFlags semantic_flags) override {
 		return openDevice(process, _type, _id, std::move(mount), std::move(link), semantic_flags);
 	}
 
@@ -212,7 +212,7 @@ private:
 	}
 
 	async::result<frg::expected<Error, smarter::shared_ptr<File, FileHandle>>> open(Process *, std::shared_ptr<MountView> mount,
-			std::shared_ptr<FsLink> link, SemanticFlags semantic_flags) override {
+			smarter::shared_ptr<FsLink> link, SemanticFlags semantic_flags) override {
 		co_return co_await fifo::openNamedChannel(mount, link, this, semantic_flags);
 	}
 
@@ -230,16 +230,16 @@ public:
 
 struct Link final : FsLink {
 public:
-	explicit Link(std::shared_ptr<FsNode> target)
+	explicit Link(smarter::shared_ptr<FsNode> target)
 	: _target(std::move(target)) { }
 
-	explicit Link(std::shared_ptr<FsNode> owner, std::string name, std::shared_ptr<FsNode> target)
+	explicit Link(smarter::shared_ptr<FsNode> owner, std::string name, smarter::shared_ptr<FsNode> target)
 	: _owner(std::move(owner)), _name(std::move(name)), _target(std::move(target)) {
 		assert(_owner);
 		assert(!_name.empty());
 	}
 
-	std::shared_ptr<FsNode> getOwner() override {
+	smarter::shared_ptr<FsNode> getOwner() override {
 		return _owner;
 	}
 
@@ -249,28 +249,28 @@ public:
 		return _name;
 	}
 
-	std::shared_ptr<FsNode> getTarget() override {
+	smarter::shared_ptr<FsNode> getTarget() override {
 		return _target;
 	}
 
 private:
-	std::shared_ptr<FsNode> _owner;
+	smarter::shared_ptr<FsNode> _owner;
 	std::string _name;
-	std::shared_ptr<FsNode> _target;
+	smarter::shared_ptr<FsNode> _target;
 };
 
 struct LinkCompare {
 	struct is_transparent { };
 
-	bool operator() (const std::shared_ptr<Link> &link, const std::string &name) const {
+	bool operator() (const smarter::shared_ptr<Link> &link, const std::string &name) const {
 		return link->getName() < name;
 	}
 
-	bool operator() (const std::string &name, const std::shared_ptr<Link> &link) const {
+	bool operator() (const std::string &name, const smarter::shared_ptr<Link> &link) const {
 		return name < link->getName();
 	}
 
-	bool operator() (const std::shared_ptr<Link> &a, const std::shared_ptr<Link> &b) const {
+	bool operator() (const smarter::shared_ptr<Link> &a, const smarter::shared_ptr<Link> &b) const {
 		return a->getName() < b->getName();
 	}
 };
@@ -281,7 +281,7 @@ struct DirectoryFile final : FileWithDefaults {
 public:
 	static void serve(smarter::shared_ptr<DirectoryFile> file);
 
-	explicit DirectoryFile(std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link);
+	explicit DirectoryFile(std::shared_ptr<MountView> mount, smarter::shared_ptr<FsLink> link);
 
 	void handleClose() override;
 
@@ -298,27 +298,27 @@ private:
 	// The '.' and '..' entries are synthesized before iterating _entries.
 	DotEntriesPhase _dots = DotEntriesPhase::dot;
 
-	std::set<std::shared_ptr<Link>, LinkCompare>::iterator _iter;
+	std::set<smarter::shared_ptr<Link>, LinkCompare>::iterator _iter;
 };
 
-struct DirectoryNode final : Node, std::enable_shared_from_this<DirectoryNode> {
+struct DirectoryNode final : Node {
 	friend struct Superblock;
 	friend struct DirectoryFile;
 
-	static std::shared_ptr<Link> createRootDirectory(Superblock *superblock, int mode, uid_t uid, gid_t gid);
+	static smarter::shared_ptr<Link> createRootDirectory(Superblock *superblock, int mode, uid_t uid, gid_t gid);
 
 private:
 	VfsType getType() override {
 		return VfsType::directory;
 	}
 
-	std::shared_ptr<FsLink> treeLink() override {
+	smarter::shared_ptr<FsLink> treeLink() override {
 		assert(_treeLink);
 		return _treeLink;
 	}
 
 	async::result<frg::expected<Error, smarter::shared_ptr<File, FileHandle>>>
-	open(Process *, std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link,
+	open(Process *, std::shared_ptr<MountView> mount, smarter::shared_ptr<FsLink> link,
 			SemanticFlags semantic_flags) override {
 		// we silently ignore semanticAppend for directories
 		if(semantic_flags & ~(semanticNonBlock | semanticRead | semanticWrite | semanticAppend)){
@@ -332,36 +332,36 @@ private:
 		co_return File::constructHandle(std::move(file));
 	}
 
-	async::result<std::expected<std::shared_ptr<FsLink>, Error>>
+	async::result<std::expected<smarter::shared_ptr<FsLink>, Error>>
 	getLinkOrCreate(Process *process, std::string name, mode_t mode, bool exclusive) override;
 
-	async::result<frg::expected<Error, std::shared_ptr<FsLink>>> getLink(std::string name) override {
+	async::result<frg::expected<Error, smarter::shared_ptr<FsLink>>> getLink(std::string name) override {
 		auto it = _entries.find(name);
 		if(it != _entries.end())
 			co_return *it;
 		co_return Error::noSuchFile;
 	}
 
-	async::result<frg::expected<Error, std::shared_ptr<FsLink>>> link(std::string name,
-			std::shared_ptr<FsNode> target) override {
+	async::result<frg::expected<Error, smarter::shared_ptr<FsLink>>> link(std::string name,
+			smarter::shared_ptr<FsNode> target) override {
 		if(!(_entries.find(name) == _entries.end()))
 			co_return Error::alreadyExists;
 		static_cast<Node *>(target.get())->adjustLinkCount(1);
-		auto link = std::make_shared<Link>(shared_from_this(), std::move(name), std::move(target));
+		auto link = makeFsShared<Link>(sharedFromThis(), std::move(name), std::move(target));
 		_entries.insert(link);
 		co_return link;
 	}
 
-	async::result<std::variant<Error, std::shared_ptr<FsLink>>>
+	async::result<std::variant<Error, smarter::shared_ptr<FsLink>>>
 	mkdir(Process *p, std::string name, mode_t mode) override;
 
-	async::result<std::variant<Error, std::shared_ptr<FsLink>>>
+	async::result<std::variant<Error, smarter::shared_ptr<FsLink>>>
 	symlink(std::string name, std::string path) override;
 
-	async::result<frg::expected<Error, std::shared_ptr<FsLink>>> mkdev(std::string name,
+	async::result<frg::expected<Error, smarter::shared_ptr<FsLink>>> mkdev(std::string name,
 			VfsType type, DeviceId id) override;
 
-	async::result<frg::expected<Error, std::shared_ptr<FsLink>>> mkfifo(std::string name, mode_t mode) override;
+	async::result<frg::expected<Error, smarter::shared_ptr<FsLink>>> mkfifo(std::string name, mode_t mode) override;
 
 	async::result<frg::expected<Error>> unlink(std::string name) override {
 		auto it = _entries.find(name);
@@ -379,7 +379,7 @@ private:
 		co_return {};
 	}
 
-	async::result<frg::expected<Error, std::shared_ptr<FsLink>>> mksocket(std::string name, mode_t mode, uid_t uid, gid_t gid) override;
+	async::result<frg::expected<Error, smarter::shared_ptr<FsLink>>> mksocket(std::string name, mode_t mode, uid_t uid, gid_t gid) override;
 
 	async::result<frg::expected<Error>> rmdir(std::string name) override {
 		auto it = _entries.find(name);
@@ -410,8 +410,8 @@ public:
 
 private:
 	// TODO: This creates a circular reference -- fix this.
-	std::shared_ptr<Link> _treeLink;
-	std::set<std::shared_ptr<Link>, LinkCompare> _entries;
+	smarter::shared_ptr<Link> _treeLink;
+	std::set<smarter::shared_ptr<Link>, LinkCompare> _entries;
 };
 
 // TODO: Remove this class in favor of MemoryNode.
@@ -422,7 +422,7 @@ private:
 	}
 
 	async::result<frg::expected<Error, smarter::shared_ptr<File, FileHandle>>>
-	open(Process *, std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link,
+	open(Process *, std::shared_ptr<MountView> mount, smarter::shared_ptr<FsLink> link,
 			SemanticFlags semantic_flags) override {
 		if(semantic_flags & ~(semanticRead | semanticWrite)){
 			std::cout << "\e[31mposix: tmp_fs open() received illegal arguments:"
@@ -456,7 +456,7 @@ public:
 				file, &fileOperations, file->_cancelServe));
 	}
 
-	MemoryFile(std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link, SemanticFlags flags)
+	MemoryFile(std::shared_ptr<MountView> mount, smarter::shared_ptr<FsLink> link, SemanticFlags flags)
 	: FileWithDefaults{FileKind::unknown,  StructName::get("tmpfs.regular"), std::move(mount), std::move(link)},
 	flags_{flags}, _offset{0} { }
 
@@ -507,7 +507,7 @@ struct MemoryNode final : Node {
 	}
 
 	async::result<frg::expected<Error, smarter::shared_ptr<File, FileHandle>>>
-	open(Process *, std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link,
+	open(Process *, std::shared_ptr<MountView> mount, smarter::shared_ptr<FsLink> link,
 			SemanticFlags semantic_flags) override {
 		if(semantic_flags & ~(semanticNonBlock | semanticRead | semanticWrite | semanticAppend)){
 			std::cout << "\e[31mposix: MemoryNode open() received illegal arguments:"
@@ -571,12 +571,12 @@ struct Superblock final : FsSuperblock {
 		deviceMinor_ = getUnnamedDeviceIdAllocator().allocate();
 	}
 
-	FutureMaybe<std::shared_ptr<FsNode>> createRegular(Process *) override {
-		auto node = std::make_shared<MemoryNode>(this);
+	FutureMaybe<smarter::shared_ptr<FsNode>> createRegular(Process *) override {
+		auto node = makeFsShared<MemoryNode>(this);
 		co_return std::move(node);
 	}
 
-	async::result<frg::expected<Error, std::shared_ptr<FsLink>>> rename(FsLink *src_fs_link,
+	async::result<frg::expected<Error, smarter::shared_ptr<FsLink>>> rename(FsLink *src_fs_link,
 			FsNode *dest_fs_dir, std::string dest_name) override {
 		auto src_link = static_cast<Link *>(src_fs_link);
 
@@ -614,7 +614,7 @@ struct Superblock final : FsSuperblock {
 			dest_dir->_entries.erase(dest_it);
 		}
 
-		auto new_link = std::make_shared<Link>(dest_dir->shared_from_this(),
+		auto new_link = makeFsShared<Link>(dest_dir->sharedFromThis(),
 				std::move(dest_name), target);
 		src_dir->_entries.erase(it);
 		dest_dir->_entries.insert(new_link);
@@ -813,7 +813,7 @@ void DirectoryFile::handleClose() {
 	_cancelServe.cancel();
 }
 
-DirectoryFile::DirectoryFile(std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link)
+DirectoryFile::DirectoryFile(std::shared_ptr<MountView> mount, smarter::shared_ptr<FsLink> link)
 : FileWithDefaults{FileKind::unknown,  StructName::get("tmpfs.dir"), std::move(mount), std::move(link)},
 		_node{static_cast<DirectoryNode *>(associatedLink()->getTarget().get())},
 		_iter{_node->_entries.begin()} { }
@@ -920,10 +920,10 @@ SocketNode::SocketNode(Superblock *superblock, mode_t mode, uid_t uid, gid_t gid
 // DirectoryNode implementation.
 // ----------------------------------------------------------------------------
 
-std::shared_ptr<Link> DirectoryNode::createRootDirectory(Superblock *superblock, int mode, uid_t uid, gid_t gid) {
-	auto node = std::make_shared<DirectoryNode>(superblock, mode, uid, gid);
+smarter::shared_ptr<Link> DirectoryNode::createRootDirectory(Superblock *superblock, int mode, uid_t uid, gid_t gid) {
+	auto node = makeFsShared<DirectoryNode>(superblock, mode, uid, gid);
 	auto the_node = node.get();
-	auto link = std::make_shared<Link>(std::move(node));
+	auto link = makeFsShared<Link>(std::move(node));
 	the_node->_treeLink = link;
 	return link;
 }
@@ -936,7 +936,7 @@ DirectoryNode::DirectoryNode(Superblock *superblock, int mode, uid_t uid, gid_t 
 	adjustLinkCount(1);
 }
 
-async::result<std::expected<std::shared_ptr<FsLink>, Error>>
+async::result<std::expected<smarter::shared_ptr<FsLink>, Error>>
 DirectoryNode::getLinkOrCreate(Process *, std::string name, mode_t mode, bool exclusive) {
 	auto linkResult = co_await getLink(name);
 	if (linkResult && !exclusive)
@@ -944,15 +944,15 @@ DirectoryNode::getLinkOrCreate(Process *, std::string name, mode_t mode, bool ex
 	else if (linkResult && exclusive)
 		co_return std::unexpected{Error::alreadyExists};
 
-	auto node = std::make_shared<MemoryNode>(static_cast<Superblock *>(superblock()));
+	auto node = makeFsShared<MemoryNode>(static_cast<Superblock *>(superblock()));
 	co_await node->chmod(mode);
-	auto link = std::make_shared<Link>(shared_from_this(), name, std::move(node));
+	auto link = makeFsShared<Link>(sharedFromThis(), name, std::move(node));
 	_entries.insert(link);
 	notifyObservers(FsObserver::createEvent, name, 0, false);
 	co_return link;
 }
 
-async::result<std::variant<Error, std::shared_ptr<FsLink>>>
+async::result<std::variant<Error, smarter::shared_ptr<FsLink>>>
 DirectoryNode::mkdir(Process *proc, std::string name, mode_t mode) {
 	if(!(_entries.find(name) == _entries.end()))
 		co_return Error::alreadyExists;
@@ -961,9 +961,9 @@ DirectoryNode::mkdir(Process *proc, std::string name, mode_t mode) {
 	auto uid = proc ? proc->threadGroup()->uid() : 0;
 	auto gid = proc ? proc->threadGroup()->gid() : 0;
 
-	auto node = std::make_shared<DirectoryNode>(static_cast<Superblock *>(superblock()), mode & ~umask, uid, gid);
+	auto node = makeFsShared<DirectoryNode>(static_cast<Superblock *>(superblock()), mode & ~umask, uid, gid);
 	auto the_node = node.get();
-	auto link = std::make_shared<Link>(shared_from_this(), name, std::move(node));
+	auto link = makeFsShared<Link>(sharedFromThis(), name, std::move(node));
 	the_node->_treeLink = link;
 	_entries.insert(link);
 	// Account for the new subdirectory's '..' backlink.
@@ -972,45 +972,45 @@ DirectoryNode::mkdir(Process *proc, std::string name, mode_t mode) {
 	co_return link;
 }
 
-async::result<std::variant<Error, std::shared_ptr<FsLink>>>
+async::result<std::variant<Error, smarter::shared_ptr<FsLink>>>
 DirectoryNode::symlink(std::string name, std::string path) {
 	if(!(_entries.find(name) == _entries.end()))
 		co_return Error::alreadyExists;
-	auto node = std::make_shared<SymlinkNode>(static_cast<Superblock *>(superblock()),
+	auto node = makeFsShared<SymlinkNode>(static_cast<Superblock *>(superblock()),
 			std::move(path));
-	auto link = std::make_shared<Link>(shared_from_this(), std::move(name), std::move(node));
+	auto link = makeFsShared<Link>(sharedFromThis(), std::move(name), std::move(node));
 	_entries.insert(link);
 	co_return link;
 }
 
-async::result<frg::expected<Error, std::shared_ptr<FsLink>>>
+async::result<frg::expected<Error, smarter::shared_ptr<FsLink>>>
 DirectoryNode::mkdev(std::string name, VfsType type, DeviceId id) {
 	if(!(_entries.find(name) == _entries.end()))
 		co_return Error::alreadyExists;
-	auto node = std::make_shared<DeviceNode>(static_cast<Superblock *>(superblock()),
+	auto node = makeFsShared<DeviceNode>(static_cast<Superblock *>(superblock()),
 			type, id);
-	auto link = std::make_shared<Link>(shared_from_this(), name, std::move(node));
+	auto link = makeFsShared<Link>(sharedFromThis(), name, std::move(node));
 	_entries.insert(link);
 	notifyObservers(FsObserver::createEvent, name, 0);
 	co_return link;
 }
 
-async::result<frg::expected<Error, std::shared_ptr<FsLink>>>
+async::result<frg::expected<Error, smarter::shared_ptr<FsLink>>>
 DirectoryNode::mkfifo(std::string name, mode_t mode) {
 	if(!(_entries.find(name) == _entries.end()))
 		co_return Error::alreadyExists;
-	auto node = std::make_shared<FifoNode>(static_cast<Superblock *>(superblock()), mode);
-	auto link = std::make_shared<Link>(shared_from_this(), name, std::move(node));
+	auto node = makeFsShared<FifoNode>(static_cast<Superblock *>(superblock()), mode);
+	auto link = makeFsShared<Link>(sharedFromThis(), name, std::move(node));
 	_entries.insert(link);
 	notifyObservers(FsObserver::createEvent, name, 0);
 	co_return link;
 }
 
-async::result<frg::expected<Error, std::shared_ptr<FsLink>>> DirectoryNode::mksocket(std::string name, mode_t mode, uid_t uid, gid_t gid) {
+async::result<frg::expected<Error, smarter::shared_ptr<FsLink>>> DirectoryNode::mksocket(std::string name, mode_t mode, uid_t uid, gid_t gid) {
 	if(!(_entries.find(name) == _entries.end()))
 		co_return Error::alreadyExists;
-	auto node = std::make_shared<SocketNode>(static_cast<Superblock *>(superblock()), mode, uid, gid);
-	auto link = std::make_shared<Link>(shared_from_this(), name, std::move(node));
+	auto node = makeFsShared<SocketNode>(static_cast<Superblock *>(superblock()), mode, uid, gid);
+	auto link = makeFsShared<Link>(sharedFromThis(), name, std::move(node));
 	_entries.insert(link);
 	notifyObservers(FsObserver::createEvent, name, 0);
 	co_return link;
@@ -1019,11 +1019,11 @@ async::result<frg::expected<Error, std::shared_ptr<FsLink>>> DirectoryNode::mkso
 } // anonymous namespace
 
 // Ironically, this function does not create a MemoryNode.
-std::shared_ptr<FsNode> createMemoryNode(std::string path) {
-	return std::make_shared<InheritedNode>(new Superblock{}, std::move(path));
+smarter::shared_ptr<FsNode> createMemoryNode(std::string path) {
+	return makeFsShared<InheritedNode>(new Superblock{}, std::move(path));
 }
 
-std::expected<std::shared_ptr<FsLink>, Error> createRoot(Process *p, std::string options) {
+std::expected<smarter::shared_ptr<FsLink>, Error> createRoot(Process *p, std::string options) {
 	std::optional<uid_t> uid = std::nullopt;
 	std::optional<gid_t> gid = std::nullopt;
 	std::optional<mode_t> mode = std::nullopt;
@@ -1080,7 +1080,7 @@ std::expected<std::shared_ptr<FsLink>, Error> createRoot(Process *p, std::string
 	return dir;
 }
 
-std::shared_ptr<FsLink> createDevTmpFsRoot() {
+smarter::shared_ptr<FsLink> createDevTmpFsRoot() {
 	return DirectoryNode::createRootDirectory(new Superblock{"devtmpfs"}, 01777, 0, 0);
 }
 

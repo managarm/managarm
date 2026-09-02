@@ -6,6 +6,6 @@ namespace pts {
 
 std::shared_ptr<UnixDevice> createMasterDevice();
 
-std::shared_ptr<FsLink> getFsRoot();
+smarter::shared_ptr<FsLink> getFsRoot();
 
 } // namespace pts

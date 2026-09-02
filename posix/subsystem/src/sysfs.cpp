@@ -17,12 +17,12 @@ sysfs::SysfsSuperblock sysfsSuperblock{};
 
 namespace sysfs {
 
-FutureMaybe<std::shared_ptr<FsNode>> SysfsSuperblock::createRegular(Process *) {
+FutureMaybe<smarter::shared_ptr<FsNode>> SysfsSuperblock::createRegular(Process *) {
 	std::cout << "posix: createRegular on SysfsSuperblock unsupported" << std::endl;
 	co_return nullptr;
 }
 
-async::result<frg::expected<Error, std::shared_ptr<FsLink>>>
+async::result<frg::expected<Error, smarter::shared_ptr<FsLink>>>
 SysfsSuperblock::rename(FsLink *, FsNode *, std::string) {
 	co_return Error::noSuchFile;
 };
@@ -37,15 +37,15 @@ async::result<frg::expected<Error, FsStats>> SysfsSuperblock::getFsStats() {
 // LinkCompare implementation.
 // ----------------------------------------------------------------------------
 
-bool LinkCompare::operator() (const std::shared_ptr<Link> &a, const std::shared_ptr<Link> &b) const {
+bool LinkCompare::operator() (const smarter::shared_ptr<Link> &a, const smarter::shared_ptr<Link> &b) const {
 	return a->getName() < b->getName();
 }
 
-bool LinkCompare::operator() (const std::shared_ptr<Link> &link, const std::string &name) const {
+bool LinkCompare::operator() (const smarter::shared_ptr<Link> &link, const std::string &name) const {
 	return link->getName() < name;
 }
 
-bool LinkCompare::operator() (const std::string &name, const std::shared_ptr<Link> &link) const {
+bool LinkCompare::operator() (const std::string &name, const smarter::shared_ptr<Link> &link) const {
 	return name < link->getName();
 }
 
@@ -74,7 +74,7 @@ void AttributeFile::serve(smarter::shared_ptr<AttributeFile> file) {
 			file, &File::fileOperations, file->_cancelServe));
 }
 
-AttributeFile::AttributeFile(std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link)
+AttributeFile::AttributeFile(std::shared_ptr<MountView> mount, smarter::shared_ptr<FsLink> link)
 : FileWithDefaults{FileKind::unknown,  StructName::get("sysfs.attr"), std::move(mount), std::move(link)},
 		_cached{false}, _offset{0} { }
 
@@ -166,7 +166,7 @@ void DirectoryFile::serve(smarter::shared_ptr<DirectoryFile> file) {
 			file, &File::fileOperations, file->_cancelServe));
 }
 
-DirectoryFile::DirectoryFile(std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link)
+DirectoryFile::DirectoryFile(std::shared_ptr<MountView> mount, smarter::shared_ptr<FsLink> link)
 : FileWithDefaults{FileKind::unknown,  StructName::get("sysfs.dir"), std::move(mount), std::move(link)},
 		_node{static_cast<DirectoryNode *>(associatedLink()->getTarget().get())},
 		_iter{_node->_entries.begin()} { }
@@ -207,16 +207,16 @@ helix::BorrowedDescriptor DirectoryFile::getPassthroughLane() {
 // Link implementation.
 // ----------------------------------------------------------------------------
 
-Link::Link(std::shared_ptr<FsNode> target)
+Link::Link(smarter::shared_ptr<FsNode> target)
 : _target{std::move(target)} { }
 
-Link::Link(std::shared_ptr<FsNode> owner, std::string name, std::shared_ptr<FsNode> target)
+Link::Link(smarter::shared_ptr<FsNode> owner, std::string name, smarter::shared_ptr<FsNode> target)
 : _owner{std::move(owner)}, _name{std::move(name)}, _target{std::move(target)} {
 	assert(_owner);
 	assert(!_name.empty());
 }
 
-std::shared_ptr<FsNode> Link::getOwner() {
+smarter::shared_ptr<FsNode> Link::getOwner() {
 	return _owner;
 }
 
@@ -226,7 +226,7 @@ std::string Link::getName() {
 	return _name;
 }
 
-std::shared_ptr<FsNode> Link::getTarget() {
+smarter::shared_ptr<FsNode> Link::getTarget() {
 	return _target;
 }
 
@@ -265,7 +265,7 @@ async::result<frg::expected<Error, FileStats>> AttributeNode::getStats() {
 
 async::result<frg::expected<Error, smarter::shared_ptr<File, FileHandle>>>
 AttributeNode::open(Process *, std::shared_ptr<MountView> mount,
-		std::shared_ptr<FsLink> link, SemanticFlags semantic_flags) {
+		smarter::shared_ptr<FsLink> link, SemanticFlags semantic_flags) {
 	if(semantic_flags & ~(semanticRead | semanticWrite)){
 		std::cout << "\e[31mposix: sysfs AttributeNode open() received illegal arguments:"
 			<< std::bitset<32>(semantic_flags)
@@ -314,17 +314,17 @@ expected<std::string> SymlinkNode::readSymlink(FsLink *link, Process *) {
 		if(!link->getOwner())
 			break;
 		path = path.empty() ? link->getName() : link->getName() + "/" + path;
-		ref = std::static_pointer_cast<DirectoryNode>(link->getOwner());
+		ref = smarter::static_pointer_cast<DirectoryNode>(link->getOwner());
 	}
 
 	// Walk from the symlink to the root to discover the number of ../ prefixes.
-	ref = std::static_pointer_cast<DirectoryNode>(link->getOwner());
+	ref = smarter::static_pointer_cast<DirectoryNode>(link->getOwner());
 	while(true) {
 		auto link = ref->treeLink();
 		if(!link->getOwner())
 			break;
 		path = "../" + path;
-		ref = std::static_pointer_cast<DirectoryNode>(link->getOwner());
+		ref = smarter::static_pointer_cast<DirectoryNode>(link->getOwner());
 	}
 
 	co_return path;
@@ -334,10 +334,10 @@ expected<std::string> SymlinkNode::readSymlink(FsLink *link, Process *) {
 // DirectoryNode implementation.
 // ----------------------------------------------------------------------------
 
-std::shared_ptr<Link> DirectoryNode::createRootDirectory() {
-	auto node = std::make_shared<DirectoryNode>();
+smarter::shared_ptr<Link> DirectoryNode::createRootDirectory() {
+	auto node = makeFsShared<DirectoryNode>();
 	auto the_node = node.get();
-	auto link = std::make_shared<Link>(std::move(node));
+	auto link = makeFsShared<Link>(std::move(node));
 	the_node->_treeLink = link.get();
 	return link;
 }
@@ -347,30 +347,30 @@ DirectoryNode::DirectoryNode()
 	inode_ = static_cast<SysfsSuperblock *>(superblock())->inodeAllocator().allocate();
 }
 
-std::shared_ptr<Link> DirectoryNode::directMkattr(Object *object, Attribute *attr) {
+smarter::shared_ptr<Link> DirectoryNode::directMkattr(Object *object, Attribute *attr) {
 	assert(_entries.find(attr->name()) == _entries.end());
-	auto node = std::make_shared<AttributeNode>(object, attr);
-	auto link = std::make_shared<Link>(shared_from_this(), attr->name(), std::move(node));
+	auto node = makeFsShared<AttributeNode>(object, attr);
+	auto link = makeFsShared<Link>(sharedFromThis(), attr->name(), std::move(node));
 	_entries.insert(link);
 	return link;
 }
 
-std::shared_ptr<Link> DirectoryNode::directMklink(std::string name, std::weak_ptr<Object> target) {
+smarter::shared_ptr<Link> DirectoryNode::directMklink(std::string name, std::weak_ptr<Object> target) {
 	assert(_entries.find(name) == _entries.end());
-	auto node = std::make_shared<SymlinkNode>(std::move(target));
-	auto link = std::make_shared<Link>(shared_from_this(), std::move(name), std::move(node));
+	auto node = makeFsShared<SymlinkNode>(std::move(target));
+	auto link = makeFsShared<Link>(sharedFromThis(), std::move(name), std::move(node));
 	_entries.insert(link);
 	return link;
 }
 
-std::shared_ptr<Link> DirectoryNode::directMkdir(std::string name) {
+smarter::shared_ptr<Link> DirectoryNode::directMkdir(std::string name) {
 	auto preexisting = _entries.find(name);
 	if(preexisting != _entries.end()) {
 		return *preexisting;
 	}
-	auto node = std::make_shared<DirectoryNode>();
+	auto node = makeFsShared<DirectoryNode>();
 	auto the_node = node.get();
-	auto link = std::make_shared<Link>(shared_from_this(), std::move(name), std::move(node));
+	auto link = makeFsShared<Link>(sharedFromThis(), std::move(name), std::move(node));
 	_entries.insert(link);
 	the_node->_treeLink = link.get();
 	return link;
@@ -391,16 +391,16 @@ async::result<frg::expected<Error, FileStats>> DirectoryNode::getStats() {
 	co_return fs;
 }
 
-std::shared_ptr<FsLink> DirectoryNode::treeLink() {
+smarter::shared_ptr<FsLink> DirectoryNode::treeLink() {
 	assert(_treeLink);
-	auto s = _treeLink->shared_from_this();
+	auto s = _treeLink->sharedFromThis();
 	assert(s);
 	return s;
 }
 
 async::result<frg::expected<Error, smarter::shared_ptr<File, FileHandle>>>
 DirectoryNode::open(Process *, std::shared_ptr<MountView> mount,
-		std::shared_ptr<FsLink> link, SemanticFlags semantic_flags) {
+		smarter::shared_ptr<FsLink> link, SemanticFlags semantic_flags) {
 	if(semantic_flags & ~(semanticRead | semanticWrite)){
 		std::cout << "\e[31mposix: sysfs DirectoryNode open() received illegal arguments:"
 			<< std::bitset<32>(semantic_flags)
@@ -415,7 +415,7 @@ DirectoryNode::open(Process *, std::shared_ptr<MountView> mount,
 	co_return File::constructHandle(std::move(file));
 }
 
-async::result<frg::expected<Error, std::shared_ptr<FsLink>>> DirectoryNode::getLink(std::string name) {
+async::result<frg::expected<Error, smarter::shared_ptr<FsLink>>> DirectoryNode::getLink(std::string name) {
 	auto it = _entries.find(name);
 	if(it != _entries.end())
 		co_return *it;
@@ -439,8 +439,8 @@ Attribute::Attribute(std::string name, bool writable, size_t size)
 Object::Object(std::shared_ptr<Object> parent, std::string name)
 : _parent{std::move(parent)}, _name{std::move(name)} { }
 
-std::shared_ptr<DirectoryNode> Object::directoryNode() {
-	return std::static_pointer_cast<DirectoryNode>(_dirLink->getTarget());
+smarter::shared_ptr<DirectoryNode> Object::directoryNode() {
+	return smarter::static_pointer_cast<DirectoryNode>(_dirLink->getTarget());
 }
 
 void Object::realizeAttribute(Attribute *attr) {
@@ -472,8 +472,8 @@ void Object::addObject() {
 
 } // namespace sysfs
 
-std::shared_ptr<FsLink> getSysfs() {
-	static std::shared_ptr<FsLink> sysfs = sysfs::DirectoryNode::createRootDirectory();
+smarter::shared_ptr<FsLink> getSysfs() {
+	static smarter::shared_ptr<FsLink> sysfs = sysfs::DirectoryNode::createRootDirectory();
 	return sysfs;
 }
 

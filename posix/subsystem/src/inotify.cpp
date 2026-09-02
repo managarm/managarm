@@ -32,7 +32,7 @@ public:
 	};
 
 	struct Watch final : FsObserver {
-		Watch(smarter::weak_ptr<File> file_, int descriptor, uint32_t mask, std::weak_ptr<FsNode> node)
+		Watch(smarter::weak_ptr<File> file_, int descriptor, uint32_t mask, smarter::weak_ptr<FsNode> node)
 		: file{file_}, descriptor{descriptor}, mask{mask}, node{node} { }
 
 		void observeNotification(uint32_t events,
@@ -79,7 +79,7 @@ public:
 		smarter::weak_ptr<File> file;
 		int descriptor;
 		uint32_t mask;
-		std::weak_ptr<FsNode> node;
+		smarter::weak_ptr<FsNode> node;
 	};
 
 	static void serve(smarter::shared_ptr<OpenFile> file) {
@@ -189,7 +189,7 @@ public:
 		return _passthrough;
 	}
 
-	int addWatch(std::shared_ptr<FsNode> node, uint32_t mask) {
+	int addWatch(smarter::shared_ptr<FsNode> node, uint32_t mask) {
 		if(mask & ~supportedFlags)
 			std::println("posix: inotify mask {:#x} is partially ignored", mask);
 
@@ -292,7 +292,7 @@ smarter::shared_ptr<File, FileHandle> createFile(bool nonBlock) {
 	return File::constructHandle(std::move(file));
 }
 
-int addWatch(File *base, std::shared_ptr<FsNode> node, uint32_t mask) {
+int addWatch(File *base, smarter::shared_ptr<FsNode> node, uint32_t mask) {
 	auto file = static_cast<OpenFile *>(base);
 	return file->addWatch(std::move(node), mask);
 }

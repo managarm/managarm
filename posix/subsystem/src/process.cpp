@@ -1258,7 +1258,7 @@ void Process::dumpRegisters() {
 
 				// If we are at the origin of a mount point, traverse that mount point.
 				ViewPath traversed;
-				if(vp.second == vp.first->getOrigin()) {
+				if(vp.second.get() == vp.first->getOrigin().get()) {
 					if(!vp.first->getParent())
 						break;
 					auto anchor = vp.first->getAnchor();
@@ -1377,7 +1377,7 @@ async::result<std::shared_ptr<ThreadGroup>> Process::init(std::string path) {
 
 	HEL_CHECK(helGetCredentials(process->_threadDescriptor.getHandle(), 0, process->credentials_.data()));
 
-	auto procfs_root = std::static_pointer_cast<procfs::DirectoryNode>(getProcfs()->getTarget());
+	auto procfs_root = smarter::static_pointer_cast<procfs::DirectoryNode>(getProcfs()->getTarget());
 	process->procfsTaskLink_ = procfs_root->createProcTaskDirectory(process.get());
 
 	auto generation = std::make_shared<Generation>();
@@ -1446,7 +1446,7 @@ async::result<std::shared_ptr<Process>> Process::fork(std::shared_ptr<Process> o
 	process->getTidHull()->initializeThreadGroup(threadGroup);
 	process->threadGroup()->didExecute_ = false;
 
-	auto procfs_root = std::static_pointer_cast<procfs::DirectoryNode>(getProcfs()->getTarget());
+	auto procfs_root = smarter::static_pointer_cast<procfs::DirectoryNode>(getProcfs()->getTarget());
 	process->procfsTaskLink_ = procfs_root->createProcTaskDirectory(process.get());
 
 	HelHandle new_thread;
@@ -1581,7 +1581,7 @@ Process::clone(std::shared_ptr<Process> original, void *ip, void *sp, posix::sup
 
 	process->threadGroup()->didExecute_ = false;
 
-	auto procfs_root = std::static_pointer_cast<procfs::DirectoryNode>(getProcfs()->getTarget());
+	auto procfs_root = smarter::static_pointer_cast<procfs::DirectoryNode>(getProcfs()->getTarget());
 	process->procfsTaskLink_ = procfs_root->createProcTaskDirectory(process.get());
 
 	HelHandle new_thread;

@@ -22,9 +22,9 @@ struct DirectoryNode;
 struct Superblock final : FsSuperblock {
 	Superblock(helix::UniqueLane lane, std::shared_ptr<UnixDevice> device);
 
-	FutureMaybe<std::shared_ptr<FsNode>> createRegular(Process *process) override;
+	FutureMaybe<smarter::shared_ptr<FsNode>> createRegular(Process *process) override;
 
-	async::result<frg::expected<Error, std::shared_ptr<FsLink>>>
+	async::result<frg::expected<Error, smarter::shared_ptr<FsLink>>>
 			rename(FsLink *source, FsNode *directory, std::string name) override;
 	async::result<frg::expected<Error, FsStats>> getFsStats() override;
 
@@ -37,18 +37,18 @@ struct Superblock final : FsSuperblock {
 		return makedev(id.first, id.second);
 	}
 
-	std::shared_ptr<Node> internalizeStructural(uint64_t id, helix::UniqueLane lane);
-	std::shared_ptr<Node> internalizeStructural(Node *owner, std::string name,
+	smarter::shared_ptr<Node> internalizeStructural(uint64_t id, helix::UniqueLane lane);
+	smarter::shared_ptr<Node> internalizeStructural(Node *owner, std::string name,
 			uint64_t id, helix::UniqueLane lane);
-	std::shared_ptr<Node> internalizePeripheralNode(int64_t type, int id, helix::UniqueLane lane);
-	std::shared_ptr<FsLink> internalizePeripheralLink(Node *parent, std::string name,
-			std::shared_ptr<Node> target);
+	smarter::shared_ptr<Node> internalizePeripheralNode(int64_t type, int id, helix::UniqueLane lane);
+	smarter::shared_ptr<FsLink> internalizePeripheralLink(Node *parent, std::string name,
+			smarter::shared_ptr<Node> target);
 
 private:
 	helix::UniqueLane _lane;
-	std::map<uint64_t, std::weak_ptr<DirectoryNode>> _activeStructural;
-	std::map<uint64_t, std::weak_ptr<Node>> _activePeripheralNodes;
-	std::map<std::tuple<uint64_t, std::string, uint64_t>, std::weak_ptr<FsLink>> _activePeripheralLinks;
+	std::map<uint64_t, smarter::weak_ptr<DirectoryNode>> _activeStructural;
+	std::map<uint64_t, smarter::weak_ptr<Node>> _activePeripheralNodes;
+	std::map<std::tuple<uint64_t, std::string, uint64_t>, smarter::weak_ptr<FsLink>> _activePeripheralLinks;
 
 	std::shared_ptr<UnixDevice> device_;
 };
@@ -200,16 +200,7 @@ public:
 		return _lane;
 	}
 
-	void setupWeakNode(std::weak_ptr<Node> self) {
-		_self = std::move(self);
-	}
-
-	std::weak_ptr<Node> weakNode() {
-		return _self;
-	}
-
 private:
-	std::weak_ptr<Node> _self;
 	uint64_t _inode;
 	helix::UniqueLane _lane;
 };
@@ -270,7 +261,7 @@ private:
 
 public:
 	OpenFile(helix::UniqueLane control, helix::UniqueLane lane,
-			std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link)
+			std::shared_ptr<MountView> mount, smarter::shared_ptr<FsLink> link)
 	: File{FileKind::unknown, StructName::get("externfs.file"), std::move(mount), std::move(link)},
 			_control{std::move(control)}, _file{std::move(lane)} { }
 
@@ -318,7 +309,7 @@ private:
 	}
 
 	async::result<frg::expected<Error, smarter::shared_ptr<File, FileHandle>>>
-	open(Process *, std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link,
+	open(Process *, std::shared_ptr<MountView> mount, smarter::shared_ptr<FsLink> link,
 			SemanticFlags semantic_flags) override {
 		// Regular files do not support O_NONBLOCK.
 		semantic_flags &= ~semanticNonBlock;
@@ -409,7 +400,7 @@ public:
 
 struct Link : FsLink {
 public:
-	std::shared_ptr<FsNode> getOwner() override {
+	smarter::shared_ptr<FsNode> getOwner() override {
 		return _owner;
 	}
 
@@ -449,7 +440,7 @@ private:
 public:
 	Link() = default;
 
-	Link(std::shared_ptr<FsNode> owner, std::string name)
+	Link(smarter::shared_ptr<FsNode> owner, std::string name)
 	: _owner{std::move(owner)}, _name{std::move(name)} {
 		assert(_owner);
 	}
@@ -458,31 +449,31 @@ protected:
 	~Link() = default;
 
 private:
-	std::shared_ptr<FsNode> _owner;
+	smarter::shared_ptr<FsNode> _owner;
 	std::string _name;
 };
 
 // This class maintains a strong reference to the target.
 struct PeripheralLink final : Link {
 private:
-	std::shared_ptr<FsNode> getTarget() override {
+	smarter::shared_ptr<FsNode> getTarget() override {
 		return _target;
 	}
 
 public:
-	PeripheralLink(std::shared_ptr<FsNode> owner,
-			std::string name, std::shared_ptr<FsNode> target)
+	PeripheralLink(smarter::shared_ptr<FsNode> owner,
+			std::string name, smarter::shared_ptr<FsNode> target)
 	: Link{std::move(owner), std::move(name)}, _target{std::move(target)} { }
 
 private:
 	std::string _name;
-	std::shared_ptr<FsNode> _target;
+	smarter::shared_ptr<FsNode> _target;
 };
 
 // This class is embedded in a DirectoryNode and share its lifetime.
 struct StructuralLink final : Link {
 private:
-	std::shared_ptr<FsNode> getTarget() override;
+	smarter::shared_ptr<FsNode> getTarget() override;
 
 public:
 	StructuralLink(DirectoryNode *target)
@@ -490,7 +481,7 @@ public:
 		assert(_target);
 	}
 
-	StructuralLink(std::shared_ptr<FsNode> owner, DirectoryNode *target, std::string name)
+	StructuralLink(smarter::shared_ptr<FsNode> owner, DirectoryNode *target, std::string name)
 	: Link{std::move(owner), std::move(name)}, _target{std::move(target)} {
 		assert(_target);
 	}
@@ -505,16 +496,15 @@ private:
 		return VfsType::directory;
 	}
 
-	std::shared_ptr<FsLink> treeLink() override {
-		auto self = std::shared_ptr<FsNode>{weakNode()};
-		return std::shared_ptr<FsLink>{std::move(self), &_treeLink};
+	smarter::shared_ptr<FsLink> treeLink() override {
+		return smarter::shared_ptr<FsLink>{sharedFromThis(), &_treeLink};
 	}
 
 	bool hasTraverseLinks() override {
 		return true;
 	}
 
-	async::result<std::expected<std::shared_ptr<FsLink>, Error>>
+	async::result<std::expected<smarter::shared_ptr<FsLink>, Error>>
 	getLinkOrCreate(Process *process, std::string name, mode_t mode, bool exclusive) override {
 		assert(this->getType() == VfsType::directory);
 
@@ -558,7 +548,7 @@ private:
 		}
 	}
 
-	async::result<frg::expected<Error, std::pair<std::shared_ptr<FsLink>, size_t>>>
+	async::result<frg::expected<Error, std::pair<smarter::shared_ptr<FsLink>, size_t>>>
 	traverseLinks(std::deque<std::string> path) override {
 		managarm::fs::NodeTraverseLinksRequest req;
 		for (auto &i : path)
@@ -579,7 +569,7 @@ private:
 		HEL_CHECK(send_tail.error());
 		HEL_CHECK(recv_resp.error());
 
-		std::shared_ptr<FsLink> link = nullptr;
+		smarter::shared_ptr<FsLink> link = nullptr;
 
 		auto preamble = bragi::read_preamble(recv_resp);
 		if (preamble.error()) {
@@ -618,7 +608,7 @@ private:
 		assert(resp.links_traversed());
 		assert(resp.links_traversed() <= path.size());
 
-		std::shared_ptr<Node> parentNode{weakNode()};
+		auto parentNode = smarter::static_pointer_cast<Node>(sharedFromThis());
 		for (size_t i = 0; i < resp.ids().size(); i++) {
 			auto [pull_node] = co_await helix_ng::exchangeMsgs(
 				pull_lane,
@@ -645,7 +635,7 @@ private:
 		co_return std::make_pair(link, resp.links_traversed());
 	}
 
-	async::result<std::variant<Error, std::shared_ptr<FsLink>>>
+	async::result<std::variant<Error, smarter::shared_ptr<FsLink>>>
 	mkdir(Process *proc, std::string name, mode_t mode) override {
 		auto umask = proc ? proc->fsContext()->getUmask() : 0;
 
@@ -682,7 +672,7 @@ private:
 		}
 	}
 
-	async::result<std::variant<Error, std::shared_ptr<FsLink>>>
+	async::result<std::variant<Error, smarter::shared_ptr<FsLink>>>
 	symlink(std::string name, std::string path) override {
 		managarm::fs::CntRequest req;
 		req.set_req_type(managarm::fs::CntReqType::NODE_SYMLINK);
@@ -720,7 +710,7 @@ private:
 		}
 	}
 
-	async::result<frg::expected<Error, std::shared_ptr<FsLink>>> mkdev(std::string name, VfsType type, DeviceId id) override {
+	async::result<frg::expected<Error, smarter::shared_ptr<FsLink>>> mkdev(std::string name, VfsType type, DeviceId id) override {
 		(void)name;
 		(void)type;
 		(void)id;
@@ -728,7 +718,7 @@ private:
 		__builtin_unreachable();
 	}
 
-	async::result<frg::expected<Error, std::shared_ptr<FsLink>>>
+	async::result<frg::expected<Error, smarter::shared_ptr<FsLink>>>
 			getLink(std::string name) override {
 		managarm::fs::GetLinkRequest req;
 		req.set_path(name);
@@ -766,8 +756,8 @@ private:
 		}
 	}
 
-	async::result<frg::expected<Error, std::shared_ptr<FsLink>>> link(std::string name,
-			std::shared_ptr<FsNode> target) override {
+	async::result<frg::expected<Error, smarter::shared_ptr<FsLink>>> link(std::string name,
+			smarter::shared_ptr<FsNode> target) override {
 		managarm::fs::LinkRequest req;
 		req.set_path(name);
 		req.set_fd(static_cast<Node *>(target.get())->getInode());
@@ -857,7 +847,7 @@ private:
 	}
 
 	async::result<frg::expected<Error, smarter::shared_ptr<File, FileHandle>>>
-	open(Process *, std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link,
+	open(Process *, std::shared_ptr<MountView> mount, smarter::shared_ptr<FsLink> link,
 			SemanticFlags semantic_flags) override {
 		// Regular files do not support O_NONBLOCK.
 		semantic_flags &= ~semanticNonBlock;
@@ -909,7 +899,7 @@ public:
 	: Node{inode, std::move(lane), sb}, _sb{sb},
 			_treeLink{this} { }
 
-	DirectoryNode(Superblock *sb, std::shared_ptr<Node> owner, std::string name,
+	DirectoryNode(Superblock *sb, smarter::shared_ptr<FsNode> owner, std::string name,
 			uint64_t inode, helix::UniqueLane lane)
 	: Node{inode, std::move(lane), sb}, _sb{sb},
 			_treeLink{std::move(owner), this, std::move(name)} { }
@@ -919,14 +909,14 @@ private:
 	StructuralLink _treeLink;
 };
 
-std::shared_ptr<FsNode> StructuralLink::getTarget() {
-	return std::shared_ptr<Node>{_target->weakNode()};
+smarter::shared_ptr<FsNode> StructuralLink::getTarget() {
+	return _target->sharedFromThis();
 }
 
 Superblock::Superblock(helix::UniqueLane lane, std::shared_ptr<UnixDevice> device)
 : _lane{std::move(lane)}, device_{device} { }
 
-FutureMaybe<std::shared_ptr<FsNode>> Superblock::createRegular(Process *process) {
+FutureMaybe<smarter::shared_ptr<FsNode>> Superblock::createRegular(Process *process) {
 	managarm::fs::CntRequest req;
 	req.set_req_type(managarm::fs::CntReqType::SB_CREATE_REGULAR);
 	req.set_uid(process->threadGroup()->uid());
@@ -957,14 +947,14 @@ FutureMaybe<std::shared_ptr<FsNode>> Superblock::createRegular(Process *process)
 	}
 }
 
-async::result<frg::expected<Error, std::shared_ptr<FsLink>>>
+async::result<frg::expected<Error, smarter::shared_ptr<FsLink>>>
 		Superblock::rename(FsLink *source, FsNode *directory, std::string name) {
 
 	managarm::fs::RenameRequest req;
 	Link *slink = static_cast<Link *>(source);
 	Node *source_node = static_cast<Node *>(slink->getOwner().get());
 	Node *target_node = static_cast<Node *>(directory);
-	std::shared_ptr<Node> shared_node = std::static_pointer_cast<Node>(source->getTarget());
+	smarter::shared_ptr<Node> shared_node = smarter::static_pointer_cast<Node>(source->getTarget());
 	req.set_inode_source(source_node->getInode());
 	req.set_inode_target(target_node->getInode());
 	req.set_old_name(source->getName());
@@ -991,64 +981,60 @@ async::result<frg::expected<Error, std::shared_ptr<FsLink>>>
 	co_return resp.error() | toPosixError;
 }
 
-std::shared_ptr<Node> Superblock::internalizeStructural(uint64_t id, helix::UniqueLane lane) {
+smarter::shared_ptr<Node> Superblock::internalizeStructural(uint64_t id, helix::UniqueLane lane) {
 	auto entry = &_activeStructural[id];
 	auto intern = entry->lock();
 	if(intern)
 		return intern;
 
-	auto node = std::make_shared<DirectoryNode>(this, id, std::move(lane));
-	node->setupWeakNode(node);
+	auto node = makeFsShared<DirectoryNode>(this, id, std::move(lane));
 	*entry = node;
 	return node;
 }
 
-std::shared_ptr<Node> Superblock::internalizeStructural(Node *parent, std::string name,
+smarter::shared_ptr<Node> Superblock::internalizeStructural(Node *parent, std::string name,
 		uint64_t id, helix::UniqueLane lane) {
 	auto entry = &_activeStructural[id];
 	auto intern = entry->lock();
 	if(intern)
 		return intern;
 
-	auto owner = std::shared_ptr<Node>{parent->weakNode()};
-	auto node = std::make_shared<DirectoryNode>(this, owner, std::move(name), id, std::move(lane));
-	node->setupWeakNode(node);
+	auto node = makeFsShared<DirectoryNode>(this, parent->sharedFromThis(),
+			std::move(name), id, std::move(lane));
 	*entry = node;
 	return node;
 }
 
-std::shared_ptr<Node> Superblock::internalizePeripheralNode(int64_t type,
+smarter::shared_ptr<Node> Superblock::internalizePeripheralNode(int64_t type,
 		int id, helix::UniqueLane lane) {
 	auto entry = &_activePeripheralNodes[id];
 	auto intern = entry->lock();
 	if(intern)
 		return intern;
 
-	std::shared_ptr<Node> node;
+	smarter::shared_ptr<Node> node;
 	switch(type) {
 	case managarm::fs::FileType::REGULAR:
-		node = std::make_shared<RegularNode>(this, id, std::move(lane));
+		node = makeFsShared<RegularNode>(this, id, std::move(lane));
 		break;
 	case managarm::fs::FileType::SYMLINK:
-		node = std::make_shared<SymlinkNode>(this, id, std::move(lane));
+		node = makeFsShared<SymlinkNode>(this, id, std::move(lane));
 		break;
 	default:
 		throw std::runtime_error("extern_fs: Unexpected file type");
 	}
-	node->setupWeakNode(node);
 	*entry = node;
 	return node;
 }
 
-std::shared_ptr<FsLink> Superblock::internalizePeripheralLink(Node *parent, std::string name,
-		std::shared_ptr<Node> target) {
+smarter::shared_ptr<FsLink> Superblock::internalizePeripheralLink(Node *parent, std::string name,
+		smarter::shared_ptr<Node> target) {
 	auto entry = &_activePeripheralLinks[{parent->getInode(), name, target->getInode()}];
 	auto intern = entry->lock();
 	if(intern)
 		return intern;
 
-	auto owner = std::shared_ptr<Node>{parent->weakNode()};
-	auto link = std::make_shared<PeripheralLink>(std::move(owner),
+	auto link = makeFsShared<PeripheralLink>(parent->sharedFromThis(),
 			std::move(name), std::move(target));
 	*entry = link;
 	return link;
@@ -1096,7 +1082,7 @@ async::result<frg::expected<Error, FsStats>> Superblock::getFsStats() {
 
 } // anonymous namespace
 
-std::shared_ptr<FsLink> createRoot(helix::UniqueLane sb_lane, helix::UniqueLane lane, std::shared_ptr<UnixDevice> device) {
+smarter::shared_ptr<FsLink> createRoot(helix::UniqueLane sb_lane, helix::UniqueLane lane, std::shared_ptr<UnixDevice> device) {
 	auto sb = new Superblock{std::move(sb_lane), device};
 	// FIXME: 2 is the ext2fs root inode.
 	auto node = sb->internalizeStructural(2, std::move(lane));
@@ -1104,7 +1090,7 @@ std::shared_ptr<FsLink> createRoot(helix::UniqueLane sb_lane, helix::UniqueLane 
 }
 
 smarter::shared_ptr<File, FileHandle>
-createFile(helix::UniqueLane lane, std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link) {
+createFile(helix::UniqueLane lane, std::shared_ptr<MountView> mount, smarter::shared_ptr<FsLink> link) {
 	auto file = smarter::make_shared<OpenFile>(helix::UniqueLane{},
 			std::move(lane), std::move(mount), std::move(link));
 	file->setupWeakFile(file);
