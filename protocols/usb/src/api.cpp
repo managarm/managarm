@@ -3,6 +3,7 @@
 #include <codecvt>
 
 #include "protocols/usb/api.hpp"
+#include "protocols/usb/hub.hpp"
 
 namespace protocols::usb {
 
@@ -75,6 +76,59 @@ async::result<frg::expected<UsbError, std::string>> Device::getString(size_t num
 
 async::result<frg::expected<UsbError, size_t>> Device::transfer(ControlTransfer info) const {
 	return _state->transfer(info);
+}
+
+// ----------------------------------------------------------------------------
+// DeviceServerData.
+// ----------------------------------------------------------------------------
+
+std::shared_ptr<Hub> DeviceServerData::nearestTTHub() const {
+	// Only LS and FS devices use TTs.
+	if (speed() != DeviceSpeed::lowSpeed && speed() != DeviceSpeed::fullSpeed)
+		return nullptr;
+
+	auto curHub = parent();
+	while (!curHub->rootHub()) {
+		auto hubDevice = curHub->state();
+
+		if (hubDevice->speed() == DeviceSpeed::highSpeed)
+			break;
+
+		assert(hubDevice->speed() == DeviceSpeed::lowSpeed
+				|| hubDevice->speed() == DeviceSpeed::fullSpeed);
+
+		curHub = hubDevice->parent();
+	}
+
+	// Root hubs don't count as TTs.
+	if (curHub->rootHub()) {
+		return nullptr;
+	}
+
+	auto hubDevice = curHub->state();
+	assert(hubDevice->speed() == DeviceSpeed::highSpeed);
+	return curHub;
+}
+
+std::tuple<uint32_t, std::shared_ptr<Hub>, int>
+DeviceServerData::routeString() const {
+	uint32_t route = 0;
+
+	std::shared_ptr<Hub> curHub = parent();
+	int curPort = port();
+	while (!curHub->rootHub()) {
+		auto hubDevice = curHub->state();
+
+		assert(curPort <= 15);
+
+		route <<= 4;
+		route |= curPort;
+
+		curPort = hubDevice->port();
+		curHub = hubDevice->parent();
+	}
+
+	return std::make_tuple(route, curHub, curPort);
 }
 
 // ----------------------------------------------------------------------------
