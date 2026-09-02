@@ -412,7 +412,10 @@ public:
 					path.resize(addr_length - sizeof(sa.sun_family) - 1);
 					memcpy(path.data(), sa.sun_path + 1, addr_length - sizeof(sa.sun_family) - 1);
 
-					remote = abstractSocketsBindMap.at(path);
+					auto it = abstractSocketsBindMap.find(path);
+					if(it == abstractSocketsBindMap.end())
+						co_return protocols::fs::Error::connectionRefused;
+					remote = it->second;
 				} else {
 					path.resize(strnlen(sa.sun_path, addr_length - offsetof(sockaddr_un, sun_path)));
 					memcpy(path.data(), sa.sun_path, strnlen(sa.sun_path, addr_length - offsetof(sockaddr_un, sun_path)));
