@@ -115,7 +115,7 @@ public:
 	virtual FutureMaybe<smarter::shared_ptr<FsNode>> createRegular(Process *) = 0;
 
 	virtual async::result<frg::expected<Error, smarter::shared_ptr<FsLink>>>
-			rename(FsLink *source, FsNode *directory, std::string name) = 0;
+			rename(FsLink *source, FsLink *directory, std::string name) = 0;
 	virtual async::result<frg::expected<Error, FsStats>> getFsStats() = 0;
 	virtual std::string getFsType() = 0;
 	virtual dev_t deviceNumber() = 0;
@@ -191,28 +191,29 @@ public:
 
 	//! Get an existing link or create one (directories only).
 	virtual async::result<std::expected<smarter::shared_ptr<FsLink>, Error>>
-	getLinkOrCreate(Process *, std::string name, mode_t mode, bool exclusive = false);
+	getLinkOrCreate(FsLink *parent, Process *, std::string name, mode_t mode,
+			bool exclusive = false);
 
 	//! Resolves a file in a directory (directories only).
-	virtual async::result<frg::expected<Error, smarter::shared_ptr<FsLink>>> getLink(std::string name);
+	virtual async::result<frg::expected<Error, smarter::shared_ptr<FsLink>>> getLink(FsLink *parent, std::string name);
 
 	//! Links an existing node to this directory (directories only).
-	virtual async::result<frg::expected<Error, smarter::shared_ptr<FsLink>>> link(std::string name,
+	virtual async::result<frg::expected<Error, smarter::shared_ptr<FsLink>>> link(FsLink *parent, std::string name,
 			smarter::shared_ptr<FsNode> target);
 
 	//! Creates a new directory (directories only).
 	virtual async::result<std::variant<Error, smarter::shared_ptr<FsLink>>>
-	mkdir(Process *, std::string name, mode_t mode);
+	mkdir(FsLink *parent, Process *, std::string name, mode_t mode);
 
 	//! Creates a new symlink (directories only).
 	virtual async::result<std::variant<Error, smarter::shared_ptr<FsLink>>>
-	symlink(std::string name, std::string path);
+	symlink(FsLink *parent, std::string name, std::string path);
 
 	//! Creates a new device file (directories only).
-	virtual async::result<frg::expected<Error, smarter::shared_ptr<FsLink>>> mkdev(std::string name,
+	virtual async::result<frg::expected<Error, smarter::shared_ptr<FsLink>>> mkdev(FsLink *parent, std::string name,
 			VfsType type, DeviceId id);
 
-	virtual async::result<frg::expected<Error, smarter::shared_ptr<FsLink>>> mkfifo(std::string name, mode_t mode);
+	virtual async::result<frg::expected<Error, smarter::shared_ptr<FsLink>>> mkfifo(FsLink *parent, std::string name, mode_t mode);
 
 	virtual async::result<frg::expected<Error>> unlink(std::string name);
 
@@ -241,11 +242,11 @@ public:
 	virtual async::result<Error> utimensat(std::optional<timespec> atime, std::optional<timespec> mtime, timespec ctime);
 
 	// Creates an socket
-	virtual async::result<frg::expected<Error, smarter::shared_ptr<FsLink>>> mksocket(std::string name, mode_t mode, uid_t uid, gid_t gid);
+	virtual async::result<frg::expected<Error, smarter::shared_ptr<FsLink>>> mksocket(FsLink *parent, std::string name, mode_t mode, uid_t uid, gid_t gid);
 
 	// Recursive path traversal
 	virtual bool hasTraverseLinks();
-	virtual async::result<frg::expected<Error, std::pair<smarter::shared_ptr<FsLink>, size_t>>> traverseLinks(std::deque<std::string> path);
+	virtual async::result<frg::expected<Error, std::pair<smarter::shared_ptr<FsLink>, size_t>>> traverseLinks(FsLink *parent, std::deque<std::string> path);
 
 	void notifyObservers(uint32_t inotifyEvents, const std::string &name, uint32_t cookie, bool isDir = false);
 

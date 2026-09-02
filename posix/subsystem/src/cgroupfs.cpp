@@ -218,7 +218,7 @@ FutureMaybe<smarter::shared_ptr<FsNode>> SuperBlock::createRegular(Process *) {
 }
 
 async::result<frg::expected<Error, smarter::shared_ptr<FsLink>>>
-SuperBlock::rename(FsLink *, FsNode *, std::string) {
+SuperBlock::rename(FsLink *, FsLink *, std::string) {
 	co_return Error::noSuchFile;
 };
 
@@ -265,7 +265,7 @@ smarter::shared_ptr<Link> DirectoryNode::directMkdir(std::string name) {
 	return link;
 }
 
-async::result<std::variant<Error, smarter::shared_ptr<FsLink>>> DirectoryNode::mkdir(Process *, std::string name, mode_t) {
+async::result<std::variant<Error, smarter::shared_ptr<FsLink>>> DirectoryNode::mkdir(FsLink *parent, Process *, std::string name, mode_t) {
 	if(!(_entries.find(name) == _entries.end()))
 		co_return Error::alreadyExists;
 	auto link = createCgroupDirectory(name);
@@ -283,7 +283,7 @@ VfsType DirectoryNode::getType() {
 	return VfsType::directory;
 }
 
-async::result<frg::expected<Error, smarter::shared_ptr<FsLink>>> DirectoryNode::link(std::string,
+async::result<frg::expected<Error, smarter::shared_ptr<FsLink>>> DirectoryNode::link(FsLink *, std::string,
 		smarter::shared_ptr<FsNode>) {
 	co_return Error::noSuchFile;
 }
@@ -330,7 +330,7 @@ DirectoryNode::open(Process *, std::shared_ptr<MountView> mount, smarter::shared
 	co_return File::constructHandle(std::move(file));
 }
 
-async::result<frg::expected<Error, smarter::shared_ptr<FsLink>>> DirectoryNode::getLink(std::string name) {
+async::result<frg::expected<Error, smarter::shared_ptr<FsLink>>> DirectoryNode::getLink(FsLink *, std::string name) {
 	auto it = _entries.find(name);
 	if(it != _entries.end())
 		co_return *it;

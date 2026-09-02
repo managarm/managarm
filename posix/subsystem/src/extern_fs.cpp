@@ -25,7 +25,7 @@ struct Superblock final : FsSuperblock {
 	FutureMaybe<smarter::shared_ptr<FsNode>> createRegular(Process *process) override;
 
 	async::result<frg::expected<Error, smarter::shared_ptr<FsLink>>>
-			rename(FsLink *source, FsNode *directory, std::string name) override;
+			rename(FsLink *source, FsLink *directory, std::string name) override;
 	async::result<frg::expected<Error, FsStats>> getFsStats() override;
 
 	std::string getFsType() override {
@@ -38,10 +38,10 @@ struct Superblock final : FsSuperblock {
 	}
 
 	smarter::shared_ptr<Node> internalizeStructural(uint64_t id, helix::UniqueLane lane);
-	smarter::shared_ptr<Node> internalizeStructural(Node *owner, std::string name,
+	smarter::shared_ptr<Node> internalizeStructural(FsLink *parent, std::string name,
 			uint64_t id, helix::UniqueLane lane);
 	smarter::shared_ptr<Node> internalizePeripheralNode(int64_t type, int id, helix::UniqueLane lane);
-	smarter::shared_ptr<FsLink> internalizePeripheralLink(Node *parent, std::string name,
+	smarter::shared_ptr<FsLink> internalizePeripheralLink(FsLink *parent, std::string name,
 			smarter::shared_ptr<Node> target);
 
 private:
@@ -505,7 +505,8 @@ private:
 	}
 
 	async::result<std::expected<smarter::shared_ptr<FsLink>, Error>>
-	getLinkOrCreate(Process *process, std::string name, mode_t mode, bool exclusive) override {
+	getLinkOrCreate(FsLink *parent, Process *process, std::string name, mode_t mode,
+			bool exclusive) override {
 		assert(this->getType() == VfsType::directory);
 
 		managarm::fs::GetLinkOrCreateRequest req;
@@ -535,13 +536,13 @@ private:
 			HEL_CHECK(pull_node.error());
 
 			if (resp.file_type() == managarm::fs::FileType::DIRECTORY) {
-				auto child = _sb->internalizeStructural(this, name,
+				auto child = _sb->internalizeStructural(parent, name,
 						resp.id(), pull_node.descriptor());
 				co_return child->treeLink();
 			}else{
 				auto child = _sb->internalizePeripheralNode(resp.file_type(), resp.id(),
 						pull_node.descriptor());
-				co_return _sb->internalizePeripheralLink(this, name, std::move(child));
+				co_return _sb->internalizePeripheralLink(parent, name, std::move(child));
 			}
 		} else {
 			co_return std::unexpected{resp.error() | toPosixError};
@@ -549,7 +550,7 @@ private:
 	}
 
 	async::result<frg::expected<Error, std::pair<smarter::shared_ptr<FsLink>, size_t>>>
-	traverseLinks(std::deque<std::string> path) override {
+	traverseLinks(FsLink *parent, std::deque<std::string> path) override {
 		managarm::fs::NodeTraverseLinksRequest req;
 		for (auto &i : path)
 			req.add_path_segments(i);
@@ -608,7 +609,7 @@ private:
 		assert(resp.links_traversed());
 		assert(resp.links_traversed() <= path.size());
 
-		auto parentNode = smarter::static_pointer_cast<Node>(sharedFromThis());
+		auto parentLink = parent->sharedFromThis();
 		for (size_t i = 0; i < resp.ids().size(); i++) {
 			auto [pull_node] = co_await helix_ng::exchangeMsgs(
 				pull_lane,
@@ -619,16 +620,16 @@ private:
 
 			if (i != resp.ids().size() - 1
 					|| resp.file_type() == managarm::fs::FileType::DIRECTORY) {
-				auto child = _sb->internalizeStructural(parentNode.get(), path[i],
+				auto child = _sb->internalizeStructural(parentLink.get(), path[i],
 						resp.ids()[i], pull_node.descriptor());
 				if (i != resp.ids().size() - 1)
-					parentNode = child;
+					parentLink = child->treeLink();
 				else
 					link = child->treeLink();
 			}else{
 				auto child = _sb->internalizePeripheralNode(resp.file_type(), resp.ids()[i],
 						pull_node.descriptor());
-				link = _sb->internalizePeripheralLink(parentNode.get(), path[i], std::move(child));
+				link = _sb->internalizePeripheralLink(parentLink.get(), path[i], std::move(child));
 			}
 		}
 
@@ -636,7 +637,7 @@ private:
 	}
 
 	async::result<std::variant<Error, smarter::shared_ptr<FsLink>>>
-	mkdir(Process *proc, std::string name, mode_t mode) override {
+	mkdir(FsLink *parent, Process *proc, std::string name, mode_t mode) override {
 		auto umask = proc ? proc->fsContext()->getUmask() : 0;
 
 		managarm::fs::MkdirRequest req;
@@ -664,7 +665,7 @@ private:
 		if(resp.error() == managarm::fs::Errors::SUCCESS) {
 			HEL_CHECK(pullNode.error());
 
-			auto child = _sb->internalizeStructural(this, name,
+			auto child = _sb->internalizeStructural(parent, name,
 					resp.id(), pullNode.descriptor());
 			co_return child->treeLink();
 		} else {
@@ -673,7 +674,7 @@ private:
 	}
 
 	async::result<std::variant<Error, smarter::shared_ptr<FsLink>>>
-	symlink(std::string name, std::string path) override {
+	symlink(FsLink *parent, std::string name, std::string path) override {
 		managarm::fs::CntRequest req;
 		req.set_req_type(managarm::fs::CntReqType::NODE_SYMLINK);
 		req.set_name_length(name.size());
@@ -702,7 +703,7 @@ private:
 		if(resp.error() == managarm::fs::Errors::SUCCESS) {
 			HEL_CHECK(pullNode.error());
 
-			auto child = _sb->internalizeStructural(this, name,
+			auto child = _sb->internalizeStructural(parent, name,
 					resp.id(), pullNode.descriptor());
 			co_return child->treeLink();
 		} else {
@@ -710,7 +711,8 @@ private:
 		}
 	}
 
-	async::result<frg::expected<Error, smarter::shared_ptr<FsLink>>> mkdev(std::string name, VfsType type, DeviceId id) override {
+	async::result<frg::expected<Error, smarter::shared_ptr<FsLink>>> mkdev(FsLink *parent, std::string name, VfsType type, DeviceId id) override {
+		(void)parent;
 		(void)name;
 		(void)type;
 		(void)id;
@@ -719,7 +721,7 @@ private:
 	}
 
 	async::result<frg::expected<Error, smarter::shared_ptr<FsLink>>>
-			getLink(std::string name) override {
+			getLink(FsLink *parent, std::string name) override {
 		managarm::fs::GetLinkRequest req;
 		req.set_path(name);
 
@@ -743,20 +745,20 @@ private:
 			HEL_CHECK(pull_node.error());
 
 			if(resp.file_type() == managarm::fs::FileType::DIRECTORY) {
-				auto child = _sb->internalizeStructural(this, name,
+				auto child = _sb->internalizeStructural(parent, name,
 						resp.id(), pull_node.descriptor());
 				co_return child->treeLink();
 			}else{
 				auto child = _sb->internalizePeripheralNode(resp.file_type(), resp.id(),
 						pull_node.descriptor());
-				co_return _sb->internalizePeripheralLink(this, name, std::move(child));
+				co_return _sb->internalizePeripheralLink(parent, name, std::move(child));
 			}
 		}else{
 			co_return resp.error() | toPosixError;
 		}
 	}
 
-	async::result<frg::expected<Error, smarter::shared_ptr<FsLink>>> link(std::string name,
+	async::result<frg::expected<Error, smarter::shared_ptr<FsLink>>> link(FsLink *parent, std::string name,
 			smarter::shared_ptr<FsNode> target) override {
 		managarm::fs::LinkRequest req;
 		req.set_path(name);
@@ -782,13 +784,13 @@ private:
 			HEL_CHECK(pull_node.error());
 
 			if(resp.file_type() == managarm::fs::FileType::DIRECTORY) {
-				auto child = _sb->internalizeStructural(this, name,
+				auto child = _sb->internalizeStructural(parent, name,
 						resp.id(), pull_node.descriptor());
 				co_return child->treeLink();
 			}else{
 				auto child = _sb->internalizePeripheralNode(resp.file_type(), resp.id(),
 						pull_node.descriptor());
-				co_return _sb->internalizePeripheralLink(this, name, std::move(child));
+				co_return _sb->internalizePeripheralLink(parent, name, std::move(child));
 			}
 		}else{
 			co_return resp.error() | toPosixError;
@@ -948,12 +950,12 @@ FutureMaybe<smarter::shared_ptr<FsNode>> Superblock::createRegular(Process *proc
 }
 
 async::result<frg::expected<Error, smarter::shared_ptr<FsLink>>>
-		Superblock::rename(FsLink *source, FsNode *directory, std::string name) {
+		Superblock::rename(FsLink *source, FsLink *directory, std::string name) {
 
 	managarm::fs::RenameRequest req;
 	Link *slink = static_cast<Link *>(source);
 	Node *source_node = static_cast<Node *>(slink->getParentNode().get());
-	Node *target_node = static_cast<Node *>(directory);
+	Node *target_node = static_cast<Node *>(directory->getTarget().get());
 	smarter::shared_ptr<Node> shared_node = smarter::static_pointer_cast<Node>(source->getTarget());
 	req.set_inode_source(source_node->getInode());
 	req.set_inode_target(target_node->getInode());
@@ -977,7 +979,7 @@ async::result<frg::expected<Error, smarter::shared_ptr<FsLink>>>
 	resp.ParseFromArray(recv_resp.data(), recv_resp.length());
 	recv_resp.reset();
 	if(resp.error() == managarm::fs::Errors::SUCCESS)
-		co_return internalizePeripheralLink(target_node, name, shared_node);
+		co_return internalizePeripheralLink(directory, name, shared_node);
 	co_return resp.error() | toPosixError;
 }
 
@@ -992,14 +994,14 @@ smarter::shared_ptr<Node> Superblock::internalizeStructural(uint64_t id, helix::
 	return node;
 }
 
-smarter::shared_ptr<Node> Superblock::internalizeStructural(Node *parent, std::string name,
-		uint64_t id, helix::UniqueLane lane) {
+smarter::shared_ptr<Node> Superblock::internalizeStructural(FsLink *parent,
+		std::string name, uint64_t id, helix::UniqueLane lane) {
 	auto entry = &_activeStructural[id];
 	auto intern = entry->lock();
 	if(intern)
 		return intern;
 
-	auto node = makeFsShared<DirectoryNode>(this, parent->treeLink(),
+	auto node = makeFsShared<DirectoryNode>(this, parent->sharedFromThis(),
 			std::move(name), id, std::move(lane));
 	*entry = node;
 	return node;
@@ -1027,14 +1029,15 @@ smarter::shared_ptr<Node> Superblock::internalizePeripheralNode(int64_t type,
 	return node;
 }
 
-smarter::shared_ptr<FsLink> Superblock::internalizePeripheralLink(Node *parent, std::string name,
-		smarter::shared_ptr<Node> target) {
-	auto entry = &_activePeripheralLinks[{parent->getInode(), name, target->getInode()}];
+smarter::shared_ptr<FsLink> Superblock::internalizePeripheralLink(FsLink *parent,
+		std::string name, smarter::shared_ptr<Node> target) {
+	auto parentInode = static_cast<Node *>(parent->getTarget().get())->getInode();
+	auto entry = &_activePeripheralLinks[{parentInode, name, target->getInode()}];
 	auto intern = entry->lock();
 	if(intern)
 		return intern;
 
-	auto link = makeFsShared<PeripheralLink>(parent->treeLink(),
+	auto link = makeFsShared<PeripheralLink>(parent->sharedFromThis(),
 			std::move(name), std::move(target));
 	*entry = link;
 	return link;

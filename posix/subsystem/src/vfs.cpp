@@ -76,24 +76,24 @@ async::result<void> populateRootView() {
 	auto tree = tmp_fs::createRoot(nullptr, {}).value();
 	rootView = MountView::createRoot(tree);
 
-	co_await tree->getTarget()->mkdir(nullptr, "realfs", 0555);
+	co_await tree->getTarget()->mkdir(tree.get(), nullptr, "realfs", 0555);
 
 	// TODO: Check for errors from mkdir().
-	auto dev = std::get<smarter::shared_ptr<FsLink>>(co_await tree->getTarget()->mkdir(nullptr, "dev", 0755));
+	auto dev = std::get<smarter::shared_ptr<FsLink>>(co_await tree->getTarget()->mkdir(tree.get(), nullptr, "dev", 0755));
 	co_await rootView->mount(std::move(dev), getDevtmpfs());
 
-	auto sys = std::get<smarter::shared_ptr<FsLink>>(co_await tree->getTarget()->mkdir(nullptr, "sys", 0755));
+	auto sys = std::get<smarter::shared_ptr<FsLink>>(co_await tree->getTarget()->mkdir(tree.get(), nullptr, "sys", 0755));
 	co_await rootView->mount(std::move(sys), getSysfs());
 
 	// Populate the tmpfs from the fs we are running on.
 	std::vector<
 		std::pair<
-			smarter::shared_ptr<FsNode>,
+			smarter::shared_ptr<FsLink>,
 			std::string
 		>
 	> stack;
 
-	stack.push_back({tree->getTarget(), std::string{""}});
+	stack.push_back({tree, std::string{""}});
 
 	while(!stack.empty()) {
 		auto item = stack.back();
@@ -158,15 +158,15 @@ async::result<void> populateRootView() {
 			if(resp.file_type() == managarm::fs::FileType::DIRECTORY) {
 				// TODO: Check for errors from mkdir().
 				auto link = std::get<smarter::shared_ptr<FsLink>>(
-				    co_await item.first->mkdir(nullptr, resp.path(), 0755)
+				    co_await item.first->getTarget()->mkdir(item.first.get(), nullptr, resp.path(), 0755)
 				);
-				stack.push_back({link->getTarget(), item.second + "/" + resp.path()});
+				stack.push_back({link, item.second + "/" + resp.path()});
 			}else{
 				assert(resp.file_type() == managarm::fs::FileType::REGULAR);
 
 				auto file_path = "/" + item.second + "/" + resp.path();
 				auto node = tmp_fs::createMemoryNode(std::move(file_path));
-				auto result = co_await item.first->link(resp.path(), node);
+				auto result = co_await item.first->getTarget()->link(item.first.get(), resp.path(), node);
 				assert(result);
 			}
 		}
@@ -309,7 +309,7 @@ async::result<frg::expected<protocols::fs::Error, void>> PathResolver::resolve(R
 					_components.pop_back();
 				}
 
-				auto result = co_await _currentPath.second->getTarget()->traverseLinks(_components);
+				auto result = co_await _currentPath.second->getTarget()->traverseLinks(_currentPath.second.get(), _components);
 
 				if (!result) {
 					assert(result.error() == Error::illegalOperationTarget
@@ -386,7 +386,7 @@ async::result<frg::expected<protocols::fs::Error, void>> PathResolver::resolve(R
 					_currentPath = std::move(next);
 				}
 			} else {
-				auto childResult = co_await _currentPath.second->getTarget()->getLink(std::move(name));
+				auto childResult = co_await _currentPath.second->getTarget()->getLink(_currentPath.second.get(), std::move(name));
 				if(!childResult) {
 					assert(childResult.error() == Error::notDirectory
 							|| childResult.error() == Error::illegalOperationTarget
@@ -472,7 +472,7 @@ async::result<frg::expected<protocols::fs::Error, void>> PathResolver::resolve(R
 			if(flags & resolveOpenCreate)
 				co_return protocols::fs::Error::isDirectory;
 			if((flags & resolveCreatesNonDirectory) && !_components.empty()) {
-				auto childResult = co_await _currentPath.second->getTarget()->getLink(_components.front());
+				auto childResult = co_await _currentPath.second->getTarget()->getLink(_currentPath.second.get(), _components.front());
 				if(childResult && childResult.value())
 					co_return protocols::fs::Error::alreadyExists;
 				co_return protocols::fs::Error::fileNotFound;

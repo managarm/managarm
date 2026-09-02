@@ -279,7 +279,7 @@ FutureMaybe<smarter::shared_ptr<FsNode>> SuperBlock::createRegular(Process *) {
 }
 
 async::result<frg::expected<Error, smarter::shared_ptr<FsLink>>>
-SuperBlock::rename(FsLink *, FsNode *, std::string) {
+SuperBlock::rename(FsLink *, FsLink *, std::string) {
 	co_return Error::noSuchFile;
 };
 
@@ -417,7 +417,7 @@ VfsType DirectoryNode::getType() {
 	return VfsType::directory;
 }
 
-async::result<frg::expected<Error, smarter::shared_ptr<FsLink>>> DirectoryNode::link(std::string,
+async::result<frg::expected<Error, smarter::shared_ptr<FsLink>>> DirectoryNode::link(FsLink *, std::string,
 		smarter::shared_ptr<FsNode>) {
 	co_return Error::noSuchFile;
 }
@@ -451,7 +451,7 @@ DirectoryNode::open(Process *, std::shared_ptr<MountView> mount, smarter::shared
 	co_return File::constructHandle(std::move(file));
 }
 
-async::result<frg::expected<Error, smarter::shared_ptr<FsLink>>> DirectoryNode::getLink(std::string name) {
+async::result<frg::expected<Error, smarter::shared_ptr<FsLink>>> DirectoryNode::getLink(FsLink *, std::string name) {
 	auto it = _entries.find(name);
 	if(it != _entries.end())
 		co_return *it;
@@ -1228,7 +1228,7 @@ FdDirectoryNode::open(Process *, std::shared_ptr<MountView> mount, smarter::shar
 	co_return File::constructHandle(std::move(file));
 }
 
-async::result<frg::expected<Error, smarter::shared_ptr<FsLink>>> FdDirectoryNode::getLink(std::string name) {
+async::result<frg::expected<Error, smarter::shared_ptr<FsLink>>> FdDirectoryNode::getLink(FsLink *parent, std::string name) {
 	auto p = _process.lock();
 	if (!p)
 		co_return Error::noSuchProcess;
@@ -1237,7 +1237,7 @@ async::result<frg::expected<Error, smarter::shared_ptr<FsLink>>> FdDirectoryNode
 		if(name != std::to_string(fdnum))
 			continue;
 		auto pointee = makeFsShared<SymlinkNode>(p.get(), fd.file->associatedMount(), fd.file->associatedLink());
-		co_return makeFsShared<Link>(treeLink(), name, pointee);
+		co_return makeFsShared<Link>(parent->sharedFromThis(), name, pointee);
 	}
 	co_return Error::noSuchFile;
 }
@@ -1434,7 +1434,7 @@ FdInfoDirectoryNode::open(Process *, std::shared_ptr<MountView> mount, smarter::
 	co_return File::constructHandle(std::move(file));
 }
 
-async::result<frg::expected<Error, smarter::shared_ptr<FsLink>>> FdInfoDirectoryNode::getLink(std::string name) {
+async::result<frg::expected<Error, smarter::shared_ptr<FsLink>>> FdInfoDirectoryNode::getLink(FsLink *parent, std::string name) {
 	if(!std::all_of(name.begin(), name.end(), isdigit))
 		co_return Error::noSuchFile;
 
@@ -1446,7 +1446,7 @@ async::result<frg::expected<Error, smarter::shared_ptr<FsLink>>> FdInfoDirectory
 	if(p->fileContext()->fileTable().contains(nameNum)) {
 		auto file = p->fileContext()->fileTable().at(nameNum).file;
 		auto pointee = makeFsShared<FdInfoNode>(file->associatedMount(), file);
-		co_return makeFsShared<Link>(treeLink(), name, pointee);
+		co_return makeFsShared<Link>(parent->sharedFromThis(), name, pointee);
 	}
 
 	co_return Error::noSuchFile;

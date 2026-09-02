@@ -333,35 +333,36 @@ private:
 	}
 
 	async::result<std::expected<smarter::shared_ptr<FsLink>, Error>>
-	getLinkOrCreate(Process *process, std::string name, mode_t mode, bool exclusive) override;
+	getLinkOrCreate(FsLink *parent, Process *process, std::string name, mode_t mode,
+			bool exclusive) override;
 
-	async::result<frg::expected<Error, smarter::shared_ptr<FsLink>>> getLink(std::string name) override {
+	async::result<frg::expected<Error, smarter::shared_ptr<FsLink>>> getLink(FsLink *, std::string name) override {
 		auto it = _entries.find(name);
 		if(it != _entries.end())
 			co_return *it;
 		co_return Error::noSuchFile;
 	}
 
-	async::result<frg::expected<Error, smarter::shared_ptr<FsLink>>> link(std::string name,
+	async::result<frg::expected<Error, smarter::shared_ptr<FsLink>>> link(FsLink *parent, std::string name,
 			smarter::shared_ptr<FsNode> target) override {
 		if(!(_entries.find(name) == _entries.end()))
 			co_return Error::alreadyExists;
 		static_cast<Node *>(target.get())->adjustLinkCount(1);
-		auto link = makeFsShared<Link>(treeLink(), std::move(name), std::move(target));
+		auto link = makeFsShared<Link>(parent->sharedFromThis(), std::move(name), std::move(target));
 		_entries.insert(link);
 		co_return link;
 	}
 
 	async::result<std::variant<Error, smarter::shared_ptr<FsLink>>>
-	mkdir(Process *p, std::string name, mode_t mode) override;
+	mkdir(FsLink *parent, Process *p, std::string name, mode_t mode) override;
 
 	async::result<std::variant<Error, smarter::shared_ptr<FsLink>>>
-	symlink(std::string name, std::string path) override;
+	symlink(FsLink *parent, std::string name, std::string path) override;
 
-	async::result<frg::expected<Error, smarter::shared_ptr<FsLink>>> mkdev(std::string name,
+	async::result<frg::expected<Error, smarter::shared_ptr<FsLink>>> mkdev(FsLink *parent, std::string name,
 			VfsType type, DeviceId id) override;
 
-	async::result<frg::expected<Error, smarter::shared_ptr<FsLink>>> mkfifo(std::string name, mode_t mode) override;
+	async::result<frg::expected<Error, smarter::shared_ptr<FsLink>>> mkfifo(FsLink *parent, std::string name, mode_t mode) override;
 
 	async::result<frg::expected<Error>> unlink(std::string name) override {
 		auto it = _entries.find(name);
@@ -379,7 +380,7 @@ private:
 		co_return {};
 	}
 
-	async::result<frg::expected<Error, smarter::shared_ptr<FsLink>>> mksocket(std::string name, mode_t mode, uid_t uid, gid_t gid) override;
+	async::result<frg::expected<Error, smarter::shared_ptr<FsLink>>> mksocket(FsLink *parent, std::string name, mode_t mode, uid_t uid, gid_t gid) override;
 
 	async::result<frg::expected<Error>> rmdir(std::string name) override {
 		auto it = _entries.find(name);
@@ -577,12 +578,13 @@ struct Superblock final : FsSuperblock {
 	}
 
 	async::result<frg::expected<Error, smarter::shared_ptr<FsLink>>> rename(FsLink *src_fs_link,
-			FsNode *dest_fs_dir, std::string dest_name) override {
+			FsLink *dest_fs_link, std::string dest_name) override {
 		auto src_link = static_cast<Link *>(src_fs_link);
 
+		auto dest_fs_dir = dest_fs_link->getTarget();
 		if(dest_fs_dir->getType() != VfsType::directory)
 			co_return Error::notDirectory;
-		auto dest_dir = static_cast<DirectoryNode *>(dest_fs_dir);
+		auto dest_dir = static_cast<DirectoryNode *>(dest_fs_dir.get());
 
 		auto src_dir = static_cast<DirectoryNode *>(src_link->getParentNode().get());
 		auto it = src_dir->_entries.find(src_link->getName());
@@ -614,7 +616,7 @@ struct Superblock final : FsSuperblock {
 			dest_dir->_entries.erase(dest_it);
 		}
 
-		auto new_link = makeFsShared<Link>(dest_dir->treeLink(),
+		auto new_link = makeFsShared<Link>(dest_fs_link->sharedFromThis(),
 				std::move(dest_name), target);
 		src_dir->_entries.erase(it);
 		dest_dir->_entries.insert(new_link);
@@ -937,8 +939,9 @@ DirectoryNode::DirectoryNode(Superblock *superblock, int mode, uid_t uid, gid_t 
 }
 
 async::result<std::expected<smarter::shared_ptr<FsLink>, Error>>
-DirectoryNode::getLinkOrCreate(Process *, std::string name, mode_t mode, bool exclusive) {
-	auto linkResult = co_await getLink(name);
+DirectoryNode::getLinkOrCreate(FsLink *parent, Process *, std::string name, mode_t mode,
+		bool exclusive) {
+	auto linkResult = co_await getLink(parent, name);
 	if (linkResult && !exclusive)
 		co_return linkResult.value();
 	else if (linkResult && exclusive)
@@ -946,14 +949,14 @@ DirectoryNode::getLinkOrCreate(Process *, std::string name, mode_t mode, bool ex
 
 	auto node = makeFsShared<MemoryNode>(static_cast<Superblock *>(superblock()));
 	co_await node->chmod(mode);
-	auto link = makeFsShared<Link>(treeLink(), name, std::move(node));
+	auto link = makeFsShared<Link>(parent->sharedFromThis(), name, std::move(node));
 	_entries.insert(link);
 	notifyObservers(FsObserver::createEvent, name, 0, false);
 	co_return link;
 }
 
 async::result<std::variant<Error, smarter::shared_ptr<FsLink>>>
-DirectoryNode::mkdir(Process *proc, std::string name, mode_t mode) {
+DirectoryNode::mkdir(FsLink *parent, Process *proc, std::string name, mode_t mode) {
 	if(!(_entries.find(name) == _entries.end()))
 		co_return Error::alreadyExists;
 
@@ -963,7 +966,7 @@ DirectoryNode::mkdir(Process *proc, std::string name, mode_t mode) {
 
 	auto node = makeFsShared<DirectoryNode>(static_cast<Superblock *>(superblock()), mode & ~umask, uid, gid);
 	auto the_node = node.get();
-	auto link = makeFsShared<Link>(treeLink(), name, std::move(node));
+	auto link = makeFsShared<Link>(parent->sharedFromThis(), name, std::move(node));
 	the_node->_treeLink = link;
 	_entries.insert(link);
 	// Account for the new subdirectory's '..' backlink.
@@ -973,44 +976,44 @@ DirectoryNode::mkdir(Process *proc, std::string name, mode_t mode) {
 }
 
 async::result<std::variant<Error, smarter::shared_ptr<FsLink>>>
-DirectoryNode::symlink(std::string name, std::string path) {
+DirectoryNode::symlink(FsLink *parent, std::string name, std::string path) {
 	if(!(_entries.find(name) == _entries.end()))
 		co_return Error::alreadyExists;
 	auto node = makeFsShared<SymlinkNode>(static_cast<Superblock *>(superblock()),
 			std::move(path));
-	auto link = makeFsShared<Link>(treeLink(), std::move(name), std::move(node));
+	auto link = makeFsShared<Link>(parent->sharedFromThis(), std::move(name), std::move(node));
 	_entries.insert(link);
 	co_return link;
 }
 
 async::result<frg::expected<Error, smarter::shared_ptr<FsLink>>>
-DirectoryNode::mkdev(std::string name, VfsType type, DeviceId id) {
+DirectoryNode::mkdev(FsLink *parent, std::string name, VfsType type, DeviceId id) {
 	if(!(_entries.find(name) == _entries.end()))
 		co_return Error::alreadyExists;
 	auto node = makeFsShared<DeviceNode>(static_cast<Superblock *>(superblock()),
 			type, id);
-	auto link = makeFsShared<Link>(treeLink(), name, std::move(node));
+	auto link = makeFsShared<Link>(parent->sharedFromThis(), name, std::move(node));
 	_entries.insert(link);
 	notifyObservers(FsObserver::createEvent, name, 0);
 	co_return link;
 }
 
 async::result<frg::expected<Error, smarter::shared_ptr<FsLink>>>
-DirectoryNode::mkfifo(std::string name, mode_t mode) {
+DirectoryNode::mkfifo(FsLink *parent, std::string name, mode_t mode) {
 	if(!(_entries.find(name) == _entries.end()))
 		co_return Error::alreadyExists;
 	auto node = makeFsShared<FifoNode>(static_cast<Superblock *>(superblock()), mode);
-	auto link = makeFsShared<Link>(treeLink(), name, std::move(node));
+	auto link = makeFsShared<Link>(parent->sharedFromThis(), name, std::move(node));
 	_entries.insert(link);
 	notifyObservers(FsObserver::createEvent, name, 0);
 	co_return link;
 }
 
-async::result<frg::expected<Error, smarter::shared_ptr<FsLink>>> DirectoryNode::mksocket(std::string name, mode_t mode, uid_t uid, gid_t gid) {
+async::result<frg::expected<Error, smarter::shared_ptr<FsLink>>> DirectoryNode::mksocket(FsLink *parent, std::string name, mode_t mode, uid_t uid, gid_t gid) {
 	if(!(_entries.find(name) == _entries.end()))
 		co_return Error::alreadyExists;
 	auto node = makeFsShared<SocketNode>(static_cast<Superblock *>(superblock()), mode, uid, gid);
-	auto link = makeFsShared<Link>(treeLink(), name, std::move(node));
+	auto link = makeFsShared<Link>(parent->sharedFromThis(), name, std::move(node));
 	_entries.insert(link);
 	notifyObservers(FsObserver::createEvent, name, 0);
 	co_return link;

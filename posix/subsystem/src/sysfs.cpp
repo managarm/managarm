@@ -23,7 +23,7 @@ FutureMaybe<smarter::shared_ptr<FsNode>> SysfsSuperblock::createRegular(Process 
 }
 
 async::result<frg::expected<Error, smarter::shared_ptr<FsLink>>>
-SysfsSuperblock::rename(FsLink *, FsNode *, std::string) {
+SysfsSuperblock::rename(FsLink *, FsLink *, std::string) {
 	co_return Error::noSuchFile;
 };
 
@@ -403,7 +403,7 @@ DirectoryNode::open(Process *, std::shared_ptr<MountView> mount,
 	co_return File::constructHandle(std::move(file));
 }
 
-async::result<frg::expected<Error, smarter::shared_ptr<FsLink>>> DirectoryNode::getLink(std::string name) {
+async::result<frg::expected<Error, smarter::shared_ptr<FsLink>>> DirectoryNode::getLink(FsLink *, std::string name) {
 	auto it = _entries.find(name);
 	if(it != _entries.end())
 		co_return *it;

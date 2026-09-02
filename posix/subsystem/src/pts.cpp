@@ -298,7 +298,7 @@ public:
 	}
 
 	async::result<frg::expected<Error, smarter::shared_ptr<FsLink>>>
-			rename(FsLink *, FsNode *, std::string) override {
+			rename(FsLink *, FsLink *, std::string) override {
 		co_return Error::noSuchFile;
 	}
 
@@ -632,7 +632,7 @@ public:
 	}
 
 	async::result<frg::expected<Error, smarter::shared_ptr<FsLink>>>
-	getLink(std::string name) override {
+	getLink(FsLink *, std::string name) override {
 		auto it = _entries.find(name);
 		if(it != _entries.end())
 			co_return *it;
