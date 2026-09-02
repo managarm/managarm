@@ -38,7 +38,7 @@ static constexpr bool logSockets = false;
 struct OpenFile;
 
 // This map associates bound sockets with FS nodes.
-// TODO: Store a shared_ptr to the node inside the OpenFile.
+// Entries are kept alive by the OpenFile's reference to the node.
 std::map<FsNode *, OpenFile *> globalBindMap;
 std::unordered_map<std::string, OpenFile *> abstractSocketsBindMap;
 
@@ -137,6 +137,11 @@ public:
 		if (!_isInherited && _nameType == NameType::abstract) {
 			assert(abstractSocketsBindMap.find(_sockpath) != abstractSocketsBindMap.end());
 			abstractSocketsBindMap.erase(_sockpath);
+		}
+		if(_boundNode) {
+			assert(globalBindMap.find(_boundNode.get()) != globalBindMap.end());
+			globalBindMap.erase(_boundNode.get());
+			_boundNode = nullptr;
 		}
 
 		if(_currentState == State::connected) {
@@ -424,7 +429,10 @@ public:
 
 					// Lookup the socket associated with the node.
 					auto node = resolver.currentLink()->getTarget();
-					remote = globalBindMap.at(node.get());
+					auto it = globalBindMap.find(node.get());
+					if(it == globalBindMap.end())
+						co_return protocols::fs::Error::connectionRefused;
+					remote = it->second;
 				}
 
 			}
@@ -592,11 +600,12 @@ public:
 				co_return protocols::fs::Error::alreadyExists;
 			}
 			assert(nodeResult);
-			auto node = nodeResult.value();
+			auto node = nodeResult.value()->getTarget();
 			// Associate the current socket with the node.
-			auto res = globalBindMap.insert({node->getTarget().get(), this});
+			auto res = globalBindMap.insert({node.get(), this});
 			if(!res.second)
 				co_return protocols::fs::Error::addressInUse;
+			_boundNode = std::move(node);
 			co_return protocols::fs::Error::none;
 		}
 	}
@@ -678,7 +687,10 @@ public:
 
 			// Lookup the socket associated with the node.
 			auto node = resolver.currentLink()->getTarget();
-			auto server = globalBindMap.at(node.get());
+			auto it = globalBindMap.find(node.get());
+			if(it == globalBindMap.end())
+				co_return protocols::fs::Error::connectionRefused;
+			auto server = it->second;
 			if(socktype_ == SOCK_STREAM) {
 				server->_acceptQueue.push_back(this);
 				server->_inSeq = ++server->_currentSeq;
@@ -978,6 +990,9 @@ private:
 	bool nonBlock_;
 
 	std::string _sockpath;
+
+	// For sockets bound to a path, the node that this socket is bound to.
+	smarter::shared_ptr<FsNode> _boundNode;
 
 	NameType _nameType;
 
