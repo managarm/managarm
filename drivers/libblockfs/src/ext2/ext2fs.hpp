@@ -36,12 +36,19 @@ namespace ext2fs {
 using FlockManager = protocols::fs::FlockManager;
 using Flock = protocols::fs::Flock;
 
+struct ExtentIndex;
+struct Extent;
+
 struct ExtentHeader {
 	uint16_t magic;
 	uint16_t entries;
 	uint16_t max;
 	uint16_t depth;
 	uint32_t generation;
+
+	// The entries follow the header; a node holds indices unless its depth is zero.
+	Extent *extents();
+	ExtentIndex *indices();
 };
 static_assert(sizeof(ExtentHeader) == 12, "Bad ExtentHeader struct size");
 
@@ -54,6 +61,10 @@ struct ExtentIndex {
 	uint32_t leafLow;
 	uint16_t leafHigh;
 	uint16_t unused;
+
+	uint64_t leaf() const {
+		return static_cast<uint64_t>(leafLow) | (static_cast<uint64_t>(leafHigh) << 32);
+	}
 };
 static_assert(sizeof(ExtentIndex) == 12, "Bad ExtentIndex struct size");
 
@@ -62,8 +73,20 @@ struct Extent {
 	uint16_t len;
 	uint16_t startHigh;
 	uint32_t startLow;
+
+	uint64_t start() const {
+		return static_cast<uint64_t>(startLow) | (static_cast<uint64_t>(startHigh) << 32);
+	}
 };
 static_assert(sizeof(Extent) == 12, "Bad Extent struct size");
+
+inline Extent *ExtentHeader::extents() {
+	return reinterpret_cast<Extent *>(this + 1);
+}
+
+inline ExtentIndex *ExtentHeader::indices() {
+	return reinterpret_cast<ExtentIndex *>(this + 1);
+}
 
 union FileData {
 	struct Blocks {

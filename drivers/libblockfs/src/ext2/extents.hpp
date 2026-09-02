@@ -49,7 +49,7 @@ struct ExtentWalker {
 		while(hdr->depth != 0) {
 			assert(hdr->magic == EXT4_EXTENT_MAGIC);
 
-			auto indices = reinterpret_cast<ExtentIndex *>(&hdr[1]);
+			auto indices = hdr->indices();
 
 			uint32_t prevIndex = 0;
 
@@ -82,8 +82,7 @@ struct ExtentWalker {
 			co_await enter(path[pathCount - 1]);
 
 			auto &idx = indices[prevIndex];
-			uint64_t nextBlock = static_cast<uint64_t>(idx.leafLow)
-					| (static_cast<uint64_t>(idx.leafHigh) << 32);
+			uint64_t nextBlock = idx.leaf();
 
 			windows[pathCount] = co_await fs->accessMetadata(nextBlock, !lookup);
 			currentBlock = nextBlock;
@@ -92,7 +91,7 @@ struct ExtentWalker {
 
 		assert(hdr->magic == EXT4_EXTENT_MAGIC);
 
-		auto extents = reinterpret_cast<Extent *>(&hdr[1]);
+		auto extents = hdr->extents();
 
 		uint32_t prevIndex = 0;
 

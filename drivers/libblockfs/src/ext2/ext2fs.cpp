@@ -1693,8 +1693,7 @@ async::result<std::vector<BlockRange>> FileSystem::lookupBlocksUsingExtent(Inode
 			size_t available = extent.len - startOffset;
 			size_t toAdd = std::min(available, num_blocks - progress);
 
-			uint64_t absoluteStartBlock = static_cast<uint64_t>(extent.startLow)
-					| (static_cast<uint64_t>(extent.startHigh) << 32);
+			uint64_t absoluteStartBlock = extent.start();
 
 			BlockRange range{
 				.relativeStartBlock = index,
@@ -1850,7 +1849,7 @@ async::result<void> FileSystem::assignDataBlocksUsingExtents(Inode *inode,
 							else
 								newFirstBlock = info.extents[splitStart].block;
 
-							auto newExtents = reinterpret_cast<Extent *>(&newHdr[1]);
+							auto newExtents = newHdr->extents();
 							memmove(newExtents, info.extents + splitStart, entriesToMove * sizeof(Extent));
 						} else {
 							oldFirstBlock = info.indices[0].block;
@@ -1860,7 +1859,7 @@ async::result<void> FileSystem::assignDataBlocksUsingExtents(Inode *inode,
 							else
 								newFirstBlock = info.indices[splitStart].block;
 
-							auto newIndices = reinterpret_cast<ExtentIndex *>(&newHdr[1]);
+							auto newIndices = newHdr->indices();
 							memmove(newIndices, info.indices + splitStart, entriesToMove * sizeof(ExtentIndex));
 						}
 
@@ -1892,7 +1891,7 @@ async::result<void> FileSystem::assignDataBlocksUsingExtents(Inode *inode,
 							info.hdr->depth++;
 							assert(info.hdr->depth <= 4);
 
-							auto indices = reinterpret_cast<ExtentIndex *>(&info.hdr[1]);
+							auto indices = info.hdr->indices();
 							indices[0] = {
 								.block = oldFirstBlock,
 								.leafLow = static_cast<uint32_t>(newRoot[0] & 0xffffffff),
@@ -1934,10 +1933,10 @@ async::result<void> FileSystem::assignDataBlocksUsingExtents(Inode *inode,
 						}
 
 						if(info.hdr->depth == 0) {
-							info.extents = reinterpret_cast<Extent *>(&info.hdr[1]);
+							info.extents = info.hdr->extents();
 							info.indices = nullptr;
 						}else {
-							info.indices = reinterpret_cast<ExtentIndex *>(&info.hdr[1]);
+							info.indices = info.hdr->indices();
 							info.extents = nullptr;
 						}
 					}
