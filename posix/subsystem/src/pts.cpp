@@ -509,8 +509,9 @@ private:
 
 struct Link final : FsLink {
 public:
-	explicit Link(RootNode *root, std::string name, smarter::shared_ptr<DeviceNode> device)
-	: _root{root}, _name{std::move(name)}, _device{std::move(device)} { }
+	explicit Link(smarter::shared_ptr<FsNode> root, std::string name,
+			smarter::shared_ptr<DeviceNode> device)
+	: _root{std::move(root)}, _name{std::move(name)}, _device{std::move(device)} { }
 
 	smarter::shared_ptr<FsNode> getOwner() override;
 
@@ -519,7 +520,7 @@ public:
 	smarter::shared_ptr<FsNode> getTarget() override;
 
 private:
-	RootNode *_root;
+	smarter::shared_ptr<FsNode> _root;
 	std::string _name;
 	smarter::shared_ptr<DeviceNode> _device;
 };
@@ -617,7 +618,7 @@ public:
 	}
 
 	void linkDevice(std::string name, smarter::shared_ptr<DeviceNode> node) {
-		auto link = makeFsShared<Link>(this, name, std::move(node));
+		auto link = makeFsShared<Link>(sharedFromThis(), name, std::move(node));
 		_entries.insert(std::move(link));
 	}
 
@@ -1528,7 +1529,7 @@ void SlaveFile::handleClose() {
 //-----------------------------------------------------------------------------
 
 smarter::shared_ptr<FsNode> Link::getOwner() {
-	return _root->sharedFromThis();
+	return _root;
 }
 
 std::string Link::getName() {
