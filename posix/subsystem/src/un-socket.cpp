@@ -557,6 +557,10 @@ public:
 		if(addr_length <= offsetof(struct sockaddr_un, sun_path)) {
 			co_return protocols::fs::Error::illegalArguments;
 		}
+		// Sockets can only be bound once. Note that accepted sockets inherit the name
+		// of their listening socket and cannot be bound either.
+		if(_nameType != NameType::unnamed)
+			co_return protocols::fs::Error::illegalArguments;
 
 		// Create a new socket node in the FS.
 		struct sockaddr_un sa;
