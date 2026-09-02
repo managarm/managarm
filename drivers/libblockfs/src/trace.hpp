@@ -33,12 +33,14 @@ inline constinit protocols::ostrace::Event ostEvtExt2RemoveEntry{"ext2.removeEnt
 inline constinit protocols::ostrace::Event ostEvtExt2IsDirectoryEmpty{"ext2.isDirectoryEmpty"};
 inline constinit protocols::ostrace::Event ostEvtExt2UpdateDotDot{"ext2.updateDotDot"};
 inline constinit protocols::ostrace::Event ostEvtExt2AssignDataBlocks{"ext2.assignDataBlocks"};
+inline constinit protocols::ostrace::Event ostEvtExt2FreeDataBlocks{"ext2.freeDataBlocks"};
 inline constinit protocols::ostrace::Event ostEvtExt2ReadDataBlocks{"ext2.readDataBlocks"};
 inline constinit protocols::ostrace::Event ostEvtExt2WriteDataBlocks{"ext2.writeDataBlocks"};
 inline constinit protocols::ostrace::Event ostEvtExt2ResizeFile{"ext2.resizeFile"};
 inline constinit protocols::ostrace::Event ostEvtExt2InitializeFile{"ext2.initializeFile"};
 inline constinit protocols::ostrace::Event ostEvtExt2WritebackFile{"ext2.writebackFile"};
 inline constinit protocols::ostrace::Event ostEvtExt2AllocateBlocks{"ext2.allocateBlocks"};
+inline constinit protocols::ostrace::Event ostEvtExt2FreeBlocks{"ext2.freeBlocks"};
 inline constinit protocols::ostrace::Event ostEvtExt2AllocateInode{"ext2.allocateInode"};
 inline constinit protocols::ostrace::Event ostEvtExt2BgdtWriteback{"ext2.bgdtWriteback"};
 inline constinit protocols::ostrace::Event ostEvtVirtioBlkReadSectors{"virtio-blk.readSectors"};
@@ -108,6 +110,8 @@ inline constinit protocols::ostrace::UintAttribute ostAttrTimeDevice{"timeDevice
 inline constinit protocols::ostrace::UintAttribute ostAttrTimeAccess{"timeAccess"};
 // Resizing the page cache backing the file.
 inline constinit protocols::ostrace::UintAttribute ostAttrTimeResizeMemory{"timeResizeMemory"};
+// Releasing the disk blocks past the new end of a shrunk file.
+inline constinit protocols::ostrace::UintAttribute ostAttrTimeFreeBlocks{"timeFreeBlocks"};
 // Waiting for readyEvent, i.e. for the inode to finish being initiated.
 inline constinit protocols::ostrace::UintAttribute ostAttrTimeReady{"timeReady"};
 // Growing the file so that the write fits.
@@ -176,12 +180,14 @@ inline protocols::ostrace::Vocabulary ostVocabulary{
 	ostEvtExt2IsDirectoryEmpty,
 	ostEvtExt2UpdateDotDot,
 	ostEvtExt2AssignDataBlocks,
+	ostEvtExt2FreeDataBlocks,
 	ostEvtExt2ReadDataBlocks,
 	ostEvtExt2WriteDataBlocks,
 	ostEvtExt2ResizeFile,
 	ostEvtExt2InitializeFile,
 	ostEvtExt2WritebackFile,
 	ostEvtExt2AllocateBlocks,
+	ostEvtExt2FreeBlocks,
 	ostEvtExt2AllocateInode,
 	ostEvtExt2BgdtWriteback,
 	ostEvtVirtioBlkReadSectors,
@@ -217,6 +223,7 @@ inline protocols::ostrace::Vocabulary ostVocabulary{
 	ostAttrTimeDevice,
 	ostAttrTimeAccess,
 	ostAttrTimeResizeMemory,
+	ostAttrTimeFreeBlocks,
 	ostAttrTimeReady,
 	ostAttrTimeResize,
 	ostAttrTimeCopy,

@@ -31,6 +31,7 @@ MetadataCache::MetadataCache(BlockDevice *device, uint64_t baseBlock, uint64_t n
 	HEL_CHECK(helCreateManagedMemory(numBlocks << blockPagesShift_,
 			0, &backing, &frontal));
 	frontal_ = helix::UniqueDescriptor{frontal};
+	backing_ = helix::UniqueDescriptor{backing};
 
 	// The mapping is lazy, i.e., its cost does not scale with the cache size.
 	mapping_ = helix::Mapping{frontal_, 0,
@@ -39,7 +40,7 @@ MetadataCache::MetadataCache(BlockDevice *device, uint64_t baseBlock, uint64_t n
 
 	// Distribute MetadataCache servicing coroutines over the helix::DispatcherPool,
 	// but keep manage_() and flushDirty_() on the same thread.
-	helix::DispatcherPool::global().detach(run_(helix::UniqueDescriptor{backing}));
+	helix::DispatcherPool::global().detach(run_());
 }
 
 void MetadataCache::CacheBlockPolicy::increment() const {
@@ -180,23 +181,62 @@ async::result<void> MetadataCache::read(uint64_t block, size_t offset, size_t le
 	);
 }
 
-async::result<void> MetadataCache::run_(helix::UniqueDescriptor backing) {
+async::result<void> MetadataCache::forget(uint64_t block) {
+	assert(block >= baseBlock_ && block - baseBlock_ < numBlocks_);
+
+	// The block is being freed, so its contents are of no interest anymore.
+	{
+		std::lock_guard dirtyLock{dirtyMutex_};
+		dirtyBlocks_.erase(block);
+	}
+
+	// Destroy the CacheBlock object pointing to the block to unpin the block's memory.
+	// If the block was still pinned, invalidateMemory() below would block on unpin.
+	{
+		CacheBlockPtr evicted; // Drop after the lock.
+		{
+			std::lock_guard cacheBlockLock{cacheBlockMutex_};
+
+			auto it = cacheBlocks_.find(block);
+			// Only the LRU may still reference the block: a live BlockWindow would keep
+			// it pinned and hang invalidateMemory() below.
+			assert(it == cacheBlocks_.end()
+					|| it->second->refCount.check_count() <= (it->second->inLru ? 1u : 0u));
+			if(it != cacheBlocks_.end() && it->second->inLru) {
+				auto *cacheBlock = it->second;
+				lru_.erase(lru_.iterator_to(cacheBlock));
+				cacheBlock->inLru = false;
+				--lruSize_;
+				evicted = CacheBlockPtr{smarter::adopt_rc, cacheBlock,
+						CacheBlockPolicy{cacheBlock}};
+			}
+		}
+	}
+
+	// Discard the page.
+	auto frameSize = size_t{1} << blockPagesShift_;
+	auto invalidate = co_await helix_ng::invalidateMemory(helix::BorrowedDescriptor{backing_},
+			blockOffset_(block), frameSize, kHelInvalidateNoWriteback);
+	HEL_CHECK(invalidate.error());
+}
+
+async::result<void> MetadataCache::run_() {
 	co_await async::when_all(
 		flushDirty_(),
-		manage_(std::move(backing))
+		manage_()
 	);
 }
 
-async::result<void> MetadataCache::manage_(helix::UniqueDescriptor backing) {
+async::result<void> MetadataCache::manage_() {
 	while(true) {
 		helix::ManageMemory manage;
-		auto &&submitManage = helix::submitManageMemory(backing,
+		auto &&submitManage = helix::submitManageMemory(helix::BorrowedDescriptor{backing_},
 				&manage, helix::Dispatcher::global());
 		co_await submitManage.async_wait();
 		HEL_CHECK(manage.error());
 
-		async::detach(serviceRequest_(backing, manage.type(), manage.offset(),
-				manage.length()));
+		async::detach(serviceRequest_(helix::BorrowedDescriptor{backing_}, manage.type(),
+				manage.offset(), manage.length()));
 	}
 }
 

@@ -865,13 +865,15 @@ Inode::resizeFile(size_t newSize) {
 
 	protocols::ostrace::Timer timer;
 	uint64_t timeResizeMemory = 0;
+	uint64_t timeFreeBlocks = 0;
 	frg::scope_exit evtOnExit{[&] {
 		ostContext.emit(
 			ostEvtExt2ResizeFile,
 			ostAttrTime(timer.elapsed()),
 			ostAttrOldSize(oldSize),
 			ostAttrNewSize(newSize),
-			ostAttrTimeResizeMemory(timeResizeMemory)
+			ostAttrTimeResizeMemory(timeResizeMemory),
+			ostAttrTimeFreeBlocks(timeFreeBlocks)
 		);
 	}};
 
@@ -885,9 +887,6 @@ Inode::resizeFile(size_t newSize) {
 		HEL_CHECK(resizeResult.error());
 		timeResizeMemory = timer.split();
 	} else if (newSize < oldSize) {
-		// TODO(qookie): Deallocate blocks if they're no longer within the file.
-		std::println("libblockfs: Shrinking an Ext2 file does not free data blocks!");
-
 		// Shrink the memory object first so that no new pages appear beyond the new size.
 		auto resizeResult = co_await helix_ng::resizeMemory(
 				helix::BorrowedDescriptor{backingMemory}, newMappingSize);
@@ -904,7 +903,6 @@ Inode::resizeFile(size_t newSize) {
 
 		// Shrink fileSize() last (after no initialization/writeback is in flight anymore).
 		setFileSize(newSize);
-		timeResizeMemory = timer.split();
 
 		// Zero the tail of the last page as it remains reachable by mmap().
 		// TODO: When we support (block size) > (page size), we have to guarantee that the tail
@@ -917,6 +915,19 @@ Inode::resizeFile(size_t newSize) {
 					newSize, newMappingSize - newSize, zeroes.data());
 			HEL_CHECK(writeResult.error());
 		}
+		timeResizeMemory = timer.split();
+
+		// Only free the blocks once the invalidation above is done.
+		// Otherwise, in-flight writebacks may re-allocate new blocks.
+		{
+			co_await blockMapMutex.async_lock();
+			frg::unique_lock blockMapLock{frg::adopt_lock, blockMapMutex};
+
+			auto firstBlock = (newSize + fs.blockSize - 1) / fs.blockSize;
+			co_await fs.freeDataBlocks(this, firstBlock);
+			blockMapCache.truncate(firstBlock);
+		}
+		timeFreeBlocks = timer.split();
 	} else {
 		// Nothing to do.
 		co_return frg::success;
@@ -1476,7 +1487,8 @@ async::result<std::vector<uint32_t>> FileSystem::allocateBlocks(size_t num, std:
 			auto bitmapWindow = co_await accessBitmap(bgdt[preferred_bg].blockBitmap);
 			auto words = reinterpret_cast<uint32_t *>(bitmapWindow.get());
 
-			for(unsigned int i = 0; i < (blocksPerGroup + 31) / 32; i++) {
+			for(unsigned int i = 0; i < (blocksPerGroup + 31) / 32
+					&& bgdt[preferred_bg].freeBlocksCount; i++) {
 				if(words[i] == 0xFFFFFFFF)
 					continue;
 				for(int j = 0; j < 32; j++) {
@@ -1484,6 +1496,10 @@ async::result<std::vector<uint32_t>> FileSystem::allocateBlocks(size_t num, std:
 						break;
 					if(words[i] & (static_cast<uint32_t>(1) << j))
 						continue;
+					// Never hand out more blocks than the group is accounted for, even if
+					// its bitmap has more of them: freeBlocksCount would wrap around.
+					if(!bgdt[preferred_bg].freeBlocksCount)
+						break;
 					// TODO: Make sure we never return reserved blocks.
 					// TODO: Make sure we never return blocks higher than the max. block in the SB.
 					auto block = preferred_bg * blocksPerGroup + i * 32 + j;
@@ -1525,7 +1541,8 @@ async::result<std::vector<uint32_t>> FileSystem::allocateBlocks(size_t num, std:
 		assert(bgdt[bg_idx].blockBitmap);
 		auto bitmapWindow = co_await accessBitmap(bgdt[bg_idx].blockBitmap);
 		auto words = reinterpret_cast<uint32_t *>(bitmapWindow.get());
-		for(unsigned int i = 0; i < (blocksPerGroup + 31) / 32; i++) {
+		for(unsigned int i = 0; i < (blocksPerGroup + 31) / 32
+				&& bgdt[bg_idx].freeBlocksCount; i++) {
 			if(words[i] == 0xFFFFFFFF)
 				continue;
 			for(int j = 0; j < 32; j++) {
@@ -1533,6 +1550,10 @@ async::result<std::vector<uint32_t>> FileSystem::allocateBlocks(size_t num, std:
 					break;
 				if(words[i] & (static_cast<uint32_t>(1) << j))
 					continue;
+				// Never hand out more blocks than the group is accounted for, even if
+				// its bitmap has more of them: freeBlocksCount would wrap around.
+				if(!bgdt[bg_idx].freeBlocksCount)
+					break;
 				// TODO: Make sure we never return reserved blocks.
 				// TODO: Make sure we never return blocks higher than the max. block in the SB.
 				auto block = bg_idx * blocksPerGroup + i * 32 + j;
@@ -1564,6 +1585,59 @@ async::result<std::vector<uint32_t>> FileSystem::allocateBlocks(size_t num, std:
 	}
 
 	assert(!"Failed to find zero-bit");
+}
+
+async::result<void> FileSystem::freeBlocks(std::vector<uint32_t> blocks) {
+	if(blocks.empty())
+		co_return;
+
+	protocols::ostrace::Timer timer;
+	uint64_t accessTime = 0;
+	unsigned int numGroups = 0;
+
+	// Group the blocks so that each block group's bitmap is accessed only once.
+	std::sort(blocks.begin(), blocks.end());
+
+	co_await allocationMutex.async_lock();
+	frg::unique_lock allocationLock{frg::adopt_lock, allocationMutex};
+	uint64_t lockDone = timer.elapsed();
+
+	size_t i = 0;
+	while(i < blocks.size()) {
+		auto bg = blocks[i] / blocksPerGroup;
+
+		assert(bgdt[bg].blockBitmap);
+		protocols::ostrace::Timer accessTimer;
+		auto bitmapWindow = co_await accessMetadata(bgdt[bg].blockBitmap, true);
+		accessTime += accessTimer.elapsed();
+		++numGroups;
+		auto words = reinterpret_cast<uint32_t *>(bitmapWindow.get());
+
+		for(; i < blocks.size() && blocks[i] / blocksPerGroup == bg; i++) {
+			auto block = blocks[i];
+			assert(block);
+			assert(block < blocksCount);
+
+			auto index = block % blocksPerGroup;
+			// Double free would imply that the block was allocated twice.
+			assert(words[index / 32] & (static_cast<uint32_t>(1) << (index % 32)));
+			words[index / 32] &= ~(static_cast<uint32_t>(1) << (index % 32));
+
+			bgdt[bg].freeBlocksCount++;
+		}
+
+		updateBlockBitmapChecksum(*this, &bgdt[bg], words, blockSize);
+		updateBlockGroupChecksum(*this, &bgdt[bg], bg);
+	}
+
+	ostContext.emit(
+		ostEvtExt2FreeBlocks,
+		ostAttrTime(timer.elapsed()),
+		ostAttrNumBlocks(blocks.size()),
+		ostAttrNumGroups(numGroups),
+		ostAttrTimeLock(lockDone),
+		ostAttrTimeAccess(accessTime)
+	);
 }
 
 async::result<uint32_t> FileSystem::allocateInode(uint32_t parentIno, bool directory) {
@@ -1693,8 +1767,7 @@ async::result<std::vector<BlockRange>> FileSystem::lookupBlocksUsingExtent(Inode
 			size_t available = extent.len - startOffset;
 			size_t toAdd = std::min(available, num_blocks - progress);
 
-			uint64_t absoluteStartBlock = static_cast<uint64_t>(extent.startLow)
-					| (static_cast<uint64_t>(extent.startHigh) << 32);
+			uint64_t absoluteStartBlock = extent.start();
 
 			BlockRange range{
 				.relativeStartBlock = index,
@@ -1850,7 +1923,7 @@ async::result<void> FileSystem::assignDataBlocksUsingExtents(Inode *inode,
 							else
 								newFirstBlock = info.extents[splitStart].block;
 
-							auto newExtents = reinterpret_cast<Extent *>(&newHdr[1]);
+							auto newExtents = newHdr->extents();
 							memmove(newExtents, info.extents + splitStart, entriesToMove * sizeof(Extent));
 						} else {
 							oldFirstBlock = info.indices[0].block;
@@ -1860,7 +1933,7 @@ async::result<void> FileSystem::assignDataBlocksUsingExtents(Inode *inode,
 							else
 								newFirstBlock = info.indices[splitStart].block;
 
-							auto newIndices = reinterpret_cast<ExtentIndex *>(&newHdr[1]);
+							auto newIndices = newHdr->indices();
 							memmove(newIndices, info.indices + splitStart, entriesToMove * sizeof(ExtentIndex));
 						}
 
@@ -1892,7 +1965,7 @@ async::result<void> FileSystem::assignDataBlocksUsingExtents(Inode *inode,
 							info.hdr->depth++;
 							assert(info.hdr->depth <= 4);
 
-							auto indices = reinterpret_cast<ExtentIndex *>(&info.hdr[1]);
+							auto indices = info.hdr->indices();
 							indices[0] = {
 								.block = oldFirstBlock,
 								.leafLow = static_cast<uint32_t>(newRoot[0] & 0xffffffff),
@@ -1934,10 +2007,10 @@ async::result<void> FileSystem::assignDataBlocksUsingExtents(Inode *inode,
 						}
 
 						if(info.hdr->depth == 0) {
-							info.extents = reinterpret_cast<Extent *>(&info.hdr[1]);
+							info.extents = info.hdr->extents();
 							info.indices = nullptr;
 						}else {
-							info.indices = reinterpret_cast<ExtentIndex *>(&info.hdr[1]);
+							info.indices = info.hdr->indices();
 							info.extents = nullptr;
 						}
 					}
@@ -2334,6 +2407,230 @@ async::result<void> FileSystem::assignDataBlocks(Inode *inode,
 		ostEvtExt2AssignDataBlocks,
 		ostAttrTime(timer.elapsed()),
 		ostAttrNumBlocks(num_blocks)
+	);
+}
+
+async::result<bool> FileSystem::removeExtentsFrom(Inode *inode, ExtentHeader *hdr,
+		std::optional<uint64_t> block, uint64_t fromBlock, size_t &numFreed) {
+	assert(hdr->magic == EXT4_EXTENT_MAGIC);
+
+	std::vector<uint32_t> batch;
+
+	if(!hdr->depth) {
+		auto extents = hdr->extents();
+
+		// Extents are ordered by file block, so walking backwards stops at the first
+		// extent that lies entirely before fromBlock.
+		while(hdr->entries) {
+			auto &extent = extents[hdr->entries - 1];
+			// TODO: Support uninitialized extents. A len above 32768 marks the extent as
+			// uninitialized and encodes the real length as len - 32768.
+			assert(extent.len <= 32768);
+			if(extent.block + extent.len <= fromBlock)
+				break;
+
+			uint64_t start = extent.start();
+			// An extent that straddles fromBlock only loses its tail.
+			size_t keep = extent.block < fromBlock ? fromBlock - extent.block : 0;
+
+			for(size_t i = keep; i < extent.len; i++)
+				batch.push_back(start + i);
+
+			if(keep) {
+				extent.len = keep;
+				break;
+			}
+			hdr->entries--;
+		}
+	}else{
+		auto indices = hdr->indices();
+
+		while(hdr->entries) {
+			auto &index = indices[hdr->entries - 1];
+			uint64_t child = index.leaf();
+			// Only the last child that starts before fromBlock can straddle it;
+			// every child after that one is removed in its entirety.
+			bool straddles = index.block < fromBlock;
+
+			bool empty;
+			{
+				// No need to dirty the child if it gets dropped below anyway.
+				auto childWindow = co_await accessMetadata(child, straddles);
+				auto childHdr = reinterpret_cast<ExtentHeader *>(childWindow.get());
+				empty = co_await removeExtentsFrom(inode, childHdr, child,
+						fromBlock, numFreed);
+			}
+
+			// A child that starts at or after fromBlock loses all of its extents.
+			assert(empty || straddles);
+
+			if(empty) {
+				// The block can be reallocated as file data right away, and a writeback
+				// that is still pending for it would then clobber that data.
+				co_await forgetMetadata(child);
+				batch.push_back(child);
+				hdr->entries--;
+			}
+
+			if(straddles || !empty)
+				break;
+		}
+	}
+
+	numFreed += batch.size();
+	co_await freeBlocks(std::move(batch));
+
+	// A node that is about to be freed itself does not need a valid checksum.
+	if(block && hdr->entries)
+		updateExtentChecksum(*this, inode, hdr);
+
+	co_return !hdr->entries;
+}
+
+async::result<void> FileSystem::freeDataBlocksUsingExtents(Inode *inode, uint64_t firstBlock) {
+	protocols::ostrace::Timer timer;
+
+	auto diskInode = inode->diskInode();
+	auto hdr = &diskInode->data.extents.hdr;
+	size_t numFreed = 0;
+
+	if(co_await removeExtentsFrom(inode, hdr, std::nullopt, firstBlock, numFreed)) {
+		// Leave the root as a valid empty tree that assignDataBlocksUsingExtents() can grow again.
+		hdr->depth = 0;
+	}
+
+	assert(diskInode->blocks >= numFreed * (blockSize / 512));
+	diskInode->blocks -= numFreed * (blockSize / 512);
+
+	updateInodeChecksum(*this, diskInode, inode->number);
+
+	bgdtWriteback.raise();
+	inode->diskInodeWindow.markDirty();
+
+	ostContext.emit(
+		ostEvtExt2FreeDataBlocks,
+		ostAttrTime(timer.elapsed()),
+		ostAttrNumBlocks(numFreed)
+	);
+}
+
+async::result<void> FileSystem::freeDataBlocks(Inode *inode, uint64_t firstBlock) {
+	if(inode->usesExtents) {
+		co_await freeDataBlocksUsingExtents(inode, firstBlock);
+		co_await helix_ng::asyncNop();
+		co_return;
+	}
+
+	protocols::ostrace::Timer timer;
+
+	size_t per_indirect = blockSize / 4;
+	size_t per_single = per_indirect;
+	size_t per_double = per_indirect * per_indirect;
+
+	// Number of blocks that can be accessed by:
+	size_t i_range = 12; // Direct blocks only.
+	size_t s_range = i_range + per_single; // Plus the first single indirect block.
+	size_t d_range = s_range + per_double; // Plus the first double indirect block.
+
+	auto disk_inode = inode->diskInode();
+	size_t numFreed = 0;
+
+	// Releases the blocks that an indirect block points to, starting at the file block from,
+	// relative to the range that the indirection block covers.
+	// Level is 1/2/3 indicates single/double/triple indirect blocks.
+	// If drop is set, also release the indirect block itself.
+	auto drainIndirect = [&] (this auto &&self, uint32_t indirectBlock, unsigned int level,
+			size_t from, bool drop) -> async::result<void> {
+		// Each entry of the block covers 2^shift file blocks.
+		auto shift = (level - 1) * (blockShift - 2);
+		auto offset = from & ((size_t{1} << shift) - 1);
+
+		std::vector<uint32_t> entries;
+		uint32_t partial = 0;
+		{
+			auto indirectWindow = co_await accessMetadata(indirectBlock, !drop);
+			auto window = reinterpret_cast<uint32_t *>(indirectWindow.get());
+
+			auto i = from >> shift;
+			// The entry that from points into keeps its block and only loses its tail.
+			if(offset)
+				partial = window[i++];
+
+			for(; i < per_indirect; i++) {
+				if(!window[i])
+					continue;
+				entries.push_back(window[i]);
+				// No need to dirty the block if it gets dropped anyway.
+				if(!drop)
+					window[i] = 0;
+			}
+		}
+
+		if(partial)
+			co_await self(partial, level - 1, offset, false);
+
+		// Above the data blocks the entries are indirection blocks that release themselves.
+		if(level > 1) {
+			for(auto entry : entries)
+				co_await self(entry, level - 1, 0, true);
+			entries.clear();
+		}
+
+		if(drop) {
+			// Discard the block from the MetadataCache before freeing it.
+			co_await forgetMetadata(indirectBlock);
+			entries.push_back(indirectBlock);
+		}
+
+		numFreed += entries.size();
+		co_await freeBlocks(std::move(entries));
+	};
+
+	// Triple indirect blocks are not supported by lookupBlocksOnDisk() either.
+	assert(!disk_inode->data.blocks.tripleIndirect);
+
+	if(firstBlock < i_range) {
+		std::vector<uint32_t> batch;
+		for(size_t i = firstBlock; i < i_range; i++) {
+			if(!disk_inode->data.blocks.direct[i])
+				continue;
+			batch.push_back(disk_inode->data.blocks.direct[i]);
+			disk_inode->data.blocks.direct[i] = 0;
+		}
+		numFreed += batch.size();
+		co_await freeBlocks(std::move(batch));
+	}
+
+	if(firstBlock < s_range && disk_inode->data.blocks.singleIndirect) {
+		auto indirectBlock = disk_inode->data.blocks.singleIndirect;
+		auto from = firstBlock > i_range ? firstBlock - i_range : 0;
+
+		if(!from)
+			disk_inode->data.blocks.singleIndirect = 0;
+		co_await drainIndirect(indirectBlock, 1, from, !from);
+	}
+
+	if(firstBlock < d_range && disk_inode->data.blocks.doubleIndirect) {
+		auto doubleBlock = disk_inode->data.blocks.doubleIndirect;
+		auto from = firstBlock > s_range ? firstBlock - s_range : 0;
+
+		if(!from)
+			disk_inode->data.blocks.doubleIndirect = 0;
+		co_await drainIndirect(doubleBlock, 2, from, !from);
+	}
+
+	assert(disk_inode->blocks >= numFreed * (blockSize / 512));
+	disk_inode->blocks -= numFreed * (blockSize / 512);
+
+	updateInodeChecksum(*this, disk_inode, inode->number);
+
+	bgdtWriteback.raise();
+	inode->diskInodeWindow.markDirty();
+
+	ostContext.emit(
+		ostEvtExt2FreeDataBlocks,
+		ostAttrTime(timer.elapsed()),
+		ostAttrNumBlocks(numFreed)
 	);
 }
 

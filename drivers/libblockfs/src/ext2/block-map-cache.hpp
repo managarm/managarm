@@ -36,6 +36,9 @@ struct BlockMapCache {
 	// Inserts the disk blocks backing consecutive file blocks starting at fileBlock.
 	void insertList(uint64_t fileBlock, const std::vector<uint32_t> &blocks);
 
+	// Invalidates all cached runs at or after fileBlock, trimming a run that straddles it.
+	void truncate(uint64_t fileBlock);
+
 private:
 	// Callers must hold mutex_.
 	void insertLocked_(uint64_t fileBlock, Run run);

@@ -138,9 +138,13 @@ public:
 	// Reads bytes from the given block through the cache without mapping it.
 	async::result<void> read(uint64_t block, size_t offset, size_t length, void *buffer);
 
+	// Discards the given block without writeback.
+	// Precondition: no BlockWindow of the block is alive.
+	async::result<void> forget(uint64_t block);
+
 private:
-	async::result<void> run_(helix::UniqueDescriptor backing);
-	async::result<void> manage_(helix::UniqueDescriptor backing);
+	async::result<void> run_();
+	async::result<void> manage_();
 	async::result<void> serviceRequest_(helix::BorrowedDescriptor backing,
 			int type, uintptr_t offset, size_t length);
 	// Offset of the given block within this cache's mapping.
@@ -163,6 +167,7 @@ private:
 	uint32_t blockPagesShift_;
 	size_t sectorsPerBlock_;
 	helix::UniqueDescriptor frontal_;
+	helix::UniqueDescriptor backing_;
 	// Persistent mapping of the whole cache.
 	helix::Mapping mapping_;
 

@@ -109,5 +109,19 @@ void BlockMapCache::insertList(uint64_t fileBlock, const std::vector<uint32_t> &
 		insertLocked_(fileBlock + i, Run{.diskBlock = blocks[i], .size = 1, .hole = false});
 }
 
+void BlockMapCache::truncate(uint64_t fileBlock) {
+	std::lock_guard cacheGuard{mutex_};
+
+	// Trim a preceding run that extends past fileBlock.
+	auto it = runs_.lower_bound(fileBlock);
+	if(it != runs_.begin()) {
+		auto pred = std::prev(it);
+		if(pred->first + pred->second.size > fileBlock)
+			pred->second.size = fileBlock - pred->first;
+	}
+
+	runs_.erase(it, runs_.end());
+}
+
 } // namespace ext2fs
 } // namespace blockfs

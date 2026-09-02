@@ -36,12 +36,19 @@ namespace ext2fs {
 using FlockManager = protocols::fs::FlockManager;
 using Flock = protocols::fs::Flock;
 
+struct ExtentIndex;
+struct Extent;
+
 struct ExtentHeader {
 	uint16_t magic;
 	uint16_t entries;
 	uint16_t max;
 	uint16_t depth;
 	uint32_t generation;
+
+	// The entries follow the header; a node holds indices unless its depth is zero.
+	Extent *extents();
+	ExtentIndex *indices();
 };
 static_assert(sizeof(ExtentHeader) == 12, "Bad ExtentHeader struct size");
 
@@ -54,6 +61,10 @@ struct ExtentIndex {
 	uint32_t leafLow;
 	uint16_t leafHigh;
 	uint16_t unused;
+
+	uint64_t leaf() const {
+		return static_cast<uint64_t>(leafLow) | (static_cast<uint64_t>(leafHigh) << 32);
+	}
 };
 static_assert(sizeof(ExtentIndex) == 12, "Bad ExtentIndex struct size");
 
@@ -62,8 +73,20 @@ struct Extent {
 	uint16_t len;
 	uint16_t startHigh;
 	uint32_t startLow;
+
+	uint64_t start() const {
+		return static_cast<uint64_t>(startLow) | (static_cast<uint64_t>(startHigh) << 32);
+	}
 };
 static_assert(sizeof(Extent) == 12, "Bad Extent struct size");
+
+inline Extent *ExtentHeader::extents() {
+	return reinterpret_cast<Extent *>(this + 1);
+}
+
+inline ExtentIndex *ExtentHeader::indices() {
+	return reinterpret_cast<ExtentIndex *>(this + 1);
+}
 
 union FileData {
 	struct Blocks {
@@ -512,11 +535,21 @@ struct FileSystem final : BaseFileSystem {
 	// Allocate up to num blocks for the given inode.
 	// This function does not write back the BGDT, this is the caller's responsibility.
 	async::result<std::vector<uint32_t>> allocateBlocks(size_t num, std::optional<uint32_t> ino = std::nullopt);
+
+	// Release the given blocks back to the block bitmaps.
+	// This function does not write back the BGDT, this is the caller's responsibility.
+	async::result<void> freeBlocks(std::vector<uint32_t> blocks);
+
 	async::result<uint32_t> allocateInode(uint32_t parentIno = 0, bool directory = false);
 
 	// Callers must hold inode->blockMapMutex (exclusive).
 	async::result<void> assignDataBlocks(Inode *inode,
 			uint64_t block_offset, size_t num_blocks);
+
+	// Releases the blocks backing the file blocks at or after firstBlock,
+	// including the indirection metadata that becomes unreachable.
+	// Callers must hold inode->blockMapMutex (exclusive).
+	async::result<void> freeDataBlocks(Inode *inode, uint64_t firstBlock);
 
 	// Resolves a range of file blocks to runs of disk blocks and holes.
 	// Callers must hold inode->blockMapMutex (shared or exclusive).
@@ -545,6 +578,17 @@ struct FileSystem final : BaseFileSystem {
 	async::result<void> assignDataBlocksUsingExtents(Inode *inode,
 			uint64_t block_offset, size_t num_blocks);
 
+	// Callers must hold inode->blockMapMutex (exclusive).
+	async::result<void> freeDataBlocksUsingExtents(Inode *inode, uint64_t firstBlock);
+
+	// Removes all extents at or after fromBlock from the subtree rooted at hdr,
+	// freeing their disk blocks and the tree nodes that become empty.
+	// block is the disk block backing hdr, or nullopt for the inode-embedded root.
+	// Returns whether the node itself ended up empty.
+	// Callers must hold inode->blockMapMutex (exclusive).
+	async::result<bool> removeExtentsFrom(Inode *inode, ExtentHeader *hdr,
+			std::optional<uint64_t> block, uint64_t fromBlock, size_t &numFreed);
+
 	// Locks a metadata block and returns a window into it.
 	async::result<MetadataCache::BlockWindow> accessMetadata(uint64_t block, bool writable) {
 		return metadataCacheFor(block).access(block, writable);
@@ -553,6 +597,12 @@ struct FileSystem final : BaseFileSystem {
 	// Reads bytes from a metadata block without mapping it.
 	async::result<void> readMetadata(uint64_t block, size_t offset, size_t length, void *buffer) {
 		return metadataCacheFor(block).read(block, offset, length, buffer);
+	}
+
+	// Discard a cached metadata block without writeback.
+	// See MetadataCache::forget() for its preconditions.
+	async::result<void> forgetMetadata(uint64_t block) {
+		return metadataCacheFor(block).forget(block);
 	}
 
 	MetadataCache &metadataCacheFor(uint64_t block) {
