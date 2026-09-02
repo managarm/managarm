@@ -253,6 +253,12 @@ public:
 		return _target;
 	}
 
+	void renameTo(smarter::shared_ptr<FsLink> owner, std::string name) {
+		assert(_owner); // The root link is never renamed.
+		_owner = std::move(owner);
+		_name = std::move(name);
+	}
+
 private:
 	smarter::shared_ptr<FsLink> _owner;
 	std::string _name;
@@ -610,10 +616,11 @@ struct Superblock final : FsSuperblock {
 			dest_dir->_entries.erase(dest_it);
 		}
 
-		auto new_link = makeFsShared<Link>(dest_fs_link->sharedFromThis(),
-				std::move(dest_name), target);
+		// _entries is ordered by name, so the link has to leave the set before it is renamed.
+		auto link = *it;
 		src_dir->_entries.erase(it);
-		dest_dir->_entries.insert(new_link);
+		link->renameTo(dest_fs_link->sharedFromThis(), std::move(dest_name));
+		dest_dir->_entries.insert(link);
 
 		if(target->getType() == VfsType::directory) {
 			// Account for the moved directory's '..' backlink.
@@ -622,7 +629,7 @@ struct Superblock final : FsSuperblock {
 				dest_dir->adjustLinkCount(1);
 			}
 		}
-		co_return new_link;
+		co_return link;
 	}
 
 	async::result<frg::expected<Error, FsStats>> getFsStats() override {

@@ -436,6 +436,12 @@ public:
 		return _target;
 	}
 
+	void renameTo(smarter::shared_ptr<FsLink> owner, std::string name) {
+		assert(_owner); // The root link is never renamed.
+		_owner = std::move(owner);
+		_name = std::move(name);
+	}
+
 private:
 	std::string getName() override {
 		assert(_owner);
@@ -943,9 +949,14 @@ async::result<frg::expected<Error, smarter::shared_ptr<FsLink>>>
 	managarm::fs::SvrResponse resp;
 	resp.ParseFromArray(recv_resp.data(), recv_resp.length());
 	recv_resp.reset();
-	if(resp.error() == managarm::fs::Errors::SUCCESS)
-		co_return internalizeLink(directory, name, shared_node);
-	co_return resp.error() | toPosixError;
+	if(resp.error() != managarm::fs::Errors::SUCCESS)
+		co_return resp.error() | toPosixError;
+
+	// _activeLinks is keyed by the owner and name, so the link has to be re-keyed.
+	_activeLinks.erase({source_node->getInode(), source->getName(), shared_node->getInode()});
+	slink->renameTo(directory->sharedFromThis(), name);
+	_activeLinks[{target_node->getInode(), name, shared_node->getInode()}] = source->sharedFromThis();
+	co_return source->sharedFromThis();
 }
 
 smarter::shared_ptr<FsLink> Superblock::internalizeRoot(uint64_t id, helix::UniqueLane lane) {
