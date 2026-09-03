@@ -146,7 +146,7 @@ async::result<void> observeThread(std::shared_ptr<Process> self,
 			uintptr_t gprs[kHelNumGprs];
 			HEL_CHECK(helLoadRegisters(thread.getHandle(), kHelRegsGeneral, &gprs));
 
-			self->vmContext()->unmapFile(reinterpret_cast<void *>(gprs[kHelRegArg0]), gprs[kHelRegArg1]);
+			co_await self->vmContext()->unmapFile(reinterpret_cast<void *>(gprs[kHelRegArg0]), gprs[kHelRegArg1]);
 
 			gprs[kHelRegError] = kHelErrNone;
 			gprs[kHelRegOut0] = 0;

@@ -84,18 +84,17 @@ async::result<std::shared_ptr<VmContext>> VmContext::clone(std::shared_ptr<VmCon
 			HEL_CHECK(forkResult.error());
 			copyView = forkResult.descriptor();
 
-			void *pointer;
-			HelError error = helMapMemory(copyView.getHandle(), context->_space.getHandle(),
+			auto mapResult = co_await helix_ng::mapMemory(copyView, context->_space,
 					reinterpret_cast<void *>(address),
-					area.effectiveOffset, area.areaSize, area.nativeFlags, &pointer);
-			if(error != kHelErrNone && error != kHelErrAlreadyExists) {
-				HEL_CHECK(error);
+					area.effectiveOffset, area.areaSize, area.nativeFlags);
+			if(mapResult.error() != kHelErrNone && mapResult.error() != kHelErrAlreadyExists) {
+				HEL_CHECK(mapResult.error());
 			}
 		}else{
-			void *pointer;
-			HEL_CHECK(helMapMemory(area.fileView.getHandle(), context->_space.getHandle(),
+			auto mapResult = co_await helix_ng::mapMemory(area.fileView, context->_space,
 					reinterpret_cast<void *>(address),
-					area.offset, area.areaSize, area.nativeFlags, &pointer));
+					area.offset, area.areaSize, area.nativeFlags);
+			HEL_CHECK(mapResult.error());
 		}
 
 		Area copy;
@@ -168,7 +167,7 @@ VmContext::mapFile(uintptr_t hint, helix::UniqueDescriptor memory,
 	// Perform the actual mapping.
 	// POSIX specifies that non-page-size mappings are rounded up and filled with zeros.
 	helix::UniqueDescriptor copyView;
-	void *pointer;
+	void *pointer = nullptr;
 	HelError error;
 	if(copyOnWrite) {
 		HelHandle handle;
@@ -179,13 +178,19 @@ VmContext::mapFile(uintptr_t hint, helix::UniqueDescriptor memory,
 		}
 		copyView = helix::UniqueDescriptor{handle};
 
-		error = helMapMemory(copyView.getHandle(), _space.getHandle(),
+		auto mapResult = co_await helix_ng::mapMemory(copyView, _space,
 				reinterpret_cast<void *>(hint),
-				0, alignedSize, nativeFlags, &pointer);
+				0, alignedSize, nativeFlags);
+		error = mapResult.error();
+		if(!error)
+			pointer = mapResult.pointer();
 	}else{
-		error = helMapMemory(memory.getHandle(), _space.getHandle(),
+		auto mapResult = co_await helix_ng::mapMemory(memory, _space,
 				reinterpret_cast<void *>(hint),
-				offset, alignedSize, nativeFlags, &pointer);
+				offset, alignedSize, nativeFlags);
+		error = mapResult.error();
+		if(!error)
+			pointer = mapResult.pointer();
 	}
 
 	if(error == kHelErrAlreadyExists) {
@@ -240,14 +245,16 @@ async::result<void *> VmContext::remapFile(void *oldPointer,
 
 	// Perform the actual mapping.
 	// POSIX specifies that non-page-size mappings are rounded up and filled with zeros.
-	void *pointer;
-	HEL_CHECK(helMapMemory(memory.getHandle(), _space.getHandle(),
+	auto mapResult = co_await helix_ng::mapMemory(memory, _space,
 			nullptr, it->second.offset, alignedNewSize,
-			it->second.nativeFlags, &pointer));
+			it->second.nativeFlags);
+	HEL_CHECK(mapResult.error());
+	auto pointer = mapResult.pointer();
 //	std::cout << "posix: VM_REMAP returns " << pointer << std::endl;
 
 	// Unmap the old area.
-	HEL_CHECK(helUnmapMemory(_space.getHandle(), oldPointer, alignedOldSize));
+	auto unmapResult = co_await helix_ng::unmapMemory(_space, oldPointer, alignedOldSize);
+	HEL_CHECK(unmapResult.error());
 
 	// Construct the new area from the old one.
 	Area area;
@@ -296,11 +303,12 @@ async::result<void> VmContext::protectFile(void *pointer, size_t size, uint32_t 
 	}
 }
 
-void VmContext::unmapFile(void *pointer, size_t size) {
+async::result<void> VmContext::unmapFile(void *pointer, size_t size) {
 	size_t alignedSize = (size + 0xFFF) & ~size_t(0xFFF);
 	auto address = reinterpret_cast<uintptr_t>(pointer);
 
-	HEL_CHECK(helUnmapMemory(_space.getHandle(), pointer, alignedSize));
+	auto unmapResult = co_await helix_ng::unmapMemory(_space, pointer, alignedSize);
+	HEL_CHECK(unmapResult.error());
 
 	auto [startIt, endIt] = splitAreaOn_(address, alignedSize);
 
