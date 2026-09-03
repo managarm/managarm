@@ -785,6 +785,10 @@ static const uint32_t kHelSubmitWritebackFence = 14;
 static const uint32_t kHelSubmitInvalidateMemory = 15;
 //! SQ opcode: populate a space.
 static const uint32_t kHelSubmitPopulateSpace = 16;
+//! SQ opcode: map memory.
+static const uint32_t kHelSubmitMapMemory = 17;
+//! SQ opcode: unmap memory.
+static const uint32_t kHelSubmitUnmapMemory = 18;
 
 //! In-memory kernel/user-space queue.
 struct HelQueue {
@@ -990,6 +994,32 @@ struct HelSqPopulateSpace {
 	size_t length;
 };
 
+//! SQ data for kHelSubmitMapMemory.
+struct HelSqMapMemory {
+	//! Handle to the memory object.
+	HelHandle memoryHandle;
+	//! Handle to the space that the memory is mapped into.
+	HelHandle spaceHandle;
+	//! Address to map at (depending on kHelMap*).
+	void *pointer;
+	//! Offset within the memory object.
+	uintptr_t offset;
+	//! Size of the mapping.
+	size_t size;
+	//! Flags (kHelMap*).
+	uint32_t flags;
+};
+
+//! SQ data for kHelSubmitUnmapMemory.
+struct HelSqUnmapMemory {
+	//! Handle to the space that the mapping is removed from.
+	HelHandle spaceHandle;
+	//! Pointer to the mapping.
+	void *pointer;
+	//! Size of the mapping.
+	size_t size;
+};
+
 struct HelSimpleResult {
 	HelError error;
 	int reserved;
@@ -1036,6 +1066,12 @@ struct HelHandleResult {
 	HelError error;
 	int reserved;
 	HelHandle handle;
+};
+
+struct HelPointerResult {
+	HelError error;
+	int reserved;
+	void *pointer;
 };
 
 struct HelEventResult {

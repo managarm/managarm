@@ -1613,4 +1613,197 @@ inline auto populateSpace(BorrowedDescriptor space, uintptr_t address, size_t le
 	return PopulateSpaceSender{std::move(space), address, length};
 }
 
+// --------------------------------------------------------------------
+// MapMemory
+// --------------------------------------------------------------------
+
+struct MapMemoryResult {
+	HelError error() {
+		assert(valid_);
+		return error_;
+	}
+
+	void *pointer() {
+		assert(valid_);
+		HEL_CHECK(error_);
+		return pointer_;
+	}
+
+	void parse(void *&ptr, const ElementHandle &) {
+		auto result = reinterpret_cast<HelPointerResult *>(ptr);
+		error_ = result->error;
+		pointer_ = result->pointer;
+		ptr = (char *)ptr + sizeof(HelPointerResult);
+		valid_ = true;
+	}
+
+private:
+	bool valid_ = false;
+	HelError error_;
+	void *pointer_;
+};
+
+template <typename Receiver>
+struct MapMemoryOperation : private Context {
+	MapMemoryOperation(BorrowedDescriptor memory, BorrowedDescriptor space, void *pointer,
+			uintptr_t offset, size_t size, uint32_t flags, Receiver r)
+	: memory_{std::move(memory)}, space_{std::move(space)}, pointer_{pointer},
+			offset_{offset}, size_{size}, flags_{flags}, r_{std::move(r)} {}
+
+	void start() {
+		HelSqMapMemory header;
+		header.memoryHandle = memory_.getHandle();
+		header.spaceHandle = space_.getHandle();
+		header.pointer = pointer_;
+		header.offset = offset_;
+		header.size = size_;
+		header.flags = flags_;
+
+		std::array segments{
+			std::as_bytes(std::span{&header, 1})
+		};
+
+		auto context = static_cast<Context *>(this);
+		Dispatcher::global().pushSq(kHelSubmitMapMemory,
+				reinterpret_cast<uintptr_t>(context), segments);
+	}
+
+	MapMemoryOperation(const MapMemoryOperation &) = delete;
+	MapMemoryOperation &operator= (const MapMemoryOperation &) = delete;
+
+private:
+	void complete(ElementHandle element) override {
+		MapMemoryResult result;
+		void *ptr = element.data();
+		result.parse(ptr, element);
+		async::execution::set_value(r_, std::move(result));
+	}
+
+	BorrowedDescriptor memory_;
+	BorrowedDescriptor space_;
+	void *pointer_;
+	uintptr_t offset_;
+	size_t size_;
+	uint32_t flags_;
+	Receiver r_;
+};
+
+struct [[nodiscard]] MapMemorySender {
+	using value_type = MapMemoryResult;
+
+	MapMemorySender(BorrowedDescriptor memory, BorrowedDescriptor space, void *pointer,
+			uintptr_t offset, size_t size, uint32_t flags)
+	: memory_{std::move(memory)}, space_{std::move(space)}, pointer_{pointer},
+			offset_{offset}, size_{size}, flags_{flags} { }
+
+	template<typename Receiver>
+	MapMemoryOperation<Receiver> connect(Receiver receiver) {
+		return {std::move(memory_), std::move(space_), pointer_, offset_, size_, flags_,
+				std::move(receiver)};
+	}
+
+private:
+	BorrowedDescriptor memory_;
+	BorrowedDescriptor space_;
+	void *pointer_;
+	uintptr_t offset_;
+	size_t size_;
+	uint32_t flags_;
+};
+
+inline async::sender_awaiter<MapMemorySender, MapMemoryResult>
+operator co_await (MapMemorySender sender) {
+	return {std::move(sender)};
+}
+
+inline auto mapMemory(BorrowedDescriptor memory, BorrowedDescriptor space, void *pointer,
+		uintptr_t offset, size_t size, uint32_t flags) {
+	return MapMemorySender{std::move(memory), std::move(space), pointer, offset, size, flags};
+}
+
+// --------------------------------------------------------------------
+// UnmapMemory
+// --------------------------------------------------------------------
+
+struct UnmapMemoryResult {
+	HelError error() {
+		assert(valid_);
+		return error_;
+	}
+
+	void parse(void *&ptr, const ElementHandle &) {
+		auto result = reinterpret_cast<HelSimpleResult *>(ptr);
+		error_ = result->error;
+		ptr = (char *)ptr + sizeof(HelSimpleResult);
+		valid_ = true;
+	}
+
+private:
+	bool valid_ = false;
+	HelError error_;
+};
+
+template <typename Receiver>
+struct UnmapMemoryOperation : private Context {
+	UnmapMemoryOperation(BorrowedDescriptor space, void *pointer, size_t size, Receiver r)
+	: space_{std::move(space)}, pointer_{pointer}, size_{size}, r_{std::move(r)} {}
+
+	void start() {
+		HelSqUnmapMemory header;
+		header.spaceHandle = space_.getHandle();
+		header.pointer = pointer_;
+		header.size = size_;
+
+		std::array segments{
+			std::as_bytes(std::span{&header, 1})
+		};
+
+		auto context = static_cast<Context *>(this);
+		Dispatcher::global().pushSq(kHelSubmitUnmapMemory,
+				reinterpret_cast<uintptr_t>(context), segments);
+	}
+
+	UnmapMemoryOperation(const UnmapMemoryOperation &) = delete;
+	UnmapMemoryOperation &operator= (const UnmapMemoryOperation &) = delete;
+
+private:
+	void complete(ElementHandle element) override {
+		UnmapMemoryResult result;
+		void *ptr = element.data();
+		result.parse(ptr, element);
+		async::execution::set_value(r_, std::move(result));
+	}
+
+	BorrowedDescriptor space_;
+	void *pointer_;
+	size_t size_;
+	Receiver r_;
+};
+
+struct [[nodiscard]] UnmapMemorySender {
+	using value_type = UnmapMemoryResult;
+
+	UnmapMemorySender(BorrowedDescriptor space, void *pointer, size_t size)
+	: space_{std::move(space)}, pointer_{pointer}, size_{size} { }
+
+	template<typename Receiver>
+	UnmapMemoryOperation<Receiver> connect(Receiver receiver) {
+		return {std::move(space_), pointer_, size_, std::move(receiver)};
+	}
+
+private:
+	BorrowedDescriptor space_;
+	void *pointer_;
+	size_t size_;
+};
+
+inline async::sender_awaiter<UnmapMemorySender, UnmapMemoryResult>
+operator co_await (UnmapMemorySender sender) {
+	return {std::move(sender)};
+}
+
+inline auto unmapMemory(BorrowedDescriptor space, void *pointer, size_t size) {
+	return UnmapMemorySender{std::move(space), pointer, size};
+}
+
 } // namespace helix_ng
