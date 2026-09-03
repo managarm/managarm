@@ -17,8 +17,8 @@ async::result<frg::expected<Error, smarter::shared_ptr<File, FileHandle>>> creat
 	if (!resolveResult)
 		co_return resolveResult.error() | toPosixError;
 
-	auto directory = resolver.currentLink()->getTarget();
-	auto linkResult = co_await directory->getLinkOrCreate(proc, name, 0755);
+	auto directory = resolver.currentLink();
+	auto linkResult = co_await directory->getTarget()->getLinkOrCreate(directory.get(), proc, name, 0755);
 	if (!linkResult)
 		co_return linkResult.error();
 
@@ -128,13 +128,13 @@ async::result<void> Process::coredump(TerminationState state) {
 
 	auto resizeResult = co_await file->truncate(memoryDumpOffset + memoryDumpSize);
 	if (!resizeResult) {
-		auto res[[maybe_unused]] = co_await file->associatedLink()->getOwner()->unlink(file->associatedLink()->getName());
+		auto res[[maybe_unused]] = co_await file->associatedLink()->getParentNode()->unlink(file->associatedLink()->getName());
 		co_return;
 	}
 
 	auto memory = co_await file->accessMemory();
 	if (!memory) {
-		auto res[[maybe_unused]] = co_await file->associatedLink()->getOwner()->unlink(file->associatedLink()->getName());
+		auto res[[maybe_unused]] = co_await file->associatedLink()->getParentNode()->unlink(file->associatedLink()->getName());
 		co_return;
 	}
 

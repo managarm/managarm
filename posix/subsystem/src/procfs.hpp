@@ -86,16 +86,16 @@ private:
 struct Link final : FsLink {
 	explicit Link(smarter::shared_ptr<FsNode> target);
 
-	explicit Link(smarter::shared_ptr<FsNode> owner,
+	explicit Link(smarter::shared_ptr<FsLink> owner,
 			std::string name, smarter::shared_ptr<FsNode> target);
 
-	smarter::shared_ptr<FsNode> getOwner() override;
+	smarter::shared_ptr<FsLink> getParent() override;
 	std::string getName() override;
 	smarter::shared_ptr<FsNode> getTarget() override;
 	void unlinkSelf();
 
 private:
-	smarter::shared_ptr<FsNode> _owner;
+	smarter::shared_ptr<FsLink> _owner;
 	std::string _name;
 	smarter::shared_ptr<FsNode> _target;
 };
@@ -128,7 +128,7 @@ public:
 	FutureMaybe<smarter::shared_ptr<FsNode>> createRegular(Process *) override;
 
 	async::result<frg::expected<Error, smarter::shared_ptr<FsLink>>>
-			rename(FsLink *source, FsNode *directory, std::string name) override;
+			rename(FsLink *source, FsLink *directory, std::string name) override;
 	async::result<frg::expected<Error, FsStats>> getFsStats() override;
 
 	std::string getFsType() override {
@@ -150,38 +150,32 @@ struct DirectoryNode final : FsNode {
 
 	DirectoryNode();
 
-	smarter::shared_ptr<Link> directMkregular(std::string name,
+	smarter::shared_ptr<Link> directMkregular(FsLink *parent, std::string name,
 			smarter::shared_ptr<RegularNode> regular);
 
-	template<typename T>
-	requires requires (T t) { {t._treeLink} -> std::same_as<Link *&>; }
-	smarter::shared_ptr<Link> directMknodeDir(std::string name, smarter::shared_ptr<T> node);
-
-	smarter::shared_ptr<Link> directMknode(std::string name,
+	smarter::shared_ptr<Link> directMknode(FsLink *parent, std::string name,
 			smarter::shared_ptr<FsNode> node);
-	smarter::shared_ptr<Link> directMkdir(std::string name);
+	smarter::shared_ptr<Link> directMkdir(FsLink *parent, std::string name);
 
-	smarter::shared_ptr<Link> createProcTaskDirectory(Process *process);
+	smarter::shared_ptr<Link> createProcTaskDirectory(FsLink *parent, Process *process);
 
 	VfsType getType() override;
 	async::result<frg::expected<Error, FileStats>> getStats() override;
-	smarter::shared_ptr<FsLink> treeLink() override;
 
-	async::result<frg::expected<Error, smarter::shared_ptr<FsLink>>> link(std::string name,
+	async::result<frg::expected<Error, smarter::shared_ptr<FsLink>>> link(FsLink *parent, std::string name,
 			smarter::shared_ptr<FsNode> target) override;
 
 	async::result<frg::expected<Error, smarter::shared_ptr<File, FileHandle>>>
 	open(Process *, std::shared_ptr<MountView> mount, smarter::shared_ptr<FsLink> link,
 			SemanticFlags semantic_flags) override;
-	async::result<frg::expected<Error, smarter::shared_ptr<FsLink>>> getLink(std::string name) override;
+	async::result<frg::expected<Error, smarter::shared_ptr<FsLink>>> getLink(FsLink *parent, std::string name) override;
 	async::result<frg::expected<Error>> unlink(std::string name) override;
 
 	Error directUnlink(std::string name);
 
 private:
-	smarter::shared_ptr<Link> createProcDirectory(Process *process);
+	smarter::shared_ptr<Link> createProcDirectory(FsLink *parent, Process *process);
 
-	Link *_treeLink;
 	std::set<smarter::shared_ptr<Link>, LinkCompare> _entries;
 };
 
@@ -408,11 +402,9 @@ public:
 	async::result<frg::expected<Error, smarter::shared_ptr<File, FileHandle>>>
 	open(Process *, std::shared_ptr<MountView> mount, smarter::shared_ptr<FsLink> link,
 			SemanticFlags semantic_flags) override;
-	smarter::shared_ptr<FsLink> treeLink() override;
-	async::result<frg::expected<Error, smarter::shared_ptr<FsLink>>> getLink(std::string name) override;
+	async::result<frg::expected<Error, smarter::shared_ptr<FsLink>>> getLink(FsLink *parent, std::string name) override;
 private:
 	std::weak_ptr<Process> _process;
-	Link *_treeLink;
 };
 
 struct SymlinkNode final : LinkNode {
@@ -462,11 +454,9 @@ public:
 	async::result<frg::expected<Error, smarter::shared_ptr<File, FileHandle>>>
 	open(Process *, std::shared_ptr<MountView> mount, smarter::shared_ptr<FsLink> link,
 			SemanticFlags semantic_flags) override;
-	smarter::shared_ptr<FsLink> treeLink() override;
-	async::result<frg::expected<Error, smarter::shared_ptr<FsLink>>> getLink(std::string name) override;
+	async::result<frg::expected<Error, smarter::shared_ptr<FsLink>>> getLink(FsLink *parent, std::string name) override;
 private:
 	std::weak_ptr<Process> _process;
-	Link *_treeLink;
 };
 
 struct FdInfoDirectoryFile final : FileWithDefaults {

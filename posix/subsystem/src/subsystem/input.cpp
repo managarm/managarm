@@ -177,12 +177,12 @@ async::detached run() {
 			drvcore::installDevice(device);
 
 			// TODO: Do this before the device becomes visible in sysfs!
-			auto link = device->directoryNode()->directMkdir("capabilities");
+			auto link = device->directoryNode()->directMkdir(device->dirLink().get(), "capabilities");
 			auto caps = static_cast<sysfs::DirectoryNode *>(link->getTarget().get());
-			caps->directMkattr(device.get(), &evCapability);
-			caps->directMkattr(device.get(), &keyCapability);
-			caps->directMkattr(device.get(), &relCapability);
-			caps->directMkattr(device.get(), &absCapability);
+			caps->directMkattr(link.get(), device.get(), &evCapability);
+			caps->directMkattr(link.get(), device.get(), &keyCapability);
+			caps->directMkattr(link.get(), device.get(), &relCapability);
+			caps->directMkattr(link.get(), device.get(), &absCapability);
 		}
 	}
 }

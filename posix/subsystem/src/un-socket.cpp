@@ -586,8 +586,9 @@ public:
 			if(!resolver.currentLink())
 				co_return protocols::fs::Error::fileNotFound;
 
-			auto parentNode = resolver.currentLink()->getTarget();
-			auto nodeResult = co_await parentNode->mksocket(resolver.nextComponent(), (0666 & ~process->fsContext()->getUmask()), process->threadGroup()->uid(), process->threadGroup()->gid());
+			auto parentLink = resolver.currentLink();
+			auto nodeResult = co_await parentLink->getTarget()->mksocket(parentLink.get(),
+					resolver.nextComponent(), (0666 & ~process->fsContext()->getUmask()), process->threadGroup()->uid(), process->threadGroup()->gid());
 			if(!nodeResult) {
 				co_return protocols::fs::Error::alreadyExists;
 			}

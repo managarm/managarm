@@ -23,7 +23,7 @@ FutureMaybe<smarter::shared_ptr<FsNode>> SysfsSuperblock::createRegular(Process 
 }
 
 async::result<frg::expected<Error, smarter::shared_ptr<FsLink>>>
-SysfsSuperblock::rename(FsLink *, FsNode *, std::string) {
+SysfsSuperblock::rename(FsLink *, FsLink *, std::string) {
 	co_return Error::noSuchFile;
 };
 
@@ -210,13 +210,13 @@ helix::BorrowedDescriptor DirectoryFile::getPassthroughLane() {
 Link::Link(smarter::shared_ptr<FsNode> target)
 : _target{std::move(target)} { }
 
-Link::Link(smarter::shared_ptr<FsNode> owner, std::string name, smarter::shared_ptr<FsNode> target)
+Link::Link(smarter::shared_ptr<FsLink> owner, std::string name, smarter::shared_ptr<FsNode> target)
 : _owner{std::move(owner)}, _name{std::move(name)}, _target{std::move(target)} {
 	assert(_owner);
 	assert(!_name.empty());
 }
 
-smarter::shared_ptr<FsNode> Link::getOwner() {
+smarter::shared_ptr<FsLink> Link::getParent() {
 	return _owner;
 }
 
@@ -308,24 +308,12 @@ expected<std::string> SymlinkNode::readSymlink(FsLink *link, Process *) {
 	std::string path;
 
 	// Walk from the target to the root to discover the path.
-	auto ref = object->directoryNode();
-	while(true) {
-		auto link = ref->treeLink();
-		if(!link->getOwner())
-			break;
-		path = path.empty() ? link->getName() : link->getName() + "/" + path;
-		ref = smarter::static_pointer_cast<DirectoryNode>(link->getOwner());
-	}
+	for(smarter::shared_ptr<FsLink> ref = object->dirLink(); ref->getParent(); ref = ref->getParent())
+		path = path.empty() ? ref->getName() : ref->getName() + "/" + path;
 
 	// Walk from the symlink to the root to discover the number of ../ prefixes.
-	ref = smarter::static_pointer_cast<DirectoryNode>(link->getOwner());
-	while(true) {
-		auto link = ref->treeLink();
-		if(!link->getOwner())
-			break;
+	for(auto ref = link->getParent(); ref->getParent(); ref = ref->getParent())
 		path = "../" + path;
-		ref = smarter::static_pointer_cast<DirectoryNode>(link->getOwner());
-	}
 
 	co_return path;
 }
@@ -336,43 +324,39 @@ expected<std::string> SymlinkNode::readSymlink(FsLink *link, Process *) {
 
 smarter::shared_ptr<Link> DirectoryNode::createRootDirectory() {
 	auto node = makeFsShared<DirectoryNode>();
-	auto the_node = node.get();
 	auto link = makeFsShared<Link>(std::move(node));
-	the_node->_treeLink = link.get();
 	return link;
 }
 
 DirectoryNode::DirectoryNode()
-: FsNode(&sysfsSuperblock), _treeLink{nullptr} {
+: FsNode(&sysfsSuperblock) {
 	inode_ = static_cast<SysfsSuperblock *>(superblock())->inodeAllocator().allocate();
 }
 
-smarter::shared_ptr<Link> DirectoryNode::directMkattr(Object *object, Attribute *attr) {
+smarter::shared_ptr<Link> DirectoryNode::directMkattr(FsLink *parent, Object *object, Attribute *attr) {
 	assert(_entries.find(attr->name()) == _entries.end());
 	auto node = makeFsShared<AttributeNode>(object, attr);
-	auto link = makeFsShared<Link>(sharedFromThis(), attr->name(), std::move(node));
+	auto link = makeFsShared<Link>(parent->sharedFromThis(), attr->name(), std::move(node));
 	_entries.insert(link);
 	return link;
 }
 
-smarter::shared_ptr<Link> DirectoryNode::directMklink(std::string name, std::weak_ptr<Object> target) {
+smarter::shared_ptr<Link> DirectoryNode::directMklink(FsLink *parent, std::string name, std::weak_ptr<Object> target) {
 	assert(_entries.find(name) == _entries.end());
 	auto node = makeFsShared<SymlinkNode>(std::move(target));
-	auto link = makeFsShared<Link>(sharedFromThis(), std::move(name), std::move(node));
+	auto link = makeFsShared<Link>(parent->sharedFromThis(), std::move(name), std::move(node));
 	_entries.insert(link);
 	return link;
 }
 
-smarter::shared_ptr<Link> DirectoryNode::directMkdir(std::string name) {
+smarter::shared_ptr<Link> DirectoryNode::directMkdir(FsLink *parent, std::string name) {
 	auto preexisting = _entries.find(name);
 	if(preexisting != _entries.end()) {
 		return *preexisting;
 	}
 	auto node = makeFsShared<DirectoryNode>();
-	auto the_node = node.get();
-	auto link = makeFsShared<Link>(sharedFromThis(), std::move(name), std::move(node));
+	auto link = makeFsShared<Link>(parent->sharedFromThis(), std::move(name), std::move(node));
 	_entries.insert(link);
-	the_node->_treeLink = link.get();
 	return link;
 }
 
@@ -389,13 +373,6 @@ async::result<frg::expected<Error, FileStats>> DirectoryNode::getStats() {
 	fs.uid = 0;
 	fs.gid = 0;
 	co_return fs;
-}
-
-smarter::shared_ptr<FsLink> DirectoryNode::treeLink() {
-	assert(_treeLink);
-	auto s = _treeLink->sharedFromThis();
-	assert(s);
-	return s;
 }
 
 async::result<frg::expected<Error, smarter::shared_ptr<File, FileHandle>>>
@@ -415,7 +392,7 @@ DirectoryNode::open(Process *, std::shared_ptr<MountView> mount,
 	co_return File::constructHandle(std::move(file));
 }
 
-async::result<frg::expected<Error, smarter::shared_ptr<FsLink>>> DirectoryNode::getLink(std::string name) {
+async::result<frg::expected<Error, smarter::shared_ptr<FsLink>>> DirectoryNode::getLink(FsLink *, std::string name) {
 	auto it = _entries.find(name);
 	if(it != _entries.end())
 		co_return *it;
@@ -446,13 +423,13 @@ smarter::shared_ptr<DirectoryNode> Object::directoryNode() {
 void Object::realizeAttribute(Attribute *attr) {
 	assert(_dirLink);
 	auto dir = static_cast<DirectoryNode *>(_dirLink->getTarget().get());
-	dir->directMkattr(this, attr);
+	dir->directMkattr(_dirLink.get(), this, attr);
 }
 
 void Object::createSymlink(std::string name, std::shared_ptr<Object> target) {
 	assert(_dirLink);
 	auto dir = static_cast<DirectoryNode *>(_dirLink->getTarget().get());
-	dir->directMklink(std::move(name), std::move(target));
+	dir->directMklink(_dirLink.get(), std::move(name), std::move(target));
 }
 
 std::optional<std::string> Object::getClassPath() {
@@ -463,10 +440,10 @@ void Object::addObject() {
 	if(_parent) {
 		assert(_parent->_dirLink);
 		auto parent_dir = static_cast<DirectoryNode *>(_parent->_dirLink->getTarget().get());
-		_dirLink = parent_dir->directMkdir(_name);
+		_dirLink = parent_dir->directMkdir(_parent->_dirLink.get(), _name);
 	}else{
 		auto parent_dir = static_cast<DirectoryNode *>(getSysfs()->getTarget().get());
-		_dirLink = parent_dir->directMkdir(_name);
+		_dirLink = parent_dir->directMkdir(getSysfs().get(), _name);
 	}
 }
 

@@ -87,7 +87,7 @@ public:
 		return {sharedFromThis(), &embeddedNode_};
 	}
 
-	smarter::shared_ptr<FsNode> getOwner() override {
+	smarter::shared_ptr<FsLink> getParent() override {
 		return nullptr;
 	}
 

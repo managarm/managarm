@@ -33,7 +33,7 @@ public:
 	FutureMaybe<smarter::shared_ptr<FsNode>> createRegular(Process *) override;
 
 	async::result<frg::expected<Error, smarter::shared_ptr<FsLink>>>
-			rename(FsLink *source, FsNode *directory, std::string name) override;
+			rename(FsLink *source, FsLink *directory, std::string name) override;
 	async::result<frg::expected<Error, FsStats>> getFsStats() override;
 
 	std::string getFsType() override {
@@ -119,15 +119,15 @@ private:
 struct Link final : FsLink {
 	explicit Link(smarter::shared_ptr<FsNode> target);
 
-	explicit Link(smarter::shared_ptr<FsNode> owner,
+	explicit Link(smarter::shared_ptr<FsLink> owner,
 			std::string name, smarter::shared_ptr<FsNode> target);
 
-	smarter::shared_ptr<FsNode> getOwner() override;
+	smarter::shared_ptr<FsLink> getParent() override;
 	std::string getName() override;
 	smarter::shared_ptr<FsNode> getTarget() override;
 
 private:
-	smarter::shared_ptr<FsNode> _owner;
+	smarter::shared_ptr<FsLink> _owner;
 	std::string _name;
 	smarter::shared_ptr<FsNode> _target;
 };
@@ -177,21 +177,19 @@ struct DirectoryNode final : FsNode {
 		static_cast<SysfsSuperblock *>(superblock())->inodeAllocator().free(inode_);
 	}
 
-	smarter::shared_ptr<Link> directMkattr(Object *object, Attribute *attr);
-	smarter::shared_ptr<Link> directMklink(std::string name, std::weak_ptr<Object> target);
-	smarter::shared_ptr<Link> directMkdir(std::string name);
+	smarter::shared_ptr<Link> directMkattr(FsLink *parent, Object *object, Attribute *attr);
+	smarter::shared_ptr<Link> directMklink(FsLink *parent, std::string name, std::weak_ptr<Object> target);
+	smarter::shared_ptr<Link> directMkdir(FsLink *parent, std::string name);
 
 	VfsType getType() override;
 	async::result<frg::expected<Error, FileStats>> getStats() override;
-	smarter::shared_ptr<FsLink> treeLink() override;
 
 	async::result<frg::expected<Error, smarter::shared_ptr<File, FileHandle>>>
 	open(Process *, std::shared_ptr<MountView> mount, smarter::shared_ptr<FsLink> link,
 			SemanticFlags semantic_flags) override;
-	async::result<frg::expected<Error, smarter::shared_ptr<FsLink>>> getLink(std::string name) override;
+	async::result<frg::expected<Error, smarter::shared_ptr<FsLink>>> getLink(FsLink *parent, std::string name) override;
 
 private:
-	Link *_treeLink;
 	std::set<smarter::shared_ptr<Link>, LinkCompare> _entries;
 	uint64_t inode_;
 };
@@ -241,6 +239,10 @@ struct Object {
 	}
 
 	smarter::shared_ptr<DirectoryNode> directoryNode();
+
+	const smarter::shared_ptr<Link> &dirLink() {
+		return _dirLink;
+	}
 
 	void realizeAttribute(Attribute *attr);
 	void createSymlink(std::string name, std::shared_ptr<Object> target);

@@ -81,11 +81,11 @@ smarter::shared_ptr<FsLink> getDevtmpfs() {
 
 async::result<void> createDeviceNode(std::string path, VfsType type, DeviceId id) {
 	size_t k = 0;
-	auto node = getDevtmpfs()->getTarget();
+	auto dirLink = getDevtmpfs();
 	while(true) {
 		size_t s = path.find('/', k);
 		if(s == std::string::npos) {
-			auto result = co_await node->mkdev(path.substr(k), type, id);
+			auto result = co_await dirLink->getTarget()->mkdev(dirLink.get(), path.substr(k), type, id);
 			assert(result);
 			break;
 		}else{
@@ -93,12 +93,12 @@ async::result<void> createDeviceNode(std::string path, VfsType type, DeviceId id
 			auto name = path.substr(k, s - k);
 			smarter::shared_ptr<FsLink> link;
 			while(true) {
-				auto linkResult = co_await node->getLink(name);
+				auto linkResult = co_await dirLink->getTarget()->getLink(dirLink.get(), name);
 				if(linkResult) {
 					link = linkResult.value();
 					break;
 				}
-				auto mkdirResult = co_await node->mkdir(nullptr, name, 0755);
+				auto mkdirResult = co_await dirLink->getTarget()->mkdir(dirLink.get(), nullptr, name, 0755);
 				if(auto linkp = std::get_if<smarter::shared_ptr<FsLink>>(&mkdirResult)) {
 					link = std::move(*linkp);
 					break;
@@ -107,7 +107,7 @@ async::result<void> createDeviceNode(std::string path, VfsType type, DeviceId id
 				assert(std::get<Error>(mkdirResult) == Error::alreadyExists);
 			}
 			k = s + 1;
-			node = link->getTarget();
+			dirLink = std::move(link);
 		}
 	}
 }

@@ -250,14 +250,16 @@ HandleRequest::operator()(managarm::posix::MkdirAtRequest &&req,
 		co_return {};
 	}
 
-	auto parent = resolver.currentLink()->getTarget();
-	auto existsResult = co_await parent->getLink(resolver.nextComponent());
+	auto parentLink = resolver.currentLink();
+	auto parent = parentLink->getTarget();
+	auto existsResult = co_await parent->getLink(parentLink.get(), resolver.nextComponent());
 	if (existsResult) {
 		co_await sendErrorResponse<managarm::posix::MkdirAtResponse>(conversation, managarm::posix::Errors::ALREADY_EXISTS);
 		co_return {};
 	}
 
 	auto result = co_await parent->mkdir(
+		parentLink.get(),
 	    self.get(),
 	    resolver.nextComponent(),
 	    req.mode()
@@ -316,13 +318,15 @@ HandleRequest::operator()(managarm::posix::MkfifoAtRequest &&req,
 		co_return {};
 	}
 
-	auto parent = resolver.currentLink()->getTarget();
-	if(co_await parent->getLink(resolver.nextComponent())) {
+	auto parentLink = resolver.currentLink();
+	auto parent = parentLink->getTarget();
+	if(co_await parent->getLink(parentLink.get(), resolver.nextComponent())) {
 		co_await sendErrorResponse<managarm::posix::MkfifoAtResponse>(conversation, managarm::posix::Errors::ALREADY_EXISTS);
 		co_return {};
 	}
 
 	auto result = co_await parent->mkfifo(
+		parentLink.get(),
 		resolver.nextComponent(),
 		req.mode() & ~self->fsContext()->getUmask()
 	);
@@ -419,12 +423,13 @@ HandleRequest::operator()(managarm::posix::LinkAtRequest &&req,
 	}
 
 	auto target = resolver.currentLink()->getTarget();
-	auto directory = new_resolver.currentLink()->getTarget();
+	auto directoryLink = new_resolver.currentLink();
+	auto directory = directoryLink->getTarget();
 	if(target->superblock() != directory->superblock()) {
 		co_await sendErrorResponse<managarm::posix::LinkAtResponse>(conversation, managarm::posix::Errors::CROSS_DEVICE_LINK);
 		co_return {};
 	}
-	auto result = co_await directory->link(new_resolver.nextComponent(), target);
+	auto result = co_await directory->link(directoryLink.get(), new_resolver.nextComponent(), target);
 	if(!result) {
 		co_await sendErrorResponse<managarm::posix::LinkAtResponse>(conversation, result.error() | toPosixProtoError);
 		co_return {};
@@ -482,8 +487,9 @@ HandleRequest::operator()(managarm::posix::SymlinkAtRequest &&req,
 		resolver.nextComponent(),
 		req.target_path());
 
-	auto parent = resolver.currentLink()->getTarget();
-	auto result = co_await parent->symlink(resolver.nextComponent(), req.target_path());
+	auto parentLink = resolver.currentLink();
+	auto parent = parentLink->getTarget();
+	auto result = co_await parent->symlink(parentLink.get(), resolver.nextComponent(), req.target_path());
 	if(auto error = std::get_if<Error>(&result); error) {
 		if(*error == Error::alreadyExists) {
 			co_await sendErrorResponse<managarm::posix::SymlinkAtResponse>(conversation, managarm::posix::Errors::ALREADY_EXISTS);
@@ -689,13 +695,14 @@ HandleRequest::operator()(managarm::posix::RenameAtRequest &&req,
 		new_resolver.nextComponent());
 
 	auto superblock = resolver.currentLink()->getTarget()->superblock();
-	auto directory = new_resolver.currentLink()->getTarget();
+	auto directoryLink = new_resolver.currentLink();
+	auto directory = directoryLink->getTarget();
 	if(superblock != directory->superblock()) {
 		co_await sendErrorResponse<managarm::posix::RenameAtResponse>(conversation, managarm::posix::Errors::CROSS_DEVICE_LINK);
 		co_return {};
 	}
 	auto result = co_await superblock->rename(resolver.currentLink().get(),
-			directory.get(), new_resolver.nextComponent());
+			directoryLink.get(), new_resolver.nextComponent());
 	if(!result) {
 		co_await sendErrorResponse<managarm::posix::RenameAtResponse>(conversation, result.error() | toPosixProtoError);
 		co_return {};
@@ -766,7 +773,7 @@ HandleRequest::operator()(managarm::posix::UnlinkAtRequest &&req,
 
 	target_link = resolver.currentLink();
 
-	auto owner = target_link->getOwner();
+	auto owner = target_link->getParentNode();
 	if(!owner) {
 		co_await sendErrorResponse<managarm::posix::UnlinkAtResponse>(conversation, managarm::posix::Errors::RESOURCE_IN_USE);
 		co_return {};
@@ -826,7 +833,7 @@ HandleRequest::operator()(managarm::posix::RmdirRequest &&req,
 
 	target_link = resolver.currentLink();
 
-	auto owner = target_link->getOwner();
+	auto owner = target_link->getParentNode();
 	auto result = co_await owner->rmdir(target_link->getName());
 	if(!result) {
 		co_await sendErrorResponse<managarm::posix::RmdirResponse>(conversation, result.error() | toPosixProtoError);
@@ -1402,9 +1409,10 @@ HandleRequest::operator()(managarm::posix::OpenAtRequest &&req,
 			co_return {};
 		}
 
-		auto directory = resolver.currentLink()->getTarget();
+		auto directoryLink = resolver.currentLink();
+		auto directory = directoryLink->getTarget();
 
-		auto linkResult = co_await directory->getLinkOrCreate(self.get(), resolver.nextComponent(),
+		auto linkResult = co_await directory->getLinkOrCreate(directoryLink.get(), self.get(), resolver.nextComponent(),
 			req.mode() & ~self->fsContext()->getUmask(), req.flags() & managarm::posix::OpenFlags::OF_EXCLUSIVE);
 		if (!linkResult) {
 			co_await sendErrorResponse<managarm::posix::OpenAtResponse>(conversation, linkResult.error() | toPosixProtoError);
@@ -1589,8 +1597,9 @@ HandleRequest::operator()(managarm::posix::MknodAtRequest &&req,
 		co_return {};
 	}
 
-	auto parent = resolver.currentLink()->getTarget();
-	auto existsResult = co_await parent->getLink(resolver.nextComponent());
+	auto parentLink = resolver.currentLink();
+	auto parent = parentLink->getTarget();
+	auto existsResult = co_await parent->getLink(parentLink.get(), resolver.nextComponent());
 	if (existsResult) {
 		co_await sendErrorResponse<managarm::posix::MknodAtResponse>(conversation, managarm::posix::Errors::ALREADY_EXISTS);
 		co_return {};
@@ -1621,7 +1630,7 @@ HandleRequest::operator()(managarm::posix::MknodAtRequest &&req,
 		dev.first = major(req.device());
 		dev.second = minor(req.device());
 
-		auto result = co_await parent->mkdev(resolver.nextComponent(), type, dev);
+		auto result = co_await parent->mkdev(parentLink.get(), resolver.nextComponent(), type, dev);
 		if(!result) {
 			if(result.error() == Error::illegalOperationTarget) {
 				co_await sendErrorResponse<managarm::posix::MknodAtResponse>(conversation, managarm::posix::Errors::ILLEGAL_ARGUMENTS);
@@ -1633,6 +1642,7 @@ HandleRequest::operator()(managarm::posix::MknodAtRequest &&req,
 		}
 	} else if(type == VfsType::fifo) {
 		auto result = co_await parent->mkfifo(
+			parentLink.get(),
 			resolver.nextComponent(),
 			req.mode() & ~self->fsContext()->getUmask()
 		);
@@ -1646,7 +1656,7 @@ HandleRequest::operator()(managarm::posix::MknodAtRequest &&req,
 			}
 		}
 	} else if(type == VfsType::socket) {
-		auto result = co_await parent->mksocket(resolver.nextComponent(), (req.mode() & ~self->fsContext()->getUmask()), self->threadGroup()->uid(), self->threadGroup()->gid());
+		auto result = co_await parent->mksocket(parentLink.get(), resolver.nextComponent(), (req.mode() & ~self->fsContext()->getUmask()), self->threadGroup()->uid(), self->threadGroup()->gid());
 		if(!result) {
 			if(result.error() == Error::illegalOperationTarget) {
 				co_await sendErrorResponse<managarm::posix::MknodAtResponse>(conversation, managarm::posix::Errors::ILLEGAL_ARGUMENTS);

@@ -63,16 +63,34 @@ struct ViewPath;
 // FsLink class.
 // ----------------------------------------------------------------------------
 
-// Represents a directory entry on an actual file system (i.e. not in the VFS).
+// Represents a directory entry on an actual file system.
+// FsLinks know their parent FsLink. Hence, FsLinks form a rooted directory tree.
+// The chain of parents terminates at the root of the superblock, not at the root of the VFS.
 struct FsLink {
 protected:
 	~FsLink() = default;
 
 public:
-	virtual smarter::shared_ptr<FsNode> getOwner() = 0;
+	// Returns the link of the directory that this link lives in.
+	// Null for the root of a mount and for anonymous links.
+	virtual smarter::shared_ptr<FsLink> getParent() = 0;
+
+	// Name of the link. Empty for the root link.
 	virtual std::string getName() = 0;
+
+	// Target of the link:
+	// directory entry (getParent(), getName()) points to getTarget().
 	virtual smarter::shared_ptr<FsNode> getTarget() = 0;
+
 	virtual async::result<frg::expected<Error>> obstruct();
+
+	smarter::shared_ptr<FsNode> getParentNode() {
+		auto parent = getParent();
+		if(!parent)
+			return nullptr;
+		return parent->getTarget();
+	}
+
 	virtual std::optional<std::string> getProcFsDescription();
 
 	// Only to be called by makeFsShared().
@@ -97,7 +115,7 @@ public:
 	virtual FutureMaybe<smarter::shared_ptr<FsNode>> createRegular(Process *) = 0;
 
 	virtual async::result<frg::expected<Error, smarter::shared_ptr<FsLink>>>
-			rename(FsLink *source, FsNode *directory, std::string name) = 0;
+			rename(FsLink *source, FsLink *directory, std::string name) = 0;
 	virtual async::result<frg::expected<Error, FsStats>> getFsStats() = 0;
 	virtual std::string getFsType() = 0;
 	virtual dev_t deviceNumber() = 0;
@@ -163,38 +181,35 @@ public:
 	// TODO: This should be async.
 	virtual async::result<frg::expected<Error, FileStats>> getStats();
 
-	// For directories only: Returns a pointer to the link
-	// that links this directory from its parent.
-	virtual smarter::shared_ptr<FsLink> treeLink();
-
 	virtual void addObserver(std::shared_ptr<FsObserver> observer);
 
 	virtual void removeObserver(FsObserver *observer);
 
 	//! Get an existing link or create one (directories only).
 	virtual async::result<std::expected<smarter::shared_ptr<FsLink>, Error>>
-	getLinkOrCreate(Process *, std::string name, mode_t mode, bool exclusive = false);
+	getLinkOrCreate(FsLink *parent, Process *, std::string name, mode_t mode,
+			bool exclusive = false);
 
 	//! Resolves a file in a directory (directories only).
-	virtual async::result<frg::expected<Error, smarter::shared_ptr<FsLink>>> getLink(std::string name);
+	virtual async::result<frg::expected<Error, smarter::shared_ptr<FsLink>>> getLink(FsLink *parent, std::string name);
 
 	//! Links an existing node to this directory (directories only).
-	virtual async::result<frg::expected<Error, smarter::shared_ptr<FsLink>>> link(std::string name,
+	virtual async::result<frg::expected<Error, smarter::shared_ptr<FsLink>>> link(FsLink *parent, std::string name,
 			smarter::shared_ptr<FsNode> target);
 
 	//! Creates a new directory (directories only).
 	virtual async::result<std::variant<Error, smarter::shared_ptr<FsLink>>>
-	mkdir(Process *, std::string name, mode_t mode);
+	mkdir(FsLink *parent, Process *, std::string name, mode_t mode);
 
 	//! Creates a new symlink (directories only).
 	virtual async::result<std::variant<Error, smarter::shared_ptr<FsLink>>>
-	symlink(std::string name, std::string path);
+	symlink(FsLink *parent, std::string name, std::string path);
 
 	//! Creates a new device file (directories only).
-	virtual async::result<frg::expected<Error, smarter::shared_ptr<FsLink>>> mkdev(std::string name,
+	virtual async::result<frg::expected<Error, smarter::shared_ptr<FsLink>>> mkdev(FsLink *parent, std::string name,
 			VfsType type, DeviceId id);
 
-	virtual async::result<frg::expected<Error, smarter::shared_ptr<FsLink>>> mkfifo(std::string name, mode_t mode);
+	virtual async::result<frg::expected<Error, smarter::shared_ptr<FsLink>>> mkfifo(FsLink *parent, std::string name, mode_t mode);
 
 	virtual async::result<frg::expected<Error>> unlink(std::string name);
 
@@ -223,11 +238,11 @@ public:
 	virtual async::result<Error> utimensat(std::optional<timespec> atime, std::optional<timespec> mtime, timespec ctime);
 
 	// Creates an socket
-	virtual async::result<frg::expected<Error, smarter::shared_ptr<FsLink>>> mksocket(std::string name, mode_t mode, uid_t uid, gid_t gid);
+	virtual async::result<frg::expected<Error, smarter::shared_ptr<FsLink>>> mksocket(FsLink *parent, std::string name, mode_t mode, uid_t uid, gid_t gid);
 
 	// Recursive path traversal
 	virtual bool hasTraverseLinks();
-	virtual async::result<frg::expected<Error, std::pair<smarter::shared_ptr<FsLink>, size_t>>> traverseLinks(std::deque<std::string> path);
+	virtual async::result<frg::expected<Error, std::pair<smarter::shared_ptr<FsLink>, size_t>>> traverseLinks(FsLink *parent, std::deque<std::string> path);
 
 	void notifyObservers(uint32_t inotifyEvents, const std::string &name, uint32_t cookie, bool isDir = false);
 
@@ -284,7 +299,7 @@ public:
 		return {sharedFromThis(), &embeddedNode_};
 	}
 
-	smarter::shared_ptr<FsNode> getOwner() override {
+	smarter::shared_ptr<FsLink> getParent() override {
 		return nullptr;
 	}
 

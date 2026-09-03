@@ -298,7 +298,7 @@ public:
 	}
 
 	async::result<frg::expected<Error, smarter::shared_ptr<FsLink>>>
-			rename(FsLink *, FsNode *, std::string) override {
+			rename(FsLink *, FsLink *, std::string) override {
 		co_return Error::noSuchFile;
 	}
 
@@ -509,17 +509,18 @@ private:
 
 struct Link final : FsLink {
 public:
-	explicit Link(RootNode *root, std::string name, smarter::shared_ptr<DeviceNode> device)
-	: _root{root}, _name{std::move(name)}, _device{std::move(device)} { }
+	explicit Link(smarter::shared_ptr<FsLink> root, std::string name,
+			smarter::shared_ptr<DeviceNode> device)
+	: _root{std::move(root)}, _name{std::move(name)}, _device{std::move(device)} { }
 
-	smarter::shared_ptr<FsNode> getOwner() override;
+	smarter::shared_ptr<FsLink> getParent() override;
 
 	std::string getName() override;
 
 	smarter::shared_ptr<FsNode> getTarget() override;
 
 private:
-	RootNode *_root;
+	smarter::shared_ptr<FsLink> _root;
 	std::string _name;
 	smarter::shared_ptr<DeviceNode> _device;
 };
@@ -531,8 +532,8 @@ struct RootLink final : FsLink {
 		return _root.get();
 	}
 
-	smarter::shared_ptr<FsNode> getOwner() override {
-		throw std::logic_error("posix: pts RootLink has no owner");
+	smarter::shared_ptr<FsLink> getParent() override {
+		return nullptr;
 	}
 
 	std::string getName() override {
@@ -616,13 +617,10 @@ public:
 		return VfsType::directory;
 	}
 
-	void linkDevice(std::string name, smarter::shared_ptr<DeviceNode> node) {
-		auto link = makeFsShared<Link>(this, name, std::move(node));
+	void linkDevice(FsLink *parent, std::string name,
+			smarter::shared_ptr<DeviceNode> node) {
+		auto link = makeFsShared<Link>(parent->sharedFromThis(), name, std::move(node));
 		_entries.insert(std::move(link));
-	}
-
-	smarter::shared_ptr<FsLink> treeLink() override {
-		return globalRootLink;
 	}
 
 	async::result<frg::expected<Error, FileStats>> getStats() override {
@@ -631,7 +629,7 @@ public:
 	}
 
 	async::result<frg::expected<Error, smarter::shared_ptr<FsLink>>>
-	getLink(std::string name) override {
+	getLink(FsLink *, std::string name) override {
 		auto it = _entries.find(name);
 		if(it != _entries.end())
 			co_return *it;
@@ -918,7 +916,7 @@ MasterFile::MasterFile(std::shared_ptr<MountView> mount, smarter::shared_ptr<FsL
 	auto slave_device = std::make_shared<SlaveDevice>(_channel);
 	charRegistry.install(std::move(slave_device));
 
-	globalRootLink->rootNode()->linkDevice(std::to_string(_channel->ptsIndex),
+	globalRootLink->rootNode()->linkDevice(globalRootLink.get(), std::to_string(_channel->ptsIndex),
 			makeFsShared<DeviceNode>(DeviceId{136, _channel->ptsIndex}));
 }
 
@@ -1527,8 +1525,8 @@ void SlaveFile::handleClose() {
 // Link and RootLink implementation.
 //-----------------------------------------------------------------------------
 
-smarter::shared_ptr<FsNode> Link::getOwner() {
-	return _root->sharedFromThis();
+smarter::shared_ptr<FsLink> Link::getParent() {
+	return _root;
 }
 
 std::string Link::getName() {
