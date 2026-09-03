@@ -530,6 +530,18 @@ public:
 		};
 	}
 
+	std::expected<size_t, Error> accessRange(uintptr_t offset, size_t size,
+			FetchFlags flags, PageAccessFn fn) override {
+		if(flags & fetchRequireMutable)
+			return std::unexpected{Error::badPermissions};
+
+		auto misalign = offset & (kPageSize - 1);
+		auto chunk = frg::min(size, kPageSize - misalign);
+		PageAccessor accessor{_zeroPage};
+		fn(reinterpret_cast<uint8_t *>(accessor.get()) + misalign, chunk);
+		return chunk;
+	}
+
 	coroutine<frg::expected<Error, size_t>>
 	touchRange(uintptr_t offset, size_t, FetchFlags flags) override {
 		if(flags & fetchRequireMutable)
@@ -648,6 +660,29 @@ PhysicalRange ImmediateMemory::peekRange(uintptr_t offset, FetchFlags) {
 		.cachingMode = CachingMode::null,
 		.isMutable = true
 	};
+}
+
+std::expected<size_t, Error> ImmediateMemory::accessRange(uintptr_t offset, size_t size,
+		FetchFlags, PageAccessFn fn) {
+	auto index = offset >> kPageShift;
+	auto misalign = offset & (kPageSize - 1);
+
+	PhysicalAddr physical;
+	{
+		auto irqLock = frg::guard(&irqMutex());
+		auto lock = frg::guard(&_mutex);
+
+		if(index >= _physicalPages.size())
+			return std::unexpected{Error::fault};
+		physical = _physicalPages[index];
+	}
+	if(physical == PhysicalAddr(-1))
+		return std::unexpected{Error::fault};
+
+	auto chunk = frg::min(size, kPageSize - misalign);
+	PageAccessor accessor{physical};
+	fn(reinterpret_cast<uint8_t *>(accessor.get()) + misalign, chunk);
+	return chunk;
 }
 
 coroutine<frg::expected<Error, size_t>>
@@ -774,6 +809,12 @@ PhysicalRange HardwareMemory::peekRange(uintptr_t offset, FetchFlags) {
 	};
 }
 
+std::expected<size_t, Error> HardwareMemory::accessRange(uintptr_t, size_t,
+		FetchFlags, PageAccessFn) {
+	// The direct physical mapping only covers RAM, so users need to map hardware memory.
+	return std::unexpected{Error::illegalObject};
+}
+
 coroutine<frg::expected<Error, size_t>>
 HardwareMemory::touchRange(uintptr_t offset, size_t, FetchFlags) {
 	assert(currentIpl() == ipl::exceptionalWork);
@@ -888,6 +929,31 @@ PhysicalRange AllocatedMemory::peekRange(uintptr_t offset, FetchFlags) {
 		.cachingMode = CachingMode::null,
 		.isMutable = true
 	};
+}
+
+std::expected<size_t, Error> AllocatedMemory::accessRange(uintptr_t offset, size_t size,
+		FetchFlags, PageAccessFn fn) {
+	auto index = offset / _chunkSize;
+	auto chunkOffset = offset & (_chunkSize - 1);
+	auto misalign = offset & (kPageSize - 1);
+
+	PhysicalAddr physical;
+	{
+		auto irqLock = frg::guard(&irqMutex());
+		auto lock = frg::guard(&_mutex);
+
+		if(index >= _physicalChunks.size())
+			return std::unexpected{Error::fault};
+		if(_physicalChunks[index] == PhysicalAddr(-1))
+			return 0;
+		physical = _physicalChunks[index] + (chunkOffset - misalign);
+	}
+
+	// Chunks are physically contiguous, so the access can span multiple pages.
+	auto chunk = frg::min(size, _chunkSize - chunkOffset);
+	PageAccessor accessor{physical};
+	fn(reinterpret_cast<uint8_t *>(accessor.get()) + misalign, chunk);
+	return chunk;
 }
 
 coroutine<frg::expected<Error, size_t>>
@@ -1786,6 +1852,26 @@ void ManagedSpace::lockPage(ManagedPage *page) {
 	}
 }
 
+void ManagedSpace::unlockPageAndRaise(ManagedPage *page, bool dirty) {
+	bool needsEvent = false;
+	bool needsExpedite = false;
+	bool raiseDiscard = false;
+	{
+		auto irqLock = frg::guard(&irqMutex());
+		auto lock = frg::guard(&mutex);
+
+		if(dirty)
+			markDirtyPage(page, needsEvent, needsExpedite);
+		unlockPage(page, raiseDiscard);
+	}
+	if(needsEvent)
+		_dirtyEvent.raise();
+	if(needsExpedite)
+		_expediteEvent.raise();
+	if(raiseDiscard)
+		_discardEvent.raise();
+}
+
 void ManagedSpace::unlockPage(ManagedPage *page, bool &raiseDiscard) {
 	assert(page->lockCount > 0);
 	page->lockCount--;
@@ -2128,6 +2214,38 @@ PhysicalRange BackingMemory::peekRange(uintptr_t offset, FetchFlags) {
 		.cachingMode = CachingMode::null,
 		.isMutable = true
 	};
+}
+
+std::expected<size_t, Error> BackingMemory::accessRange(uintptr_t offset, size_t size,
+		FetchFlags flags, PageAccessFn fn) {
+	auto index = offset >> kPageShift;
+	auto misalign = offset & (kPageSize - 1);
+
+	if(offset >= backingMemoryLength)
+		return std::unexpected{Error::fault};
+
+	ManagedSpace::ManagedPage *pit;
+	PhysicalAddr physical;
+	{
+		auto irqLock = frg::guard(&irqMutex());
+		auto lock = frg::guard(&_managed->mutex);
+
+		pit = _managed->pages.find(index);
+		if(!pit || pit->physical == PhysicalAddr(-1))
+			return 0;
+		_managed->lockPage(pit);
+		physical = pit->physical;
+	}
+
+	auto chunk = frg::min(size, kPageSize - misalign);
+	PageAccessResult result;
+	{
+		PageAccessor accessor{physical};
+		result = fn(reinterpret_cast<uint8_t *>(accessor.get()) + misalign, chunk);
+	}
+	assert(!result.dirty || (flags & fetchRequireMutable));
+	_managed->unlockPageAndRaise(pit, result.dirty);
+	return chunk;
 }
 
 coroutine<frg::expected<Error, size_t>>
@@ -2522,6 +2640,18 @@ PhysicalRange FrontalMemory::peekRange(uintptr_t offset, FetchFlags) {
 	};
 }
 
+std::expected<size_t, Error> FrontalMemory::accessRange(uintptr_t offset, size_t size,
+		FetchFlags flags, PageAccessFn fn) {
+	auto index = offset >> kPageShift;
+	auto misalign = offset & (kPageSize - 1);
+
+	return _managed->accessPage([&] () -> std::expected<ManagedSpace::ManagedPage *, Error> {
+		if(index >= _managed->numPages)
+			return std::unexpected{Error::fault};
+		return _managed->pages.find(index);
+	}, misalign, size, flags & fetchRequireMutable, fn);
+}
+
 coroutine<frg::expected<Error, size_t>>
 FrontalMemory::touchRange(uintptr_t offset, size_t, FetchFlags flags) {
 	assert(currentIpl() == ipl::exceptionalWork);
@@ -2706,6 +2836,21 @@ PhysicalRange SwappableMemory::peekRange(uintptr_t offset, FetchFlags) {
 	};
 }
 
+std::expected<size_t, Error> SwappableMemory::accessRange(uintptr_t offset, size_t size,
+		FetchFlags flags, PageAccessFn fn) {
+	auto index = offset >> kPageShift;
+	auto misalign = offset & (kPageSize - 1);
+
+	return _space->accessPage([&] () -> std::expected<ManagedSpace::ManagedPage *, Error> {
+		if(offset >= _length)
+			return std::unexpected{Error::fault};
+		auto tit = _table.find(index);
+		if(!tit)
+			return nullptr;
+		return *tit;
+	}, misalign, size, flags & fetchRequireMutable, fn);
+}
+
 coroutine<frg::expected<Error, size_t>>
 SwappableMemory::touchRange(uintptr_t offset, size_t, FetchFlags flags) {
 	assert(currentIpl() == ipl::exceptionalWork);
@@ -2866,6 +3011,30 @@ PhysicalRange IndirectMemory::peekRange(uintptr_t offset, FetchFlags flags) {
 		.cachingMode = determineCachingMode(physicalRange.cachingMode, cachingOverride),
 		.isMutable = physicalRange.isMutable
 	};
+}
+
+std::expected<size_t, Error> IndirectMemory::accessRange(uintptr_t offset, size_t size,
+		FetchFlags flags, PageAccessFn fn) {
+	auto slot = offset >> 32;
+	auto inSlotOffset = offset & ((uintptr_t(1) << 32) - 1);
+
+	smarter::shared_ptr<IndirectionSlot> indirection;
+	{
+		auto irqLock = frg::guard(&irqMutex());
+		auto lock = frg::guard(&mutex_);
+
+		if(slot >= indirections_.size())
+			return std::unexpected{Error::fault};
+		if(!indirections_[slot])
+			return std::unexpected{Error::fault};
+		indirection = indirections_[slot];
+	}
+
+	if(inSlotOffset >= indirection->size)
+		return std::unexpected{Error::fault};
+
+	auto chunk = frg::min(size, indirection->size - inSlotOffset);
+	return indirection->memory->accessRange(indirection->offset + inSlotOffset, chunk, flags, fn);
 }
 
 coroutine<frg::expected<Error, size_t>>
@@ -3299,6 +3468,69 @@ PhysicalRange CopyOnWriteMemory::peekRange(uintptr_t offset, FetchFlags flags) {
 	}
 
 	return PhysicalRange{};
+}
+
+std::expected<size_t, Error> CopyOnWriteMemory::accessRange(uintptr_t offset, size_t size,
+		FetchFlags flags, PageAccessFn fn) {
+	auto misalign = offset & (kPageSize - 1);
+	auto chunk = frg::min(size, kPageSize - misalign);
+
+	smarter::shared_ptr<CowPage> ownedPage;
+	smarter::shared_ptr<CowPage> sharedPage;
+	// Note: the passthrough cases here have to match touchRange() since
+	//       callers expect touchRange() to make the page available to accessRange().
+	{
+		auto irqLock = frg::guard(&irqMutex());
+		auto lock = frg::guard(&_mutex);
+
+		if(offset >= _length)
+			return std::unexpected{Error::fault};
+
+		if(auto it = _ownedPages.find(offset >> kPageShift); it) {
+			auto page = *it;
+			if(page->state != CowState::hasCopy)
+				return 0;
+			// The lock keeps fork() from sharing the page during the access.
+			// It is not mirrored into the swap page since ManagedSpace::accessRange() locks that.
+			page->lockCount++;
+			ownedPage = std::move(page);
+		} else {
+			if(flags & fetchRequireMutable)
+				return 0;
+			if(auto it = _sharedPages.find(offset >> kPageShift); it) {
+				assert((*it)->state == CowState::hasCopy);
+				sharedPage = *it;
+			}
+		}
+	}
+
+	if(!ownedPage && !sharedPage) {
+		// Note: totalOffset is not necessarily page aligned.
+		auto totalOffset = _viewOffset + offset;
+		return _view->accessRange(totalOffset, chunk, flags, fn);
+	}
+
+	auto page = ownedPage ? ownedPage.get() : sharedPage.get();
+	std::expected<size_t, Error> outcome;
+	if(_space) {
+		outcome = _space->accessPage(
+				[&] () -> std::expected<ManagedSpace::ManagedPage *, Error> { return page->swapPage; },
+				misalign, chunk, flags & fetchRequireMutable, fn);
+	} else {
+		assert(page->physical != PhysicalAddr(-1));
+		PageAccessor accessor{page->physical};
+		fn(reinterpret_cast<uint8_t *>(accessor.get()) + misalign, chunk);
+		outcome = chunk;
+	}
+
+	if(ownedPage) {
+		auto irqLock = frg::guard(&irqMutex());
+		auto lock = frg::guard(&_mutex);
+
+		assert(ownedPage->lockCount > 0);
+		ownedPage->lockCount--;
+	}
+	return outcome;
 }
 
 coroutine<frg::expected<Error, size_t>>

@@ -13,6 +13,7 @@
 #include <frg/shared_ptr.hpp>
 #include <frg/vector.hpp>
 #include <frg/expected.hpp>
+#include <frg/functional.hpp>
 #include <physical-buddy.hpp>
 #include <thor-internal/arch-generic/paging.hpp>
 #include <thor-internal/error.hpp>
@@ -214,6 +215,15 @@ inline constexpr FetchFlags fetchDisallowBacking = 2;
 using CachingFlags = uint32_t;
 inline constexpr CachingFlags cacheWriteCombine = 1;
 
+// Returned by the callback of MemoryView::accessRange().
+struct PageAccessResult {
+	// Whether the callback modified the range. Requires fetchRequireMutable.
+	bool dirty = false;
+};
+
+// Non-owning reference to the callback of MemoryView::accessRange().
+using PageAccessFn = frg::function_ref<PageAccessResult(void *, size_t)>;
+
 enum class EvictMode {
 	none,
 	// Evicts all pages in a range.
@@ -398,6 +408,15 @@ public:
 	virtual coroutine<frg::expected<Error, size_t>>
 	touchRange(uintptr_t offset, size_t sizeHint, FetchFlags flags) = 0;
 
+	// Tries to synchronously accesses the range at a given offset.
+	// Invokes fn(ptr, chunk) on the range if it is present with chunk <= size.
+	// Callers do not need to participate in the eviction protocol but they need to handle
+	// failures due to missing pages (and call touchRange() as needed).
+	// Returns chunk if the range is successfully accessed or zero if the page at offset is missing.
+	// With fetchRequireMutable, the page is mutable and is marked dirty if fn reports so.
+	virtual std::expected<size_t, Error> accessRange(uintptr_t offset, size_t size,
+			FetchFlags flags, PageAccessFn fn) = 0;
+
 	virtual coroutine<frg::expected<Error, MemoryNotification>> pollNotification();
 
 	// Called (e.g. by user space) to update a range after loading or writeback.
@@ -503,6 +522,8 @@ public:
 	PhysicalRange peekRange(uintptr_t offset, FetchFlags flags) override;
 	coroutine<frg::expected<Error, size_t>>
 			touchRange(uintptr_t offset, size_t sizeHint, FetchFlags flags) override;
+	std::expected<size_t, Error> accessRange(uintptr_t offset, size_t size,
+			FetchFlags flags, PageAccessFn fn) override;
 
 	template<typename T>
 	T *accessImmediate(uintptr_t offset) {
@@ -617,6 +638,8 @@ public:
 	PhysicalRange peekRange(uintptr_t offset, FetchFlags flags) override;
 	coroutine<frg::expected<Error, size_t>>
 			touchRange(uintptr_t offset, size_t sizeHint, FetchFlags flags) override;
+	std::expected<size_t, Error> accessRange(uintptr_t offset, size_t size,
+			FetchFlags flags, PageAccessFn fn) override;
 
 private:
 	PhysicalAddr _base;
@@ -658,6 +681,8 @@ public:
 	PhysicalRange peekRange(uintptr_t offset, FetchFlags flags) override;
 	coroutine<frg::expected<Error, size_t>>
 			touchRange(uintptr_t offset, size_t sizeHint, FetchFlags flags) override;
+	std::expected<size_t, Error> accessRange(uintptr_t offset, size_t size,
+			FetchFlags flags, PageAccessFn fn) override;
 
 public:
 	// Contract: set by the code that constructs this object.
@@ -928,10 +953,48 @@ struct ManagedSpace : CacheBundle {
 	// Must be called under mutex.
 	void unlockPage(ManagedPage *page, bool &raiseDiscard);
 
+	// Unlocks a page locked by lockPage(), marking it dirty first if requested.
+	// Must be called outside of locks.
+	void unlockPageAndRaise(ManagedPage *page, bool dirty);
+
 	// Per-page counterpart of markDirty().
 	// Sets needsEvent/needsExpedite if _dirtyEvent/_expediteEvent need to be raised.
 	// Must be called under mutex.
 	void markDirtyPage(ManagedPage *page, bool &needsEvent, bool &needsExpedite);
+
+	// Implements MemoryView::accessRange() for the page returned by lookup.
+	// The lookup function runs under mutex.
+	// Must be called outside of locks.
+	template<typename F>
+	std::expected<size_t, Error> accessPage(F lookup, uintptr_t misalign,
+			size_t size, bool isMutable, PageAccessFn fn) {
+		ManagedPage *page;
+		PhysicalAddr physical;
+		{
+			auto irqLock = frg::guard(&irqMutex());
+			auto lock = frg::guard(&mutex);
+
+			auto lookupOutcome = lookup();
+			if(!lookupOutcome)
+				return std::unexpected{lookupOutcome.error()};
+			page = *lookupOutcome;
+			if(!page || page->loadState != LoadState::present)
+				return 0;
+			assert(page->physical != PhysicalAddr(-1));
+			lockPage(page);
+			physical = page->physical;
+		}
+
+		auto chunk = frg::min(size, kPageSize - misalign);
+		PageAccessResult result;
+		{
+			PageAccessor accessor{physical};
+			result = fn(reinterpret_cast<uint8_t *>(accessor.get()) + misalign, chunk);
+		}
+		assert(!result.dirty || isMutable);
+		unlockPageAndRaise(page, result.dirty);
+		return chunk;
+	}
 
 	// Returns the frame of a present page (averting an in-flight reclamation or discard),
 	// or PhysicalAddr(-1) if the page is missing.
@@ -1093,6 +1156,8 @@ public:
 	PhysicalRange peekRange(uintptr_t offset, FetchFlags flags) override;
 	coroutine<frg::expected<Error, size_t>>
 			touchRange(uintptr_t offset, size_t sizeHint, FetchFlags flags) override;
+	std::expected<size_t, Error> accessRange(uintptr_t offset, size_t size,
+			FetchFlags flags, PageAccessFn fn) override;
 	coroutine<frg::expected<Error, MemoryNotification>> pollNotification() override;
 	Error updateRange(ManageRequest type, size_t offset, size_t length) override;
 	coroutine<frg::expected<Error>> writebackFence(uintptr_t offset, size_t size) override;
@@ -1124,6 +1189,8 @@ public:
 	PhysicalRange peekRange(uintptr_t offset, FetchFlags flags) override;
 	coroutine<frg::expected<Error, size_t>>
 			touchRange(uintptr_t offset, size_t sizeHint, FetchFlags flags) override;
+	std::expected<size_t, Error> accessRange(uintptr_t offset, size_t size,
+			FetchFlags flags, PageAccessFn fn) override;
 
 public:
 	// Contract: set by the code that constructs this object.
@@ -1159,6 +1226,8 @@ public:
 	PhysicalRange peekRange(uintptr_t offset, FetchFlags flags) override;
 	coroutine<frg::expected<Error, size_t>>
 			touchRange(uintptr_t offset, size_t sizeHint, FetchFlags flags) override;
+	std::expected<size_t, Error> accessRange(uintptr_t offset, size_t size,
+			FetchFlags flags, PageAccessFn fn) override;
 
 public:
 	// Contract: set by the code that constructs this object.
@@ -1201,6 +1270,8 @@ public:
 	PhysicalRange peekRange(uintptr_t offset, FetchFlags flags) override;
 	coroutine<frg::expected<Error, size_t>>
 			touchRange(uintptr_t offset, size_t sizeHint, FetchFlags flags) override;
+	std::expected<size_t, Error> accessRange(uintptr_t offset, size_t size,
+			FetchFlags flags, PageAccessFn fn) override;
 
 	Error setIndirection(size_t slot, smarter::shared_ptr<MemoryView> memory,
 			uintptr_t offset, size_t size, CachingFlags flags) override;
@@ -1272,6 +1343,8 @@ public:
 	PhysicalRange peekRange(uintptr_t offset, FetchFlags flags) override;
 	coroutine<frg::expected<Error, size_t>>
 			touchRange(uintptr_t offset, size_t sizeHint, FetchFlags flags) override;
+	std::expected<size_t, Error> accessRange(uintptr_t offset, size_t size,
+			FetchFlags flags, PageAccessFn fn) override;
 
 private:
 	// Callers must hold _mutex.
