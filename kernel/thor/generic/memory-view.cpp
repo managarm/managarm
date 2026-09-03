@@ -312,6 +312,91 @@ coroutine<frg::expected<Error, smarter::shared_ptr<MemoryView>>> MemoryView::for
 	co_return Error::illegalObject;
 }
 
+namespace {
+
+// The do*() helpers perform the synchronous part of the copy functions.
+// They must not be inlined into the coroutines: otherwise, clang can keep a function_ref to a
+// closure on the native stack across a co_await (llvm/llvm-project#149604, fixed in LLVM 22).
+
+// Copies until the end of the range or until a page is missing.
+// Returns the number of bytes that were copied.
+[[gnu::noinline]] std::expected<size_t, Error> doCopyTo(MemoryView *view, uintptr_t offset,
+		const void *pointer, size_t size, FetchFlags flags) {
+	size_t progress = 0;
+	while(progress < size) {
+		auto outcome = view->accessRange(offset + progress, size - progress,
+				flags | fetchRequireMutable, [&] (void *page, size_t chunk) {
+			assert(chunk <= size - progress);
+			memcpy(page, reinterpret_cast<const uint8_t *>(pointer) + progress, chunk);
+			return PageAccessResult{.dirty = true};
+		});
+		if(!outcome)
+			return std::unexpected{outcome.error()};
+		if(!*outcome)
+			break;
+		progress += *outcome;
+	}
+	return progress;
+}
+
+// Like doCopyTo() but in the opposite direction.
+[[gnu::noinline]] std::expected<size_t, Error> doCopyFrom(MemoryView *view, uintptr_t offset,
+		void *pointer, size_t size, FetchFlags flags) {
+	size_t progress = 0;
+	while(progress < size) {
+		auto outcome = view->accessRange(offset + progress, size - progress, flags,
+				[&] (void *page, size_t chunk) {
+			assert(chunk <= size - progress);
+			memcpy(reinterpret_cast<uint8_t *>(pointer) + progress, page, chunk);
+			return PageAccessResult{};
+		});
+		if(!outcome)
+			return std::unexpected{outcome.error()};
+		if(!*outcome)
+			break;
+		progress += *outcome;
+	}
+	return progress;
+}
+
+// Like doCopyTo() but sets srcMissing to indicate which of the two pages is missing.
+[[gnu::noinline]] std::expected<size_t, Error> doCopyBetweenViews(
+		MemoryView *destView, uintptr_t destOffset,
+		MemoryView *srcView, uintptr_t srcOffset, size_t size, bool &srcMissing) {
+	size_t progress = 0;
+	while(progress < size) {
+		// The source access is nested into the destination access.
+		std::expected<size_t, Error> srcOutcome{0};
+		auto destOutcome = destView->accessRange(destOffset + progress, size - progress,
+				fetchRequireMutable, [&] (void *destPage, size_t destChunk) {
+			assert(destChunk <= size - progress);
+			srcOutcome = srcView->accessRange(srcOffset + progress, destChunk, fetchNone,
+					[&] (void *srcPage, size_t srcChunk) {
+				assert(srcChunk <= destChunk);
+				memcpy(destPage, srcPage, srcChunk);
+				return PageAccessResult{};
+			});
+			return PageAccessResult{.dirty = srcOutcome && *srcOutcome};
+		});
+		if(!destOutcome)
+			return std::unexpected{destOutcome.error()};
+		if(!*destOutcome) {
+			srcMissing = false;
+			break;
+		}
+		if(!srcOutcome)
+			return std::unexpected{srcOutcome.error()};
+		if(!*srcOutcome) {
+			srcMissing = true;
+			break;
+		}
+		progress += *srcOutcome;
+	}
+	return progress;
+}
+
+} // anonymous namespace
+
 coroutine<frg::expected<Error>> MemoryView::copyTo(uintptr_t offset,
 		const void *pointer, size_t size,
 		FetchFlags flags) {
@@ -319,32 +404,17 @@ coroutine<frg::expected<Error>> MemoryView::copyTo(uintptr_t offset,
 	assert(!(flags & fetchRequireMutable));
 	assert(currentIpl() == ipl::exceptionalWork);
 
-	if (auto err = lockRange(offset, size); err != Error::success)
-		co_return err;
-	frg::scope_exit unlockOnExit{[&] {
-		unlockRange(offset, size);
-	}};
-
 	size_t progress = 0;
-	while(progress < size) {
+	while(true) {
+		auto outcome = doCopyTo(this, offset + progress,
+				reinterpret_cast<const uint8_t *>(pointer) + progress, size - progress, flags);
+		if(!outcome)
+			co_return outcome.error();
+		progress += *outcome;
+		if(progress == size)
+			break;
 		auto fetchOffset = (offset + progress) & ~(kPageSize - 1);
 		FRG_CO_TRY(co_await touchRange(fetchOffset, kPageSize, flags | fetchRequireMutable));
-		auto range = peekRange(fetchOffset, flags | fetchRequireMutable);
-		assert(range.physical != PhysicalAddr(-1));
-		assert(range.isMutable);
-
-		auto misalign = (offset + progress) & (kPageSize - 1);
-		size_t chunk = frg::min(kPageSize - misalign, size - progress);
-
-		PageAccessor accessor{range.physical};
-		memcpy(
-			reinterpret_cast<uint8_t *>(accessor.get()) + misalign,
-			reinterpret_cast<const uint8_t *>(pointer) + progress,
-			chunk
-		);
-		if(auto descriptor = globalPfnDb().find(range.physical))
-			markDirty(*descriptor);
-		progress += chunk;
 	}
 
 	co_return {};
@@ -357,29 +427,17 @@ coroutine<frg::expected<Error>> MemoryView::copyFrom(uintptr_t offset,
 	assert(!(flags & fetchRequireMutable));
 	assert(currentIpl() == ipl::exceptionalWork);
 
-	if (auto err = lockRange(offset, size); err != Error::success)
-		co_return err;
-	frg::scope_exit unlockOnExit{[&] {
-		unlockRange(offset, size);
-	}};
-
 	size_t progress = 0;
-	while(progress < size) {
+	while(true) {
+		auto outcome = doCopyFrom(this, offset + progress,
+				reinterpret_cast<uint8_t *>(pointer) + progress, size - progress, flags);
+		if(!outcome)
+			co_return outcome.error();
+		progress += *outcome;
+		if(progress == size)
+			break;
 		auto fetchOffset = (offset + progress) & ~(kPageSize - 1);
 		FRG_CO_TRY(co_await touchRange(fetchOffset, kPageSize, flags));
-		auto range = peekRange(fetchOffset, flags);
-		assert(range.physical != PhysicalAddr(-1));
-
-		auto misalign = (offset + progress) & (kPageSize - 1);
-		size_t chunk = frg::min(kPageSize - misalign, size - progress);
-
-		PageAccessor accessor{range.physical};
-		memcpy(
-			reinterpret_cast<uint8_t *>(pointer) + progress,
-			reinterpret_cast<uint8_t *>(accessor.get()) + misalign,
-			chunk
-		);
-		progress += chunk;
 	}
 
 	co_return {};
@@ -419,49 +477,23 @@ Error MemoryView::setIndirection(size_t, smarter::shared_ptr<MemoryView>,
 coroutine<frg::expected<Error>> copyBetweenViews(
 		MemoryView *destView, uintptr_t destOffset,
 		MemoryView *srcView, uintptr_t srcOffset, size_t size) {
-	if (auto err = destView->lockRange(destOffset, size); err != Error::success)
-		co_return err;
-	frg::scope_exit unlockDestOnExit{[&] {
-		destView->unlockRange(destOffset, size);
-	}};
-
-	if (auto err = srcView->lockRange(srcOffset, size); err != Error::success)
-		co_return err;
-	frg::scope_exit unlockSrcOnExit{[&] {
-		srcView->unlockRange(srcOffset, size);
-	}};
-
 	size_t progress = 0;
-	while(progress < size) {
-		auto destFetchOffset = (destOffset + progress) & ~(kPageSize - 1);
-		auto srcFetchOffset = (srcOffset + progress) & ~(kPageSize - 1);
-
-		FRG_CO_TRY(co_await destView->touchRange(destFetchOffset, kPageSize, fetchRequireMutable));
-		auto destRange = destView->peekRange(destFetchOffset, fetchRequireMutable);
-		assert(destRange.physical != PhysicalAddr(-1));
-		assert(destRange.isMutable);
-
-		FRG_CO_TRY(co_await srcView->touchRange(srcFetchOffset, kPageSize, fetchNone));
-		auto srcRange = srcView->peekRange(srcFetchOffset, fetchNone);
-		assert(srcRange.physical != PhysicalAddr(-1));
-
-		auto destMisalign = (destOffset + progress) & (kPageSize - 1);
-		auto srcMisalign = (srcOffset + progress) & (kPageSize - 1);
-		size_t chunk = frg::min(
-			frg::min(kPageSize - destMisalign,
-			kPageSize - srcMisalign), size - progress
-		);
-
-		PageAccessor destAccessor{destRange.physical};
-		PageAccessor srcAccessor{srcRange.physical};
-		memcpy(
-			(uint8_t *)destAccessor.get() + destMisalign,
-			(uint8_t *)srcAccessor.get() + srcMisalign,
-			chunk
-		);
-		if(auto descriptor = globalPfnDb().find(destRange.physical))
-			markDirty(*descriptor);
-		progress += chunk;
+	while(true) {
+		bool srcMissing = false;
+		auto outcome = doCopyBetweenViews(destView, destOffset + progress,
+				srcView, srcOffset + progress, size - progress, srcMissing);
+		if(!outcome)
+			co_return outcome.error();
+		progress += *outcome;
+		if(progress == size)
+			break;
+		if(srcMissing) {
+			auto fetchOffset = (srcOffset + progress) & ~(kPageSize - 1);
+			FRG_CO_TRY(co_await srcView->touchRange(fetchOffset, kPageSize, fetchNone));
+		} else {
+			auto fetchOffset = (destOffset + progress) & ~(kPageSize - 1);
+			FRG_CO_TRY(co_await destView->touchRange(fetchOffset, kPageSize, fetchRequireMutable));
+		}
 	}
 
 	co_return {};
