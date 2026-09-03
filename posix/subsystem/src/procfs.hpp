@@ -169,7 +169,7 @@ struct DirectoryNode final : FsNode {
 	open(Process *, std::shared_ptr<MountView> mount, smarter::shared_ptr<FsLink> link,
 			SemanticFlags semantic_flags) override;
 	async::result<frg::expected<Error, smarter::shared_ptr<FsLink>>> getLink(FsLink *parent, std::string name) override;
-	async::result<frg::expected<Error>> unlink(std::string name) override;
+	async::result<frg::expected<Error>> unlink(FsLink *link) override;
 
 	Error directUnlink(std::string name);
 

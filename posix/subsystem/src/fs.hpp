@@ -211,9 +211,9 @@ public:
 
 	virtual async::result<frg::expected<Error, smarter::shared_ptr<FsLink>>> mkfifo(FsLink *parent, std::string name, mode_t mode);
 
-	virtual async::result<frg::expected<Error>> unlink(std::string name);
+	virtual async::result<frg::expected<Error>> unlink(FsLink *link);
 
-	virtual async::result<frg::expected<Error>> rmdir(std::string name);
+	virtual async::result<frg::expected<Error>> rmdir(FsLink *link);
 
 	//! Opens the file (regular files only).
 	// TODO: Move this to the link instead of the inode?

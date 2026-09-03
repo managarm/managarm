@@ -779,13 +779,13 @@ HandleRequest::operator()(managarm::posix::UnlinkAtRequest &&req,
 		co_return {};
 	}
 	if (req.flags() & AT_REMOVEDIR) {
-		auto result = co_await owner->rmdir(target_link->getName());
+		auto result = co_await owner->rmdir(target_link.get());
 		if(!result) {
 			co_await sendErrorResponse<managarm::posix::UnlinkAtResponse>(conversation, result.error() | toPosixProtoError);
 			co_return {};
 		}
 	} else {
-		auto result = co_await owner->unlink(target_link->getName());
+		auto result = co_await owner->unlink(target_link.get());
 		if(!result) {
 			co_await sendErrorResponse<managarm::posix::UnlinkAtResponse>(conversation, result.error() | toPosixProtoError);
 			co_return {};
@@ -834,7 +834,7 @@ HandleRequest::operator()(managarm::posix::RmdirRequest &&req,
 	target_link = resolver.currentLink();
 
 	auto owner = target_link->getParentNode();
-	auto result = co_await owner->rmdir(target_link->getName());
+	auto result = co_await owner->rmdir(target_link.get());
 	if(!result) {
 		co_await sendErrorResponse<managarm::posix::RmdirResponse>(conversation, result.error() | toPosixProtoError);
 		co_return {};

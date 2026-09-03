@@ -132,13 +132,13 @@ async::result<frg::expected<Error, smarter::shared_ptr<FsLink>>> FsNode::mkfifo(
 	co_return Error::illegalOperationTarget;
 }
 
-async::result<frg::expected<Error>> FsNode::unlink(std::string) {
+async::result<frg::expected<Error>> FsNode::unlink(FsLink *) {
 	std::cout << "posix: unlink() is not implemented for this FsNode" << std::endl;
 	co_return Error::illegalOperationTarget;
 
 }
 
-async::result<frg::expected<Error>> FsNode::rmdir(std::string) {
+async::result<frg::expected<Error>> FsNode::rmdir(FsLink *) {
 	std::cout << "posix: rmdir() is not implemented for this FsNode" << std::endl;
 	co_return Error::illegalOperationTarget;
 }

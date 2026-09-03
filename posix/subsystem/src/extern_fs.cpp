@@ -801,7 +801,9 @@ private:
 		}
 	}
 
-	async::result<frg::expected<Error>> unlink(std::string name) override {
+	async::result<frg::expected<Error>> unlink(FsLink *link) override {
+		auto name = link->getName();
+
 		managarm::fs::UnlinkRequest req;
 		req.set_path(name);
 
@@ -826,7 +828,9 @@ private:
 		co_return {};
 	}
 
-	async::result<frg::expected<Error>> rmdir(std::string name) override {
+	async::result<frg::expected<Error>> rmdir(FsLink *link) override {
+		auto name = link->getName();
+
 		managarm::fs::RmdirRequest req;
 		req.set_path(name);
 

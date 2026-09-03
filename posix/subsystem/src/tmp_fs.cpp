@@ -365,7 +365,8 @@ private:
 
 	async::result<frg::expected<Error, smarter::shared_ptr<FsLink>>> mkfifo(FsLink *parent, std::string name, mode_t mode) override;
 
-	async::result<frg::expected<Error>> unlink(std::string name) override {
+	async::result<frg::expected<Error>> unlink(FsLink *link) override {
+		auto name = link->getName();
 		auto it = _entries.find(name);
 		if(it == _entries.end())
 			co_return Error::noSuchFile;
@@ -383,7 +384,8 @@ private:
 
 	async::result<frg::expected<Error, smarter::shared_ptr<FsLink>>> mksocket(FsLink *parent, std::string name, mode_t mode, uid_t uid, gid_t gid) override;
 
-	async::result<frg::expected<Error>> rmdir(std::string name) override {
+	async::result<frg::expected<Error>> rmdir(FsLink *link) override {
+		auto name = link->getName();
 		auto it = _entries.find(name);
 		if(it == _entries.end())
 			co_return Error::noSuchFile;
