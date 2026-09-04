@@ -700,6 +700,15 @@ void handleSyscall(SyscallImageAccessor image) {
 		*image.error() = helCreateSpace(&handle);
 		*image.out0() = handle;
 	} break;
+	case kHelCallExtendHierarchy: {
+		HelHandle handle;
+		*image.error() = helExtendHierarchy(
+			(HelHandle)arg0,
+			(const HelHierarchyParameters *)arg1,
+			&handle
+		);
+		*image.out0() = handle;
+	} break;
 	case kHelCallCreateDmaSpace: {
 		HelHandle handle;
 		*image.error() = helCreateDmaSpace((uint32_t)arg0, &handle);

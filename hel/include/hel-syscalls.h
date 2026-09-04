@@ -28,6 +28,16 @@ extern inline __attribute__ (( always_inline )) HelError helSubmitAsyncNop(
 			(HelWord)queueHandle, (HelWord)context);
 }
 
+extern inline __attribute__ (( always_inline )) HelError helExtendHierarchy(HelHandle hierarchyHandle,
+		const struct HelHierarchyParameters *params, HelHandle *handle) {
+	HelWord handle_word;
+	HelError error = helSyscall2_1(
+		kHelCallExtendHierarchy, (HelWord)hierarchyHandle, (HelWord)params, &handle_word
+	);
+	*handle = (HelHandle)handle_word;
+	return error;
+};
+
 extern inline __attribute__ (( always_inline )) HelError helCreateUniverse(HelHandle *handle) {
 	HelWord handle_word;
 	HelError error = helSyscall0_1(kHelCallCreateUniverse, &handle_word);

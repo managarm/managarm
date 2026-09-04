@@ -34,6 +34,7 @@ struct IrqPin;
 struct IrqObject;
 struct OneshotEvent;
 struct BitsetEvent;
+struct Hierarchy;
 
 inline bool checkRights(uint32_t rights, uint32_t requiredRights) {
 	return (rights & requiredRights) == requiredRights;
@@ -114,6 +115,7 @@ enum class DescriptorType : uint8_t {
 	kernletObject,
 	boundKernlet,
 	token,
+	hierarchy,
 };
 
 // Maps a descriptor type to the object type and the smarter::shared_ptr refcount
@@ -241,6 +243,12 @@ struct DescriptorTraits<DescriptorType::boundKernlet> {
 template<>
 struct DescriptorTraits<DescriptorType::token> {
 	using Object = TokenObject;
+	using Policy = smarter::default_rc_policy;
+};
+
+template<>
+struct DescriptorTraits<DescriptorType::hierarchy> {
+	using Object = Hierarchy;
 	using Policy = smarter::default_rc_policy;
 };
 

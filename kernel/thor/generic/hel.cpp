@@ -13,6 +13,7 @@
 #include <thor-internal/cancel.hpp>
 #include <thor-internal/event.hpp>
 #include <thor-internal/coroutine.hpp>
+#include <thor-internal/hierarchy.hpp>
 #include <thor-internal/io.hpp>
 #include <thor-internal/iommu.hpp>
 #include <thor-internal/ipc-queue.hpp>
@@ -1011,6 +1012,41 @@ HelError doSubmitPopulateSpace(HelHandle handle, smarter::shared_ptr<IpcQueue> q
 		co_await queue->submit(&ipcSource, context);
 	}(std::move(space), addr, len, std::move(queue), context,
 		enable_detached_coroutine{getCurrentThread()->mainWorkQueue().lock()});
+
+	return kHelErrNone;
+}
+
+HelError helExtendHierarchy(HelHandle hierarchyHandle,
+		const HelHierarchyParameters *paramsPtr, HelHandle *handle) {
+	auto this_thread = getCurrentThread();
+	auto this_universe = this_thread->getUniverse();
+
+	HelHierarchyParameters params;
+	if(!readUserObject(paramsPtr, params))
+		return kHelErrFault;
+
+	// A tag that fills the entire array is accepted without a terminator.
+	size_t tagLen = 0;
+	while(tagLen < sizeof(params.tag) && params.tag[tagLen])
+		++tagLen;
+
+	frg::string<KernelAlloc> tagStr{params.tag, tagLen, *kernelAlloc};
+
+	auto parentOutcome = this_universe->resolveObject<DescriptorType::hierarchy>(
+			hierarchyHandle, kHelRightDerive);
+	if(!parentOutcome)
+		return translateError(parentOutcome.error());
+
+	auto childOutcome = Hierarchy::extend(std::move(*parentOutcome), std::move(tagStr));
+	if(!childOutcome)
+		return translateError(childOutcome.error());
+
+	*handle = this_universe->attachDescriptor(
+		AnyDescriptor::make<DescriptorType::hierarchy>(
+			std::move(*childOutcome),
+			kHelRightDerive | kHelRightProvision
+		)
+	);
 
 	return kHelErrNone;
 }
