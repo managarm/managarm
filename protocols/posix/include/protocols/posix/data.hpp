@@ -26,6 +26,7 @@ struct ManagarmProcessData {
 	ThreadPage *threadPage;
 	HelHandle *fileTable;
 	void *clockTrackerPage;
+	HelHandle hierarchyHandle;
 };
 
 } // namespace posix

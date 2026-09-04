@@ -6,6 +6,7 @@
 #include <elf.h>
 #include <thor-internal/coroutine.hpp>
 #include <thor-internal/debug.hpp>
+#include <thor-internal/hierarchy.hpp>
 #include <thor-internal/load-balancing.hpp>
 #include <thor-internal/universe.hpp>
 #include <thor-internal/fiber.hpp>
@@ -42,6 +43,7 @@ static frg::manual_box<
 void runService(
 	managarm::svrctl::Description<KernelAlloc> desc,
 	smarter::shared_ptr<Stream, LanePolicy> control_lane,
+	smarter::shared_ptr<Hierarchy> hierarchy,
 	smarter::shared_ptr<Thread, ActiveHandle> thread
 );
 
@@ -276,6 +278,14 @@ coroutine<void> executeModule(managarm::svrctl::Description<KernelAlloc> &desc, 
 		smarter::shared_ptr<Stream, LanePolicy> control_lane,
 		smarter::shared_ptr<Stream, LanePolicy> xpipe_lane,
 		Scheduler *scheduler) {
+	auto tag = frg::string<KernelAlloc>{*kernelAlloc, "server:"};
+	tag += desc.name();
+
+	auto hierarchyOutcome = Hierarchy::extend(rootHierarchy(), std::move(tag));
+	if(!hierarchyOutcome)
+		panicLogger() << "thor: Failed to extend hierarchy for server "
+				<< desc.name() << frg::endlog;
+
 	auto spaceOutcome = AddressSpace::create();
 	if(!spaceOutcome)
 		panicLogger() << "thor: Failed to create address space" << frg::endlog;
@@ -394,7 +404,7 @@ coroutine<void> executeModule(managarm::svrctl::Description<KernelAlloc> &desc, 
 
 	// Listen to POSIX calls from the thread.
 	// Call this after resumeOther() to ensure that we do not see the initial interrupt.
-	runService(desc, control_lane, thread);
+	runService(desc, control_lane, std::move(*hierarchyOutcome), thread);
 }
 
 void initializeMbusStream() {

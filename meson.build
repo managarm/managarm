@@ -200,8 +200,8 @@ if build_drivers or provide_deps
 	subdir('protocols/clock')
 
 	if build_drivers
-		subdir('core/arch')
 		subdir('core')
+		subdir('core/arch')
 	endif
 
 	protocols = [ 'ostrace', 'fs', 'hw', 'usb', 'svrctl', 'kernlet' ]

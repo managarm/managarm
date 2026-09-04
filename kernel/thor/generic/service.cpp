@@ -33,6 +33,7 @@ static MfsRegular *urandomNode = nullptr;
 void runService(
 	managarm::svrctl::Description<KernelAlloc> desc,
 	smarter::shared_ptr<Stream, LanePolicy> controlLane,
+	smarter::shared_ptr<Hierarchy> hierarchy,
 	smarter::shared_ptr<Thread, ActiveHandle> thread
 );
 
@@ -502,6 +503,16 @@ namespace posix {
 					AnyDescriptor::make<DescriptorType::lane>(lane, kHelRightInvoke));
 		}
 
+		void attachHierarchy(smarter::shared_ptr<Thread, ActiveHandle> thread,
+				smarter::shared_ptr<Hierarchy> hierarchy) {
+			this->hierarchy = hierarchy;
+			hierarchyHandle = thread->getUniverse()->attachDescriptor(
+				AnyDescriptor::make<DescriptorType::hierarchy>(
+					std::move(hierarchy), kHelRightDerive | kHelRightProvision
+				)
+			);
+		}
+
 		void attachMbus(smarter::shared_ptr<Thread, ActiveHandle> thread) {
 			mbusHandle = thread->getUniverse()->attachDescriptor(
 					AnyDescriptor::make<DescriptorType::lane>(*mbusClient, kHelRightInvoke));
@@ -534,9 +545,11 @@ namespace posix {
 
 		uint64_t nextTid_ = 1;
 
+		smarter::shared_ptr<Hierarchy> hierarchy;
 		Handle hardwareAccessHandle{kHelNullHandle};
 		Handle mbusHandle;
 		Handle controlHandle;
+		Handle hierarchyHandle;
 		frg::vector<OpenFile *, KernelAlloc> openFiles;
 		smarter::shared_ptr<AllocatedMemory> fileTableMemory;
 		VirtualAddr clientFileTable;
@@ -1094,7 +1107,8 @@ namespace posix {
 					mbusHandle,
 					nullptr,
 					reinterpret_cast<HelHandle *>(clientFileTable),
-					nullptr
+					nullptr,
+					hierarchyHandle,
 				};
 
 				auto writeSize = frg::min(dataSize, sizeof(::posix::ManagarmProcessData));
@@ -1243,8 +1257,9 @@ coroutine<void> initPosixEmulation() {
 
 void runService(managarm::svrctl::Description<KernelAlloc> desc,
 		smarter::shared_ptr<Stream, LanePolicy> controlLane,
+		smarter::shared_ptr<Hierarchy> hierarchy,
 		smarter::shared_ptr<Thread, ActiveHandle> thread) {
-	KernelFiber::run([desc, thread, controlLane = std::move(controlLane)] () mutable {
+	KernelFiber::run([=] () mutable {
 		auto stdioStreamOutcome = createStream();
 		if(!stdioStreamOutcome)
 			panicLogger() << "thor: Failed to create stream" << frg::endlog;
@@ -1271,6 +1286,7 @@ void runService(managarm::svrctl::Description<KernelAlloc> desc,
 			);
 		}
 		process->attachControl(thread, std::move(controlLane));
+		process->attachHierarchy(thread, std::move(hierarchy));
 		process->attachMbus(thread);
 		KernelFiber::asyncBlockCurrent(process->attachFile(thread, stdioFile));
 		KernelFiber::asyncBlockCurrent(process->attachFile(thread, stdioFile));

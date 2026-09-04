@@ -12,6 +12,7 @@ headers = [
 	'include/core/id-allocator.hpp',
 	'include/core/kernel-logs.hpp',
 	'include/core/netlink.hpp',
+	'include/core/process-data.hpp',
 	'include/core/queue.hpp',
 	'include/core/smbios.hpp',
 	'include/core/tty.hpp',
@@ -23,12 +24,15 @@ core_lib_sources = files(
 	'lib/clock.cpp',
 	'lib/cmdline.cpp',
 	'lib/kernel-logs.cpp',
+	'lib/process-data.cpp',
 	'lib/smbios.cpp',
 )
 
+arch_inc = include_directories('arch/include')
+
 core_lib = static_library('core-lib', core_lib_sources,
-	include_directories: [ inc ],
-	dependencies: [ libarch, frigg, hel_dep, bragi_dep, mbus_proto_dep, kerncfg_proto_dep, clock_proto_dep ]
+	include_directories: [ inc, arch_inc ],
+	dependencies: [ libarch_base, frigg, hel_dep, bragi_dep, mbus_proto_dep, kerncfg_proto_dep, clock_proto_dep, posix_extra_dep ]
 )
 
 core_dep = declare_dependency(
