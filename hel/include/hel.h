@@ -1307,6 +1307,9 @@ HEL_C_LINKAGE HelError helAlertQueue(HelHandle queueHandle);
 //! @{
 
 //! Creates a memory object consisting of unmanaged RAM.
+//! @param[in] hierarchy
+//!    	Handle to the hierarchy that owns the new memory object.
+//!    	The allocated physical memory is accounted to this hierarchy node.
 //! @param[in] size
 //!    	Size of the memory object in bytes.
 //!    	Must be aligned to the system's page size.
@@ -1315,7 +1318,7 @@ HEL_C_LINKAGE HelError helAlertQueue(HelHandle queueHandle);
 //!    	May be @p NULL if there are no restrictions.
 //! @param[out] handle
 //!    	Handle to the new memory object.
-HEL_C_LINKAGE HelError helAllocateMemory(size_t size, uint32_t flags,
+HEL_C_LINKAGE HelError helAllocateMemory(HelHandle hierarchy, size_t size, uint32_t flags,
 		const struct HelAllocRestrictions *restrictions, HelHandle *handle);
 
 //! Resizes a memory object.

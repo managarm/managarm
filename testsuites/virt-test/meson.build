@@ -8,6 +8,6 @@ endif
 
 executable('virt-test',
 	sources,
-	dependencies: [ hel_dep ],
+	dependencies: [ hel_dep, core_dep ],
 	install : true
 )

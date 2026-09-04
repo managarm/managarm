@@ -17,6 +17,7 @@
 #include <thor-internal/arch-generic/paging.hpp>
 #include <thor-internal/error.hpp>
 #include <thor-internal/futex.hpp>
+#include <thor-internal/hierarchy.hpp>
 #include <thor-internal/types.hpp>
 #include <thor-internal/pfn-db.hpp>
 #include <thor-internal/rcu.hpp>
@@ -615,11 +616,22 @@ private:
 
 public:
 	static std::expected<smarter::shared_ptr<AllocatedMemory>, Error> create(
-			size_t length, int addressBits = 64,
-			size_t chunkSize = kPageSize, size_t chunkAlign = kPageSize);
+		smarter::shared_ptr<Hierarchy> hierarchy,
+		size_t length,
+		int addressBits = 64,
+		size_t chunkSize = kPageSize,
+		size_t chunkAlign = kPageSize
+	);
 
-	AllocatedMemory(CtorToken, size_t length, int addressBits,
-			size_t chunkSize, size_t chunkAlign);
+	AllocatedMemory(
+		CtorToken,
+		smarter::shared_ptr<Hierarchy> hierarchy,
+		size_t length,
+		int addressBits,
+		size_t chunkSize,
+		size_t chunkAlign
+	);
+
 	AllocatedMemory(const AllocatedMemory &) = delete;
 	~AllocatedMemory();
 
@@ -639,6 +651,7 @@ public:
 private:
 	frg::ticket_spinlock _mutex;
 
+	smarter::shared_ptr<Hierarchy> _hierarchy;
 	frg::vector<PhysicalAddr, KernelAlloc> _physicalChunks;
 	int _addressBits;
 	size_t _chunkSize, _chunkAlign;

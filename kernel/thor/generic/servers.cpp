@@ -54,7 +54,7 @@ void runService(
 coroutine<bool> createMfsFile(frg::string_view path, const void *buffer, size_t size,
 		MfsRegular **out) {
 	// Copy to the memory object before taking locks below.
-	auto memoryOutcome = AllocatedMemory::create(
+	auto memoryOutcome = AllocatedMemory::create(rootHierarchy(),
 			(size + (kPageSize - 1)) & ~size_t{kPageSize - 1});
 	if(!memoryOutcome)
 		panicLogger() << "thor: Failed to create memory" << frg::endlog;
@@ -173,8 +173,12 @@ struct ImageInfo {
 	frg::string<KernelAlloc> interpreter;
 };
 
-coroutine<ImageInfo> loadModuleImage(smarter::shared_ptr<AddressSpace, BindableHandle> space,
-		VirtualAddr base, smarter::shared_ptr<MemoryView> image) {
+coroutine<ImageInfo> loadModuleImage(
+	smarter::shared_ptr<Hierarchy> hierarchy,
+	smarter::shared_ptr<AddressSpace, BindableHandle> space,
+	VirtualAddr base,
+	smarter::shared_ptr<MemoryView> image
+) {
 	ImageInfo info;
 
 	// parse the ELf file format
@@ -207,7 +211,7 @@ coroutine<ImageInfo> loadModuleImage(smarter::shared_ptr<AddressSpace, BindableH
 			if((virt_length % kPageSize) != 0)
 				virt_length += kPageSize - virt_length % kPageSize;
 			
-			auto memoryOutcome = AllocatedMemory::create(virt_length);
+			auto memoryOutcome = AllocatedMemory::create(hierarchy, virt_length);
 			if(!memoryOutcome)
 				panicLogger() << "thor: Failed to create memory" << frg::endlog;
 			auto memory = std::move(*memoryOutcome);
@@ -291,18 +295,19 @@ coroutine<void> executeModule(managarm::svrctl::Description<KernelAlloc> &desc, 
 		panicLogger() << "thor: Failed to create address space" << frg::endlog;
 	auto space = std::move(*spaceOutcome);
 
-	ImageInfo exec_info = co_await loadModuleImage(space, 0, module->getMemory());
+	ImageInfo exec_info = co_await loadModuleImage(*hierarchyOutcome, space, 0,
+			module->getMemory());
 
 	if(size_t n = frg::string_view(exec_info.interpreter).find_first('\0'); n != size_t(-1))
 		exec_info.interpreter.resize(n);
 	auto rtdl_module = resolveModule(exec_info.interpreter);
 	assert(rtdl_module && rtdl_module->type == MfsType::regular);
-	ImageInfo interp_info = co_await loadModuleImage(space, 0x40000000,
+	ImageInfo interp_info = co_await loadModuleImage(*hierarchyOutcome, space, 0x40000000,
 			static_cast<MfsRegular *>(rtdl_module)->getMemory());
 
 	// allocate and map memory for the user mode stack
 	size_t stack_size = 0x10000;
-	auto stackMemoryOutcome = AllocatedMemory::create(stack_size);
+	auto stackMemoryOutcome = AllocatedMemory::create(*hierarchyOutcome, stack_size);
 	if(!stackMemoryOutcome)
 		panicLogger() << "thor: Failed to create memory" << frg::endlog;
 	auto stack_memory = std::move(*stackMemoryOutcome);

@@ -95,11 +95,13 @@ extern inline __attribute__ (( always_inline )) HelError helAlertQueue(HelHandle
 	return helSyscall1(kHelCallAlertQueue, (HelWord)handle);
 };
 
-extern inline __attribute__ (( always_inline )) HelError helAllocateMemory(size_t size,
-		uint32_t flags, const struct HelAllocRestrictions *restrictions, HelHandle *handle) {
+extern inline __attribute__ (( always_inline )) HelError helAllocateMemory(
+	HelHandle hierarchy, size_t size, uint32_t flags, const struct HelAllocRestrictions *restrictions, HelHandle *handle
+) {
 	HelWord hel_handle;
-	HelError error = helSyscall3_1(kHelCallAllocateMemory, (HelWord)size, (HelWord)flags,
-			(HelWord)restrictions, &hel_handle);
+	HelError error = helSyscall4_1(
+		kHelCallAllocateMemory, (HelWord)hierarchy, (HelWord)size, (HelWord)flags, (HelWord)restrictions, &hel_handle
+	);
 	*handle = (HelHandle)hel_handle;
 	return error;
 };

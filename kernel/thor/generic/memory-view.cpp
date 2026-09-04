@@ -793,16 +793,18 @@ size_t HardwareMemory::getLength() {
 // --------------------------------------------------------
 
 std::expected<smarter::shared_ptr<AllocatedMemory>, Error> AllocatedMemory::create(
-		size_t length, int addressBits, size_t chunkSize, size_t chunkAlign) {
+	smarter::shared_ptr<Hierarchy> hierarchy, size_t length, int addressBits, size_t chunkSize, size_t chunkAlign
+) {
 	auto ptr = smarter::allocate_shared<AllocatedMemory>(*kernelAlloc, CtorToken{},
-			length, addressBits, chunkSize, chunkAlign);
+			std::move(hierarchy), length, addressBits, chunkSize, chunkAlign);
 	ptr->selfPtr = ptr;
 	return ptr;
 }
 
-AllocatedMemory::AllocatedMemory(CtorToken, size_t desiredLngth,
-		int addressBits, size_t desiredChunkSize, size_t chunkAlign)
-: _physicalChunks{*kernelAlloc},
+AllocatedMemory::AllocatedMemory(
+	CtorToken, smarter::shared_ptr<Hierarchy> hierarchy, size_t desiredLngth, int addressBits, size_t desiredChunkSize, size_t chunkAlign
+)
+: _hierarchy{std::move(hierarchy)}, _physicalChunks{*kernelAlloc},
 		_addressBits{addressBits}, _chunkAlign{chunkAlign} {
 	static_assert(sizeof(unsigned long) == sizeof(uint64_t), "Fix use of __builtin_clzl");
 	_chunkSize = size_t(1) << (64 - __builtin_clzl(desiredChunkSize - 1));

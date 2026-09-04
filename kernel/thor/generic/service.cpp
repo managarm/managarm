@@ -451,7 +451,7 @@ namespace posix {
 	struct Process {
 		Process(frg::string<KernelAlloc> name)
 		: _name{std::move(name)}, openFiles(*kernelAlloc) {
-			auto memoryOutcome = AllocatedMemory::create(0x1000);
+			auto memoryOutcome = AllocatedMemory::create(rootHierarchy(), 0x1000);
 			if(!memoryOutcome)
 				panicLogger() << "thor: Failed to create memory" << frg::endlog;
 			fileTableMemory = std::move(*memoryOutcome);
@@ -892,7 +892,8 @@ namespace posix {
 					if(req->flags() & MAP_PRIVATE) { // MAP_PRIVATE.
 						fileMemory = getZeroMemory();
 					}else{
-						auto memoryOutcome = AllocatedMemory::create(req->size());
+						auto memoryOutcome = AllocatedMemory::create(hierarchy,
+								req->size());
 						if(!memoryOutcome)
 							panicLogger() << "thor: Failed to create memory" << frg::endlog;
 						fileMemory = std::move(*memoryOutcome);

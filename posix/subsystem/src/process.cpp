@@ -444,7 +444,7 @@ std::shared_ptr<FileContext> FileContext::create() {
 	context->_universe = helix::UniqueDescriptor(universe);
 
 	HelHandle memory;
-	HEL_CHECK(helAllocateMemory(0x1000, 0, nullptr, &memory));
+	HEL_CHECK(helAllocateMemory(rootHierarchy(), 0x1000, 0, nullptr, &memory));
 	context->_fileTableMemory = helix::UniqueDescriptor(memory);
 	context->fileTableWindow_ = helix::Mapping{context->_fileTableMemory, 0, 0x1000};
 
@@ -468,7 +468,7 @@ std::shared_ptr<FileContext> FileContext::clone(std::shared_ptr<FileContext> ori
 	context->_universe = helix::UniqueDescriptor(universe);
 
 	HelHandle memory;
-	HEL_CHECK(helAllocateMemory(0x1000, 0, nullptr, &memory));
+	HEL_CHECK(helAllocateMemory(rootHierarchy(), 0x1000, 0, nullptr, &memory));
 	context->_fileTableMemory = helix::UniqueDescriptor(memory);
 	context->fileTableWindow_ = helix::Mapping{context->_fileTableMemory, 0, 0x1000};
 
@@ -1380,7 +1380,7 @@ async::result<std::shared_ptr<ThreadGroup>> Process::init(std::string path) {
 	TerminalSession::initializeNewSession(threadGroup.get());
 
 	HelHandle thread_memory;
-	HEL_CHECK(helAllocateMemory(0x1000, 0, nullptr, &thread_memory));
+	HEL_CHECK(helAllocateMemory(rootHierarchy(), 0x1000, 0, nullptr, &thread_memory));
 	process->_threadPageMemory = helix::UniqueDescriptor{thread_memory};
 	process->_threadPageMapping = helix::Mapping{process->_threadPageMemory, 0, 0x1000};
 	new (process->_threadPageMapping.get()) posix::ThreadPage{};
@@ -1470,7 +1470,7 @@ async::result<std::shared_ptr<Process>> Process::fork(std::shared_ptr<Process> o
 	original->pgPointer()->reassociateProcess(threadGroup);
 
 	HelHandle thread_memory;
-	HEL_CHECK(helAllocateMemory(0x1000, 0, nullptr, &thread_memory));
+	HEL_CHECK(helAllocateMemory(rootHierarchy(), 0x1000, 0, nullptr, &thread_memory));
 	process->_threadPageMemory = helix::UniqueDescriptor{thread_memory};
 	process->_threadPageMapping = helix::Mapping{process->_threadPageMemory, 0, 0x1000};
 	new (process->_threadPageMapping.get()) posix::ThreadPage{};
@@ -1615,7 +1615,7 @@ Process::clone(std::shared_ptr<Process> original, void *ip, void *sp, posix::sup
 	}
 
 	HelHandle thread_memory;
-	HEL_CHECK(helAllocateMemory(0x1000, 0, nullptr, &thread_memory));
+	HEL_CHECK(helAllocateMemory(rootHierarchy(), 0x1000, 0, nullptr, &thread_memory));
 	process->_threadPageMemory = helix::UniqueDescriptor{thread_memory};
 	process->_threadPageMapping = helix::Mapping{process->_threadPageMemory, 0, 0x1000};
 	new (process->_threadPageMapping.get()) posix::ThreadPage{};

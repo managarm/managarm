@@ -319,7 +319,7 @@ extern "C" void thorMain() {
 	//				if(logInitialization)
 						debugLogger() << "thor: initrd file " << path << frg::endlog;
 
-					auto memoryOutcome = AllocatedMemory::create(
+					auto memoryOutcome = AllocatedMemory::create(rootHierarchy(),
 							(file_size + (kPageSize - 1)) & ~size_t{kPageSize - 1});
 					if(!memoryOutcome)
 						panicLogger() << "thor: Failed to create memory" << frg::endlog;
@@ -643,8 +643,8 @@ void handleSyscall(SyscallImageAccessor image) {
 
 	case kHelCallAllocateMemory: {
 		HelHandle handle;
-		*image.error() = helAllocateMemory((size_t)arg0, (uint32_t)arg1,
-				(const HelAllocRestrictions *)arg2, &handle);
+		*image.error() = helAllocateMemory((HelHandle)arg0, (size_t)arg1, (uint32_t)arg2,
+				(const HelAllocRestrictions *)arg3, &handle);
 		*image.out0() = handle;
 	} break;
 	case kHelCallCreateManagedMemory: {

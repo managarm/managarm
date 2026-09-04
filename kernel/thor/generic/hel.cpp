@@ -511,7 +511,7 @@ HelError helAlertQueue(HelHandle handle) {
 	return kHelErrNone;
 }
 
-HelError helAllocateMemory(size_t size, uint32_t flags,
+HelError helAllocateMemory(HelHandle hierarchyHandle, size_t size, uint32_t flags,
 		const HelAllocRestrictions *restrictions, HelHandle *handle) {
 	if(!size)
 		return kHelErrIllegalArgs;
@@ -520,6 +520,12 @@ HelError helAllocateMemory(size_t size, uint32_t flags,
 
 	auto thisThread = getCurrentThread();
 	auto thisUniverse = thisThread->getUniverse();
+
+	auto hierarchyOutcome = thisUniverse->resolveObject<DescriptorType::hierarchy>(
+		hierarchyHandle, kHelRightProvision
+	);
+	if(!hierarchyOutcome)
+		return translateError(hierarchyOutcome.error());
 
 //	auto pressure = physicalAllocator->numUsedPages() * kPageSize;
 //	infoLogger() << "Allocate " << (void *)size
@@ -534,13 +540,13 @@ HelError helAllocateMemory(size_t size, uint32_t flags,
 
 	std::expected<smarter::shared_ptr<AllocatedMemory>, Error> memoryOutcome;
 	if(flags & kHelAllocContinuous) {
-		memoryOutcome = AllocatedMemory::create(size, effective.addressBits,
+		memoryOutcome = AllocatedMemory::create(*hierarchyOutcome, size, effective.addressBits,
 				size, kPageSize);
 	}else if(flags & kHelAllocOnDemand) {
-		memoryOutcome = AllocatedMemory::create(size, effective.addressBits);
+		memoryOutcome = AllocatedMemory::create(*hierarchyOutcome, size, effective.addressBits);
 	}else{
 		// TODO:
-		memoryOutcome = AllocatedMemory::create(size, effective.addressBits);
+		memoryOutcome = AllocatedMemory::create(*hierarchyOutcome, size, effective.addressBits);
 	}
 	if(!memoryOutcome)
 		return translateError(memoryOutcome.error());
