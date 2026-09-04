@@ -54,7 +54,7 @@ struct VmContext {
 
 	async::result<void> protectFile(void *pointer, size_t size, uint32_t protectionFlags);
 
-	void unmapFile(void *pointer, size_t size);
+	async::result<void> unmapFile(void *pointer, size_t size);
 
 private:
 	struct Area {

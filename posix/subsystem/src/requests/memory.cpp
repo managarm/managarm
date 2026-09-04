@@ -254,7 +254,7 @@ HandleRequest::operator()(managarm::posix::VmUnmapRequest &&req,
 		size = (size + 0xFFF) & ~0xFFF;
 	}
 
-	self->vmContext()->unmapFile(reinterpret_cast<void *>(req.address()), size);
+	co_await self->vmContext()->unmapFile(reinterpret_cast<void *>(req.address()), size);
 
 	managarm::posix::VmUnmapResponse resp;
 	resp.set_error(managarm::posix::Errors::SUCCESS);

@@ -1225,16 +1225,30 @@ HelError helGetRandomBytes(void *buffer, size_t wantedSize, size_t *actualSize) 
 	return kHelErrNone;
 }
 
-HelError helMapMemory(HelHandle memory_handle, HelHandle space_handle,
-		void *pointer, uintptr_t offset, size_t length, uint32_t flags, void **actualPointer) {
+namespace {
+
+// Descriptors and flags of a mapping operation, as resolved from the syscall arguments.
+struct MapMemoryOperands {
+	smarter::shared_ptr<MemorySlice> slice;
+	smarter::shared_ptr<AddressSpace, BindableHandle> space;
+	smarter::shared_ptr<VirtualSpace> vspace;
+	uint32_t mapFlags;
+
+	VirtualSpace *targetSpace() {
+		return space ? space.get() : vspace.get();
+	}
+};
+
+std::expected<MapMemoryOperands, Error> resolveMapMemory(HelHandle memory_handle,
+		HelHandle space_handle, void *pointer, uintptr_t offset, size_t length, uint32_t flags) {
 	if(length == 0)
-		return kHelErrIllegalArgs;
+		return std::unexpected{Error::illegalArgs};
 	if((uintptr_t)pointer % kPageSize != 0)
-		return kHelErrIllegalArgs;
+		return std::unexpected{Error::illegalArgs};
 	if(offset % kPageSize != 0)
-		return kHelErrIllegalArgs;
+		return std::unexpected{Error::illegalArgs};
 	if(length % kPageSize != 0)
-		return kHelErrIllegalArgs;
+		return std::unexpected{Error::illegalArgs};
 
 	auto this_thread = getCurrentThread();
 	auto this_universe = this_thread->getUniverse();
@@ -1306,7 +1320,7 @@ HelError helMapMemory(HelHandle memory_handle, HelHandle space_handle,
 		return {};
 	});
 	if(!memoryOutcome)
-		return translateError(memoryOutcome.error());
+		return std::unexpected{memoryOutcome.error()};
 
 	if(space_handle == kHelNullHandle) {
 		space = this_thread->getAddressSpace().lock();
@@ -1336,39 +1350,71 @@ HelError helMapMemory(HelHandle memory_handle, HelHandle space_handle,
 			return {};
 		});
 		if(!spaceOutcome)
-			return translateError(spaceOutcome.error());
+			return std::unexpected{spaceOutcome.error()};
 	}
 
 	// TODO: check proper alignment
 
-	frg::expected<Error, VirtualAddr> mapResult;
-	if(!isVspace) {
-		if(map_flags & AddressSpace::kMapFixed && !pointer)
-			return kHelErrIllegalArgs; // Non-vspaces aren't allowed to map at NULL
+	if(!isVspace && (map_flags & AddressSpace::kMapFixed) && !pointer)
+		return std::unexpected{Error::illegalArgs}; // Non-vspaces aren't allowed to map at NULL
 
-		mapResult = Thread::asyncBlockCurrent(
-			space->map(slice, (VirtualAddr)pointer, offset, length, map_flags),
-			getCurrentThread()->pagingWorkQueue().get()
-		);
-	} else {
-		mapResult = Thread::asyncBlockCurrent(
-			vspace->map(slice, (VirtualAddr)pointer, offset, length, map_flags),
-			getCurrentThread()->pagingWorkQueue().get()
-		);
-	}
+	return MapMemoryOperands{std::move(slice), std::move(space), std::move(vspace), map_flags};
+}
 
-	if(!mapResult) {
-		assert(mapResult.error() == Error::bufferTooSmall || mapResult.error() == Error::alreadyExists || mapResult.error() == Error::noMemory);
+} // namespace
 
-		if(mapResult.error() == Error::bufferTooSmall)
-			return kHelErrBufferTooSmall;
-		else if(mapResult.error() == Error::noMemory)
-			return kHelErrNoMemory;
-		else if(mapResult.error() == Error::alreadyExists)
-			return kHelErrAlreadyExists;
-	}
+HelError helMapMemory(HelHandle memory_handle, HelHandle space_handle,
+		void *pointer, uintptr_t offset, size_t length, uint32_t flags, void **actualPointer) {
+	auto operandsOutcome = resolveMapMemory(memory_handle, space_handle,
+			pointer, offset, length, flags);
+	if(!operandsOutcome)
+		return translateError(operandsOutcome.error());
+	auto operands = std::move(*operandsOutcome);
+
+	auto mapResult = Thread::asyncBlockCurrent(
+		operands.targetSpace()->map(operands.slice, (VirtualAddr)pointer, offset, length,
+				operands.mapFlags),
+		getCurrentThread()->pagingWorkQueue().get()
+	);
+	if(!mapResult)
+		return translateError(mapResult.error());
 
 	*actualPointer = (void *)mapResult.value();
+	return kHelErrNone;
+}
+
+
+HelError doSubmitMapMemory(HelHandle memoryHandle, HelHandle spaceHandle,
+		smarter::shared_ptr<IpcQueue> queue, void *pointer, uintptr_t offset, size_t length,
+		uint32_t flags, uintptr_t context) {
+	auto operandsOutcome = resolveMapMemory(memoryHandle, spaceHandle,
+			pointer, offset, length, flags);
+	if(!operandsOutcome)
+		return translateError(operandsOutcome.error());
+
+	if(!queue->validSize(ipcSourceSize(sizeof(HelPointerResult))))
+		return kHelErrQueueTooSmall;
+
+	[](MapMemoryOperands operands, smarter::shared_ptr<IpcQueue> queue,
+			VirtualAddr pointer, uintptr_t offset, size_t length, uintptr_t context,
+			enable_detached_coroutine) -> void {
+		auto mapResult = co_await onExceptionalWq(operands.targetSpace()->map(
+				operands.slice, pointer, offset, length, operands.mapFlags));
+
+		HelPointerResult helResult;
+		if(!mapResult) {
+			helResult = {.error = translateError(mapResult.error()), .reserved = {},
+					.pointer = nullptr};
+		}else{
+			helResult = {.error = kHelErrNone, .reserved = {},
+					.pointer = reinterpret_cast<void *>(mapResult.value())};
+		}
+		QueueSource ipcSource{&helResult, sizeof(HelPointerResult), nullptr};
+		co_await queue->submit(&ipcSource, context);
+	}(std::move(*operandsOutcome), std::move(queue),
+			reinterpret_cast<VirtualAddr>(pointer), offset, length, context,
+			enable_detached_coroutine{getCurrentThread()->mainWorkQueue().lock()});
+
 	return kHelErrNone;
 }
 
@@ -1418,7 +1464,19 @@ HelError doSubmitProtectMemory(HelHandle space_handle, smarter::shared_ptr<IpcQu
 	return kHelErrNone;
 }
 
-HelError helUnmapMemory(HelHandle space_handle, void *pointer, size_t length) {
+namespace {
+
+// Descriptors of an unmapping operation, as resolved from the syscall arguments.
+struct UnmapMemoryOperands {
+	smarter::shared_ptr<AddressSpace, BindableHandle> space;
+	smarter::shared_ptr<VirtualSpace> vspace;
+
+	VirtualSpace *targetSpace() {
+		return space ? space.get() : vspace.get();
+	}
+};
+
+std::expected<UnmapMemoryOperands, Error> resolveUnmapMemory(HelHandle space_handle) {
 	auto this_thread = getCurrentThread();
 	auto this_universe = this_thread->getUniverse();
 
@@ -1447,26 +1505,54 @@ HelError helUnmapMemory(HelHandle space_handle, void *pointer, size_t length) {
 			return std::unexpected{Error::badDescriptor};
 		});
 		if(!spaceOutcome)
-			return translateError(spaceOutcome.error());
+			return std::unexpected{spaceOutcome.error()};
 	}
 
-	frg::expected<thor::Error> outcome = Error::illegalArgs;
-	if (space) {
-		outcome = Thread::asyncBlockCurrent(
-			space->unmap((VirtualAddr)pointer, length),
-			getCurrentThread()->pagingWorkQueue().get()
-		);
-	} else {
-		assert(vspace);
-		outcome = Thread::asyncBlockCurrent(
-			vspace->unmap((VirtualAddr)pointer, length),
-			getCurrentThread()->pagingWorkQueue().get()
-		);
-	}
-	if(!outcome) {
-		assert(outcome.error() == Error::illegalArgs);
-		return kHelErrIllegalArgs;
-	}
+	return UnmapMemoryOperands{std::move(space), std::move(vspace)};
+}
+
+} // namespace
+
+HelError helUnmapMemory(HelHandle space_handle, void *pointer, size_t length) {
+	auto operandsOutcome = resolveUnmapMemory(space_handle);
+	if(!operandsOutcome)
+		return translateError(operandsOutcome.error());
+	auto operands = std::move(*operandsOutcome);
+
+	auto outcome = Thread::asyncBlockCurrent(
+		operands.targetSpace()->unmap((VirtualAddr)pointer, length),
+		getCurrentThread()->pagingWorkQueue().get()
+	);
+	if(!outcome)
+		return translateError(outcome.error());
+
+	return kHelErrNone;
+}
+
+
+HelError doSubmitUnmapMemory(HelHandle spaceHandle, smarter::shared_ptr<IpcQueue> queue,
+		void *pointer, size_t length, uintptr_t context) {
+	auto operandsOutcome = resolveUnmapMemory(spaceHandle);
+	if(!operandsOutcome)
+		return translateError(operandsOutcome.error());
+
+	if(!queue->validSize(ipcSourceSize(sizeof(HelSimpleResult))))
+		return kHelErrQueueTooSmall;
+
+	[](UnmapMemoryOperands operands, smarter::shared_ptr<IpcQueue> queue,
+			VirtualAddr pointer, size_t length, uintptr_t context,
+			enable_detached_coroutine) -> void {
+		auto outcome = co_await onExceptionalWq(operands.targetSpace()->unmap(pointer, length));
+
+		HelSimpleResult helResult{
+			.error = outcome ? kHelErrNone : translateError(outcome.error()),
+			.reserved = {},
+		};
+		QueueSource ipcSource{&helResult, sizeof(HelSimpleResult), nullptr};
+		co_await queue->submit(&ipcSource, context);
+	}(std::move(*operandsOutcome), std::move(queue),
+			reinterpret_cast<VirtualAddr>(pointer), length, context,
+			enable_detached_coroutine{getCurrentThread()->mainWorkQueue().lock()});
 
 	return kHelErrNone;
 }
@@ -4330,6 +4416,30 @@ void thor::submitFromSq(smarter::shared_ptr<IpcQueue> queue, uint32_t opcode,
 		HelSqPopulateSpace sqData;
 		memcpy(&sqData, sqSpan.data(), sizeof(sqData));
 		error = doSubmitPopulateSpace(sqData.handle, queue, sqData.address, sqData.length, context);
+		break;
+	}
+	case kHelSubmitMapMemory: {
+		if(sqSpan.size() < sizeof(HelSqMapMemory)) {
+			infoLogger() << "Bad length for kHelSubmitMapMemory" << frg::endlog;
+			error = kHelErrBufferTooSmall;
+			break;
+		}
+		HelSqMapMemory sqData;
+		memcpy(&sqData, sqSpan.data(), sizeof(sqData));
+		error = doSubmitMapMemory(sqData.memoryHandle, sqData.spaceHandle, queue,
+				sqData.pointer, sqData.offset, sqData.size, sqData.flags, context);
+		break;
+	}
+	case kHelSubmitUnmapMemory: {
+		if(sqSpan.size() < sizeof(HelSqUnmapMemory)) {
+			infoLogger() << "Bad length for kHelSubmitUnmapMemory" << frg::endlog;
+			error = kHelErrBufferTooSmall;
+			break;
+		}
+		HelSqUnmapMemory sqData;
+		memcpy(&sqData, sqSpan.data(), sizeof(sqData));
+		error = doSubmitUnmapMemory(sqData.spaceHandle, queue,
+				sqData.pointer, sqData.size, context);
 		break;
 	}
 	default:
