@@ -19,7 +19,7 @@ xbstrap install --rebuild managarm-system
 (and similarly for packages other than `managarm-system`).
 After rebuilding a package, the `make-image` step needs to be invoked again
 to update the disk image
-(see the [section on building Managarm](../building/index.md]) of this handbook):
+(see the [section on building Managarm](../building/index.md) of this handbook):
 ```sh
 xbstrap run make-image
 # Or `xbstrap run make-image qemu` to also run the image in qemu.

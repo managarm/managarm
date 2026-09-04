@@ -8,7 +8,7 @@ Managarm has some infrastructure to automate testing of Managarm builds.
 
 To use the hardware CI, you need:
 - Access permissions (see above).
-- A Managarm system root (see [the build instructions](building/index.md)).
+- A Managarm system root (see [the build instructions](../building/index.md)).
 - The base system installed to the system root (`xbstrap install base`).
 - Packages installed that are required the desired device.
     This may include `boot-artifacts` and `vendor-devicetrees` (`xbstrap install boot-artifacts vendor-devicetree`).
