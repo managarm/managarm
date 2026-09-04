@@ -992,10 +992,11 @@ bool ManagedSpace::ManagedPage::hasUnwrittenData() {
 }
 
 std::expected<smarter::shared_ptr<ManagedSpace>, Error> ManagedSpace::create(
-		size_t length, bool readahead) {
+		smarter::shared_ptr<Hierarchy> hierarchy, size_t length, bool readahead) {
 	if(length > backingMemoryLength)
 		return std::unexpected{Error::illegalArgs};
-	auto self = smarter::allocate_shared<ManagedSpace>(*kernelAlloc, length, readahead);
+	auto self = smarter::allocate_shared<ManagedSpace>(*kernelAlloc, std::move(hierarchy),
+			length, readahead);
 	self->selfPtr = self;
 	spawnOnWorkQueue(*kernelAlloc, WorkQueue::generalQueue().lock(), self->_runReclaimLoop());
 	spawnOnWorkQueue(*kernelAlloc, WorkQueue::generalQueue().lock(), self->_runDrainLoop());
@@ -1003,8 +1004,9 @@ std::expected<smarter::shared_ptr<ManagedSpace>, Error> ManagedSpace::create(
 	return self;
 }
 
-ManagedSpace::ManagedSpace(size_t length, bool readahead)
-: pages{*kernelAlloc}, numPages{length >> kPageShift}, readahead{readahead} {
+ManagedSpace::ManagedSpace(smarter::shared_ptr<Hierarchy> hierarchy, size_t length, bool readahead)
+: hierarchy{std::move(hierarchy)}, pages{*kernelAlloc},
+		numPages{length >> kPageShift}, readahead{readahead} {
 	assert(!(length & (kPageSize - 1)));
 
 	globalReclaimer->registerBundle(this);
@@ -1553,7 +1555,7 @@ std::expected<smarter::shared_ptr<SwapSpace>, Error> SwapSpace::create() {
 }
 
 SwapSpace::SwapSpace()
-: ManagedSpace{UINT64_C(1) << 32, false}, _buddyMetadata{*kernelAlloc} {
+: ManagedSpace{rootHierarchy(), UINT64_C(1) << 32, false}, _buddyMetadata{*kernelAlloc} {
 	isSwapSpace = true;
 
 	assert(numPages);

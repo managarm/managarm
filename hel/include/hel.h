@@ -1333,6 +1333,9 @@ HEL_C_LINKAGE HelError helResizeMemory(HelHandle handle, size_t newSize);
 //!
 //!    The @p backingHandle is used to manage the memory object, while
 //! the @p frontalHandle provides a view on the memory object for consumers.
+//! @param[in] hierarchy
+//!    	Handle to the hierarchy that owns the new memory object.
+//!    	The allocated physical memory is accounted to this hierarchy node.
 //! @param[in] size
 //!    	Size of the memory object in bytes.
 //!    	Must be aligned to the system's page size.
@@ -1340,7 +1343,7 @@ HEL_C_LINKAGE HelError helResizeMemory(HelHandle handle, size_t newSize);
 //!    	Handle to the new memory object (for management)
 //! @param[out] frontalHandle
 //!    	Handle to the new memory object (for consumers).
-HEL_C_LINKAGE HelError helCreateManagedMemory(size_t size, uint32_t flags,
+HEL_C_LINKAGE HelError helCreateManagedMemory(HelHandle hierarchy, size_t size, uint32_t flags,
 		HelHandle *backingHandle, HelHandle *frontalHandle);
 
 //! Creates a swap space, the backing store for swappable anonymous

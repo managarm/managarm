@@ -815,9 +815,9 @@ struct ManagedSpace : CacheBundle {
 	};
 
 	static std::expected<smarter::shared_ptr<ManagedSpace>, Error> create(
-			size_t length, bool readahead);
+			smarter::shared_ptr<Hierarchy> hierarchy, size_t length, bool readahead);
 
-	ManagedSpace(size_t length, bool readahead);
+	ManagedSpace(smarter::shared_ptr<Hierarchy> hierarchy, size_t length, bool readahead);
 	~ManagedSpace();
 
 	void incrementUses(CachePage *page) override;
@@ -876,6 +876,8 @@ struct ManagedSpace : CacheBundle {
 	void _progressManagement(ManageList &pending);
 
 	smarter::borrowed_ptr<ManagedSpace> selfPtr;
+
+	smarter::shared_ptr<Hierarchy> hierarchy;
 
 	frg::ticket_spinlock mutex;
 

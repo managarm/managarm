@@ -7,6 +7,7 @@
 #include <helix/clock.hpp>
 #include <helix/dispatcher-pool.hpp>
 #include "fs.bragi.hpp"
+#include "fs.hpp"
 
 namespace blockfs {
 namespace raw {
@@ -17,7 +18,7 @@ RawFs::RawFs(BlockDevice *device)
 async::result<void> RawFs::init() {
 	auto device_size = co_await device->getSize();
 	auto cache_size = (device_size + 0xFFF) & ~size_t(0xFFF);
-	HEL_CHECK(helCreateManagedMemory(cache_size, 0,
+	HEL_CHECK(helCreateManagedMemory(fileDataHierarchy(), cache_size, 0,
 				&backingMemory, &frontalMemory));
 
 	helix::DispatcherPool::global().detach(manageMapping());

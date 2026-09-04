@@ -590,7 +590,7 @@ HelError doSubmitResizeMemory(HelHandle handle, smarter::shared_ptr<IpcQueue> qu
 	return kHelErrNone;
 }
 
-HelError helCreateManagedMemory(size_t size, uint32_t flags,
+HelError helCreateManagedMemory(HelHandle hierarchyHandle, size_t size, uint32_t flags,
 		HelHandle *backing_handle, HelHandle *frontal_handle) {
 	if(flags & ~uint32_t{kHelManagedReadahead})
 		return kHelErrIllegalArgs;
@@ -600,7 +600,13 @@ HelError helCreateManagedMemory(size_t size, uint32_t flags,
 	auto thisThread = getCurrentThread();
 	auto thisUniverse = thisThread->getUniverse();
 
-	auto managedOutcome = ManagedSpace::create(size, flags & kHelManagedReadahead);
+	auto hierarchyOutcome = thisUniverse->resolveObject<DescriptorType::hierarchy>(
+		hierarchyHandle, kHelRightProvision
+	);
+	if(!hierarchyOutcome)
+		return translateError(hierarchyOutcome.error());
+
+	auto managedOutcome = ManagedSpace::create(*hierarchyOutcome, size, flags & kHelManagedReadahead);
 	if(!managedOutcome)
 		return translateError(managedOutcome.error());
 	auto managed = std::move(*managedOutcome);

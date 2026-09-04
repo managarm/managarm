@@ -649,7 +649,7 @@ void handleSyscall(SyscallImageAccessor image) {
 	} break;
 	case kHelCallCreateManagedMemory: {
 		HelHandle backing_handle, frontal_handle;
-		*image.error() = helCreateManagedMemory((size_t)arg0, (uint32_t)arg1,
+		*image.error() = helCreateManagedMemory((HelHandle)arg0, (size_t)arg1, (uint32_t)arg2,
 				&backing_handle, &frontal_handle);
 		*image.out0() = backing_handle;
 		*image.out1() = frontal_handle;
