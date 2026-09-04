@@ -1178,6 +1178,12 @@ public:
 	coroutine<frg::expected<Error, size_t>>
 			touchRange(uintptr_t offset, size_t sizeHint, FetchFlags flags) override;
 
+private:
+	// Callers must hold _mutex.
+	void chargePages_(size_t n);
+	// Callers must hold _mutex.
+	void unchargePages_(size_t n);
+
 public:
 	// Contract: set by the code that constructs this object.
 	smarter::borrowed_ptr<CopyOnWriteMemory> selfPtr;
@@ -1188,6 +1194,9 @@ private:
 	smarter::shared_ptr<MemoryView> _view;
 	uintptr_t _viewOffset;
 	size_t _length;
+	// Invariant: _chargedPages is equal to the number of pages in _ownedPages that have a page frame attached
+	//            plus the number of pages in _copyChain that are not shadowed by a page in _ownedPages.
+	size_t _chargedPages{0};
 	smarter::shared_ptr<CowChain> _copyChain;
 	frg::rcu_radixtree<smarter::shared_ptr<CowPage>, KernelAlloc, RcuPolicy> _ownedPages;
 	async::recurring_event _copyEvent;

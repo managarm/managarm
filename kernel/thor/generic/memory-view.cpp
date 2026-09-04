@@ -835,6 +835,7 @@ AllocatedMemory::~AllocatedMemory() {
 			for(size_t pg = 0; pg < _chunkSize; pg += kPageSize)
 				globalPfnDb().erase(_physicalChunks[i] + pg);
 			physicalAllocator->free(_physicalChunks[i], _chunkSize);
+			_hierarchy->unchargeMemory(_chunkSize);
 		}
 	}
 	if(logUsage)
@@ -914,6 +915,7 @@ AllocatedMemory::touchRange(uintptr_t offset, size_t, FetchFlags) {
 			globalPfnDb().insert(physical + pg_progress, PfnDescriptor::otherPage());
 		}
 		_physicalChunks[index] = physical;
+		_hierarchy->chargeMemory(_chunkSize);
 	}
 
 	assert(_physicalChunks[index] != PhysicalAddr(-1));
@@ -1129,6 +1131,7 @@ coroutine<void> ManagedSpace::_runReclaimLoop() {
 
 			globalPfnDb().erase(physical);
 			physicalAllocator->free(physical, kPageSize);
+			hierarchy->unchargeMemory(kPageSize);
 			sizeFreed += kPageSize;
 		}
 
@@ -1178,6 +1181,7 @@ coroutine<void> ManagedSpace::_runReclaimLoop() {
 
 			if(physical != PhysicalAddr(-1)) {
 				physicalAllocator->free(physical, kPageSize);
+				hierarchy->unchargeMemory(kPageSize);
 				sizeFreed += kPageSize;
 			}
 			anyDiscardErased = true;
@@ -1956,6 +1960,7 @@ BackingMemory::touchRange(uintptr_t offset, size_t, FetchFlags) {
 
 		globalPfnDb().insert(physical, PfnDescriptor::cachePage(&pit->cachePage));
 		pit->physical = physical;
+		_managed->hierarchy->chargeMemory(kPageSize);
 	}
 
 	co_return kPageSize - misalign;
@@ -2649,6 +2654,7 @@ SwappableMemory::touchRange(uintptr_t offset, size_t, FetchFlags flags) {
 							PfnDescriptor::cachePage(&pit->cachePage));
 					pit->physical = freshPhysical;
 					pit->loadState = ManagedSpace::LoadState::present;
+					_space->hierarchy->chargeMemory(kPageSize);
 					freshPhysical = PhysicalAddr(-1);
 					if(!pit->lockCount
 							&& !pit->cachePage.useCount.load(std::memory_order_relaxed)) {
@@ -2871,6 +2877,7 @@ CopyOnWriteMemory::CopyOnWriteMemory(CtorToken, smarter::shared_ptr<Hierarchy> h
 }
 
 CopyOnWriteMemory::~CopyOnWriteMemory() {
+	unchargePages_(_chargedPages);
 }
 
 size_t CopyOnWriteMemory::getLength() {
@@ -2889,6 +2896,7 @@ coroutine<frg::expected<Error, smarter::shared_ptr<MemoryView>>> CopyOnWriteMemo
 	smarter::shared_ptr<CowChain> newChain;
 	frg::vector<frg::tuple<size_t, smarter::shared_ptr<CowPage>>, KernelAlloc> inProgressPages{*kernelAlloc};
 	frg::vector<frg::tuple<size_t, smarter::shared_ptr<CowPage>>, KernelAlloc> lockedCopies{*kernelAlloc};
+	size_t chainPages{0};
 
 	// Note: We turn owned pages into shared pages while holding the locks below.
 	//       Since this happens while the lock is held, peekRange() and touchRange() can never
@@ -2932,6 +2940,7 @@ coroutine<frg::expected<Error, smarter::shared_ptr<MemoryView>>> CopyOnWriteMemo
 						assert(chainPage->state == CowState::hasCopy);
 						auto newIt = newChain->_pages.insert(pageOffset >> kPageShift);
 						*newIt = chainPage;
+						++chainPages;
 					}
 				}
 				continue;
@@ -2956,6 +2965,7 @@ coroutine<frg::expected<Error, smarter::shared_ptr<MemoryView>>> CopyOnWriteMemo
 				auto pageOffset = _viewOffset + pg;
 				auto newIt = newChain->_pages.insert(pageOffset >> kPageShift);
 				*newIt = page;
+				++chainPages;
 				_ownedPages.erase(pg >> kPageShift);
 			}
 		}
@@ -2994,6 +3004,7 @@ coroutine<frg::expected<Error, smarter::shared_ptr<MemoryView>>> CopyOnWriteMemo
 				auto pageOffset = _viewOffset + pg;
 				auto newIt = newChain->_pages.insert(pageOffset >> kPageShift);
 				*newIt = page;
+				++chainPages;
 				_ownedPages.erase(pg >> kPageShift);
 			}
 		}
@@ -3014,6 +3025,15 @@ coroutine<frg::expected<Error, smarter::shared_ptr<MemoryView>>> CopyOnWriteMemo
 		globalPfnDb().insert(copyPhysical, PfnDescriptor::otherPage());
 		auto copyIt = forked->_ownedPages.insert(pg >> kPageShift);
 		*copyIt = copyPage;
+	}
+
+	// Charge the memory to the forked memory view.
+	// Shared pages are counted twice: once in the original and once in the forked memory view.
+	// This ensures that uncharging behaves correctly.
+	{
+		auto irqLock = frg::guard(&irqMutex());
+		auto forkedLock = frg::guard(&forked->_mutex);
+		forked->chargePages_(chainPages + lockedCopies.size());
 	}
 
 	co_await _evictQueue.breakRange(0, _length);
@@ -3257,10 +3277,25 @@ CopyOnWriteMemory::touchRange(uintptr_t offset, size_t sizeHint, FetchFlags flag
 		assert(cowPage->state == CowState::inProgress);
 		cowPage->state = CowState::hasCopy;
 		cowPage->physical = physical;
+		// Replacing a shared page by an owned one does not charge here
+		// since we already charged for the shared page at fork() time.
+		if (!chainHasCopy)
+			chargePages_(1);
 		globalPfnDb().insert(physical, PfnDescriptor::otherPage());
 	}
 	_copyEvent.raise();
 	co_return kPageSize - misalign;
+}
+
+void CopyOnWriteMemory::chargePages_(size_t n) {
+	_chargedPages += n;
+	_hierarchy->chargeMemory(n << kPageShift);
+}
+
+void CopyOnWriteMemory::unchargePages_(size_t n) {
+	assert(_chargedPages >= n);
+	_chargedPages -= n;
+	_hierarchy->unchargeMemory(n << kPageShift);
 }
 
 // --------------------------------------------------------------------------------------
