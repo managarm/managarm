@@ -1141,6 +1141,24 @@ std::shared_ptr<ThreadGroup> ThreadGroup::findThreadGroup(ProcessId pid) {
 	return it->second->getThreadGroup();
 }
 
+bool ThreadGroup::issueSignalToAll(int sn, SignalInfo info, ProcessId excludedPid) {
+	bool found = false;
+	for (auto &[pid, hull] : globalPidMap) {
+		auto group = hull->getThreadGroup();
+		// The TGID hull and each thread's PID hull point to the same group.
+		// Only use the TGID entry to avoid queueing the signal more than once.
+		if (!group || group->pid() != pid)
+			continue;
+		if (group->pid() == 1 || group->pid() == excludedPid)
+			continue;
+
+		found = true;
+		if (sn)
+			group->issueThreadGroupSignal(sn, info);
+	}
+	return found;
+}
+
 std::shared_ptr<Process> Process::findProcess(ProcessId pid) {
 	auto it = globalPidMap.find(pid);
 	if(it == globalPidMap.end())

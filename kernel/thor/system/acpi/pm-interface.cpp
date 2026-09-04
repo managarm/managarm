@@ -4,6 +4,7 @@
 #include <thor-internal/arch/hpet.hpp>
 #endif
 #include <hw.frigg_bragi.hpp>
+#include <thor-internal/acpi/acpi.hpp>
 #include <thor-internal/acpi/pm-interface.hpp>
 #include <thor-internal/fiber.hpp>
 #include <thor-internal/io.hpp>
@@ -68,12 +69,17 @@ private:
 			switch (req->cmd()) {
 				case RB_POWER_OFF: {
 #ifdef __x86_64__
-					auto ret = uacpi_prepare_for_sleep_state(UACPI_SLEEP_STATE_S5);
+					uacpi_status ret;
+					co_await onAcpiFiber([&] {
+						ret = uacpi_prepare_for_sleep_state(UACPI_SLEEP_STATE_S5);
+					});
 					if (uacpi_unlikely_error(ret))
 						infoLogger() << "thor: Preparing to enter sleep state S5 failed: "
 						             << uacpi_status_to_string(ret) << frg::endlog;
 
-					ret = uacpi_enter_sleep_state(UACPI_SLEEP_STATE_S5);
+					co_await onAcpiFiber([&] {
+						ret = uacpi_enter_sleep_state(UACPI_SLEEP_STATE_S5);
+					});
 					if (uacpi_unlikely_error(ret))
 						infoLogger() << "thor: Entering sleep state S5 failed: "
 						             << uacpi_status_to_string(ret) << frg::endlog;
@@ -84,13 +90,16 @@ private:
 				}
 				case RB_AUTOBOOT: {
 #ifdef __x86_64__
-					auto ret = uacpi_prepare_for_sleep_state(UACPI_SLEEP_STATE_S5);
+					uacpi_status ret;
+					co_await onAcpiFiber([&] {
+						ret = uacpi_prepare_for_sleep_state(UACPI_SLEEP_STATE_S5);
+					});
 					if (uacpi_unlikely_error(ret))
 						infoLogger()
 						    << "thor: Preparing for reboot failed: " << uacpi_status_to_string(ret)
 						    << frg::endlog;
 
-					ret = uacpi_reboot();
+					co_await onAcpiFiber([&] { ret = uacpi_reboot(); });
 					if (uacpi_unlikely_error(ret))
 						infoLogger() << "thor: ACPI reset failed: " << uacpi_status_to_string(ret)
 						             << frg::endlog;

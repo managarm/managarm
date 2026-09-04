@@ -471,9 +471,17 @@ async::result<void> observeThread(std::shared_ptr<Process> self,
 					continue;
 				}
 			} else if (tgid == -1) {
-				std::println("posix: SIG_KILL(-1) is ignored!");
-				gprs[kHelRegOut0] = EPERM;
+				if (logSignals)
+					std::println("posix: SIG_KILL on all processes");
+				if (!ThreadGroup::issueSignalToAll(sn, si, self->pid()))
+					gprs[kHelRegOut0] = ESRCH;
 				HEL_CHECK(helStoreRegisters(thread.getHandle(), kHelRegsGeneral, &gprs));
+				if (gprs[kHelRegOut0] != 0) {
+					HEL_CHECK(helResume(thread.getHandle()));
+					continue;
+				}
+				if (!co_await handlePendingSignalsFromObservation(self.get()))
+					break;
 				HEL_CHECK(helResume(thread.getHandle()));
 				continue;
 			} else if (tgid > 0) {

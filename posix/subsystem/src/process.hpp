@@ -794,6 +794,7 @@ struct ThreadGroup : std::enable_shared_from_this<ThreadGroup> {
 	const std::vector<std::shared_ptr<Process>> &threads() { return threads_; }
 
 	static std::shared_ptr<ThreadGroup> findThreadGroup(ProcessId pid);
+	static bool issueSignalToAll(int sn, SignalInfo info, ProcessId excludedPid);
 	std::shared_ptr<Process> findThread(pid_t tid);
 
 	Error setUid(uid_t uid);
