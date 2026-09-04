@@ -127,7 +127,7 @@ async::result<std::shared_ptr<VmContext>> VmContext::clone(
 
 		helix::UniqueDescriptor copyView;
 		if(area.copyOnWrite) {
-			auto forkResult = co_await helix_ng::forkMemory(area.copyView);
+			auto forkResult = co_await helix_ng::forkMemory(context->_hierarchy, area.copyView);
 			HEL_CHECK(forkResult.error());
 			copyView = forkResult.descriptor();
 
@@ -219,9 +219,10 @@ VmContext::mapFile(uintptr_t hint, helix::UniqueDescriptor memory,
 	if(copyOnWrite) {
 		HelHandle handle;
 		if(memory) {
-			HEL_CHECK(helCopyOnWrite(memory.getHandle(), offset, alignedSize, &handle));
+			HEL_CHECK(helCopyOnWrite(_hierarchy.getHandle(), memory.getHandle(), offset, alignedSize, &handle));
 		}else{
-			HEL_CHECK(helCopyOnWrite(getZeroMemory().getHandle(), offset, alignedSize, &handle));
+			HEL_CHECK(helCopyOnWrite(_hierarchy.getHandle(), getZeroMemory().getHandle(),
+					offset, alignedSize, &handle));
 		}
 		copyView = helix::UniqueDescriptor{handle};
 

@@ -908,7 +908,7 @@ namespace posix {
 
 				smarter::shared_ptr<MemorySlice> slice;
 				if(req->flags() & MAP_PRIVATE) { // MAP_PRIVATE.
-					auto cowOutcome = CopyOnWriteMemory::create(
+					auto cowOutcome = CopyOnWriteMemory::create(hierarchy,
 							std::move(fileMemory), req->rel_offset(), req->size());
 					if(!cowOutcome)
 						panicLogger() << "thor: Failed to create copy-on-write memory" << frg::endlog;
@@ -1044,7 +1044,8 @@ namespace posix {
 				});
 				if(!readOutcome)
 					panicLogger() << "thor: Failed to access server registers" << frg::endlog;
-				auto cowOutcome = CopyOnWriteMemory::create(getZeroMemory(), 0, size);
+				auto cowOutcome = CopyOnWriteMemory::create(hierarchy,
+						getZeroMemory(), 0, size);
 				if(!cowOutcome)
 					panicLogger() << "thor: Failed to create copy-on-write memory" << frg::endlog;
 				auto sliceOutcome = MemorySlice::create(std::move(*cowOutcome), 0, size);

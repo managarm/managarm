@@ -672,7 +672,8 @@ void handleSyscall(SyscallImageAccessor image) {
 	} break;
 	case kHelCallCopyOnWrite: {
 		HelHandle handle;
-		*image.error() = helCopyOnWrite((HelHandle)arg0, (uintptr_t)arg1, (size_t)arg2, &handle);
+		*image.error() = helCopyOnWrite((HelHandle)arg0, (HelHandle)arg1, (uintptr_t)arg2,
+				(size_t)arg3, &handle);
 		*image.out0() = handle;
 	} break;
 	case kHelCallAccessPhysical: {

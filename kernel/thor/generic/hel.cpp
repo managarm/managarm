@@ -708,19 +708,27 @@ HelError helSetSwapBudget(HelHandle swapSpaceHandle, size_t numPages) {
 	return kHelErrNone;
 }
 
-HelError helCopyOnWrite(HelHandle memoryHandle,
+HelError helCopyOnWrite(HelHandle hierarchyHandle, HelHandle memoryHandle,
 		uintptr_t offset, size_t size, HelHandle *outHandle) {
-	auto this_thread = getCurrentThread();
-	auto this_universe = this_thread->getUniverse();
+	auto thisThread = getCurrentThread();
+	auto thisUniverse = thisThread->getUniverse();
 
-	auto viewOutcome = this_universe->resolveObject<DescriptorType::memoryView>(memoryHandle, kHelRightRead | kHelRightAssign);
+	auto hierarchyOutcome = thisUniverse->resolveObject<DescriptorType::hierarchy>(
+		hierarchyHandle, kHelRightProvision
+	);
+	if(!hierarchyOutcome)
+		return translateError(hierarchyOutcome.error());
+
+	auto viewOutcome = thisUniverse->resolveObject<DescriptorType::memoryView>(memoryHandle, kHelRightRead | kHelRightAssign);
 	if(!viewOutcome)
 		return translateError(viewOutcome.error());
 
-	auto sliceOutcome = CopyOnWriteMemory::create(std::move(*viewOutcome), offset, size);
+	auto sliceOutcome = CopyOnWriteMemory::create(*hierarchyOutcome, std::move(*viewOutcome),
+			offset, size);
 	if(!sliceOutcome)
 		return translateError(sliceOutcome.error());
-	*outHandle = this_universe->attachDescriptor(
+
+	*outHandle = thisUniverse->attachDescriptor(
 		AnyDescriptor::make<DescriptorType::memoryView>(
 			std::move(*sliceOutcome),
 			kHelRightRead | kHelRightWrite | kHelRightExecute | kHelRightAssign | kHelRightDerive | kHelRightProvision | kHelRightPin | kHelRightFence | kHelRightManage
@@ -878,12 +886,18 @@ HelError helCreateSliceView(HelHandle memoryHandle,
 	return kHelErrNone;
 }
 
-HelError doSubmitForkMemory(HelHandle handle, smarter::shared_ptr<IpcQueue> queue,
+HelError doSubmitForkMemory(HelHandle hierarchyHandle, HelHandle handle, smarter::shared_ptr<IpcQueue> queue,
 		uintptr_t context) {
-	auto this_thread = getCurrentThread();
-	auto this_universe = this_thread->getUniverse();
+	auto thisThread = getCurrentThread();
+	auto thisUniverse = thisThread->getUniverse();
 
-	auto viewOutcome = this_universe->resolveCapability<DescriptorType::memoryView>(handle, kHelRightRead | kHelRightDerive);
+	auto hierarchyOutcome = thisUniverse->resolveObject<DescriptorType::hierarchy>(
+		hierarchyHandle, kHelRightProvision
+	);
+	if(!hierarchyOutcome)
+		return translateError(hierarchyOutcome.error());
+
+	auto viewOutcome = thisUniverse->resolveCapability<DescriptorType::memoryView>(handle, kHelRightRead | kHelRightDerive);
 	if(!viewOutcome)
 		return translateError(viewOutcome.error());
 	auto [view, rights] = std::move(*viewOutcome);
@@ -892,10 +906,11 @@ HelError doSubmitForkMemory(HelHandle handle, smarter::shared_ptr<IpcQueue> queu
 		return kHelErrQueueTooSmall;
 
 	[](smarter::weak_ptr<Universe> weakUniverse,
+			smarter::shared_ptr<Hierarchy> hierarchy,
 			smarter::shared_ptr<MemoryView> view, uint32_t rights,
 			smarter::shared_ptr<IpcQueue> queue, uintptr_t context,
 			enable_detached_coroutine) -> void {
-		auto outcome = co_await onExceptionalWq(view->fork());
+		auto outcome = co_await onExceptionalWq(view->fork(std::move(hierarchy)));
 
 		if(!outcome) {
 			HelHandleResult helResult{.error = translateError(outcome.error())};
@@ -922,7 +937,7 @@ HelError doSubmitForkMemory(HelHandle handle, smarter::shared_ptr<IpcQueue> queu
 		HelHandleResult helResult{.error = kHelErrNone, .handle = forkedHandle};
 		QueueSource ipcSource{&helResult, sizeof(HelHandleResult), nullptr};
 		co_await queue->submit(&ipcSource, context);
-	}(this_universe.lock(), std::move(view), rights, std::move(queue), context,
+	}(thisUniverse.lock(), std::move(*hierarchyOutcome), std::move(view), rights, std::move(queue), context,
 		enable_detached_coroutine{getCurrentThread()->mainWorkQueue().lock()});
 
 	return kHelErrNone;
@@ -4429,7 +4444,7 @@ void thor::submitFromSq(smarter::shared_ptr<IpcQueue> queue, uint32_t opcode,
 		}
 		HelSqForkMemory sqData;
 		memcpy(&sqData, sqSpan.data(), sizeof(sqData));
-		error = doSubmitForkMemory(sqData.handle, queue, context);
+		error = doSubmitForkMemory(sqData.hierarchyHandle, sqData.handle, queue, context);
 		break;
 	}
 	case kHelSubmitWritebackFence: {

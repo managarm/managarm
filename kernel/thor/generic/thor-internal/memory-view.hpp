@@ -351,7 +351,9 @@ public:
 
 	virtual coroutine<frg::expected<Error>> resize(size_t newLength);
 
-	virtual coroutine<frg::expected<Error, smarter::shared_ptr<MemoryView>>> fork();
+	virtual coroutine<frg::expected<Error, smarter::shared_ptr<MemoryView>>> fork(
+		smarter::shared_ptr<Hierarchy> hierarchy
+	);
 
 	virtual coroutine<frg::expected<Error>> copyTo(uintptr_t offset,
 			const void *pointer, size_t size,
@@ -1153,9 +1155,11 @@ private:
 
 public:
 	static std::expected<smarter::shared_ptr<CopyOnWriteMemory>, Error> create(
+			smarter::shared_ptr<Hierarchy> hierarchy,
 			smarter::shared_ptr<MemoryView> view, uintptr_t offset, size_t length);
 
-	CopyOnWriteMemory(CtorToken, smarter::shared_ptr<MemoryView> view,
+	CopyOnWriteMemory(CtorToken, smarter::shared_ptr<Hierarchy> hierarchy,
+			smarter::shared_ptr<MemoryView> view,
 			uintptr_t offset, size_t length,
 			smarter::shared_ptr<CowChain> chain);
 	CopyOnWriteMemory(const CopyOnWriteMemory &) = delete;
@@ -1165,7 +1169,9 @@ public:
 	CopyOnWriteMemory &operator= (const CopyOnWriteMemory &) = delete;
 
 	size_t getLength() override;
-	coroutine<frg::expected<Error, smarter::shared_ptr<MemoryView>>> fork() override;
+	coroutine<frg::expected<Error, smarter::shared_ptr<MemoryView>>> fork(
+		smarter::shared_ptr<Hierarchy> hierarchy
+	) override;
 	Error lockRange(uintptr_t offset, size_t size) override;
 	void unlockRange(uintptr_t offset, size_t size) override;
 	PhysicalRange peekRange(uintptr_t offset, FetchFlags flags) override;
@@ -1178,6 +1184,7 @@ public:
 private:
 	frg::ticket_spinlock _mutex;
 
+	smarter::shared_ptr<Hierarchy> _hierarchy;
 	smarter::shared_ptr<MemoryView> _view;
 	uintptr_t _viewOffset;
 	size_t _length;

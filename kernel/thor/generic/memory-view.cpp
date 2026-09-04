@@ -307,7 +307,7 @@ coroutine<frg::expected<Error>> MemoryView::resize(size_t newSize) {
 	co_return Error::illegalObject;
 }
 
-coroutine<frg::expected<Error, smarter::shared_ptr<MemoryView>>> MemoryView::fork() {
+coroutine<frg::expected<Error, smarter::shared_ptr<MemoryView>>> MemoryView::fork(smarter::shared_ptr<Hierarchy>) {
 	assert(currentIpl() == ipl::exceptionalWork);
 	co_return Error::illegalObject;
 }
@@ -2850,17 +2850,19 @@ CowPage::~CowPage() {
 }
 
 std::expected<smarter::shared_ptr<CopyOnWriteMemory>, Error> CopyOnWriteMemory::create(
+		smarter::shared_ptr<Hierarchy> hierarchy,
 		smarter::shared_ptr<MemoryView> view, uintptr_t offset, size_t length) {
 	auto ptr = smarter::allocate_shared<CopyOnWriteMemory>(*kernelAlloc, CtorToken{},
-			std::move(view), offset, length, nullptr);
+			std::move(hierarchy), std::move(view), offset, length, nullptr);
 	ptr->selfPtr = ptr;
 	return ptr;
 }
 
-CopyOnWriteMemory::CopyOnWriteMemory(CtorToken, smarter::shared_ptr<MemoryView> view,
+CopyOnWriteMemory::CopyOnWriteMemory(CtorToken, smarter::shared_ptr<Hierarchy> hierarchy,
+		smarter::shared_ptr<MemoryView> view,
 		uintptr_t offset, size_t length,
 		smarter::shared_ptr<CowChain> chain)
-: MemoryView{&_evictQueue}, _view{std::move(view)},
+: MemoryView{&_evictQueue}, _hierarchy{std::move(hierarchy)}, _view{std::move(view)},
 		_viewOffset{offset}, _length{length}, _copyChain{std::move(chain)},
 		_ownedPages{*kernelAlloc} {
 	assert(length);
@@ -2875,7 +2877,9 @@ size_t CopyOnWriteMemory::getLength() {
 	return _length;
 }
 
-coroutine<frg::expected<Error, smarter::shared_ptr<MemoryView>>> CopyOnWriteMemory::fork() {
+coroutine<frg::expected<Error, smarter::shared_ptr<MemoryView>>> CopyOnWriteMemory::fork(
+	smarter::shared_ptr<Hierarchy> hierarchy
+) {
 	assert(currentIpl() == ipl::exceptionalWork);
 
 	// Note that locked pages require special attention during CoW: as we cannot
@@ -2906,7 +2910,7 @@ coroutine<frg::expected<Error, smarter::shared_ptr<MemoryView>>> CopyOnWriteMemo
 
 		// Create a new mapping in the forked space.
 		forked = smarter::allocate_shared<CopyOnWriteMemory>(*kernelAlloc, CtorToken{},
-				_view, _viewOffset, _length, newChain);
+				std::move(hierarchy), _view, _viewOffset, _length, newChain);
 		forked->selfPtr = forked;
 
 		// Inspect all copied pages owned by the original mapping.

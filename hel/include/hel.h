@@ -965,6 +965,8 @@ struct HelSqResizeMemory {
 
 //! SQ data for kHelSubmitForkMemory.
 struct HelSqForkMemory {
+	//! Handle to the hierarchy object that owns the memory object.
+	HelHandle hierarchyHandle;
 	//! Handle to the memory object.
 	HelHandle handle;
 };
@@ -1384,6 +1386,9 @@ HEL_C_LINKAGE HelError helAllocateSwappableMemory(HelHandle swapSpace,
 HEL_C_LINKAGE HelError helSetSwapBudget(HelHandle swapSpace, size_t numPages);
 
 //! Creates memory object that obtains its memory by copy-on-write from another memory object.
+//! @param[in] hierarchy
+//!    	Handle to the hierarchy that owns the new memory object.
+//!    	The copied physical pages are accounted to this hierarchy node.
 //! @param[in] memory
 //!    	Handle to the source memory object.
 //! @param[in] offset
@@ -1393,7 +1398,7 @@ HEL_C_LINKAGE HelError helSetSwapBudget(HelHandle swapSpace, size_t numPages);
 //!    	Must be aligned to the system's page size.
 //! @param[out] handle
 //!    	Handle to the new memory object.
-HEL_C_LINKAGE HelError helCopyOnWrite(HelHandle memory,
+HEL_C_LINKAGE HelError helCopyOnWrite(HelHandle hierarchy, HelHandle memory,
 		uintptr_t offset, size_t size, HelHandle *handle);
 
 HEL_C_LINKAGE HelError helAccessPhysical(

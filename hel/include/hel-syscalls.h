@@ -142,10 +142,10 @@ extern inline __attribute__ (( always_inline )) HelError helSetSwapBudget(HelHan
 	return helSyscall2(kHelCallSetSwapBudget, (HelWord)swap_space, (HelWord)num_pages);
 };
 
-extern inline __attribute__ (( always_inline )) HelError helCopyOnWrite(HelHandle memoryHandle,
-		uintptr_t offset, size_t size, HelHandle *outHandle) {
+extern inline __attribute__ (( always_inline )) HelError helCopyOnWrite(HelHandle hierarchy,
+		HelHandle memoryHandle, uintptr_t offset, size_t size, HelHandle *outHandle) {
 	HelWord outWord;
-	HelError error = helSyscall3_1(kHelCallCopyOnWrite, (HelWord)memoryHandle,
+	HelError error = helSyscall4_1(kHelCallCopyOnWrite, (HelWord)hierarchy, (HelWord)memoryHandle,
 			(HelWord)offset, (HelWord)size, &outWord);
 	*outHandle = (HelHandle)outWord;
 	return error;
