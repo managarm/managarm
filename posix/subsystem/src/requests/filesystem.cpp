@@ -1372,7 +1372,7 @@ HandleRequest::operator()(managarm::posix::OpenAtRequest &&req,
 	smarter::shared_ptr<File, FileHandle> file;
 	smarter::shared_ptr<FsLink> target_link;
 
-	if(req.fd() == AT_FDCWD) {
+	if(req.fd() == AT_FDCWD || req.path().starts_with('/')) {
 		relative_to = self->fsContext()->getWorkingDirectory();
 	} else {
 		file = self->fileContext()->getFile(req.fd());
