@@ -328,7 +328,8 @@ async::result<frg::expected<Error, smarter::shared_ptr<FsLink>>> DirectoryNode::
 	co_return Error::noSuchFile;
 }
 
-async::result<frg::expected<Error>> DirectoryNode::unlink(std::string name) {
+async::result<frg::expected<Error>> DirectoryNode::unlink(FsLink *link) {
+	auto name = link->getName();
 	auto it = _entries.find(name);
 	if (it == _entries.end())
 		co_return Error::noSuchFile;
