@@ -383,6 +383,8 @@ execute(ViewPath root, ViewPath workdir,
 		// The path is the first whitespace-separated word of the line.
 		// Trim spaces from the left and the right.
 		auto beginPath = std::find_if_not(shebangStr.begin(), shebangStr.end(), isspace);
+		if(beginPath == shebangStr.end())
+			co_return Error::badExecutable;
 		auto endPath = std::find_if(beginPath, shebangStr.end(), isspace);
 
 		// Trim space from the argument, too.
