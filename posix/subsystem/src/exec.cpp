@@ -349,7 +349,7 @@ execute(ViewPath root, ViewPath workdir,
 		char shebangPrefix[2];
 		if(!(co_await execFile->readExactly(nullptr, shebangPrefix, 2)))
 			break;
-		if(shebangPrefix[0] != '#' && shebangPrefix[1] != '!')
+		if(shebangPrefix[0] != '#' || shebangPrefix[1] != '!')
 			break;
 
 		std::string shebangStr;
