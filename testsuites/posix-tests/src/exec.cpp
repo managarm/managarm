@@ -8,6 +8,7 @@
 
 #include <cstdlib>
 #include <cstdint>
+#include <cstdio>
 #include <cstring>
 #include <string>
 #include <string_view>
@@ -441,6 +442,68 @@ DEFINE_TEST(exec_limits_shebang_length, ([] {
 DEFINE_TEST(exec_rejects_whitespace_only_shebang, ([] {
 	constexpr char contents[] = "#!     \n";
 	expectTextExecError(contents, sizeof(contents) - 1);
+}))
+
+DEFINE_TEST(exec_preserves_script_process_name, ([] {
+	char directory[] = "/tmp/posix-tests-exec-XXXXXX";
+	assert(mkdtemp(directory));
+	std::string script = std::string{directory} + "/script";
+	int fd = open(script.c_str(), O_WRONLY | O_CREAT | O_EXCL, 0700);
+	assert(fd >= 0);
+	constexpr char contents[] = "#!/bin/sh\nsleep 10\n";
+	assert(write(fd, contents, sizeof(contents) - 1) == sizeof(contents) - 1);
+	assert(close(fd) == 0);
+
+	pid_t pid = fork();
+	assert_errno("fork", pid >= 0);
+	if(!pid) {
+		char *const args[] = {script.data(), nullptr};
+		execve(script.c_str(), args, nullptr);
+		_exit(EXIT_FAILURE);
+	}
+
+	std::string procPath = "/proc/" + std::to_string(pid);
+	bool runningScript = false;
+	for(size_t i = 0; i < 100; i++) {
+		std::string commPath = procPath + "/comm";
+		FILE *comm = fopen(commPath.c_str(), "r");
+		if(comm) {
+			char name[16];
+			if(fgets(name, sizeof(name), comm) && !strcmp(name, "script\n"))
+				runningScript = true;
+			fclose(comm);
+		}
+		if(runningScript)
+			break;
+		usleep(10'000);
+	}
+	assert(runningScript);
+
+	char executablePath[256];
+	std::string exePath = procPath + "/exe";
+	ssize_t executableLength = readlink(exePath.c_str(), executablePath, sizeof(executablePath) - 1);
+	assert(executableLength >= 0);
+	executablePath[executableLength] = '\0';
+	struct stat shell;
+	struct stat executable;
+	assert(stat("/bin/sh", &shell) == 0);
+	assert(stat(executablePath, &executable) == 0);
+	assert(shell.st_dev == executable.st_dev);
+	assert(shell.st_ino == executable.st_ino);
+
+	std::string statPath = procPath + "/stat";
+	FILE *statFile = fopen(statPath.c_str(), "r");
+	assert(statFile);
+	char statBuffer[512];
+	assert(fgets(statBuffer, sizeof(statBuffer), statFile));
+	assert(fclose(statFile) == 0);
+	assert(std::string{statBuffer}.find(" (script) ") != std::string::npos);
+
+	assert(kill(pid, SIGKILL) == 0);
+	int status;
+	assert(waitpid(pid, &status, 0) == pid);
+	assert(unlink(script.c_str()) == 0);
+	assert(rmdir(directory) == 0);
 }))
 
 DEFINE_TEST(exec_rejects_invalid_elf_metadata, ([] {
