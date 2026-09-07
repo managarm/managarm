@@ -4,6 +4,7 @@
 #include <string.h>
 #include <sys/auxv.h>
 #include <iostream>
+#include <limits>
 
 #include "vfs.hpp"
 #include "exec.hpp"
@@ -93,15 +94,28 @@ loadElfImage(SharedFilePtr file, VmContext *vmContext, uintptr_t base) {
 		auto phdr = (Elf64_Phdr *)(phdrBuffer.data() + i * ehdr.e_phentsize);
 
 		if(phdr->p_type == PT_LOAD) {
+			// The ELF gABI requires the file image of a loadable segment to
+			// fit in its memory image ("Program Header", PT_LOAD).
+			if(phdr->p_filesz > phdr->p_memsz)
+				co_return Error::badExecutable;
 			if(!phdr->p_memsz) // Skip empty segments.
 				continue;
 
+			size_t misalign = phdr->p_vaddr & (kPageSize - 1);
+			constexpr auto maxSize = std::numeric_limits<size_t>::max();
+			if(phdr->p_memsz > maxSize - misalign
+					|| phdr->p_memsz + misalign > maxSize - (kPageSize - 1))
+				co_return Error::badExecutable;
+
+			size_t segmentSize = static_cast<size_t>(phdr->p_memsz) + misalign;
+			size_t mapLength = (segmentSize + kPageSize - 1) & ~(kPageSize - 1);
+			if(mapLength < misalign || phdr->p_filesz > mapLength - misalign)
+				co_return Error::badExecutable;
+
 			bool properlyAligned = phdr->p_offset % phdr->p_align == phdr->p_vaddr % phdr->p_align;
 
-			size_t misalign = phdr->p_vaddr & (kPageSize - 1);
 			uintptr_t mapAddress = base + phdr->p_vaddr - misalign;
 			uintptr_t fileOffset = phdr->p_offset - misalign;
-			size_t mapLength = (phdr->p_memsz + misalign + kPageSize - 1) & ~(kPageSize - 1);
 
 			if(!properlyAligned) {
 				std::cout << "posix: ELF file with differently misaligned p_offset and p_vaddr."
@@ -153,10 +167,11 @@ loadElfImage(SharedFilePtr file, VmContext *vmContext, uintptr_t base) {
 				}
 
 				// Read the segment contents from the file.
+				size_t fileSize = static_cast<size_t>(phdr->p_filesz);
 				memset(window, 0, mapLength);
 				FRG_CO_TRY(co_await file->seek(phdr->p_offset, VfsSeek::absolute));
 				FRG_CO_TRY(co_await file->readExactly(nullptr,
-						(char *)window + misalign, phdr->p_filesz));
+						(char *)window + misalign, fileSize));
 				HEL_CHECK(helUnmapMemory(kHelNullHandle, window, mapLength));
 			}
 		}else if(phdr->p_type == PT_PHDR) {
