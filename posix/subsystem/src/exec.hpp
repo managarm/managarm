@@ -2,6 +2,8 @@
 
 #include "process.hpp"
 
+constexpr size_t kExecStackSize = 0x200000;
+
 struct ExecuteResult {
 	helix::UniqueDescriptor thread;
 	void *auxBegin = nullptr;
