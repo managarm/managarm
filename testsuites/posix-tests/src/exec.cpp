@@ -14,7 +14,8 @@
 namespace {
 
 void expectExecError(uint64_t filesz, uint64_t memsz, uint64_t align,
-		const char *interpreter, int expectedError) {
+		const char *interpreter, int expectedError, bool validMagic = true,
+		uint16_t type = ET_EXEC) {
 	uint16_t machine;
 #if defined(__x86_64__)
 	machine = EM_X86_64;
@@ -38,14 +39,15 @@ void expectExecError(uint64_t filesz, uint64_t memsz, uint64_t align,
 	std::vector<char> image(fileSize);
 
 	Elf64_Ehdr ehdr{};
-	ehdr.e_ident[EI_MAG0] = ELFMAG0;
+	if(validMagic)
+		ehdr.e_ident[EI_MAG0] = ELFMAG0;
 	ehdr.e_ident[EI_MAG1] = ELFMAG1;
 	ehdr.e_ident[EI_MAG2] = ELFMAG2;
 	ehdr.e_ident[EI_MAG3] = ELFMAG3;
 	ehdr.e_ident[EI_CLASS] = ELFCLASS64;
 	ehdr.e_ident[EI_DATA] = ELFDATA2LSB;
 	ehdr.e_ident[EI_VERSION] = EV_CURRENT;
-	ehdr.e_type = ET_EXEC;
+	ehdr.e_type = type;
 	ehdr.e_machine = machine;
 	ehdr.e_version = EV_CURRENT;
 	ehdr.e_phoff = sizeof(Elf64_Ehdr);
@@ -131,4 +133,12 @@ DEFINE_TEST(exec_rejects_non_power_of_two_load_alignment, ([] {
 #else
 	expectExecError(1, 1, 3, nullptr, ENOEXEC);
 #endif
+}))
+
+DEFINE_TEST(exec_rejects_invalid_elf_magic, ([] {
+	expectExecError(0, 0, 0, nullptr, ENOEXEC, false);
+}))
+
+DEFINE_TEST(exec_rejects_invalid_elf_type, ([] {
+	expectExecError(0, 0, 0, nullptr, ENOEXEC, true, ET_NONE);
 }))
