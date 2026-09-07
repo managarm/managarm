@@ -1,4 +1,5 @@
 #include <elf.h>
+#include <array>
 #include <bit>
 #include <stddef.h>
 #include <stdint.h>
@@ -6,6 +7,7 @@
 #include <sys/auxv.h>
 #include <iostream>
 #include <limits>
+#include <span>
 
 #include "vfs.hpp"
 #include "exec.hpp"
@@ -182,13 +184,12 @@ loadElfImage(SharedFilePtr file, const ValidatedElf &elf,
 	co_return info;
 }
 
-template<typename T, size_t N>
-void *copyArrayToStack(void *window, size_t &d, const T (&value)[N]) {
-	assert(d >= alignof(T) + sizeof(T) * N);
-	d -= sizeof(T) * N;
-	d -= d & (alignof(T) - 1);
+void *copyWordsToStack(void *window, size_t &d, std::span<const uintptr_t> value) {
+	assert(d >= alignof(uintptr_t) + sizeof(uintptr_t) * value.size());
+	d -= sizeof(uintptr_t) * value.size();
+	d -= d & (alignof(uintptr_t) - 1);
 	void *ptr = (char *)window + d;
-	memcpy(ptr, &value, sizeof(T) * N);
+	memcpy(ptr, value.data(), sizeof(uintptr_t) * value.size());
 	return ptr;
 }
 
@@ -294,24 +295,99 @@ execute(ViewPath root, ViewPath workdir,
 	uid_t newUid = hasSetuid ? stats.uid : self->threadGroup()->euid();
 	gid_t newGid = hasSetgid ? stats.gid : self->threadGroup()->egid();
 
-	constexpr size_t stackSize = 0x200000;
+	auto makeAuxv = [&] (uintptr_t execfn) {
+		return std::to_array<uintptr_t>({
+			AT_ENTRY,
+			uintptr_t(execInfo.entryIp),
+			AT_PHDR,
+			uintptr_t(execInfo.phdrPtr),
+			AT_PHENT,
+			execInfo.phdrEntrySize,
+			AT_PHNUM,
+			execInfo.phdrCount,
+			AT_EXECFN,
+			execfn,
+			AT_SECURE,
+			hasSetuid || hasSetgid,
+			AT_BASE,
+			ldsoBaseAddress,
+			AT_PAGESZ,
+			kPageSize,
+			AT_NULL,
+			0
+		});
+	};
+	// The AT_EXECFN address is not known until its string is placed on the stack.
+	auto auxv = makeAuxv(0);
+
+	size_t stackImageSize = 0;
+	constexpr auto maxSize = std::numeric_limits<size_t>::max();
+	auto addStackSize = [&] (size_t size) {
+		if(size > maxSize - stackImageSize)
+			return false;
+		stackImageSize += size;
+		return true;
+	};
+	auto addStringSize = [&] (const std::string &str) {
+		if(str.size() == maxSize)
+			return false;
+		return addStackSize(str.size() + 1);
+	};
+
+	if(!addStringSize(path))
+		co_return Error::argumentListTooLong;
+	for(const auto &str : args) {
+		if(!addStringSize(str))
+			co_return Error::argumentListTooLong;
+	}
+	for(const auto &str : env) {
+		if(!addStringSize(str))
+			co_return Error::argumentListTooLong;
+	}
+
+	// Account for string alignment and argv/envp words.
+	if(!addStackSize(alignof(uintptr_t)))
+		co_return Error::argumentListTooLong;
+	if(!addStackSize(15))
+		co_return Error::argumentListTooLong;
+
+	// argc, the argv terminator and the envp terminator.
+	size_t wordCount = 3;
+	if(args.size() > maxSize - wordCount)
+		co_return Error::argumentListTooLong;
+	wordCount += args.size();
+	if(env.size() > maxSize - wordCount)
+		co_return Error::argumentListTooLong;
+	wordCount += env.size();
+	// Include a padding word to preserve 16-byte stack alignment.
+	if(wordCount & 1) {
+		if(wordCount == maxSize)
+			co_return Error::argumentListTooLong;
+		wordCount++;
+	}
+	if(wordCount > maxSize / sizeof(uintptr_t)
+			|| auxv.size() > maxSize / sizeof(uintptr_t)
+			|| !addStackSize(wordCount * sizeof(uintptr_t))
+			|| !addStackSize(auxv.size() * sizeof(uintptr_t))
+			|| stackImageSize > kExecStackSize)
+		co_return Error::argumentListTooLong;
 
 	// Allocate memory for the stack.
 	HelHandle stackHandle;
-	HEL_CHECK(helAllocateMemory(vmContext->getHierarchy().getHandle(), stackSize, kHelAllocOnDemand,
-			nullptr, &stackHandle));
+	HEL_CHECK(helAllocateMemory(vmContext->getHierarchy().getHandle(), kExecStackSize,
+			kHelAllocOnDemand, nullptr, &stackHandle));
 
 	void *window;
 	HEL_CHECK(helMapMemory(stackHandle, kHelNullHandle, nullptr,
-			0, stackSize, kHelMapProtRead | kHelMapProtWrite, &window));
+			0, kExecStackSize, kHelMapProtRead | kHelMapProtWrite, &window));
 
 	// Map the stack into the new process and set it up.
 	void *stackBase = FRG_CO_TRY(co_await vmContext->mapFile(0,
 			helix::UniqueDescriptor{stackHandle}, nullptr,
-			0, stackSize, true, kHelMapProtRead | kHelMapProtWrite));
+			0, kExecStackSize, true, kHelMapProtRead | kHelMapProtWrite));
 
 	// the offset at which the stack image starts.
-	size_t d = stackSize;
+	size_t d = kExecStackSize;
 
 	// Copy argument and environment strings to the stack.
 	auto pushString = [&] (const std::string &str) -> uintptr_t {
@@ -321,6 +397,7 @@ execute(ViewPath root, ViewPath workdir,
 	};
 
 	auto execfn = pushString(path);
+	auxv = makeAuxv(execfn);
 	std::vector<uintptr_t> argsPtrs;
 	for(const auto &str : args)
 		argsPtrs.push_back(pushString(str));
@@ -345,26 +422,7 @@ execute(ViewPath root, ViewPath workdir,
 		pushWord(0);
 
 	void *auxEnd = reinterpret_cast<std::byte *>(stackBase) + d;
-	copyArrayToStack(window, d, (uintptr_t[]){
-		AT_ENTRY,
-		uintptr_t(execInfo.entryIp),
-		AT_PHDR,
-		uintptr_t(execInfo.phdrPtr),
-		AT_PHENT,
-		execInfo.phdrEntrySize,
-		AT_PHNUM,
-		execInfo.phdrCount,
-		AT_EXECFN,
-		execfn,
-		AT_SECURE,
-		hasSetuid || hasSetgid,
-		AT_BASE,
-		ldsoBaseAddress,
-		AT_PAGESZ,
-		0x1000,
-		AT_NULL,
-		0
-	});
+	copyWordsToStack(window, d, auxv);
 	void *auxBegin = reinterpret_cast<std::byte *>(stackBase) + d;
 
 	// Push the environment pointers and arguments.
@@ -380,7 +438,7 @@ execute(ViewPath root, ViewPath workdir,
 	// Stack has to be aligned at entry.
 	assert(!(d & size_t(15)));
 
-	HEL_CHECK(helUnmapMemory(kHelNullHandle, window, stackSize));
+	HEL_CHECK(helUnmapMemory(kHelNullHandle, window, kExecStackSize));
 
 	HelHandle thread;
 	HEL_CHECK(helCreateThread(universe.getHandle(),
