@@ -4,6 +4,7 @@
 #include <string.h>
 #include <sys/auxv.h>
 #include <iostream>
+#include <limits>
 
 #include "vfs.hpp"
 #include "exec.hpp"
@@ -93,25 +94,32 @@ loadElfImage(SharedFilePtr file, VmContext *vmContext, uintptr_t base) {
 		auto phdr = (Elf64_Phdr *)(phdrBuffer.data() + i * ehdr.e_phentsize);
 
 		if(phdr->p_type == PT_LOAD) {
+			// The ELF gABI requires the file image of a loadable segment to
+			// fit in its memory image ("Program Header", PT_LOAD).
+			if(phdr->p_filesz > phdr->p_memsz)
+				co_return Error::badExecutable;
 			if(!phdr->p_memsz) // Skip empty segments.
 				continue;
 
 			// Segments are mapped page-wise, so p_offset and p_vaddr must agree within a page.
 			bool properlyAligned = (phdr->p_offset & (kPageSize - 1)) == (phdr->p_vaddr & (kPageSize - 1));
-
 			size_t misalign = phdr->p_vaddr & (kPageSize - 1);
+			constexpr auto maxSize = std::numeric_limits<size_t>::max();
+			if(phdr->p_memsz > maxSize - misalign
+					|| phdr->p_memsz + misalign > maxSize - (kPageSize - 1))
+				co_return Error::badExecutable;
+
+			size_t segmentSize = static_cast<size_t>(phdr->p_memsz) + misalign;
+			size_t mapLength = (segmentSize + kPageSize - 1) & ~(kPageSize - 1);
+			if(mapLength < misalign || phdr->p_filesz > mapLength - misalign)
+				co_return Error::badExecutable;
+
 			uintptr_t mapAddress = base + phdr->p_vaddr - misalign;
 			uintptr_t fileOffset = phdr->p_offset - misalign;
-			size_t mapLength = (phdr->p_memsz + misalign + kPageSize - 1) & ~(kPageSize - 1);
 
 			if(!properlyAligned) {
 				std::cout << "posix: ELF file with differently misaligned p_offset and p_vaddr."
 						<< std::endl;
-				co_return Error::badExecutable;
-			}
-
-			if(phdr->p_filesz > phdr->p_memsz) {
-				std::cout << "posix: ELF segment with p_filesz larger than p_memsz" << std::endl;
 				co_return Error::badExecutable;
 			}
 
