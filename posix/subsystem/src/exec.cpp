@@ -1,4 +1,5 @@
 #include <elf.h>
+#include <bit>
 #include <stddef.h>
 #include <stdint.h>
 #include <string.h>
@@ -114,6 +115,13 @@ loadElfImage(SharedFilePtr file, VmContext *vmContext, uintptr_t base) {
 			if(mapLength < misalign || phdr->p_filesz > mapLength - misalign)
 				co_return Error::badExecutable;
 
+			// The ELF gABI specifies that p_align is either 0/1 or a positive
+			// integral power of two ("Program Header", p_align).
+			if(phdr->p_align > 1) {
+				if(!std::has_single_bit(phdr->p_align)
+						|| phdr->p_offset % phdr->p_align != phdr->p_vaddr % phdr->p_align)
+					co_return Error::badExecutable;
+			}
 			uintptr_t mapAddress = base + phdr->p_vaddr - misalign;
 			uintptr_t fileOffset = phdr->p_offset - misalign;
 
