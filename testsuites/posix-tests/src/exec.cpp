@@ -142,3 +142,28 @@ DEFINE_TEST(exec_rejects_invalid_elf_magic, ([] {
 DEFINE_TEST(exec_rejects_invalid_elf_type, ([] {
 	expectExecError(0, 0, 0, nullptr, ENOEXEC, true, ET_NONE);
 }))
+
+DEFINE_TEST(exec_rejects_oversized_argument_list, ([] {
+	std::vector<char> argument(0x200000, 'x');
+	argument.back() = '\0';
+
+	pid_t pid = fork();
+	assert_errno("fork", pid >= 0);
+	if(!pid) {
+		char *const args[] = {
+			const_cast<char *>("/proc/self/exe"), argument.data(), nullptr
+		};
+		execve(args[0], args, nullptr);
+		int error = errno;
+		_exit(error == E2BIG ? EXIT_SUCCESS : EXIT_FAILURE);
+	}
+
+	int status = 0;
+	while(waitpid(pid, &status, 0) == -1) {
+		if(errno == EINTR)
+			continue;
+		assert_errno("waitpid", false);
+	}
+	assert(WIFEXITED(status));
+	assert(WEXITSTATUS(status) == EXIT_SUCCESS);
+}))
