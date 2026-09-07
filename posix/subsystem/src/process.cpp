@@ -1982,12 +1982,10 @@ async::result<Error> Process::exec(std::shared_ptr<Process> process,
 	process->_fileContext->closeOnExec();
 
 	// "Commit" the exec() operation.
-	size_t pos = path.rfind('/');
-	assert(pos != std::string::npos);
 	{
 		std::lock_guard lock{process->taskMutex_};
-		process->_name = path.substr(pos + 1);
-		process->_path = std::move(path);
+		process->_path = std::move(execResult.executablePath);
+		process->_name = std::move(execResult.processName);
 	}
 	process->_posixLane = std::move(server_lane);
 	{

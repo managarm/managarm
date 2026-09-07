@@ -397,6 +397,7 @@ execute(ViewPath root, ViewPath workdir,
 		std::shared_ptr<VmContext> vmContext, helix::BorrowedDescriptor universe,
 		HelHandle mbusHandle, Process *self) {
 	(void) mbusHandle;
+	std::string processName = path.substr(path.rfind('/') + 1);
 
 	auto execFile = FRG_CO_TRY(co_await open(root, workdir, path, self));
 	assert(execFile); // If open() succeeds, it must return a non-null file.
@@ -649,6 +650,8 @@ execute(ViewPath root, ViewPath workdir,
 
 	co_return ExecuteResult{
 		.thread = helix::UniqueDescriptor{thread},
+		.executablePath = ViewPath{execFile->associatedMount(), execFile->associatedLink()}.getPath(root),
+		.processName = std::move(processName),
 		.auxBegin = auxBegin,
 		.auxEnd = auxEnd,
 		.effectiveUid = newUid,
