@@ -14,10 +14,9 @@
 constexpr size_t kPageSize = 0x1000;
 constexpr uintptr_t ldsoBaseAddress = 0x40000000;
 
-// This struct is parsed before knowing the type of executable (PIE vs. non-PIE)
-// and also before knowing the ELF's base address.
-struct ImagePreamble {
-	bool isPie = false;
+struct ValidatedElf {
+	Elf64_Ehdr header;
+	std::vector<Elf64_Phdr> phdrs;
 };
 
 // This struct contains the image meta data with correct base address applied.
@@ -32,102 +31,88 @@ struct ImageInfo {
 	std::string interpreter;
 };
 
-async::result<frg::expected<Error, ImagePreamble>>
-parseElfPreamble(SharedFilePtr file) {
-	ImagePreamble preamble;
+async::result<frg::expected<Error, ValidatedElf>>
+parseElf(SharedFilePtr file) {
+	ValidatedElf elf;
 
 	// Read the elf file header and verify the signature.
-	Elf64_Ehdr ehdr;
 	FRG_CO_TRY(co_await file->seek(0, VfsSeek::absolute));
-	FRG_CO_TRY(co_await file->readExactly(nullptr, &ehdr, sizeof(Elf64_Ehdr)));
+	FRG_CO_TRY(co_await file->readExactly(nullptr, &elf.header, sizeof(Elf64_Ehdr)));
 
-	if(!(ehdr.e_ident[0] == 0x7F
-			&& ehdr.e_ident[1] == 'E'
-			&& ehdr.e_ident[2] == 'L'
-			&& ehdr.e_ident[3] == 'F'))
+	if(!(elf.header.e_ident[0] == 0x7F
+			&& elf.header.e_ident[1] == 'E'
+			&& elf.header.e_ident[2] == 'L'
+			&& elf.header.e_ident[3] == 'F'))
 		co_return Error::badExecutable;
-	if(ehdr.e_type != ET_EXEC && ehdr.e_type != ET_DYN)
+	if(elf.header.e_type != ET_EXEC && elf.header.e_type != ET_DYN)
 		co_return Error::badExecutable;
 
-	// Right now we treat every ET_DYN object as PIE and unconditionally apply
-	// a non-zero base address.
-	if(ehdr.e_type == ET_DYN)
-		preamble.isPie = true;
+	// Read the elf program headers.
+	std::vector<char> phdrBuffer;
+	phdrBuffer.resize(elf.header.e_phnum * elf.header.e_phentsize);
+	FRG_CO_TRY(co_await file->seek(elf.header.e_phoff, VfsSeek::absolute));
+	FRG_CO_TRY(co_await file->readExactly(nullptr,
+			phdrBuffer.data(), elf.header.e_phnum * size_t(elf.header.e_phentsize)));
 
-	co_return preamble;
+	elf.phdrs.resize(elf.header.e_phnum);
+	for(size_t i = 0; i < elf.phdrs.size(); i++)
+		memcpy(&elf.phdrs[i], phdrBuffer.data() + i * elf.header.e_phentsize,
+				sizeof(Elf64_Phdr));
+
+	co_return elf;
 }
 
 async::result<frg::expected<Error, ImageInfo>>
-loadElfImage(SharedFilePtr file, VmContext *vmContext, uintptr_t base) {
+loadElfImage(SharedFilePtr file, const ValidatedElf &elf,
+		VmContext *vmContext, uintptr_t base) {
 	assert(!(base & (kPageSize - 1))); // Callers need to ensure this.
 	ImageInfo info;
 
 	// Get a handle to the file's memory.
 	auto fileMemory = co_await file->accessMemory();
-
-	// Read the elf file header and verify the signature.
-	Elf64_Ehdr ehdr;
-	FRG_CO_TRY(co_await file->seek(0, VfsSeek::absolute));
-	FRG_CO_TRY(co_await file->readExactly(nullptr, &ehdr, sizeof(Elf64_Ehdr)));
-
-	// Verify the ELF file again, since loadElfPreamble() is not necessarily called
-	// on every object that we load.
-	if(!(ehdr.e_ident[0] == 0x7F
-			&& ehdr.e_ident[1] == 'E'
-			&& ehdr.e_ident[2] == 'L'
-			&& ehdr.e_ident[3] == 'F'))
-		co_return Error::badExecutable;
-	if(ehdr.e_type != ET_EXEC && ehdr.e_type != ET_DYN)
-		co_return Error::badExecutable;
+	const auto &ehdr = elf.header;
 
 	info.entryIp = (char *)base + ehdr.e_entry;
 	info.phdrEntrySize = ehdr.e_phentsize;
 	info.phdrCount = ehdr.e_phnum;
 
-	// Read the elf program headers and load them into the address space.
-	std::vector<char> phdrBuffer;
-	phdrBuffer.resize(ehdr.e_phnum * ehdr.e_phentsize);
-	FRG_CO_TRY(co_await file->seek(ehdr.e_phoff, VfsSeek::absolute));
-	FRG_CO_TRY(co_await file->readExactly(nullptr,
-			phdrBuffer.data(), ehdr.e_phnum * size_t(ehdr.e_phentsize)));
+	// Load the parsed program headers into the address space.
+	for(const auto &phdr : elf.phdrs) {
 
-	for(int i = 0; i < ehdr.e_phnum; i++) {
-		auto phdr = (Elf64_Phdr *)(phdrBuffer.data() + i * ehdr.e_phentsize);
-
-		if(phdr->p_type == PT_LOAD) {
+		if(phdr.p_type == PT_LOAD) {
 			// The ELF gABI requires the file image of a loadable segment to
 			// fit in its memory image ("Program Header", PT_LOAD).
-			if(phdr->p_filesz > phdr->p_memsz)
+			if(phdr.p_filesz > phdr.p_memsz)
 				co_return Error::badExecutable;
-			if(!phdr->p_memsz) // Skip empty segments.
+			if(!phdr.p_memsz) // Skip empty segments.
 				continue;
 
-			size_t misalign = phdr->p_vaddr & (kPageSize - 1);
+			size_t misalign = phdr.p_vaddr & (kPageSize - 1);
 			constexpr auto maxSize = std::numeric_limits<size_t>::max();
-			if(phdr->p_memsz > maxSize - misalign
-					|| phdr->p_memsz + misalign > maxSize - (kPageSize - 1))
+			if(phdr.p_memsz > maxSize - misalign
+					|| phdr.p_memsz + misalign > maxSize - (kPageSize - 1))
 				co_return Error::badExecutable;
 
-			size_t segmentSize = static_cast<size_t>(phdr->p_memsz) + misalign;
+			size_t segmentSize = static_cast<size_t>(phdr.p_memsz) + misalign;
 			size_t mapLength = (segmentSize + kPageSize - 1) & ~(kPageSize - 1);
-			if(mapLength < misalign || phdr->p_filesz > mapLength - misalign)
+			if(mapLength < misalign || phdr.p_filesz > mapLength - misalign)
 				co_return Error::badExecutable;
 
 			// The ELF gABI specifies that p_align is either 0/1 or a positive
 			// integral power of two ("Program Header", p_align).
-			if(phdr->p_align > 1) {
-				if(!std::has_single_bit(phdr->p_align)
-						|| phdr->p_offset % phdr->p_align != phdr->p_vaddr % phdr->p_align)
+			if(phdr.p_align > 1) {
+				if(!std::has_single_bit(phdr.p_align)
+						|| phdr.p_offset % phdr.p_align != phdr.p_vaddr % phdr.p_align)
 					co_return Error::badExecutable;
 			}
 
-			uintptr_t mapAddress = base + phdr->p_vaddr - misalign;
-			uintptr_t fileOffset = phdr->p_offset - misalign;
+			uintptr_t mapAddress = base + phdr.p_vaddr - misalign;
+			uintptr_t fileOffset = phdr.p_offset - misalign;
 
 			// Check if we can share the segment.
-			if(!(phdr->p_flags & PF_W)) {
+			if(!(phdr.p_flags & PF_W)) {
 				// Map the segment with correct permissions into the process.
-				if((phdr->p_flags & (PF_R | PF_W | PF_X)) == (PF_R | PF_X)) {
+				if((phdr.p_flags & (PF_R | PF_W | PF_X)) == (PF_R | PF_X)) {
 					HEL_CHECK(helLoadahead(fileMemory.getHandle(), fileOffset, mapLength));
 
 					FRG_CO_TRY(co_await vmContext->mapFile(mapAddress,
@@ -135,7 +120,7 @@ loadElfImage(SharedFilePtr file, VmContext *vmContext, uintptr_t base) {
 							fileOffset, mapLength, true,
 							kHelMapProtRead | kHelMapProtExecute));
 				// Allow read only mappings too, ICU loves those.
-				}else if((phdr->p_flags & (PF_R | PF_W | PF_X)) == (PF_R)) {
+				}else if((phdr.p_flags & (PF_R | PF_W | PF_X)) == (PF_R)) {
 					HEL_CHECK(helLoadahead(fileMemory.getHandle(), fileOffset, mapLength));
 
 					FRG_CO_TRY(co_await vmContext->mapFile(mapAddress,
@@ -157,7 +142,7 @@ loadElfImage(SharedFilePtr file, VmContext *vmContext, uintptr_t base) {
 						0, mapLength, kHelMapProtRead | kHelMapProtWrite, &window));
 
 				// Map the segment with correct permissions into the process.
-				if((phdr->p_flags & (PF_R | PF_W | PF_X)) == (PF_R | PF_W)) {
+				if((phdr.p_flags & (PF_R | PF_W | PF_X)) == (PF_R | PF_W)) {
 					FRG_CO_TRY(co_await vmContext->mapFile(mapAddress,
 							helix::UniqueDescriptor{segmentHandle}, file,
 							0, mapLength, true,
@@ -168,29 +153,29 @@ loadElfImage(SharedFilePtr file, VmContext *vmContext, uintptr_t base) {
 				}
 
 				// Read the segment contents from the file.
-				size_t fileSize = static_cast<size_t>(phdr->p_filesz);
+				size_t fileSize = static_cast<size_t>(phdr.p_filesz);
 				memset(window, 0, mapLength);
-				FRG_CO_TRY(co_await file->seek(phdr->p_offset, VfsSeek::absolute));
+				FRG_CO_TRY(co_await file->seek(phdr.p_offset, VfsSeek::absolute));
 				FRG_CO_TRY(co_await file->readExactly(nullptr,
 						(char *)window + misalign, fileSize));
 				HEL_CHECK(helUnmapMemory(kHelNullHandle, window, mapLength));
 			}
-		}else if(phdr->p_type == PT_PHDR) {
-			info.phdrPtr = (char *)base + phdr->p_vaddr;
-		}else if(phdr->p_type == PT_INTERP) {
-			info.interpreter.resize(phdr->p_filesz);
-			FRG_CO_TRY(co_await file->seek(phdr->p_offset, VfsSeek::absolute));
+		}else if(phdr.p_type == PT_PHDR) {
+			info.phdrPtr = (char *)base + phdr.p_vaddr;
+		}else if(phdr.p_type == PT_INTERP) {
+			info.interpreter.resize(phdr.p_filesz);
+			FRG_CO_TRY(co_await file->seek(phdr.p_offset, VfsSeek::absolute));
 			FRG_CO_TRY(co_await file->readExactly(nullptr,
-					info.interpreter.data(), phdr->p_filesz));
+					info.interpreter.data(), phdr.p_filesz));
 			if(size_t n = info.interpreter.find('\0'); n != size_t(-1))
 				info.interpreter.resize(n);
-		}else if(phdr->p_type == PT_DYNAMIC || phdr->p_type == PT_TLS
-				|| phdr->p_type == PT_GNU_EH_FRAME || phdr->p_type == PT_GNU_STACK
-				|| phdr->p_type == PT_GNU_RELRO || phdr->p_type == PT_NOTE) {
+		}else if(phdr.p_type == PT_DYNAMIC || phdr.p_type == PT_TLS
+				|| phdr.p_type == PT_GNU_EH_FRAME || phdr.p_type == PT_GNU_STACK
+				|| phdr.p_type == PT_GNU_RELRO || phdr.p_type == PT_NOTE) {
 			// Ignore this PHDR here.
 		}else{
 			// Ignore unknown PHDRs.
-			std::cout << "posix: Unexpected PHDR type " << phdr->p_type << std::endl;
+			std::cout << "posix: Unexpected PHDR type " << phdr.p_type << std::endl;
 		}
 	}
 
@@ -280,19 +265,23 @@ execute(ViewPath root, ViewPath workdir,
 		nRecursions++;
 	}
 
-	auto execPreamble = FRG_CO_TRY(co_await parseElfPreamble(execFile));
+	auto execElf = FRG_CO_TRY(co_await parseElf(execFile));
 	ImageInfo execInfo;
-	if(execPreamble.isPie) {
+	if(execElf.header.e_type == ET_DYN) {
 		// Unconditionally apply a non-zero base address to PIE objects.
-		execInfo = FRG_CO_TRY(co_await loadElfImage(execFile, vmContext.get(), 0x200000));
+		execInfo = FRG_CO_TRY(co_await loadElfImage(execFile, execElf,
+				vmContext.get(), 0x200000));
 	}else{
-		execInfo = FRG_CO_TRY(co_await loadElfImage(execFile, vmContext.get(), 0));
+		execInfo = FRG_CO_TRY(co_await loadElfImage(execFile, execElf,
+				vmContext.get(), 0));
 	}
 
 	// TODO: Should we really look up the dynamic linker in the current working dir?
 	auto ldsoFile = FRG_CO_TRY(co_await open(root, workdir, execInfo.interpreter, self));
 	assert(ldsoFile); // If open() succeeds, it must return a non-null file.
-	auto ldsoInfo = FRG_CO_TRY(co_await loadElfImage(ldsoFile, vmContext.get(), ldsoBaseAddress));
+	auto ldsoElf = FRG_CO_TRY(co_await parseElf(ldsoFile));
+	auto ldsoInfo = FRG_CO_TRY(co_await loadElfImage(ldsoFile, ldsoElf,
+			vmContext.get(), ldsoBaseAddress));
 
 	auto link = execFile->associatedLink();
 	if(!link) {
