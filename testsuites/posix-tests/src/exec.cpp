@@ -6,6 +6,7 @@
 #include <sys/wait.h>
 #include <unistd.h>
 
+#include <cstdlib>
 #include <cstdint>
 #include <cstring>
 #include <string>
@@ -194,6 +195,78 @@ void setupPhdr(Elf64_Ehdr &ehdr, std::vector<Elf64_Phdr> &phdrs) {
 }
 
 }
+
+DEFINE_TEST(exec_check_setid_saved_ids, ([] {
+	if(!getenv("MANAGARM_EXEC_SETID_CHECK"))
+		skip_test("helper test");
+
+	struct stat executable;
+	assert(stat("/proc/self/exe", &executable) == 0);
+	uid_t realUid;
+	uid_t effectiveUid;
+	uid_t savedUid;
+	assert(getresuid(&realUid, &effectiveUid, &savedUid) == 0);
+	assert(realUid != effectiveUid);
+	assert(effectiveUid == executable.st_uid);
+	assert(savedUid == effectiveUid);
+}))
+
+DEFINE_TEST(exec_sets_saved_ids_from_effective_ids, ([] {
+	uid_t realUid;
+	uid_t effectiveUid;
+	uid_t savedUid;
+	assert(getresuid(&realUid, &effectiveUid, &savedUid) == 0);
+	if(effectiveUid != 0)
+		skip_test("requires effective UID 0");
+
+	struct stat executable;
+	assert(stat("/proc/self/exe", &executable) == 0);
+	const mode_t oldMode = executable.st_mode & 07777;
+	if(chmod("/proc/self/exe", oldMode | S_ISUID) < 0) {
+		if(errno == EACCES || errno == EPERM || errno == EROFS)
+			skip_test("cannot set setuid bit on test executable");
+		assert(false);
+	}
+
+	pid_t pid = fork();
+	assert_errno("fork", pid >= 0);
+	if(!pid) {
+		const uid_t candidates[] = {65534, 65533, 1000, 1001, 1, 2};
+		bool changed = false;
+		for(auto candidate : candidates) {
+			if(candidate == executable.st_uid)
+				continue;
+			if(setresuid(candidate, candidate, candidate) == 0) {
+				changed = true;
+				break;
+			}
+		}
+		if(!changed)
+			_exit(77);
+
+		char *const args[] = {
+			const_cast<char *>("/proc/self/exe"),
+			const_cast<char *>("exec_check_setid_saved_ids"), nullptr
+		};
+		char *const env[] = {
+			const_cast<char *>("MANAGARM_EXEC_SETID_CHECK=1"), nullptr
+		};
+		execve(args[0], args, env);
+		_exit(78);
+	}
+
+	int status = 0;
+	while(waitpid(pid, &status, 0) == -1) {
+		if(errno == EINTR)
+			continue;
+		assert_errno("waitpid", false);
+	}
+	assert(chmod("/proc/self/exe", oldMode) == 0);
+	if(WIFEXITED(status) && WEXITSTATUS(status) == 77)
+		skip_test("no suitable mapped non-root UID");
+	assert(WIFEXITED(status));
+	assert(WEXITSTATUS(status) == EXIT_SUCCESS);
+}))
 
 DEFINE_TEST(exec_rejects_writable_load_with_filesz_larger_than_memsz, ([] {
 #if defined(__linux__)
