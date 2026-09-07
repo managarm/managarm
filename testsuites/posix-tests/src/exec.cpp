@@ -176,6 +176,20 @@ void expectNonShebangError(const char *prefix) {
 	expectTextExecError(contents, sizeof(contents));
 }
 
+void setupPhdr(Elf64_Ehdr &ehdr, std::vector<Elf64_Phdr> &phdrs) {
+	const auto tableSize = phdrs.size() * sizeof(Elf64_Phdr);
+	phdrs[0].p_offset = 0;
+	phdrs[0].p_vaddr = 0;
+	phdrs[0].p_filesz = ehdr.e_phoff + tableSize;
+	phdrs[0].p_memsz = ehdr.e_phoff + tableSize;
+
+	phdrs[2].p_type = PT_PHDR;
+	phdrs[2].p_offset = ehdr.e_phoff;
+	phdrs[2].p_vaddr = ehdr.e_phoff;
+	phdrs[2].p_filesz = tableSize;
+	phdrs[2].p_memsz = tableSize;
+}
+
 }
 
 DEFINE_TEST(exec_rejects_writable_load_with_filesz_larger_than_memsz, ([] {
@@ -207,6 +221,55 @@ DEFINE_TEST(exec_ignores_unused_program_headers, ([] {
 		nullptr, 0, nullptr, 1, [](Elf64_Ehdr &, std::vector<Elf64_Phdr> &phdrs) {
 			phdrs[2].p_offset = UINT64_MAX;
 			phdrs[2].p_filesz = UINT64_MAX;
+		});
+}))
+
+DEFINE_TEST(exec_validates_explicit_pt_phdr, ([] {
+	expectExecError(1, 1, 0, "/does/not/exist", ENOENT, true, ET_EXEC,
+		nullptr, 0, nullptr, 2, setupPhdr);
+	expectExecError(1, 1, 0, "/does/not/exist", ENOEXEC, true, ET_EXEC,
+		nullptr, 0, nullptr, 2, [](Elf64_Ehdr &ehdr, std::vector<Elf64_Phdr> &phdrs) {
+			setupPhdr(ehdr, phdrs);
+			phdrs[2].p_offset++;
+		});
+	expectExecError(1, 1, 0, "/does/not/exist", ENOEXEC, true, ET_EXEC,
+		nullptr, 0, nullptr, 2, [](Elf64_Ehdr &ehdr, std::vector<Elf64_Phdr> &phdrs) {
+			setupPhdr(ehdr, phdrs);
+			phdrs[2].p_filesz--;
+		});
+	expectExecError(1, 1, 0, "/does/not/exist", ENOEXEC, true, ET_EXEC,
+		nullptr, 0, nullptr, 2, [](Elf64_Ehdr &ehdr, std::vector<Elf64_Phdr> &phdrs) {
+			setupPhdr(ehdr, phdrs);
+			phdrs[2].p_vaddr++;
+		});
+	expectExecError(1, 1, 0, "/does/not/exist", ENOEXEC, true, ET_EXEC,
+		nullptr, 0, nullptr, 2, [](Elf64_Ehdr &ehdr, std::vector<Elf64_Phdr> &phdrs) {
+			setupPhdr(ehdr, phdrs);
+			phdrs[3] = phdrs[2];
+		});
+}))
+
+DEFINE_TEST(exec_rejects_ambiguous_pt_phdr_loads, ([] {
+	expectExecError(1, 1, 0, "/does/not/exist", ENOEXEC, true, ET_EXEC,
+		nullptr, 0, nullptr, 2, [](Elf64_Ehdr &ehdr, std::vector<Elf64_Phdr> &phdrs) {
+			const auto tableSize = phdrs.size() * sizeof(Elf64_Phdr);
+			phdrs[0].p_offset = 0;
+			phdrs[0].p_vaddr = 0;
+			phdrs[0].p_filesz = ehdr.e_phoff + tableSize;
+			phdrs[0].p_memsz = ehdr.e_phoff + tableSize;
+
+			phdrs[2].p_type = PT_LOAD;
+			phdrs[2].p_flags = PF_R | PF_W;
+			phdrs[2].p_offset = 0;
+			phdrs[2].p_vaddr = 0x2000;
+			phdrs[2].p_filesz = ehdr.e_phoff + tableSize;
+			phdrs[2].p_memsz = ehdr.e_phoff + tableSize;
+
+			phdrs[3].p_type = PT_PHDR;
+			phdrs[3].p_offset = ehdr.e_phoff;
+			phdrs[3].p_vaddr = 0x2000 + ehdr.e_phoff;
+			phdrs[3].p_filesz = tableSize;
+			phdrs[3].p_memsz = tableSize;
 		});
 }))
 
