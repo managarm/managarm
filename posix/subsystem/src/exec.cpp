@@ -1,4 +1,5 @@
 #include <elf.h>
+#include <algorithm>
 #include <array>
 #include <bit>
 #include <stddef.h>
@@ -19,6 +20,7 @@ constexpr uintptr_t ldsoBaseAddress = 0x40000000;
 // loader does not implement.
 constexpr size_t kMaxProgramHeaders = 1024;
 constexpr size_t kMaxInterpreterSize = 4096;
+constexpr size_t kMaxShebangSize = 128;
 
 #if defined(__x86_64__)
 constexpr uint16_t kElfMachine = EM_X86_64;
@@ -354,13 +356,15 @@ execute(ViewPath root, ViewPath workdir,
 
 		std::string shebangStr;
 		while(true) {
-			if(shebangStr.size() > 128) {
+			if(shebangStr.size() >= kMaxShebangSize) {
 				std::cout << "posix: Shebang line of excessive length" << std::endl;
 				co_return Error::badExecutable;
 			}
 
 			char buffer[128];
-			auto readResult = co_await execFile->readSome(nullptr, buffer, 128, {});
+			// TODO: Loop until EOF or the requested size is read.
+			auto readResult = co_await execFile->readSome(nullptr, buffer,
+					std::min(sizeof(buffer), kMaxShebangSize - shebangStr.size()), {});
 			if (!readResult.has_value()) {
 				std::cout << "posix: Failed to read executable" << std::endl;
 				co_return Error::badExecutable;
@@ -370,9 +374,9 @@ execute(ViewPath root, ViewPath workdir,
 				std::cout << "posix: EOF in shebang line" << std::endl;
 				co_return Error::badExecutable;
 			}
-			auto nlPtr = std::find(buffer, buffer + 128, '\n');
+			auto nlPtr = std::find(buffer, buffer + chunk, '\n');
 			shebangStr.insert(shebangStr.end(), buffer, nlPtr);
-			if(nlPtr != buffer + 128)
+			if(nlPtr != buffer + chunk)
 				break;
 		}
 
