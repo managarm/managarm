@@ -290,6 +290,11 @@ DEFINE_TEST(exec_limits_shebang_length, ([] {
 #endif
 }))
 
+DEFINE_TEST(exec_rejects_whitespace_only_shebang, ([] {
+	constexpr char contents[] = "#!     \n";
+	expectTextExecError(contents, sizeof(contents) - 1);
+}))
+
 DEFINE_TEST(exec_rejects_invalid_elf_metadata, ([] {
 	expectExecError(1, 1, 0, nullptr, ENOEXEC, true, ET_EXEC,
 		[](Elf64_Ehdr &ehdr, Elf64_Phdr &) {
