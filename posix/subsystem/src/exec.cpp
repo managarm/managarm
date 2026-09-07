@@ -15,16 +15,53 @@
 
 constexpr size_t kPageSize = 0x1000;
 constexpr uintptr_t ldsoBaseAddress = 0x40000000;
+// Extended program-header counts require section-header parsing, which the
+// loader does not implement.
+constexpr size_t kMaxProgramHeaders = 1024;
+constexpr size_t kMaxInterpreterSize = 4096;
+
+#if defined(__x86_64__)
+constexpr uint16_t kElfMachine = EM_X86_64;
+#elif defined(__aarch64__)
+constexpr uint16_t kElfMachine = EM_AARCH64;
+#elif defined(__riscv) && __riscv_xlen == 64
+constexpr uint16_t kElfMachine = EM_RISCV;
+#else
+#error "Unsupported architecture"
+#endif
+
+template<typename T>
+bool checkedAdd(T a, T b, T &result) {
+	if(b > std::numeric_limits<T>::max() - a)
+		return false;
+	result = a + b;
+	return true;
+}
+
+template<typename T>
+bool checkedMultiply(T a, T b, T &result) {
+	if(a && b > std::numeric_limits<T>::max() / a)
+		return false;
+	result = a * b;
+	return true;
+}
+
+struct ValidatedProgramHeader {
+	Elf64_Phdr header;
+	size_t misalign = 0;
+	size_t fileOffset = 0;
+	size_t mapLength = 0;
+};
 
 struct ValidatedElf {
 	Elf64_Ehdr header;
-	std::vector<Elf64_Phdr> phdrs;
+	std::vector<ValidatedProgramHeader> phdrs;
 };
 
 // This struct contains the image meta data with correct base address applied.
 struct ImageInfo {
 	ImageInfo()
-	: entryIp(nullptr) { }
+	: entryIp(nullptr), phdrPtr(nullptr), phdrEntrySize(0), phdrCount(0) { }
 
 	void *entryIp;
 	void *phdrPtr;
@@ -41,25 +78,124 @@ parseElf(SharedFilePtr file) {
 	FRG_CO_TRY(co_await file->seek(0, VfsSeek::absolute));
 	FRG_CO_TRY(co_await file->readExactly(nullptr, &elf.header, sizeof(Elf64_Ehdr)));
 
-	if(!(elf.header.e_ident[0] == 0x7F
+	if(!(elf.header.e_ident[EI_MAG0] == ELFMAG0
 			&& elf.header.e_ident[1] == 'E'
 			&& elf.header.e_ident[2] == 'L'
-			&& elf.header.e_ident[3] == 'F'))
+			&& elf.header.e_ident[EI_MAG3] == ELFMAG3
+			&& elf.header.e_ident[EI_CLASS] == ELFCLASS64
+			&& elf.header.e_ident[EI_DATA] == ELFDATA2LSB
+			&& elf.header.e_ident[EI_VERSION] == EV_CURRENT
+			&& elf.header.e_version == EV_CURRENT
+			&& elf.header.e_machine == kElfMachine
+			&& elf.header.e_ehsize == sizeof(Elf64_Ehdr)
+			&& elf.header.e_phentsize == sizeof(Elf64_Phdr)))
 		co_return Error::badExecutable;
+
 	if(elf.header.e_type != ET_EXEC && elf.header.e_type != ET_DYN)
 		co_return Error::badExecutable;
 
+	if(!elf.header.e_phnum || elf.header.e_phnum == PN_XNUM
+			|| elf.header.e_phnum > kMaxProgramHeaders)
+		co_return Error::badExecutable;
+
+	auto link = file->associatedLink();
+	if(!link)
+		co_return Error::badExecutable;
+
+	auto stats = FRG_CO_TRY(co_await link->getTarget()->getStats());
+	uint64_t fileSize = stats.fileSize;
+
 	// Read the elf program headers.
+	constexpr uint64_t maxFileOffset = std::numeric_limits<off_t>::max();
+	uint64_t phdrSize;
+	if(!checkedMultiply(uint64_t(elf.header.e_phnum),
+			uint64_t(elf.header.e_phentsize), phdrSize))
+		co_return Error::badExecutable;
+	if(elf.header.e_phoff > fileSize)
+		co_return Error::badExecutable;
+	if(phdrSize > fileSize - elf.header.e_phoff)
+		co_return Error::badExecutable;
+	if(phdrSize > maxFileOffset - elf.header.e_phoff)
+		co_return Error::badExecutable;
+
 	std::vector<char> phdrBuffer;
-	phdrBuffer.resize(elf.header.e_phnum * elf.header.e_phentsize);
+	phdrBuffer.resize(static_cast<size_t>(phdrSize));
 	FRG_CO_TRY(co_await file->seek(elf.header.e_phoff, VfsSeek::absolute));
 	FRG_CO_TRY(co_await file->readExactly(nullptr,
-			phdrBuffer.data(), elf.header.e_phnum * size_t(elf.header.e_phentsize)));
+			phdrBuffer.data(), phdrBuffer.size()));
 
-	elf.phdrs.resize(elf.header.e_phnum);
-	for(size_t i = 0; i < elf.phdrs.size(); i++)
-		memcpy(&elf.phdrs[i], phdrBuffer.data() + i * elf.header.e_phentsize,
+	bool hasLoadSegment = false;
+	for(size_t i = 0; i < elf.header.e_phnum; i++) {
+		ValidatedProgramHeader validated;
+		memcpy(&validated.header, phdrBuffer.data() + i * sizeof(Elf64_Phdr),
 				sizeof(Elf64_Phdr));
+		auto &phdr = validated.header;
+		if(phdr.p_type == PT_NULL)
+			continue;
+
+		uint64_t fileEnd;
+		if(phdr.p_offset > fileSize
+				|| !checkedAdd(phdr.p_offset, phdr.p_filesz, fileEnd)
+				|| fileEnd > fileSize
+				|| phdr.p_offset > maxFileOffset
+				|| fileEnd > maxFileOffset
+				|| phdr.p_filesz > std::numeric_limits<size_t>::max())
+			co_return Error::badExecutable;
+
+		if(phdr.p_type == PT_LOAD) {
+			if(phdr.p_filesz > phdr.p_memsz)
+				co_return Error::badExecutable;
+
+			if(phdr.p_align > 1
+					&& (!std::has_single_bit(phdr.p_align)
+							|| phdr.p_offset % phdr.p_align != phdr.p_vaddr % phdr.p_align))
+				co_return Error::badExecutable;
+
+			if(!phdr.p_memsz)
+				continue;
+			hasLoadSegment = true;
+
+			if(phdr.p_memsz > std::numeric_limits<uint64_t>::max() - phdr.p_vaddr)
+				co_return Error::badExecutable;
+
+			validated.misalign = phdr.p_vaddr & (kPageSize - 1);
+			if(phdr.p_offset < validated.misalign)
+				co_return Error::badExecutable;
+
+			uint64_t segmentSize;
+			if(!checkedAdd(phdr.p_memsz, uint64_t(validated.misalign), segmentSize)
+					|| segmentSize > std::numeric_limits<uint64_t>::max() - (kPageSize - 1))
+				co_return Error::badExecutable;
+
+			uint64_t mapLength = (segmentSize + kPageSize - 1)
+					& ~(uint64_t(kPageSize) - 1);
+			if(mapLength < validated.misalign
+					|| phdr.p_filesz > mapLength - validated.misalign
+					|| mapLength > std::numeric_limits<size_t>::max()
+					|| mapLength > std::numeric_limits<size_t>::max() - (kPageSize - 1))
+				co_return Error::badExecutable;
+
+			uint64_t fileOffset = phdr.p_offset - validated.misalign;
+			uint64_t mappingEnd;
+			if(!checkedAdd(fileOffset, mapLength, mappingEnd)
+					|| mappingEnd > std::numeric_limits<size_t>::max()
+					|| mappingEnd > uint64_t(std::numeric_limits<intptr_t>::max()))
+				co_return Error::badExecutable;
+
+			validated.fileOffset = static_cast<size_t>(fileOffset);
+			validated.mapLength = static_cast<size_t>(mapLength);
+		}
+
+		if(phdr.p_type == PT_INTERP
+				&& (!phdr.p_filesz || phdr.p_filesz > kMaxInterpreterSize))
+			co_return Error::badExecutable;
+		}
+
+		elf.phdrs.push_back(std::move(validated));
+	}
+
+	if(!hasLoadSegment)
+		co_return Error::badExecutable;
 
 	co_return elf;
 }
@@ -74,42 +210,36 @@ loadElfImage(SharedFilePtr file, const ValidatedElf &elf,
 	auto fileMemory = co_await file->accessMemory();
 	const auto &ehdr = elf.header;
 
-	info.entryIp = (char *)base + ehdr.e_entry;
+	auto addBase = [&] (uint64_t address, uintptr_t &result) {
+		if(address > std::numeric_limits<uintptr_t>::max() - base)
+			return false;
+		result = base + static_cast<uintptr_t>(address);
+		return true;
+	};
+	uintptr_t entryIp;
+	if(!addBase(ehdr.e_entry, entryIp))
+		co_return Error::badExecutable;
+	info.entryIp = reinterpret_cast<void *>(entryIp);
 	info.phdrEntrySize = ehdr.e_phentsize;
 	info.phdrCount = ehdr.e_phnum;
 
 	// Load the parsed program headers into the address space.
-	for(const auto &phdr : elf.phdrs) {
+	for(const auto &validated : elf.phdrs) {
+		const auto &phdr = validated.header;
 
 		if(phdr.p_type == PT_LOAD) {
-			// The ELF gABI requires the file image of a loadable segment to
-			// fit in its memory image ("Program Header", PT_LOAD).
-			if(phdr.p_filesz > phdr.p_memsz)
-				co_return Error::badExecutable;
 			if(!phdr.p_memsz) // Skip empty segments.
 				continue;
 
-			size_t misalign = phdr.p_vaddr & (kPageSize - 1);
-			constexpr auto maxSize = std::numeric_limits<size_t>::max();
-			if(phdr.p_memsz > maxSize - misalign
-					|| phdr.p_memsz + misalign > maxSize - (kPageSize - 1))
+			uintptr_t segmentAddress;
+			if(!addBase(phdr.p_vaddr, segmentAddress)
+					|| segmentAddress < validated.misalign
+					|| validated.mapLength > std::numeric_limits<uintptr_t>::max()
+							- (segmentAddress - validated.misalign))
 				co_return Error::badExecutable;
-
-			size_t segmentSize = static_cast<size_t>(phdr.p_memsz) + misalign;
-			size_t mapLength = (segmentSize + kPageSize - 1) & ~(kPageSize - 1);
-			if(mapLength < misalign || phdr.p_filesz > mapLength - misalign)
-				co_return Error::badExecutable;
-
-			// The ELF gABI specifies that p_align is either 0/1 or a positive
-			// integral power of two ("Program Header", p_align).
-			if(phdr.p_align > 1) {
-				if(!std::has_single_bit(phdr.p_align)
-						|| phdr.p_offset % phdr.p_align != phdr.p_vaddr % phdr.p_align)
-					co_return Error::badExecutable;
-			}
-
-			uintptr_t mapAddress = base + phdr.p_vaddr - misalign;
-			uintptr_t fileOffset = phdr.p_offset - misalign;
+			uintptr_t mapAddress = segmentAddress - validated.misalign;
+			size_t mapLength = validated.mapLength;
+			size_t fileOffset = validated.fileOffset;
 
 			// Check if we can share the segment.
 			if(!(phdr.p_flags & PF_W)) {
@@ -159,18 +289,23 @@ loadElfImage(SharedFilePtr file, const ValidatedElf &elf,
 				memset(window, 0, mapLength);
 				FRG_CO_TRY(co_await file->seek(phdr.p_offset, VfsSeek::absolute));
 				FRG_CO_TRY(co_await file->readExactly(nullptr,
-						(char *)window + misalign, fileSize));
+						(char *)window + validated.misalign, fileSize));
 				HEL_CHECK(helUnmapMemory(kHelNullHandle, window, mapLength));
 			}
 		}else if(phdr.p_type == PT_PHDR) {
-			info.phdrPtr = (char *)base + phdr.p_vaddr;
+			uintptr_t phdrPtr;
+			if(!addBase(phdr.p_vaddr, phdrPtr))
+				co_return Error::badExecutable;
+			info.phdrPtr = reinterpret_cast<void *>(phdrPtr);
 		}else if(phdr.p_type == PT_INTERP) {
-			info.interpreter.resize(phdr.p_filesz);
+			info.interpreter.resize(static_cast<size_t>(phdr.p_filesz));
 			FRG_CO_TRY(co_await file->seek(phdr.p_offset, VfsSeek::absolute));
 			FRG_CO_TRY(co_await file->readExactly(nullptr,
 					info.interpreter.data(), phdr.p_filesz));
-			if(size_t n = info.interpreter.find('\0'); n != size_t(-1))
-				info.interpreter.resize(n);
+			size_t n = info.interpreter.find('\0');
+			if(n == size_t(-1) || !n)
+				co_return Error::badExecutable;
+			info.interpreter.resize(n);
 		}else if(phdr.p_type == PT_DYNAMIC || phdr.p_type == PT_TLS
 				|| phdr.p_type == PT_GNU_EH_FRAME || phdr.p_type == PT_GNU_STACK
 				|| phdr.p_type == PT_GNU_RELRO || phdr.p_type == PT_NOTE) {
