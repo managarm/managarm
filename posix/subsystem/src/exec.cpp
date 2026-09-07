@@ -60,6 +60,7 @@ struct ValidatedElf {
 	Elf64_Ehdr header;
 	std::vector<ValidatedProgramHeader> phdrs;
 	std::optional<uint64_t> phdrVaddr;
+	std::optional<std::string> interpreter;
 };
 
 // This struct contains the image meta data with correct base address applied.
@@ -130,6 +131,7 @@ parseElf(SharedFilePtr file) {
 
 	bool hasLoadSegment = false;
 	bool ambiguousPhdr = false;
+	bool hasInterpreter = false;
 	std::optional<Elf64_Phdr> explicitPhdr;
 	for(size_t i = 0; i < elf.header.e_phnum; i++) {
 		ValidatedProgramHeader validated;
@@ -214,10 +216,22 @@ parseElf(SharedFilePtr file) {
 			explicitPhdr = phdr;
 		}
 
-		if(phdr.p_type == PT_INTERP
-				&& (!phdr.p_filesz || phdr.p_filesz > kMaxInterpreterSize))
-			co_return Error::badExecutable;
+		if(phdr.p_type == PT_INTERP) {
+			if(hasInterpreter || !phdr.p_filesz
+					|| phdr.p_filesz > kMaxInterpreterSize)
+				co_return Error::badExecutable;
 
+			char interpreter[kMaxInterpreterSize];
+			FRG_CO_TRY(co_await file->seek(phdr.p_offset, VfsSeek::absolute));
+			FRG_CO_TRY(co_await file->readExactly(nullptr, interpreter,
+					static_cast<size_t>(phdr.p_filesz)));
+			const char *nul = static_cast<const char *>(memchr(interpreter,
+					'\0', static_cast<size_t>(phdr.p_filesz)));
+			if(!nul || nul == interpreter)
+				co_return Error::badExecutable;
+			elf.interpreter.emplace(interpreter, nul - interpreter);
+			hasInterpreter = true;
+		}
 		elf.phdrs.push_back(std::move(validated));
 	}
 
@@ -326,14 +340,9 @@ loadElfImage(SharedFilePtr file, const ValidatedElf &elf,
 				HEL_CHECK(helUnmapMemory(kHelNullHandle, window, mapLength));
 			}
 		}else if(phdr.p_type == PT_INTERP) {
-			info.interpreter.resize(static_cast<size_t>(phdr.p_filesz));
-			FRG_CO_TRY(co_await file->seek(phdr.p_offset, VfsSeek::absolute));
-			FRG_CO_TRY(co_await file->readExactly(nullptr,
-					info.interpreter.data(), phdr.p_filesz));
-			size_t n = info.interpreter.find('\0');
-			if(n == size_t(-1) || !n)
+			if(!elf.interpreter)
 				co_return Error::badExecutable;
-			info.interpreter.resize(n);
+			info.interpreter = *elf.interpreter;
 		}else if(phdr.p_type == PT_PHDR) {
 			uintptr_t phdrPtr;
 			if(!addBase(phdr.p_vaddr, phdrPtr))
