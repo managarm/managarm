@@ -140,6 +140,36 @@ void expectExecError(uint64_t filesz, uint64_t memsz, uint64_t align,
 	assert(unlink(path) == 0);
 }
 
+void expectNonShebangError(const char *prefix) {
+	char path[] = "/tmp/posix-tests-nonshebang-XXXXXX";
+	int fd = mkstemp(path);
+	assert(fd >= 0);
+
+	char contents[] = {prefix[0], prefix[1], '\n'};
+	assert(write(fd, contents, sizeof(contents)) == sizeof(contents));
+	assert(fchmod(fd, 0700) == 0);
+	assert(close(fd) == 0);
+
+	pid_t pid = fork();
+	assert_errno("fork", pid >= 0);
+	if(!pid) {
+		char *const args[] = {path, nullptr};
+		execve(path, args, nullptr);
+		int error = errno;
+		_exit(error == ENOEXEC ? EXIT_SUCCESS : EXIT_FAILURE);
+	}
+
+	int status = 0;
+	while(waitpid(pid, &status, 0) == -1) {
+		if(errno == EINTR)
+			continue;
+		assert_errno("waitpid", false);
+	}
+	assert(WIFEXITED(status));
+	assert(WEXITSTATUS(status) == EXIT_SUCCESS);
+	assert(unlink(path) == 0);
+}
+
 }
 
 DEFINE_TEST(exec_rejects_writable_load_with_filesz_larger_than_memsz, ([] {
@@ -221,6 +251,11 @@ DEFINE_TEST(exec_rejects_invalid_elf_magic, ([] {
 
 DEFINE_TEST(exec_rejects_invalid_elf_type, ([] {
 	expectExecError(0, 0, 0, nullptr, ENOEXEC, true, ET_NONE);
+}))
+
+DEFINE_TEST(exec_rejects_partial_shebang_prefix, ([] {
+	expectNonShebangError("#a");
+	expectNonShebangError("x!");
 }))
 
 DEFINE_TEST(exec_rejects_invalid_elf_metadata, ([] {
