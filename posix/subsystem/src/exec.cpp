@@ -14,10 +14,9 @@
 constexpr size_t kPageSize = 0x1000;
 constexpr uintptr_t ldsoBaseAddress = 0x40000000;
 
-// This struct is parsed before knowing the type of executable (PIE vs. non-PIE)
-// and also before knowing the ELF's base address.
-struct ImagePreamble {
-	bool isPie = false;
+struct ValidatedElf {
+	Elf64_Ehdr header;
+	std::vector<Elf64_Phdr> phdrs;
 };
 
 // This struct contains the image meta data with correct base address applied.
@@ -32,98 +31,85 @@ struct ImageInfo {
 	std::string interpreter;
 };
 
-async::result<frg::expected<Error, ImagePreamble>>
-parseElfPreamble(SharedFilePtr file) {
-	ImagePreamble preamble;
+async::result<frg::expected<Error, ValidatedElf>>
+parseElf(SharedFilePtr file) {
+	ValidatedElf elf;
 
 	// Read the elf file header and verify the signature.
-	Elf64_Ehdr ehdr;
 	FRG_CO_TRY(co_await file->seek(0, VfsSeek::absolute));
-	FRG_CO_TRY(co_await file->readExactly(nullptr, &ehdr, sizeof(Elf64_Ehdr)));
+	FRG_CO_TRY(co_await file->readExactly(nullptr, &elf.header, sizeof(Elf64_Ehdr)));
 
-	if(!(ehdr.e_ident[0] == 0x7F
-			&& ehdr.e_ident[1] == 'E'
-			&& ehdr.e_ident[2] == 'L'
-			&& ehdr.e_ident[3] == 'F'))
+	if(!(elf.header.e_ident[0] == 0x7F
+			&& elf.header.e_ident[1] == 'E'
+			&& elf.header.e_ident[2] == 'L'
+			&& elf.header.e_ident[3] == 'F'))
 		co_return Error::badExecutable;
-	if(ehdr.e_type != ET_EXEC && ehdr.e_type != ET_DYN)
+	if(elf.header.e_type != ET_EXEC && elf.header.e_type != ET_DYN)
 		co_return Error::badExecutable;
 
-	// Right now we treat every ET_DYN object as PIE and unconditionally apply
-	// a non-zero base address.
-	if(ehdr.e_type == ET_DYN)
-		preamble.isPie = true;
+	// Read the elf program headers.
+	std::vector<char> phdrBuffer;
+	phdrBuffer.resize(elf.header.e_phnum * elf.header.e_phentsize);
+	FRG_CO_TRY(co_await file->seek(elf.header.e_phoff, VfsSeek::absolute));
+	FRG_CO_TRY(co_await file->readExactly(nullptr,
+			phdrBuffer.data(), elf.header.e_phnum * size_t(elf.header.e_phentsize)));
 
-	co_return preamble;
+	elf.phdrs.resize(elf.header.e_phnum);
+	for(size_t i = 0; i < elf.phdrs.size(); i++)
+		memcpy(&elf.phdrs[i], phdrBuffer.data() + i * elf.header.e_phentsize,
+				sizeof(Elf64_Phdr));
+
+	co_return elf;
 }
 
 async::result<frg::expected<Error, ImageInfo>>
-loadElfImage(SharedFilePtr file, VmContext *vmContext, uintptr_t base) {
+loadElfImage(SharedFilePtr file, const ValidatedElf &elf,
+		VmContext *vmContext, uintptr_t base) {
 	assert(!(base & (kPageSize - 1))); // Callers need to ensure this.
 	ImageInfo info;
 
 	// Get a handle to the file's memory.
 	auto fileMemory = co_await file->accessMemory();
-
-	// Read the elf file header and verify the signature.
-	Elf64_Ehdr ehdr;
-	FRG_CO_TRY(co_await file->seek(0, VfsSeek::absolute));
-	FRG_CO_TRY(co_await file->readExactly(nullptr, &ehdr, sizeof(Elf64_Ehdr)));
-
-	// Verify the ELF file again, since loadElfPreamble() is not necessarily called
-	// on every object that we load.
-	if(!(ehdr.e_ident[0] == 0x7F
-			&& ehdr.e_ident[1] == 'E'
-			&& ehdr.e_ident[2] == 'L'
-			&& ehdr.e_ident[3] == 'F'))
-		co_return Error::badExecutable;
-	if(ehdr.e_type != ET_EXEC && ehdr.e_type != ET_DYN)
-		co_return Error::badExecutable;
+	const auto &ehdr = elf.header;
 
 	info.entryIp = (char *)base + ehdr.e_entry;
 	info.phdrEntrySize = ehdr.e_phentsize;
 	info.phdrCount = ehdr.e_phnum;
 
-	// Read the elf program headers and load them into the address space.
-	std::vector<char> phdrBuffer;
-	phdrBuffer.resize(ehdr.e_phnum * ehdr.e_phentsize);
-	FRG_CO_TRY(co_await file->seek(ehdr.e_phoff, VfsSeek::absolute));
-	FRG_CO_TRY(co_await file->readExactly(nullptr,
-			phdrBuffer.data(), ehdr.e_phnum * size_t(ehdr.e_phentsize)));
+	// Load the parsed program headers into the address space.
+	for(const auto &phdr : elf.phdrs) {
 
-	for(int i = 0; i < ehdr.e_phnum; i++) {
-		auto phdr = (Elf64_Phdr *)(phdrBuffer.data() + i * ehdr.e_phentsize);
-
-		if(phdr->p_type == PT_LOAD) {
+		if(phdr.p_type == PT_LOAD) {
 			// The ELF gABI requires the file image of a loadable segment to
 			// fit in its memory image ("Program Header", PT_LOAD).
-			if(phdr->p_filesz > phdr->p_memsz)
+			if(phdr.p_filesz > phdr.p_memsz)
 				co_return Error::badExecutable;
-			if(!phdr->p_memsz) // Skip empty segments.
+			if(!phdr.p_memsz) // Skip empty segments.
 				continue;
 
 			// Segments are mapped page-wise, so p_offset and p_vaddr must agree within a page.
-			bool properlyAligned = (phdr->p_offset & (kPageSize - 1)) == (phdr->p_vaddr & (kPageSize - 1));
-			size_t misalign = phdr->p_vaddr & (kPageSize - 1);
+			bool properlyAligned = (phdr.p_offset & (kPageSize - 1)) == (phdr.p_vaddr & (kPageSize - 1));
+			size_t misalign = phdr.p_vaddr & (kPageSize - 1);
 			constexpr auto maxSize = std::numeric_limits<size_t>::max();
-			if(phdr->p_memsz > maxSize - misalign
-					|| phdr->p_memsz + misalign > maxSize - (kPageSize - 1))
+			if(phdr.p_memsz > maxSize - misalign
+					|| phdr.p_memsz + misalign > maxSize - (kPageSize - 1))
 				co_return Error::badExecutable;
 
-			size_t segmentSize = static_cast<size_t>(phdr->p_memsz) + misalign;
+			size_t segmentSize = static_cast<size_t>(phdr.p_memsz) + misalign;
 			size_t mapLength = (segmentSize + kPageSize - 1) & ~(kPageSize - 1);
-			if(mapLength < misalign || phdr->p_filesz > mapLength - misalign)
+			if(mapLength < misalign || phdr.p_filesz > mapLength - misalign)
 				co_return Error::badExecutable;
 
 			// The ELF gABI specifies that p_align is either 0/1 or a positive
 			// integral power of two ("Program Header", p_align).
-			if(phdr->p_align > 1) {
-				if(!std::has_single_bit(phdr->p_align)
-						|| phdr->p_offset % phdr->p_align != phdr->p_vaddr % phdr->p_align)
+			if(phdr.p_align > 1) {
+				if(!std::has_single_bit(phdr.p_align)
+						|| phdr.p_offset % phdr.p_align != phdr.p_vaddr % phdr.p_align)
 					co_return Error::badExecutable;
 			}
-			uintptr_t mapAddress = base + phdr->p_vaddr - misalign;
-			uintptr_t fileOffset = phdr->p_offset - misalign;
+
+			uintptr_t mapAddress = base + phdr.p_vaddr - misalign;
+			uintptr_t fileOffset = phdr.p_offset - misalign;
 
 			if(!properlyAligned) {
 				std::cout << "posix: ELF file with differently misaligned p_offset and p_vaddr."
@@ -132,9 +118,9 @@ loadElfImage(SharedFilePtr file, VmContext *vmContext, uintptr_t base) {
 			}
 
 			// Check if we can share the segment.
-			if(!(phdr->p_flags & PF_W)) {
+			if(!(phdr.p_flags & PF_W)) {
 				// Map the segment with correct permissions into the process.
-				if((phdr->p_flags & (PF_R | PF_W | PF_X)) == (PF_R | PF_X)) {
+				if((phdr.p_flags & (PF_R | PF_W | PF_X)) == (PF_R | PF_X)) {
 					HEL_CHECK(helLoadahead(fileMemory.getHandle(), fileOffset, mapLength));
 
 					FRG_CO_TRY(co_await vmContext->mapFile(mapAddress,
@@ -142,7 +128,7 @@ loadElfImage(SharedFilePtr file, VmContext *vmContext, uintptr_t base) {
 							fileOffset, mapLength, true,
 							kHelMapProtRead | kHelMapProtExecute));
 				// Allow read only mappings too, ICU loves those.
-				}else if((phdr->p_flags & (PF_R | PF_W | PF_X)) == (PF_R)) {
+				}else if((phdr.p_flags & (PF_R | PF_W | PF_X)) == (PF_R)) {
 					HEL_CHECK(helLoadahead(fileMemory.getHandle(), fileOffset, mapLength));
 
 					FRG_CO_TRY(co_await vmContext->mapFile(mapAddress,
@@ -154,15 +140,15 @@ loadElfImage(SharedFilePtr file, VmContext *vmContext, uintptr_t base) {
 					co_return Error::badExecutable;
 				}
 			}else{
-				if((phdr->p_flags & (PF_R | PF_W | PF_X)) != (PF_R | PF_W)) {
+				if((phdr.p_flags & (PF_R | PF_W | PF_X)) != (PF_R | PF_W)) {
 					std::cout << "posix: Illegal combination of segment permissions" << std::endl;
 					co_return Error::badExecutable;
 				}
 
 				// Map the file-backed pages copy-on-write and the remaining pages as anonymous memory.
 				size_t fileMapLength = 0;
-				if(phdr->p_filesz)
-					fileMapLength = (misalign + phdr->p_filesz + kPageSize - 1) & ~(kPageSize - 1);
+				if(phdr.p_filesz)
+					fileMapLength = (misalign + phdr.p_filesz + kPageSize - 1) & ~(kPageSize - 1);
 
 				if(fileMapLength) {
 					HEL_CHECK(helLoadahead(fileMemory.getHandle(), fileOffset, fileMapLength));
@@ -173,7 +159,7 @@ loadElfImage(SharedFilePtr file, VmContext *vmContext, uintptr_t base) {
 							kHelMapProtRead | kHelMapProtWrite));
 
 					// Bytes past p_filesz in the last file page must read as zero.
-					size_t tailOffset = misalign + phdr->p_filesz;
+					size_t tailOffset = misalign + phdr.p_filesz;
 					if(tailOffset < fileMapLength) {
 						static const char zeros[kPageSize]{};
 						auto store = co_await helix_ng::writeMemory(vmContext->getSpace(),
@@ -193,26 +179,36 @@ loadElfImage(SharedFilePtr file, VmContext *vmContext, uintptr_t base) {
 							0, mapLength - fileMapLength, true,
 							kHelMapProtRead | kHelMapProtWrite));
 			}
-		}else if(phdr->p_type == PT_PHDR) {
-			info.phdrPtr = (char *)base + phdr->p_vaddr;
-		}else if(phdr->p_type == PT_INTERP) {
-			info.interpreter.resize(phdr->p_filesz);
-			FRG_CO_TRY(co_await file->seek(phdr->p_offset, VfsSeek::absolute));
+		}else if(phdr.p_type == PT_PHDR) {
+			info.phdrPtr = (char *)base + phdr.p_vaddr;
+		}else if(phdr.p_type == PT_INTERP) {
+			info.interpreter.resize(phdr.p_filesz);
+			FRG_CO_TRY(co_await file->seek(phdr.p_offset, VfsSeek::absolute));
 			FRG_CO_TRY(co_await file->readExactly(nullptr,
-					info.interpreter.data(), phdr->p_filesz));
+					info.interpreter.data(), phdr.p_filesz));
 			if(size_t n = info.interpreter.find('\0'); n != size_t(-1))
 				info.interpreter.resize(n);
-		}else if(phdr->p_type == PT_DYNAMIC || phdr->p_type == PT_TLS
-				|| phdr->p_type == PT_GNU_EH_FRAME || phdr->p_type == PT_GNU_STACK
-				|| phdr->p_type == PT_GNU_RELRO || phdr->p_type == PT_NOTE) {
+		}else if(phdr.p_type == PT_DYNAMIC || phdr.p_type == PT_TLS
+				|| phdr.p_type == PT_GNU_EH_FRAME || phdr.p_type == PT_GNU_STACK
+				|| phdr.p_type == PT_GNU_RELRO || phdr.p_type == PT_NOTE) {
 			// Ignore this PHDR here.
 		}else{
 			// Ignore unknown PHDRs.
-			std::cout << "posix: Unexpected PHDR type " << phdr->p_type << std::endl;
+			std::cout << "posix: Unexpected PHDR type " << phdr.p_type << std::endl;
 		}
 	}
 
 	co_return info;
+}
+
+template<typename T, size_t N>
+void *copyArrayToStack(void *window, size_t &d, const T (&value)[N]) {
+	assert(d >= alignof(T) + sizeof(T) * N);
+	d -= sizeof(T) * N;
+	d -= d & (alignof(T) - 1);
+	void *ptr = (char *)window + d;
+	memcpy(ptr, &value, sizeof(T) * N);
+	return ptr;
 }
 
 async::result<frg::expected<Error, ExecuteResult>>
@@ -288,19 +284,23 @@ execute(ViewPath root, ViewPath workdir,
 		nRecursions++;
 	}
 
-	auto execPreamble = FRG_CO_TRY(co_await parseElfPreamble(execFile));
+	auto execElf = FRG_CO_TRY(co_await parseElf(execFile));
 	ImageInfo execInfo;
-	if(execPreamble.isPie) {
+	if(execElf.header.e_type == ET_DYN) {
 		// Unconditionally apply a non-zero base address to PIE objects.
-		execInfo = FRG_CO_TRY(co_await loadElfImage(execFile, vmContext.get(), 0x200000));
+		execInfo = FRG_CO_TRY(co_await loadElfImage(execFile, execElf,
+				vmContext.get(), 0x200000));
 	}else{
-		execInfo = FRG_CO_TRY(co_await loadElfImage(execFile, vmContext.get(), 0));
+		execInfo = FRG_CO_TRY(co_await loadElfImage(execFile, execElf,
+				vmContext.get(), 0));
 	}
 
 	// TODO: Should we really look up the dynamic linker in the current working dir?
 	auto ldsoFile = FRG_CO_TRY(co_await open(root, workdir, execInfo.interpreter, self));
 	assert(ldsoFile); // If open() succeeds, it must return a non-null file.
-	auto ldsoInfo = FRG_CO_TRY(co_await loadElfImage(ldsoFile, vmContext.get(), ldsoBaseAddress));
+	auto ldsoElf = FRG_CO_TRY(co_await parseElf(ldsoFile));
+	auto ldsoInfo = FRG_CO_TRY(co_await loadElfImage(ldsoFile, ldsoElf,
+			vmContext.get(), ldsoBaseAddress));
 
 	auto link = execFile->associatedLink();
 	if(!link) {
@@ -315,47 +315,56 @@ execute(ViewPath root, ViewPath workdir,
 
 	constexpr size_t stackSize = 0x200000;
 
-	// Map the stack into the new process.
+	// Allocate memory for the stack.
+	HelHandle stackHandle;
+	HEL_CHECK(helAllocateMemory(vmContext->getHierarchy().getHandle(), stackSize, kHelAllocOnDemand,
+			nullptr, &stackHandle));
+
+	void *window;
+	HEL_CHECK(helMapMemory(stackHandle, kHelNullHandle, nullptr,
+			0, stackSize, kHelMapProtRead | kHelMapProtWrite, &window));
+
+	// Map the stack into the new process and set it up.
 	void *stackBase = FRG_CO_TRY(co_await vmContext->mapFile(0,
-			{}, nullptr,
+			helix::UniqueDescriptor{stackHandle}, nullptr,
 			0, stackSize, true, kHelMapProtRead | kHelMapProtWrite));
 
 	// the offset at which the stack image starts.
 	size_t d = stackSize;
 
-	size_t stringsSize = path.size() + 1;
-	for(const auto &str : args)
-		stringsSize += str.size() + 1;
-	for(const auto &str : env)
-		stringsSize += str.size() + 1;
-	if(stringsSize > stackSize)
-		co_return Error::illegalArguments;
-
-	// Place argument and environment strings at the top of the stack.
-	auto placeString = [&] (const std::string &str) -> uintptr_t {
+	// Copy argument and environment strings to the stack.
+	auto pushString = [&] (const std::string &str) -> uintptr_t {
 		d -= str.size() + 1;
+		memcpy(reinterpret_cast<char *>(window) + d, str.c_str(), str.size() + 1);
 		return reinterpret_cast<uintptr_t>(stackBase) + d;
 	};
 
-	auto execfn = placeString(path);
+	auto execfn = pushString(path);
 	std::vector<uintptr_t> argsPtrs;
 	for(const auto &str : args)
-		argsPtrs.push_back(placeString(str));
+		argsPtrs.push_back(pushString(str));
 
 	std::vector<uintptr_t> envPtrs;
 	for(const auto &str : env)
-		envPtrs.push_back(placeString(str));
+		envPtrs.push_back(pushString(str));
 
-	// Words below the strings, in ascending address order.
-	std::vector<uintptr_t> words;
-	words.push_back(argsPtrs.size()); // argc.
-	words.insert(words.end(), argsPtrs.begin(), argsPtrs.end());
-	words.push_back(0); // End of args.
-	words.insert(words.end(), envPtrs.begin(), envPtrs.end());
-	words.push_back(0); // End of environment.
+	// Align the stack before pushing the args, environment and auxiliary words.
+	d -= d & size_t(15);
 
-	size_t auxBeginIndex = words.size();
-	words.insert(words.end(), {
+	// Pad the stack so that it is aligned after pushing all words.
+	auto pushWord = [&] (uintptr_t w) {
+		assert(!(d & (alignof(uintptr_t) - 1)));
+		d -= sizeof(uintptr_t);
+		memcpy(reinterpret_cast<char *>(window) + d, &w, sizeof(uintptr_t));
+	};
+
+	size_t wordParity = 1 + argsPtrs.size() + 1 // Words representing argc and args.
+			+ envPtrs.size() + 1; // Words representing the environment.
+	if(wordParity & 1)
+		pushWord(0);
+
+	void *auxEnd = reinterpret_cast<std::byte *>(stackBase) + d;
+	copyArrayToStack(window, d, (uintptr_t[]){
 		AT_ENTRY,
 		uintptr_t(execInfo.entryIp),
 		AT_PHDR,
@@ -375,48 +384,26 @@ execute(ViewPath root, ViewPath workdir,
 		AT_NULL,
 		0
 	});
-	size_t auxEndIndex = words.size();
+	void *auxBegin = reinterpret_cast<std::byte *>(stackBase) + d;
 
-	// Pad the words so that the stack is aligned after them.
-	if(words.size() & 1)
-		words.push_back(0);
+	// Push the environment pointers and arguments.
+	pushWord(0); // End of environment.
+	for(auto it = envPtrs.rbegin(); it != envPtrs.rend(); ++it)
+		pushWord(*it);
 
-	// Align the stack before pushing the words.
-	d -= d & size_t(15);
-	if(d < words.size() * sizeof(uintptr_t))
-		co_return Error::illegalArguments;
-	d -= words.size() * sizeof(uintptr_t);
+	pushWord(0); // End of args.
+	for(auto it = argsPtrs.rbegin(); it != argsPtrs.rend(); ++it)
+		pushWord(*it);
+	pushWord(argsPtrs.size()); // argc.
 
 	// Stack has to be aligned at entry.
 	assert(!(d & size_t(15)));
 
-	void *auxBegin = reinterpret_cast<std::byte *>(stackBase) + d + auxBeginIndex * sizeof(uintptr_t);
-	void *auxEnd = reinterpret_cast<std::byte *>(stackBase) + d + auxEndIndex * sizeof(uintptr_t);
-
-	// The stack image is built locally and written into the process in one go.
-	std::vector<char> image(stackSize - d);
-	memcpy(image.data(), words.data(), words.size() * sizeof(uintptr_t));
-
-	auto copyString = [&] (uintptr_t ptr, const std::string &str) {
-		auto offset = ptr - reinterpret_cast<uintptr_t>(stackBase) - d;
-		memcpy(image.data() + offset, str.c_str(), str.size() + 1);
-	};
-
-	copyString(execfn, path);
-	for(size_t i = 0; i < args.size(); i++)
-		copyString(argsPtrs[i], args[i]);
-	for(size_t i = 0; i < env.size(); i++)
-		copyString(envPtrs[i], env[i]);
-
-	auto store = co_await helix_ng::writeMemory(vmContext->getSpace(),
-			reinterpret_cast<uintptr_t>(stackBase) + d, image.size(), image.data());
-	if(store.error() == kHelErrNoMemory)
-		co_return Error::noMemory;
-	HEL_CHECK(store.error());
+	HEL_CHECK(helUnmapMemory(kHelNullHandle, window, stackSize));
 
 	HelHandle thread;
-	HEL_CHECK(helCreateThread(vmContext->getHierarchy().getHandle(), universe.getHandle(),
-			vmContext->getSpace().getHandle(),
+	HEL_CHECK(helCreateThread(universe.getHandle(),
+			vmContext->getSpace().getHandle(), kHelAbiSystemV,
 			(void *)ldsoInfo.entryIp, (char *)stackBase + d,
 			kHelThreadStopped, &thread));
 
