@@ -176,6 +176,23 @@ void expectNonShebangError(const char *prefix) {
 	expectTextExecError(contents, sizeof(contents));
 }
 
+void setupPhdr(Elf64_Ehdr &ehdr, std::vector<Elf64_Phdr> &phdrs) {
+	const auto tableSize = phdrs.size() * sizeof(Elf64_Phdr);
+	auto loadPhdr = phdrs[0];
+	loadPhdr.p_offset = 0;
+	loadPhdr.p_vaddr = 0;
+	loadPhdr.p_filesz = ehdr.e_phoff + tableSize;
+	loadPhdr.p_memsz = ehdr.e_phoff + tableSize;
+
+	phdrs[0] = {};
+	phdrs[0].p_type = PT_PHDR;
+	phdrs[0].p_offset = ehdr.e_phoff;
+	phdrs[0].p_vaddr = ehdr.e_phoff;
+	phdrs[0].p_filesz = tableSize;
+	phdrs[0].p_memsz = tableSize;
+	phdrs[2] = loadPhdr;
+}
+
 }
 
 DEFINE_TEST(exec_rejects_writable_load_with_filesz_larger_than_memsz, ([] {
@@ -208,6 +225,64 @@ DEFINE_TEST(exec_ignores_unused_program_headers, ([] {
 			phdrs[2].p_offset = UINT64_MAX;
 			phdrs[2].p_filesz = UINT64_MAX;
 		});
+}))
+
+DEFINE_TEST(exec_accepts_valid_explicit_pt_phdr, ([] {
+	expectExecError(1, 1, 0, "/does/not/exist", ENOENT, true, ET_EXEC,
+		nullptr, 0, nullptr, 2, setupPhdr);
+}))
+
+DEFINE_TEST(exec_rejects_invalid_explicit_pt_phdr, ([] {
+#if defined(__linux__)
+	skip_test("Linux does not validate PT_PHDR metadata");
+#else
+	expectExecError(1, 1, 0, "/does/not/exist", ENOEXEC, true, ET_EXEC,
+		nullptr, 0, nullptr, 2, [](Elf64_Ehdr &ehdr, std::vector<Elf64_Phdr> &phdrs) {
+			setupPhdr(ehdr, phdrs);
+			phdrs[0].p_offset++;
+		});
+	expectExecError(1, 1, 0, "/does/not/exist", ENOEXEC, true, ET_EXEC,
+		nullptr, 0, nullptr, 2, [](Elf64_Ehdr &ehdr, std::vector<Elf64_Phdr> &phdrs) {
+			setupPhdr(ehdr, phdrs);
+			phdrs[0].p_filesz--;
+		});
+	expectExecError(1, 1, 0, "/does/not/exist", ENOEXEC, true, ET_EXEC,
+		nullptr, 0, nullptr, 2, [](Elf64_Ehdr &ehdr, std::vector<Elf64_Phdr> &phdrs) {
+			setupPhdr(ehdr, phdrs);
+			phdrs[0].p_vaddr++;
+		});
+	expectExecError(1, 1, 0, "/does/not/exist", ENOEXEC, true, ET_EXEC,
+		nullptr, 0, nullptr, 2, [](Elf64_Ehdr &ehdr, std::vector<Elf64_Phdr> &phdrs) {
+			setupPhdr(ehdr, phdrs);
+			phdrs[3] = phdrs[0];
+		});
+#endif
+}))
+
+DEFINE_TEST(exec_rejects_ambiguous_pt_phdr_loads, ([] {
+#if defined(__linux__)
+	skip_test("Linux does not reject ambiguous PT_PHDR mappings");
+#else
+	expectExecError(1, 1, 0, "/does/not/exist", ENOEXEC, true, ET_EXEC,
+		nullptr, 0, nullptr, 2, [](Elf64_Ehdr &ehdr, std::vector<Elf64_Phdr> &phdrs) {
+			const auto tableSize = phdrs.size() * sizeof(Elf64_Phdr);
+			auto loadPhdr = phdrs[0];
+			loadPhdr.p_offset = 0;
+			loadPhdr.p_vaddr = 0;
+			loadPhdr.p_filesz = ehdr.e_phoff + tableSize;
+			loadPhdr.p_memsz = ehdr.e_phoff + tableSize;
+
+			phdrs[0] = {};
+			phdrs[0].p_type = PT_PHDR;
+			phdrs[0].p_offset = ehdr.e_phoff;
+			phdrs[0].p_vaddr = 0x2000 + ehdr.e_phoff;
+			phdrs[0].p_filesz = tableSize;
+			phdrs[0].p_memsz = tableSize;
+			phdrs[2] = loadPhdr;
+			phdrs[3] = loadPhdr;
+			phdrs[3].p_vaddr = 0x2000;
+		});
+#endif
 }))
 
 DEFINE_TEST(exec_rejects_invalid_pt_interp, ([] {
