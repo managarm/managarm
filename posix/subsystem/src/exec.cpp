@@ -640,7 +640,7 @@ execute(ViewPath root, ViewPath workdir,
 		.auxEnd = auxEnd,
 		.effectiveUid = newUid,
 		.effectiveGid = newGid,
-		.savedUid = self->threadGroup()->uid(),
-		.savedGid = self->threadGroup()->gid()
+		.savedUid = newUid,
+		.savedGid = newGid
 	};
 }
