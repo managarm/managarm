@@ -14,6 +14,11 @@
 namespace protocols {
 namespace fs {
 
+enum class SynchronizeFlags : uint32_t {
+	none = 0,
+	dataOnly = 1,
+};
+
 enum class Error {
 	none = 0,
 	fileNotFound = 1,

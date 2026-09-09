@@ -8,6 +8,28 @@
 namespace protocols {
 namespace fs {
 
+async::result<Error> synchronize(helix::BorrowedDescriptor lane, SynchronizeFlags flags) {
+	managarm::fs::SynchronizeRequest req;
+	if(flags == SynchronizeFlags::dataOnly)
+		req.set_flags(managarm::fs::SynchronizeFlags::DATA_ONLY);
+	else
+		req.set_flags(0);
+
+	auto [offer, sendReq, recvResp] = co_await helix_ng::exchangeMsgs(
+		lane,
+		helix_ng::offer(
+			helix_ng::sendBragiHeadOnly(req, frg::stl_allocator{}),
+			helix_ng::recvInline()
+		)
+	);
+	HEL_CHECK(offer.error());
+	HEL_CHECK(sendReq.error());
+	HEL_CHECK(recvResp.error());
+
+	auto resp = *bragi::parse_head_only<managarm::fs::SynchronizeResponse>(recvResp);
+	co_return resp.error() | toFsProtoError;
+}
+
 File::File(helix::UniqueDescriptor lane)
 : _lane(std::move(lane)) {
 	helCreateToken(&credsToken_);
@@ -434,4 +456,3 @@ File::recvfrom(void *buf, size_t len, int flags, struct sockaddr *addr_ptr, sock
 }
 
 } } // namespace protocol::fs
-
