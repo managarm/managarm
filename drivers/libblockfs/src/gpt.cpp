@@ -137,9 +137,12 @@ async::result<void> Partition::writeSectors(uint64_t sector, arch::dma_buffer_vi
 	return _table.getDevice()->writeSectors(_startLba + sector, view);
 }
 
+async::result<void> Partition::flush() {
+	return _table.getDevice()->flush();
+}
+
 async::result<size_t> Partition::getSize() {
 	co_return _numSectors * sectorSize;
 }
 
 } } // namespace blockfs::gpt
-
