@@ -930,9 +930,12 @@ async::result<void> DeviceFile::ioctl(void *object, uint32_t id, helix_ng::RecvI
 			std::println(std::cout, "libsound: pcm prepare");
 		}
 
-		if (self->status->state == SNDRV_PCM_STATE_OPEN
+		auto canPrepare = self->status->state == SNDRV_PCM_STATE_OPEN
 				|| self->status->state == SNDRV_PCM_STATE_SETUP
-				|| self->status->state == SNDRV_PCM_STATE_XRUN) {
+				|| self->status->state == SNDRV_PCM_STATE_PREPARED
+				|| self->status->state == SNDRV_PCM_STATE_XRUN;
+
+		if (canPrepare) {
 			auto &fmtBits = self->hwParams.masks[SNDRV_PCM_HW_PARAM_FORMAT].bits;
 
 			auto checkFmt = [&](snd_pcm_format_t fmt) {
@@ -1024,11 +1027,14 @@ async::result<void> DeviceFile::ioctl(void *object, uint32_t id, helix_ng::RecvI
 
 		managarm::fs::GenericIoctlReply resp;
 
-		resp.set_error(managarm::fs::Errors::SUCCESS);
+		resp.set_error(canPrepare ? managarm::fs::Errors::SUCCESS
+				: managarm::fs::Errors::ILLEGAL_ARGUMENT);
 		resp.set_result(0);
 
-		self->status->state = SNDRV_PCM_STATE_PREPARED;
-		self->notifyPollTransition();
+		if (canPrepare) {
+			self->status->state = SNDRV_PCM_STATE_PREPARED;
+			self->notifyPollTransition();
+		}
 
 		auto [send_resp] = co_await helix_ng::exchangeMsgs(
 			conversation,
