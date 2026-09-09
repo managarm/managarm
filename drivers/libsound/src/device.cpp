@@ -129,8 +129,6 @@ struct DeviceFile {
 	static helix::UniqueLane serve(smarter::shared_ptr<DeviceFile> file);
 
 	DeviceFile(sound::Device *device, bool non_block) : device{device}, nonBlock{non_block} {
-		statusPage.update(eventSequence, 0);
-
 		auto pageSize = getpagesize();
 
 		size_t statusSize = (sizeof(snd_pcm_mmap_status) + pageSize - 1) & ~(pageSize - 1);
@@ -305,6 +303,8 @@ struct DeviceFile {
 	ApplyRulesResult applyRules(Params &params, uint32_t rmask);
 
 	void updatePosition();
+	int computePollStatus() const;
+	void notifyPollTransition();
 
 	void updatePositionifRunning() {
 		if (!device->attachedStream)
@@ -326,7 +326,6 @@ struct DeviceFile {
 	helix::Mapping controlMapping;
 	snd_pcm_mmap_status *status;
 	snd_pcm_mmap_control *control;
-	protocols::fs::StatusPageProvider statusPage;
 	bool nonBlock;
 
 	snd_pcm_hw_params hwParams{};
@@ -334,6 +333,7 @@ struct DeviceFile {
 
 	uint64_t eventSequence{};
 	async::recurring_event eventBell;
+	int lastPollStatus{EPOLLERR};
 
 	uint32_t bufferSizeFrames{};
 	uint32_t periodSizeFrames{};
@@ -414,18 +414,46 @@ void DeviceFile::updatePosition() {
 	if (swParams.tstamp_mode == SNDRV_PCM_TSTAMP_ENABLE)
 		status->tstamp = getTstamp();
 
-	auto result = async::run(pollStatus(this), helix::currentDispatcher);
-	assert(result);
-	int pollResult = std::get<1>(result.value());
-
-	if (pollResult) {
-		statusPage.update(++eventSequence, pollResult);
-		eventBell.raise();
-	}
+	notifyPollTransition();
 }
 
 void DeviceFile::periodCallback() {
 	updatePosition();
+}
+
+int DeviceFile::computePollStatus() const {
+	auto stream = device->attachedStream;
+	if (!stream)
+		return EPOLLERR;
+
+	int pollSuccess = stream->isCapture() ? (EPOLLIN | EPOLLRDNORM) : (EPOLLOUT | EPOLLWRNORM);
+
+	switch (status->state) {
+	case SNDRV_PCM_STATE_PREPARED:
+	case SNDRV_PCM_STATE_RUNNING:
+	case SNDRV_PCM_STATE_PAUSED:
+		if (getAvailableFrames() >= control->avail_min)
+			return pollSuccess;
+		return 0;
+	case SNDRV_PCM_STATE_DRAINING:
+		if (stream->isCapture()) {
+			auto available = getAvailableFrames();
+			return pollSuccess | (available == 0 ? EPOLLERR : 0);
+		}
+		return 0;
+	default:
+		return EPOLLERR;
+	}
+}
+
+void DeviceFile::notifyPollTransition() {
+	auto pollStatus = computePollStatus();
+	if (pollStatus == lastPollStatus)
+		return;
+
+	lastPollStatus = pollStatus;
+	++eventSequence;
+	eventBell.raise();
 }
 
 async::result<frg::expected<protocols::fs::Error, size_t>> DeviceFile::writeFrames(const std::vector<uint8_t> &data) {
@@ -473,6 +501,8 @@ async::result<frg::expected<protocols::fs::Error, size_t>> DeviceFile::writeFram
 			status->state = SNDRV_PCM_STATE_RUNNING;
 			stream->isPaused = false;
 		}
+
+		notifyPollTransition();
 
 		progress += toCopy;
 	}
@@ -998,6 +1028,7 @@ async::result<void> DeviceFile::ioctl(void *object, uint32_t id, helix_ng::RecvI
 		resp.set_result(0);
 
 		self->status->state = SNDRV_PCM_STATE_PREPARED;
+		self->notifyPollTransition();
 
 		auto [send_resp] = co_await helix_ng::exchangeMsgs(
 			conversation,
@@ -1019,6 +1050,7 @@ async::result<void> DeviceFile::ioctl(void *object, uint32_t id, helix_ng::RecvI
 			self->startTstamp = self->getTstamp();
 			self->status->state = SNDRV_PCM_STATE_RUNNING;
 			stream->isPaused = false;
+			self->notifyPollTransition();
 
 			resp.set_error(managarm::fs::Errors::SUCCESS);
 		} else {
@@ -1048,6 +1080,7 @@ async::result<void> DeviceFile::ioctl(void *object, uint32_t id, helix_ng::RecvI
 
 			self->startTstamp = self->getTstamp();
 			self->status->state = SNDRV_PCM_STATE_XRUN;
+			self->notifyPollTransition();
 
 			resp.set_error(managarm::fs::Errors::SUCCESS);
 		} else {
@@ -1152,6 +1185,7 @@ async::result<void> DeviceFile::ioctl(void *object, uint32_t id, helix_ng::RecvI
 		}
 
 		self->status->state = SNDRV_PCM_STATE_OPEN;
+		self->notifyPollTransition();
 
 		auto [send_resp] = co_await helix_ng::exchangeMsgs(
 			conversation,
@@ -1190,37 +1224,7 @@ DeviceFile::pollWait(void *object, uint64_t sequence, int mask,
 async::result<frg::expected<protocols::fs::Error, protocols::fs::PollStatusResult>>
 DeviceFile::pollStatus(void *object) {
 	auto self = static_cast<DeviceFile *>(object);
-
-	auto stream = self->device->attachedStream;
-	if (!stream)
-		co_return protocols::fs::PollStatusResult{self->eventSequence, EPOLLERR};
-
-	auto available = self->getAvailableFrames();
-
-	int pollSuccess = stream->isCapture() ? (EPOLLIN | EPOLLRDNORM) : (EPOLLOUT | EPOLLWRNORM);
-
-	int s = 0;
-
-	switch (self->status->state) {
-	case SNDRV_PCM_STATE_PREPARED:
-	case SNDRV_PCM_STATE_RUNNING:
-	case SNDRV_PCM_STATE_PAUSED:
-		if (available >= self->control->avail_min)
-			s |= pollSuccess;
-		break;
-	case SNDRV_PCM_STATE_DRAINING:
-		if (stream->isCapture()) {
-			s |= pollSuccess;
-			if (available == 0)
-				s |= EPOLLERR;
-		}
-		break;
-	default:
-		s |= EPOLLERR;
-		break;
-	}
-
-	co_return protocols::fs::PollStatusResult{self->eventSequence, s};
+	co_return protocols::fs::PollStatusResult{self->eventSequence, self->computePollStatus()};
 }
 
 async::result<helix::BorrowedDescriptor> DeviceFile::accessMemory(void *object) {
@@ -1269,17 +1273,14 @@ async::detached serveDevice(sound::Device *device,
 
 			managarm::fs::SvrResponse resp;
 			resp.set_error(managarm::fs::Errors::SUCCESS);
-			resp.set_caps(managarm::fs::FileCaps::FC_STATUS_PAGE);
 
-			auto [send_resp, push_pt, push_page] = co_await helix_ng::exchangeMsgs(
+			auto [send_resp, push_pt] = co_await helix_ng::exchangeMsgs(
 				conversation,
 				helix_ng::sendBragiHeadOnly(resp, frg::stl_allocator{}),
-				helix_ng::pushDescriptor(remote_lane, kHelRightInvoke | kHelRightManage),
-				helix_ng::pushDescriptor(file->statusPage.getMemory(), kHelRightRead | kHelRightAssign)
+				helix_ng::pushDescriptor(remote_lane, kHelRightInvoke | kHelRightManage)
 			);
 			HEL_CHECK(send_resp.error());
 			HEL_CHECK(push_pt.error());
-			HEL_CHECK(push_page.error());
 		} else {
 			throw std::runtime_error("Invalid serveDevice request!");
 		}
