@@ -263,6 +263,7 @@ async::result<RingPointer> ProducerRing::pushTrbs(const std::vector<RawTrb> &trb
 
 	auto initialPtr = _enqueue;
 	auto finalPtr = _enqueue;
+	bool linkChain = false;
 	for (size_t i = 0; i < trbs.size(); i++) {
 		auto trb = trbs[i];
 		// Post all TRBs, except use the incorrect cycle bit for the first.
@@ -273,11 +274,15 @@ async::result<RingPointer> ProducerRing::pushTrbs(const std::vector<RawTrb> &trb
 		_transactions[_enqueue.index] = tx;
 		_ring->ent[_enqueue.index] = trb;
 
+		// The Link TRB inherits the Chain bit of the preceding TRB so that TDs can span the wrap.
+		if (_enqueue.index == usableRingSize - 1)
+			linkChain = trb.val[3] & (1 << 4);
+
 		finalPtr = _enqueue;
 		_enqueue.advance(1, usableRingSize);
 	}
 
-	_updateLink(initialPtr.cycle);
+	_updateLink(initialPtr.cycle, linkChain);
 
 	// Make sure this is all visible to the controller.
 	_controller->barrier.writeback(_ring.view_buffer());
@@ -307,7 +312,7 @@ void ProducerRing::retire(RingPointer newDequeue) {
 	_progressEvent.raise();
 }
 
-void ProducerRing::_updateLink(bool initialCycle) {
+void ProducerRing::_updateLink(bool initialCycle, bool chain) {
 	if (_enqueue.cycle == initialCycle) return;
 
 	auto ptr = getPtr();
@@ -315,7 +320,7 @@ void ProducerRing::_updateLink(bool initialCycle) {
 		static_cast<uint32_t>(ptr & 0xFFFFFFFF),
 		static_cast<uint32_t>(ptr >> 32),
 		0,
-		static_cast<uint32_t>(initialCycle | (1 << 1) | (6 << 10))
+		static_cast<uint32_t>(initialCycle | (1 << 1) | (chain ? (1 << 4) : 0) | (6 << 10))
 	}};
 }
 

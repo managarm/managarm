@@ -213,6 +213,6 @@ private:
 
 	async::recurring_event _progressEvent;
 
-	void _updateLink(bool initialCycle);
+	void _updateLink(bool initialCycle, bool chain);
 	uintptr_t _cachedRingIova = 0;
 };
