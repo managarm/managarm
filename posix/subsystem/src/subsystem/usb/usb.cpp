@@ -429,8 +429,10 @@ async::detached observeDevicesOnController(mbus_ng::EntityId controllerId) {
 			auto entity = co_await mbus_ng::Instance::global().getEntity(event.id);
 
 			if (event.type == mbus_ng::EnumerationEvent::Type::created) {
-				observeDeviceChildren(entity.id());
+				auto id = entity.id();
 				co_await bindDevice(std::move(entity), std::move(event.properties));
+				// Children look up this device, which bindDevice() registers at its end.
+				observeDeviceChildren(id);
 			} else {
 				continue;
 			}
