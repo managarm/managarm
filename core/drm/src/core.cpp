@@ -395,7 +395,7 @@ drm_mode_modeinfo drm_core::makeModeInfo(const char *name, uint32_t type,
 		unsigned int hsync_end, unsigned int htotal, unsigned int hskew,
 		unsigned int vdisplay, unsigned int vsync_start, unsigned int vsync_end,
 		unsigned int vtotal, unsigned int vscan, uint32_t flags) {
-	drm_mode_modeinfo mode_info;
+	drm_mode_modeinfo mode_info{};
 	mode_info.clock = clock;
 	mode_info.hdisplay = hdisplay;
 	mode_info.hsync_start = hsync_start;
@@ -410,6 +410,19 @@ drm_mode_modeinfo drm_core::makeModeInfo(const char *name, uint32_t type,
 	mode_info.flags = flags;
 	mode_info.type = type;
 	strcpy(mode_info.name, name);
+
+	// Same computation as Linux' drm_mode_vrefresh().
+	if(htotal && vtotal) {
+		uint64_t num = uint64_t{clock} * 1000;
+		uint64_t den = uint64_t{htotal} * vtotal;
+		if(flags & DRM_MODE_FLAG_INTERLACE)
+			num *= 2;
+		if(flags & DRM_MODE_FLAG_DBLSCAN)
+			den *= 2;
+		if(vscan > 1)
+			den *= vscan;
+		mode_info.vrefresh = (num + den / 2) / den;
+	}
 	return mode_info;
 };
 
