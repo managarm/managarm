@@ -1,6 +1,8 @@
 #include <vector>
 
 #include <protocols/usb/hub.hpp>
+#include <protocols/usb/server.hpp>
+#include <protocols/mbus/client.hpp>
 
 #include <async/recurring-event.hpp>
 
@@ -66,7 +68,9 @@ async::result<void> Enumerator::observationCycle_(std::shared_ptr<Hub> hub, int 
 		speed = v.value();
 	}
 
-	if (auto v = co_await controller_->enumerateDevice(hub, port, speed); !v) {
+	auto device = controller_->createDevice(hub, port, speed);
+
+	if (auto v = co_await enumerateDevice_(device); !v) {
 		std::cout << "usb: Device on port " << port << " failed to enumerate: "
 			<< (int)v.error() << std::endl;
 		co_return;
@@ -81,6 +85,83 @@ async::result<void> Enumerator::observationCycle_(std::shared_ptr<Hub> hub, int 
 		if(!(s.status & HubStatus::connect))
 			break;
 	}
+}
+
+async::result<frg::expected<UsbError>>
+Enumerator::enumerateDevice_(std::shared_ptr<DeviceServerData> device) {
+	FRG_CO_TRY(co_await device->initialize());
+
+	// If this is full speed, our guess for MPS might be wrong,
+	// get the first 8 bytes of the device descriptor to check.
+	if (device->speed() == DeviceSpeed::fullSpeed) {
+		arch::dma_object<DeviceDescriptor> descriptor{device->bufferPool()};
+		FRG_CO_TRY(co_await device->readDescriptor(descriptor.view_buffer().subview(0, 8), 0x0100));
+
+		std::println("usb: Full-speed device on port {} has bMaxPacketSize0 = {}",
+				device->port(), int{descriptor->maxPacketSize});
+
+		FRG_CO_TRY(co_await device->updateEp0MaxPacketSize(descriptor->maxPacketSize));
+	}
+
+	arch::dma_object<DeviceDescriptor> descriptor{device->bufferPool()};
+	FRG_CO_TRY(co_await device->readDescriptor(descriptor.view_buffer(), 0x0100));
+
+	arch::dma_object<ConfigDescriptor> configDescriptor{device->bufferPool()};
+	FRG_CO_TRY(co_await device->readDescriptor(configDescriptor.view_buffer(), 0x0200));
+	FRG_CO_TRY(co_await device->useConfiguration(0, configDescriptor->configValue));
+
+	// Advertise the USB device on mbus.
+	auto classCode = std::format("{:02x}", descriptor->deviceClass);
+	auto subClass = std::format("{:02x}", descriptor->deviceSubclass);
+	auto protocol = std::format("{:02x}", descriptor->deviceProtocol);
+	auto vendor = std::format("{:04x}", descriptor->idVendor);
+	auto product = std::format("{:04x}", descriptor->idProduct);
+	auto release = std::format("{:04x}", descriptor->bcdDevice);
+
+	if (descriptor->deviceClass == 0x09 && descriptor->deviceSubclass == 0) {
+		auto hub = FRG_CO_TRY(co_await createHubFromDevice(device));
+
+		FRG_CO_TRY(co_await device->configureAsHub(hub));
+
+		observeHub(std::move(hub));
+	}
+
+	auto address = std::format("{:02x}", device->address());
+
+	std::string mbps = getSpeedMbps(device->speed());
+
+	auto [_route, rootHub, _rootPort] = device->routeString();
+	auto rootEntityId = rootHub->mbusEntityId();
+
+	mbus_ng::Properties mbusDescriptor{
+		{"usb.type", mbus_ng::StringItem{"device"}},
+		{"usb.vendor", mbus_ng::StringItem{vendor}},
+		{"usb.product", mbus_ng::StringItem{product}},
+		{"usb.class", mbus_ng::StringItem{classCode}},
+		{"usb.subclass", mbus_ng::StringItem{subClass}},
+		{"usb.protocol", mbus_ng::StringItem{protocol}},
+		{"usb.release", mbus_ng::StringItem{release}},
+		{"usb.hub_port", mbus_ng::StringItem{address}},
+		{"usb.bus", mbus_ng::StringItem{std::to_string(rootEntityId)}},
+		{"usb.speed", mbus_ng::StringItem{mbps}},
+		{"unix.subsystem", mbus_ng::StringItem{"usb"}},
+	};
+
+	auto usbEntity = (co_await mbus_ng::Instance::global().createEntity(
+				"usb-dev-" + std::string{address}, mbusDescriptor)).unwrap();
+
+	[] (auto device, mbus_ng::EntityManager entity) -> async::detached {
+		while (true) {
+			auto [localLane, remoteLane] = helix::createStream();
+
+			// If this fails, too bad!
+			(void)(co_await entity.serveRemoteLane(std::move(remoteLane)));
+
+			serve(Device{device}, std::move(localLane));
+		}
+	}(device, std::move(usbEntity));
+
+	co_return frg::success;
 }
 
 // ----------------------------------------------------------------
@@ -115,8 +196,8 @@ namespace PortFeatures {
 }
 
 struct StandardHub final : Hub {
-	StandardHub(std::shared_ptr<Hub> parentHub, Device device, size_t port)
-	: Hub{parentHub, port}, device_{std::move(device)}, endpoint_{nullptr} { }
+	StandardHub(std::shared_ptr<DeviceServerData> device)
+	: Hub{std::move(device)}, endpoint_{nullptr} { }
 
 	async::result<frg::expected<UsbError>> initialize();
 
@@ -135,12 +216,7 @@ public:
 		return characteristics_;
 	}
 
-	std::optional<Device> associatedDevice() override {
-		return device_;
-	}
-
 private:
-	Device device_;
 	Endpoint endpoint_;
 
 	async::recurring_event doorbell_;
@@ -152,7 +228,7 @@ async::result<frg::expected<UsbError>> StandardHub::initialize() {
 	std::optional<int> intfNumber;
 	std::optional<int> endNumber;
 
-	auto cfgDescriptor = FRG_CO_TRY(co_await device_.configurationDescriptor(0));
+	auto cfgDescriptor = FRG_CO_TRY(co_await state()->configurationDescriptor(0));
 	auto cfgRange = configurationRange(cfgDescriptor);
 
 	auto configDesc = configDescriptorFrom(cfgRange);
@@ -168,7 +244,7 @@ async::result<frg::expected<UsbError>> StandardHub::initialize() {
 		break;
 	}
 
-	auto cfg = FRG_CO_TRY(co_await device_.useConfiguration(0, configDesc->configValue));
+	auto cfg = FRG_CO_TRY(co_await state()->useConfiguration(0, configDesc->configValue));
 	auto intf = FRG_CO_TRY(co_await cfg.useInterface(intfNumber.value(), 0));
 	endpoint_ = FRG_CO_TRY(co_await intf.getEndpoint(PipeType::in, endNumber.value()));
 
@@ -179,7 +255,7 @@ async::result<frg::expected<UsbError>> StandardHub::initialize() {
 		uint8_t powerOnToPowerGood;
 	};
 
-	arch::dma_object<SetupPacket> getDescriptor{device_.setupPool()};
+	arch::dma_object<SetupPacket> getDescriptor{state()->setupPool()};
 	getDescriptor->type = setup_type::targetDevice | setup_type::byClass
 			| setup_type::toHost;
 	getDescriptor->request = ClassRequests::getDescriptor;
@@ -187,8 +263,8 @@ async::result<frg::expected<UsbError>> StandardHub::initialize() {
 	getDescriptor->index = intfNumber.value();
 	getDescriptor->length = sizeof(HubDescriptor);
 
-	arch::dma_object<HubDescriptor> hubDescriptor{device_.bufferPool()};
-	FRG_CO_TRY(co_await device_.transfer(ControlTransfer{kXferToHost,
+	arch::dma_object<HubDescriptor> hubDescriptor{state()->bufferPool()};
+	FRG_CO_TRY(co_await state()->transfer(ControlTransfer{kXferToHost,
 			getDescriptor, hubDescriptor.view_buffer()}));
 
 	state_.resize(hubDescriptor->numPorts, PortState{0, 0});
@@ -198,7 +274,7 @@ async::result<frg::expected<UsbError>> StandardHub::initialize() {
 
 	for (size_t port = 1; port <= hubDescriptor->numPorts; port++) {
 		// Issue a SetPortFeature request to power on the port.
-		arch::dma_object<SetupPacket> powerReq{device_.setupPool()};
+		arch::dma_object<SetupPacket> powerReq{state()->setupPool()};
 		powerReq->type = setup_type::targetOther | setup_type::byClass
 			| setup_type::toDevice;
 		powerReq->request = ClassRequests::setFeature;
@@ -206,7 +282,7 @@ async::result<frg::expected<UsbError>> StandardHub::initialize() {
 		powerReq->index = port;
 		powerReq->length = 0;
 
-		FRG_CO_TRY(co_await device_.transfer(ControlTransfer{kXferToDevice,
+		FRG_CO_TRY(co_await state()->transfer(ControlTransfer{kXferToDevice,
 						powerReq, arch::dma_buffer_view{}}));
 	}
 
@@ -224,7 +300,7 @@ async::detached StandardHub::run_() {
 			<< state_.size() << " ports." << std::endl;
 
 	while(true) {
-		arch::dma_array<uint8_t> report{device_.bufferPool(), (state_.size() + 1 + 7) / 8};
+		arch::dma_array<uint8_t> report{state()->bufferPool(), (state_.size() + 1 + 7) / 8};
 		(co_await endpoint_.transfer(InterruptTransfer{XferFlags::kXferToHost,
 				report.view_buffer()})).unwrap();
 
@@ -234,7 +310,7 @@ async::detached StandardHub::run_() {
 				continue;
 
 			// Query issue a GetPortStatus request and inspect the status.
-			arch::dma_object<SetupPacket> statusReq{device_.setupPool()};
+			arch::dma_object<SetupPacket> statusReq{state()->setupPool()};
 			statusReq->type = setup_type::targetOther | setup_type::byClass
 					| setup_type::toHost;
 			statusReq->request = ClassRequests::getStatus;
@@ -242,8 +318,8 @@ async::detached StandardHub::run_() {
 			statusReq->index = port;
 			statusReq->length = 4;
 
-			arch::dma_array<uint16_t> result{device_.bufferPool(), 2};
-			(co_await device_.transfer(ControlTransfer{kXferToHost,
+			arch::dma_array<uint16_t> result{state()->bufferPool(), 2};
+			(co_await state()->transfer(ControlTransfer{kXferToHost,
 					statusReq, result.view_buffer()})).unwrap();
 //			std::cout << "usb: Port " << port << " status: "
 //					<< result[0] << ", " << result[1] << std::endl;
@@ -261,7 +337,7 @@ async::detached StandardHub::run_() {
 				state_[port - 1].changes |= HubStatus::connect;
 				doorbell_.raise();
 
-				arch::dma_object<SetupPacket> clearReq{device_.setupPool()};
+				arch::dma_object<SetupPacket> clearReq{state()->setupPool()};
 				clearReq->type = setup_type::targetOther | setup_type::byClass
 						| setup_type::toDevice;
 				clearReq->request = ClassRequests::clearFeature;
@@ -269,7 +345,7 @@ async::detached StandardHub::run_() {
 				clearReq->index = port;
 				clearReq->length = 0;
 
-				(co_await device_.transfer(ControlTransfer{kXferToDevice,
+				(co_await state()->transfer(ControlTransfer{kXferToDevice,
 						clearReq, arch::dma_buffer_view{}})).unwrap();
 			}
 
@@ -277,7 +353,7 @@ async::detached StandardHub::run_() {
 				state_[port - 1].changes |= HubStatus::enable;
 				doorbell_.raise();
 
-				arch::dma_object<SetupPacket> clearReq{device_.setupPool()};
+				arch::dma_object<SetupPacket> clearReq{state()->setupPool()};
 				clearReq->type = setup_type::targetOther | setup_type::byClass
 						| setup_type::toDevice;
 				clearReq->request = ClassRequests::clearFeature;
@@ -285,7 +361,7 @@ async::detached StandardHub::run_() {
 				clearReq->index = port;
 				clearReq->length = 0;
 
-				(co_await device_.transfer(ControlTransfer{kXferToDevice,
+				(co_await state()->transfer(ControlTransfer{kXferToDevice,
 						clearReq, arch::dma_buffer_view{}})).unwrap();
 			}
 
@@ -293,7 +369,7 @@ async::detached StandardHub::run_() {
 				state_[port - 1].changes |= HubStatus::reset;
 				doorbell_.raise();
 
-				arch::dma_object<SetupPacket> clearReq{device_.setupPool()};
+				arch::dma_object<SetupPacket> clearReq{state()->setupPool()};
 				clearReq->type = setup_type::targetOther | setup_type::byClass
 						| setup_type::toDevice;
 				clearReq->request = ClassRequests::clearFeature;
@@ -301,7 +377,7 @@ async::detached StandardHub::run_() {
 				clearReq->index = port;
 				clearReq->length = 0;
 
-				(co_await device_.transfer(ControlTransfer{kXferToDevice,
+				(co_await state()->transfer(ControlTransfer{kXferToDevice,
 						clearReq, arch::dma_buffer_view{}})).unwrap();
 			}
 		}
@@ -326,7 +402,7 @@ async::result<PortState> StandardHub::pollState(int port) {
 
 async::result<frg::expected<UsbError, void>> StandardHub::issueReset(int port) {
 	// Issue a SetPortFeature request to reset the port.
-	arch::dma_object<SetupPacket> resetReq{device_.setupPool()};
+	arch::dma_object<SetupPacket> resetReq{state()->setupPool()};
 	resetReq->type = setup_type::targetOther | setup_type::byClass
 			| setup_type::toDevice;
 	resetReq->request = ClassRequests::setFeature;
@@ -334,7 +410,7 @@ async::result<frg::expected<UsbError, void>> StandardHub::issueReset(int port) {
 	resetReq->index = port;
 	resetReq->length = 0;
 
-	FRG_CO_TRY(co_await device_.transfer(ControlTransfer{kXferToDevice,
+	FRG_CO_TRY(co_await state()->transfer(ControlTransfer{kXferToDevice,
 			resetReq, arch::dma_buffer_view{}}));
 
 	co_return frg::success;
@@ -342,7 +418,7 @@ async::result<frg::expected<UsbError, void>> StandardHub::issueReset(int port) {
 
 async::result<frg::expected<UsbError, DeviceSpeed>> StandardHub::querySpeed(int port) {
 	// Issue a GetPortStatus request to determine the device speed.
-	arch::dma_object<SetupPacket> statusReq{device_.setupPool()};
+	arch::dma_object<SetupPacket> statusReq{state()->setupPool()};
 	statusReq->type = setup_type::targetOther | setup_type::byClass
 			| setup_type::toHost;
 	statusReq->request = ClassRequests::getStatus;
@@ -350,8 +426,8 @@ async::result<frg::expected<UsbError, DeviceSpeed>> StandardHub::querySpeed(int 
 	statusReq->index = port;
 	statusReq->length = 4;
 
-	arch::dma_array<uint16_t> result{device_.bufferPool(), 2};
-	FRG_CO_TRY(co_await device_.transfer(ControlTransfer{kXferToHost,
+	arch::dma_array<uint16_t> result{state()->bufferPool(), 2};
+	FRG_CO_TRY(co_await state()->transfer(ControlTransfer{kXferToHost,
 			statusReq, result.view_buffer()}));
 
 	auto lowSpeed = result[0] & PortBits::lowSpeed;
@@ -368,8 +444,8 @@ async::result<frg::expected<UsbError, DeviceSpeed>> StandardHub::querySpeed(int 
 } // namespace anonymous
 
 async::result<frg::expected<UsbError, std::shared_ptr<Hub>>>
-createHubFromDevice(std::shared_ptr<Hub> parentHub, Device device, size_t port) {
-	auto hub = std::make_shared<StandardHub>(parentHub, std::move(device), port);
+createHubFromDevice(std::shared_ptr<DeviceServerData> device) {
+	auto hub = std::make_shared<StandardHub>(std::move(device));
 	FRG_CO_TRY(co_await hub->initialize());
 	co_return hub;
 }
