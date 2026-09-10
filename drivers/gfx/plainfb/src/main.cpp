@@ -100,11 +100,15 @@ async::result<std::unique_ptr<drm_core::Configuration>> GfxDevice::initialize() 
 	assignments.push_back(drm_core::Assignment::withInt(_theConnector, dpmsProperty(), 3));
 	assignments.push_back(drm_core::Assignment::withModeObj(_theConnector, crtcIdProperty(), _theCrtc));
 
-	std::vector<drm_mode_modeinfo> supported_modes;
-	drm_core::addDmtModes(supported_modes, _screenWidth, _screenHeight);
-	_theConnector->setModeList(supported_modes);
+	// We cannot change the resolution, so expose only the firmware's mode with dummy 60 Hz timings.
+	auto modeName = std::to_string(_screenWidth) + "x" + std::to_string(_screenHeight);
+	auto fixedMode = drm_core::makeModeInfo(modeName.c_str(),
+			DRM_MODE_TYPE_DRIVER | DRM_MODE_TYPE_PREFERRED,
+			uint64_t{_screenWidth} * _screenHeight * 60 / 1000,
+			_screenWidth, _screenWidth, _screenWidth, _screenWidth, 0,
+			_screenHeight, _screenHeight, _screenHeight, _screenHeight, 0, 0);
+	_theConnector->setModeList({fixedMode});
 
-	// Connector::setModeList() sorts the modes in descending order of (width * height)
 	auto info_ptr = reinterpret_cast<const char *>(&_theConnector->modeList().front());
 	std::vector<char> modeData(info_ptr, info_ptr + sizeof(drm_mode_modeinfo));
 	auto modeBlob = registerBlob(std::move(modeData));
@@ -182,9 +186,9 @@ bool GfxDevice::Configuration::capture(std::vector<drm_core::Assignment> assignm
 		plane_state->src_h = mode_info.vdisplay;
 		plane_state->src_w = mode_info.hdisplay;
 
-		// TODO: Check max dimensions: plane_state->width > 1024 || plane_state->height > 768
-		if(plane_state->src_w <= 0 || plane_state->src_h <= 0) {
-			std::cout << "\e[31m" "gfx/plainfb: invalid state width of height" << "\e[39m" << std::endl;
+		if(mode_info.hdisplay != _device->_screenWidth || mode_info.vdisplay != _device->_screenHeight) {
+			std::cout << "\e[31m" "gfx/plainfb: Mode " << mode_info.hdisplay << "x" << mode_info.vdisplay
+					<< " does not match the fixed resolution" << "\e[39m" << std::endl;
 			return false;
 		}
 	}
