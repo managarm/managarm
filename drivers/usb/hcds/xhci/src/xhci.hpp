@@ -331,6 +331,7 @@ private:
 		bool isEnabled();
 		bool isPowered();
 		void transitionToLinkStatus(uint8_t status);
+		async::result<void> setPower(bool on);
 		async::detached initPort();
 
 		template <typename T>
