@@ -8,6 +8,8 @@
 #include <stdio.h>
 
 #include <async/result.hpp>
+#include <core/cmdline.hpp>
+#include <frg/cmdline.hpp>
 #include <helix/dispatcher-pool.hpp>
 #include <protocols/mbus/client.hpp>
 #include <protocols/usb/usb.hpp>
@@ -17,8 +19,9 @@
 #include "storage.hpp"
 
 namespace {
-	constexpr bool logEnumeration = false;
-	constexpr bool logSteps = false;
+	// Set by block-usb.debug and block-usb.trace on the kernel command line.
+	bool logDebug = false;
+	bool logTrace = false;
 }
 
 namespace proto = protocols::usb;
@@ -46,7 +49,7 @@ async::result<void> StorageDevice::initialize(int config_num, int intf_num) {
 		}
 	}
 
-	if(logSteps)
+	if(logDebug)
 		std::cout << "block-usb: Setting up configuration" << std::endl;
 
 	auto config = (co_await usbDevice_.useConfiguration(0, config_num)).unwrap();
@@ -54,7 +57,7 @@ async::result<void> StorageDevice::initialize(int config_num, int intf_num) {
 	endp_in_ = (co_await intf.getEndpoint(proto::PipeType::in, in_endp_number.value())).unwrap();
 	endp_out_ = (co_await intf.getEndpoint(proto::PipeType::out, out_endp_number.value())).unwrap();
 
-	if(logSteps)
+	if(logDebug)
 		std::cout << "block-usb: Device is ready" << std::endl;
 }
 
@@ -83,12 +86,12 @@ async::result<frg::expected<scsi::Error, size_t>> StorageDevice::sendScsiCommand
 	// and round-trips to the device and host-controller driver.
 	CommandStatusWrapper csw;
 
-	if(logSteps)
+	if(logTrace)
 		std::cout << "block-usb: Sending CBW" << std::endl;
 	(co_await endp_out_.transfer(proto::BulkTransfer{proto::XferFlags::kXferToDevice,
 			arch::dma_buffer_view{nullptr, &cbw, sizeof(CommandBlockWrapper)}})).unwrap();
 
-	if(logSteps)
+	if(logTrace)
 		std::cout << "block-usb: Waiting for data" << std::endl;
 	if(!info.isWrite) {
 		proto::BulkTransfer data_info{proto::XferFlags::kXferToHost, info.data};
@@ -100,12 +103,12 @@ async::result<frg::expected<scsi::Error, size_t>> StorageDevice::sendScsiCommand
 		(co_await endp_out_.transfer(proto::BulkTransfer{proto::XferFlags::kXferToDevice, info.data})).unwrap();
 	}
 
-	if(logSteps)
+	if(logTrace)
 		std::cout << "block-usb: Waiting for CSW" << std::endl;
 	(co_await endp_in_.transfer(proto::BulkTransfer{proto::XferFlags::kXferToHost,
 			arch::dma_buffer_view{nullptr, &csw, sizeof(CommandStatusWrapper)}})).unwrap();
 
-	if(logSteps)
+	if(logTrace)
 		std::cout << "block-usb: Request complete" << std::endl;
 	assert(csw.signature == Signatures::kSignCsw);
 	assert(csw.tag == 1);
@@ -127,12 +130,13 @@ async::detached bindDevice(mbus_ng::Entity entity) {
 	std::optional<int> intf_subclass;
 	std::optional<int> intf_protocol;
 
-	if(logEnumeration)
+	if(logDebug)
 		std::cout << "block-usb: Getting configuration descriptor" << std::endl;
 
 	auto descriptorOrError = co_await device.configurationDescriptor(0);
 	if(!descriptorOrError) {
-		std::cout << "usb-hid: Failed to get device descriptor" << std::endl;
+		std::cout << "block-usb: mbus ID " << entity.id()
+				<< ": Failed to get configuration descriptor" << std::endl;
 		co_return;
 	}
 
@@ -151,7 +155,7 @@ async::detached bindDevice(mbus_ng::Entity entity) {
 					<< int{intf.interfaceNumber} << std::endl;
 			continue;
 		}
-		if(logEnumeration)
+		if(logDebug)
 			std::cout << "block-usb: Found interface: " << int{intf.interfaceNumber}
 					<< ", alternative: " << int{intf.alternateSetting} << std::endl;
 		intf_number = intf.interfaceNumber;
@@ -160,8 +164,9 @@ async::detached bindDevice(mbus_ng::Entity entity) {
 		intf_protocol = intf.interfaceProtocol;
 	}
 
-	if(logEnumeration)
-		std::cout << "block-usb: Device class: 0x" << std::hex << intf_class.value()
+	if(logDebug)
+		std::cout << "block-usb: mbus ID " << entity.id()
+				<< ": interface class: 0x" << std::hex << intf_class.value()
 				<< ", subclass: 0x" << intf_subclass.value()
 				<< ", protocol: 0x" << intf_protocol.value()
 				<< std::dec << std::endl;
@@ -170,7 +175,7 @@ async::detached bindDevice(mbus_ng::Entity entity) {
 			|| intf_protocol.value() != 0x50)
 		co_return;
 
-	if(logEnumeration)
+	if(logDebug)
 		std::cout << "block-usb: Detected USB device" << std::endl;
 
 	auto storage_device = new StorageDevice(device, entity.id());
@@ -179,6 +184,14 @@ async::detached bindDevice(mbus_ng::Entity entity) {
 }
 
 async::detached observeDevices() {
+	Cmdline cmdlineHelper{};
+	auto cmdline = co_await cmdlineHelper.get();
+	frg::array args = {
+		frg::option{"block-usb.debug", frg::store_true(logDebug)},
+		frg::option{"block-usb.trace", frg::store_true(logTrace)},
+	};
+	frg::parse_arguments({cmdline.data(), cmdline.size()}, args);
+
 	auto filter = mbus_ng::Conjunction{{
 		mbus_ng::EqualsFilter{"usb.type", "device"},
 		mbus_ng::EqualsFilter{"usb.class", "00"}
