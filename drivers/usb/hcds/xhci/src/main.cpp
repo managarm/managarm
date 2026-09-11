@@ -10,7 +10,9 @@
 #include <print>
 
 #include <arch/dma_pool.hpp>
+#include <core/cmdline.hpp>
 #include <frg/bitops.hpp>
+#include <frg/cmdline.hpp>
 #include <async/result.hpp>
 #include <helix/ipc.hpp>
 #include <protocols/hw/client.hpp>
@@ -37,6 +39,9 @@ namespace proto = protocols::usb;
 std::vector<std::shared_ptr<Controller>> globalControllers;
 
 namespace {
+
+// Set by xhci.power-cycle on the kernel command line.
+bool powerCyclePorts = false;
 
 // Number of address bits that the controller can use for DMA.
 size_t dmaAddressBits([[maybe_unused]] arch::mem_space space) {
@@ -653,16 +658,28 @@ void Controller::Port::transitionToLinkStatus(uint8_t status) {
 			| portsc::portLinkStatusStrobe(true));
 }
 
+async::result<void> Controller::Port::setPower(bool on) {
+	_space.store(port::portsc, portsc::portPower(on));
+
+	// From the XHCI spec: "After modifying PP, software shall read PP
+	// and confirm that it is reached its target state before modifying it again".
+	while (isPowered() != on)
+		co_await helix_ng::sleepFor(1'000'000);
+}
+
 async::detached Controller::Port::initPort() {
-	std::println("{} Powering off port {}", _controller, _id);
-	_space.store(port::portsc, portsc::portPower(false));
+	// Power good delay of Linux' xHCI root hubs (bPwrOn2PwrGood: 20 ms for USB 2, 100 ms for USB 3).
+	uint64_t powerGoodDelay = _proto->major == 3 ? 100'000'000 : 20'000'000;
 
-	co_await helix_ng::sleepFor(1'000'000'000);
+	if (powerCyclePorts) {
+		std::println("xhci: Power cycling port during initialization");
+		co_await setPower(false);
+		// Like Linux, keep the port off for twice the power good delay.
+		co_await helix_ng::sleepFor(2 * powerGoodDelay);
+	}
 
-	std::println("{} Powering on port {}", _controller, _id);
-	_space.store(port::portsc, portsc::portPower(true));
-
-	co_await helix_ng::sleepFor(1'000'000'000);
+	co_await setPower(true);
+	co_await helix_ng::sleepFor(powerGoodDelay);
 
 	// Wait for something to connect to the port
 	co_await awaitFlag(portsc::connectStatus, true);
@@ -1359,6 +1376,13 @@ async::detached bindController(mbus_ng::Entity entity) {
 }
 
 async::detached observeControllers() {
+	Cmdline cmdlineHelper{};
+	auto cmdline = co_await cmdlineHelper.get();
+	frg::array args = {
+		frg::option{"xhci.power-cycle", frg::store_true(powerCyclePorts)},
+	};
+	frg::parse_arguments({cmdline.data(), cmdline.size()}, args);
+
 	auto filter = mbus_ng::Conjunction{{
 		mbus_ng::EqualsFilter{"pci-class", "0c"},
 		mbus_ng::EqualsFilter{"pci-subclass", "03"},
