@@ -1533,6 +1533,13 @@ void ManagedSpace::_raiseMonitors(MonitorPendingList &pendingMonitors) {
 	}
 }
 
+void ManagedSpace::_raiseManagement(ManageList &pendingManagement) {
+	while(!pendingManagement.empty()) {
+		auto node = pendingManagement.pop_front();
+		node->completionEvent.raise();
+	}
+}
+
 void ManagedSpace::_pageDiscarded(ManagedPage *) {}
 
 void ManagedSpace::_wakeDrain() {
@@ -1626,20 +1633,7 @@ Error ManagedSpace::lockPages(uintptr_t offset, size_t size) {
 		size_t index = (offset + pg) / kPageSize;
 		auto [pit, wasInserted] = pages.find_or_insert(index, this, index);
 		assert(pit);
-		pit->lockCount++;
-		if(pit->lockCount == 1) {
-			if(pit->loadState == LoadState::present && pit->transactionState == TxState::inReclaimer) {
-				globalReclaimer->removePage(&pit->cachePage);
-				pit->transactionState = TxState::none;
-			}else if(pit->transactionState == TxState::performReclaim) {
-				pit->transactionState = TxState::avertReclaim;
-			}else if(pit->transactionState == TxState::discardQueued
-					|| pit->transactionState == TxState::performDiscard) {
-				// Handle discardQueued pages by moving them into avertDiscard.
-				// This avoids raising monitors on this code path.
-				pit->transactionState = TxState::avertDiscard;
-			}
-		}
+		lockPage(pit);
 	}
 	return Error::success;
 }
@@ -1655,25 +1649,119 @@ void ManagedSpace::unlockPages(uintptr_t offset, size_t size) {
 			size_t index = (offset + pg) / kPageSize;
 			auto pit = pages.find(index);
 			assert(pit);
-			assert(pit->lockCount > 0);
-			pit->lockCount--;
-			if(!pit->lockCount) {
-				if(pit->discarded) {
-					// If a transaction is still in flight, the page stays owned by it;
-					// the transaction's completion path disposes of the page instead.
-					if(pit->transactionState == TxState::none)
-						raiseDiscard |= _disposeDiscarded(pit);
-				} else if(pit->loadState == LoadState::present
-						&& pit->transactionState == TxState::none
-						&& !pit->cachePage.useCount.load(std::memory_order_relaxed)) {
-					globalReclaimer->addPage(&pit->cachePage);
-					pit->transactionState = TxState::inReclaimer;
-				}
-			}
+			unlockPage(pit, raiseDiscard);
 		}
 	}
 	if(raiseDiscard)
 		_discardEvent.raise();
+}
+
+void ManagedSpace::lockPage(ManagedPage *page) {
+	page->lockCount++;
+	if(page->lockCount == 1) {
+		if(page->loadState == LoadState::present && page->transactionState == TxState::inReclaimer) {
+			globalReclaimer->removePage(&page->cachePage);
+			page->transactionState = TxState::none;
+		}else if(page->transactionState == TxState::performReclaim) {
+			page->transactionState = TxState::avertReclaim;
+		}else if(page->transactionState == TxState::discardQueued
+				|| page->transactionState == TxState::performDiscard) {
+			// Handle discardQueued pages by moving them into avertDiscard.
+			// This avoids raising monitors on this code path.
+			page->transactionState = TxState::avertDiscard;
+		}
+	}
+}
+
+void ManagedSpace::unlockPage(ManagedPage *page, bool &raiseDiscard) {
+	assert(page->lockCount > 0);
+	page->lockCount--;
+	if(!page->lockCount) {
+		if(page->discarded) {
+			// If a transaction is still in flight, the page stays owned by it;
+			// the transaction's completion path disposes of the page instead.
+			if(page->transactionState == TxState::none)
+				raiseDiscard |= _disposeDiscarded(page);
+		} else if(page->loadState == LoadState::present
+				&& page->transactionState == TxState::none
+				&& !page->cachePage.useCount.load(std::memory_order_relaxed)) {
+			globalReclaimer->addPage(&page->cachePage);
+			page->transactionState = TxState::inReclaimer;
+		}
+	}
+}
+
+PhysicalAddr ManagedSpace::peekPage(ManagedPage *page) {
+	if(page->loadState != LoadState::present) {
+		assert(page->loadState == LoadState::missing);
+		return PhysicalAddr(-1);
+	}
+	assert(page->physical != PhysicalAddr(-1));
+
+	if(page->transactionState == TxState::performReclaim) {
+		page->transactionState = TxState::avertReclaim;
+	} else if(page->transactionState == TxState::performDiscard) {
+		page->transactionState = TxState::avertDiscard;
+	}
+
+	return page->physical;
+}
+
+bool ManagedSpace::touchPresentPage(ManagedPage *page) {
+	if(page->loadState != LoadState::present) {
+		assert(page->loadState == LoadState::missing);
+		return false;
+	}
+	assert(page->physical != PhysicalAddr(-1));
+
+	if(page->transactionState == TxState::inReclaimer) {
+		globalReclaimer->bumpPage(&page->cachePage);
+	}else if(page->transactionState == TxState::performReclaim) {
+		page->transactionState = TxState::avertReclaim;
+	}else if(page->transactionState == TxState::performDiscard) {
+		page->transactionState = TxState::avertDiscard;
+	}
+
+	return true;
+}
+
+std::expected<frg::intrusive_shared_ptr<ManagedSpace::TransactionMonitor, Allocator>, Error>
+ManagedSpace::initializePage(ManagedPage *page, FetchFlags flags, ManageList &pendingManagement) {
+	assert(page->loadState == LoadState::missing);
+	assert(!isSwapSpace || page->swapCopyValid);
+
+	if(flags & fetchDisallowBacking) {
+		urgentLogger() << "thor: Backing of page is disallowed" << frg::endlog;
+		return std::unexpected{Error::fault};
+	}
+
+	if(page->transactionState == TxState::none) {
+		page->transactionState = TxState::wantInitialization;
+		_initializationList.push_back(&page->cachePage);
+	}
+
+	// Perform readahead.
+	if(readahead) {
+		assert(!isSwapSpace);
+		auto index = page->cachePage.identity;
+		for(size_t i = 1; i < 4; ++i) {
+			if(!(index + i < numPages))
+				break;
+			auto [pit, wasInserted] = pages.find_or_insert(index + i, this, index + i);
+			assert(pit);
+			if(pit->loadState == LoadState::missing
+					&& pit->transactionState == TxState::none) {
+				pit->transactionState = TxState::wantInitialization;
+				_initializationList.push_back(&pit->cachePage);
+			}
+		}
+	}
+
+	_progressManagement(pendingManagement);
+
+	assert(page->transactionState == TxState::wantInitialization
+			|| page->transactionState == TxState::initialization);
+	return page->requireMonitor(MonitorType::initialization);
 }
 
 void ManagedSpace::submitManagement(ManageNode *node) {
@@ -1686,10 +1774,7 @@ void ManagedSpace::submitManagement(ManageNode *node) {
 		_progressManagement(pending);
 	}
 
-	while(!pending.empty()) {
-		auto node = pending.pop_front();
-		node->completionEvent.raise();
-	}
+	_raiseManagement(pending);
 }
 
 void ManagedSpace::_progressManagement(ManageList &pending) {
@@ -2297,26 +2382,16 @@ PhysicalRange FrontalMemory::peekRange(uintptr_t offset, FetchFlags) {
 	if(!pit)
 		return PhysicalRange{};
 
-	if(pit->loadState == ManagedSpace::LoadState::present) {
-		auto physical = pit->physical;
-		assert(physical != PhysicalAddr(-1));
-
-		if(pit->transactionState == ManagedSpace::TxState::performReclaim) {
-			pit->transactionState = ManagedSpace::TxState::avertReclaim;
-		} else if(pit->transactionState == ManagedSpace::TxState::performDiscard) {
-			pit->transactionState = ManagedSpace::TxState::avertDiscard;
-		}
-
-		return PhysicalRange{
-			.physical = physical + misalign,
-			.size = kPageSize - misalign,
-			.cachingMode = CachingMode::null,
-			.isMutable = true
-		};
-	}else{
-		assert(pit->loadState == ManagedSpace::LoadState::missing);
+	auto physical = _managed->peekPage(pit);
+	if(physical == PhysicalAddr(-1))
 		return PhysicalRange{};
-	}
+
+	return PhysicalRange{
+		.physical = physical + misalign,
+		.size = kPageSize - misalign,
+		.cachingMode = CachingMode::null,
+		.isMutable = true
+	};
 }
 
 coroutine<frg::expected<Error, size_t>>
@@ -2338,61 +2413,17 @@ FrontalMemory::touchRange(uintptr_t offset, size_t, FetchFlags flags) {
 		// Try the fast-paths first.
 		auto [pit, wasInserted] = _managed->pages.find_or_insert(index, _managed.get(), index);
 		assert(pit);
-		if(pit->loadState == ManagedSpace::LoadState::present) {
-			assert(pit->physical != PhysicalAddr(-1));
-
-			if(pit->transactionState == ManagedSpace::TxState::inReclaimer) {
-				globalReclaimer->bumpPage(&pit->cachePage);
-			}else if(pit->transactionState == ManagedSpace::TxState::performReclaim) {
-				pit->transactionState = ManagedSpace::TxState::avertReclaim;
-			}else if(pit->transactionState == ManagedSpace::TxState::performDiscard) {
-				pit->transactionState = ManagedSpace::TxState::avertDiscard;
-			}
-
+		if(_managed->touchPresentPage(pit))
 			co_return kPageSize - misalign;
-		}else{
-			assert(pit->loadState == ManagedSpace::LoadState::missing);
-		}
-
-		if(flags & fetchDisallowBacking) {
-			urgentLogger() << "thor: Backing of page is disallowed" << frg::endlog;
-			co_return Error::fault;
-		}
 
 		// We have to take the slow-path, i.e., perform the fetch asynchronously.
-		if(pit->loadState == ManagedSpace::LoadState::missing
-				&& pit->transactionState == ManagedSpace::TxState::none) {
-			pit->transactionState = ManagedSpace::TxState::wantInitialization;
-			_managed->_initializationList.push_back(&pit->cachePage);
-		}
-
-		// Perform readahead.
-		if(_managed->readahead)
-			for(size_t i = 1; i < 4; ++i) {
-				if(!(index + i < _managed->numPages))
-					break;
-				auto [pit, wasInserted] = _managed->pages.find_or_insert(
-						index + i, _managed.get(), index + i);
-				assert(pit);
-				if(pit->loadState == ManagedSpace::LoadState::missing
-						&& pit->transactionState == ManagedSpace::TxState::none) {
-					pit->transactionState = ManagedSpace::TxState::wantInitialization;
-					_managed->_initializationList.push_back(&pit->cachePage);
-				}
-			}
-
-		_managed->_progressManagement(pendingManagement);
-
-		assert(pit->transactionState == ManagedSpace::TxState::wantInitialization
-				|| pit->transactionState == ManagedSpace::TxState::initialization);
-		fetchMonitor = pit->requireMonitor(ManagedSpace::MonitorType::initialization);
+		auto monitorOutcome = _managed->initializePage(pit, flags, pendingManagement);
+		if(!monitorOutcome)
+			co_return monitorOutcome.error();
+		fetchMonitor = std::move(*monitorOutcome);
 	}
 
-	while(!pendingManagement.empty()) {
-		auto node = pendingManagement.pop_front();
-		node->completionEvent.raise();
-	}
-
+	ManagedSpace::_raiseManagement(pendingManagement);
 	co_await fetchMonitor->event.wait();
 
 	co_return kPageSize - misalign;
@@ -2429,9 +2460,7 @@ SwappableMemory::~SwappableMemory() {
 			auto irqLock = frg::guard(&irqMutex());
 			auto lock = frg::guard(&_space->mutex);
 
-			auto pit = _space->pages.find(*it);
-			assert(pit);
-			_space->discardPage(pit, DiscardMode::dropDirty,
+			_space->discardPage(*it, DiscardMode::dropDirty,
 					raiseDiscard, raiseExpedite, pendingMonitors);
 		}
 		ManagedSpace::_raiseMonitors(pendingMonitors);
@@ -2444,20 +2473,20 @@ SwappableMemory::~SwappableMemory() {
 	_space->_wakeDrain();
 }
 
-frg::optional<uint64_t> SwappableMemory::_translate(uint64_t index) {
+ManagedSpace::ManagedPage *SwappableMemory::_translate(uint64_t index) {
 	auto tit = _table.find(index);
 	if(tit)
 		return *tit;
 
 	auto allocated = _space->_allocateOffset();
 	if(!allocated)
-		return frg::null_opt;
-	_table.insert(index, *allocated);
+		return nullptr;
 
 	auto [pit, wasInserted] = _space->pages.find_or_insert(*allocated, _space.get(), *allocated);
 	assert(pit);
 	assert(wasInserted);
-	return *allocated;
+	_table.insert(index, pit);
+	return pit;
 }
 
 size_t SwappableMemory::getLength() {
@@ -2495,29 +2524,14 @@ Error SwappableMemory::lockRange(uintptr_t offset, size_t size) {
 
 		for(size_t pg = 0; pg < size; pg += kPageSize) {
 			auto index = (offset + pg) >> kPageShift;
-			auto swapOffset = _translate(index);
-			if(!swapOffset) {
+			auto page = _translate(index);
+			if(!page) {
 				// The swap space is exhausted, unwind the locks we already took.
 				_unlockPagesLocked(offset, pg, raiseDiscard);
 				result = Error::noMemory;
 				break;
 			}
-			auto pit = _space->pages.find(*swapOffset);
-			assert(pit);
-			if(++pit->lockCount == 1) {
-				if(pit->loadState == ManagedSpace::LoadState::present
-						&& pit->transactionState == ManagedSpace::TxState::inReclaimer) {
-					globalReclaimer->removePage(&pit->cachePage);
-					pit->transactionState = ManagedSpace::TxState::none;
-				}else if(pit->transactionState == ManagedSpace::TxState::performReclaim) {
-					pit->transactionState = ManagedSpace::TxState::avertReclaim;
-				}else if(pit->transactionState == ManagedSpace::TxState::discardQueued
-						|| pit->transactionState == ManagedSpace::TxState::performDiscard) {
-					// Handle discardQueued pages by moving them into avertDiscard.
-					// This avoids raising monitors on this code path.
-					pit->transactionState = ManagedSpace::TxState::avertDiscard;
-				}
-			}
+			_space->lockPage(page);
 		}
 	}
 	if(raiseDiscard)
@@ -2530,21 +2544,7 @@ void SwappableMemory::_unlockPagesLocked(uintptr_t offset, size_t size, bool &ra
 		auto index = (offset + pg) >> kPageShift;
 		auto tit = _table.find(index);
 		assert(tit);
-		auto pit = _space->pages.find(*tit);
-		assert(pit);
-		assert(pit->lockCount);
-		pit->lockCount--;
-		if(!pit->lockCount) {
-			if(pit->discarded) {
-				if(pit->transactionState == ManagedSpace::TxState::none)
-					raiseDiscard |= _space->_disposeDiscarded(pit);
-			} else if(pit->loadState == ManagedSpace::LoadState::present
-					&& pit->transactionState == ManagedSpace::TxState::none
-					&& !pit->cachePage.useCount.load(std::memory_order_relaxed)) {
-				globalReclaimer->addPage(&pit->cachePage);
-				pit->transactionState = ManagedSpace::TxState::inReclaimer;
-			}
-		}
+		_space->unlockPage(*tit, raiseDiscard);
 	}
 }
 
@@ -2574,29 +2574,17 @@ PhysicalRange SwappableMemory::peekRange(uintptr_t offset, FetchFlags) {
 	auto tit = _table.find(index);
 	if(!tit)
 		return PhysicalRange{};
-	auto pit = _space->pages.find(*tit);
-	assert(pit);
 
-	if(pit->loadState == ManagedSpace::LoadState::present) {
-		auto physical = pit->physical;
-		assert(physical != PhysicalAddr(-1));
+	auto physical = _space->peekPage(*tit);
+	if(physical == PhysicalAddr(-1))
+		return PhysicalRange{};
 
-		if(pit->transactionState == ManagedSpace::TxState::performReclaim) {
-			pit->transactionState = ManagedSpace::TxState::avertReclaim;
-		} else if(pit->transactionState == ManagedSpace::TxState::performDiscard) {
-			pit->transactionState = ManagedSpace::TxState::avertDiscard;
-		}
-
-		return PhysicalRange{
-			.physical = physical + misalign,
-			.size = kPageSize - misalign,
-			.cachingMode = CachingMode::null,
-			.isMutable = true
-		};
-	}
-
-	assert(pit->loadState == ManagedSpace::LoadState::missing);
-	return PhysicalRange{};
+	return PhysicalRange{
+		.physical = physical + misalign,
+		.size = kPageSize - misalign,
+		.cachingMode = CachingMode::null,
+		.isMutable = true
+	};
 }
 
 coroutine<frg::expected<Error, size_t>>
@@ -2625,26 +2613,12 @@ SwappableMemory::touchRange(uintptr_t offset, size_t, FetchFlags flags) {
 			if(index >= (_length >> kPageShift))
 				co_return Error::fault;
 
-			auto swapOffset = _translate(index);
-			if(!swapOffset)
+			auto pit = _translate(index);
+			if(!pit)
 				co_return Error::noMemory;
-			auto pit = _space->pages.find(*swapOffset);
-			assert(pit);
 
-			if(pit->loadState == ManagedSpace::LoadState::present) {
-				assert(pit->physical != PhysicalAddr(-1));
-
-				if(pit->transactionState == ManagedSpace::TxState::inReclaimer) {
-					globalReclaimer->bumpPage(&pit->cachePage);
-				}else if(pit->transactionState == ManagedSpace::TxState::performReclaim) {
-					pit->transactionState = ManagedSpace::TxState::avertReclaim;
-				}else if(pit->transactionState == ManagedSpace::TxState::performDiscard) {
-					pit->transactionState = ManagedSpace::TxState::avertDiscard;
-				}
-
+			if(_space->touchPresentPage(pit))
 				co_return kPageSize - misalign;
-			}
-			assert(pit->loadState == ManagedSpace::LoadState::missing);
 
 			if(!pit->swapCopyValid) {
 				// The page is logically all-zero - zero-fill it synchronously.
@@ -2666,30 +2640,15 @@ SwappableMemory::touchRange(uintptr_t offset, size_t, FetchFlags flags) {
 				// ... no frame at hand, allocate one below without the mutex held and retry.
 			}else{
 				// The page is swapped out, read it back via the manage protocol.
-				if(flags & fetchDisallowBacking) {
-					urgentLogger() << "thor: Backing of swapped-out page is disallowed"
-							<< frg::endlog;
-					co_return Error::fault;
-				}
-
-				if(pit->transactionState == ManagedSpace::TxState::none) {
-					pit->transactionState = ManagedSpace::TxState::wantInitialization;
-					_space->_initializationList.push_back(&pit->cachePage);
-				}
-
-				_space->_progressManagement(pendingManagement);
-				assert(pit->transactionState == ManagedSpace::TxState::wantInitialization
-						|| pit->transactionState == ManagedSpace::TxState::initialization);
-				fetchMonitor = pit->requireMonitor(ManagedSpace::MonitorType::initialization);
+				auto monitorOutcome = _space->initializePage(pit, flags, pendingManagement);
+				if(!monitorOutcome)
+					co_return monitorOutcome.error();
+				fetchMonitor = std::move(*monitorOutcome);
 			}
 		}
 
 		if(fetchMonitor) {
-			while(!pendingManagement.empty()) {
-				auto node = pendingManagement.pop_front();
-				node->completionEvent.raise();
-			}
-
+			ManagedSpace::_raiseManagement(pendingManagement);
 			co_await fetchMonitor->event.wait();
 			co_return kPageSize - misalign;
 		}

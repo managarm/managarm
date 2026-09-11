@@ -860,6 +860,10 @@ struct ManagedSpace : CacheBundle {
 	// Must be called without holding mutex.
 	static void _raiseMonitors(MonitorPendingList &pendingMonitors);
 
+	// Completes the given management requests (as collected by _progressManagement()).
+	// Must be called outside of locks.
+	static void _raiseManagement(ManageList &pendingManagement);
+
 	// Notifies the subclass that a discarded page's entry is about to be erased.
 	// Called under mutex.
 	virtual void _pageDiscarded(ManagedPage *page);
@@ -873,6 +877,32 @@ struct ManagedSpace : CacheBundle {
 
 	Error lockPages(uintptr_t offset, size_t size);
 	void unlockPages(uintptr_t offset, size_t size);
+
+	// Per-page counterparts of lockPages()/unlockPages().
+	// Must be called under mutex.
+	void lockPage(ManagedPage *page);
+	// Sets raiseDiscard to true if _discardEvent needs to be raised (and doesn't modify it otherwise).
+	// Must be called under mutex.
+	void unlockPage(ManagedPage *page, bool &raiseDiscard);
+
+	// Returns the frame of a present page (averting an in-flight reclamation or discard),
+	// or PhysicalAddr(-1) if the page is missing.
+	// Must be called under mutex.
+	PhysicalAddr peekPage(ManagedPage *page);
+
+	// Makes a present page recently used (or averts its in-flight reclamation or discard).
+	// Returns false if the page is missing.
+	// Must be called under mutex.
+	bool touchPresentPage(ManagedPage *page);
+
+	// Requests the initialization of a missing page via the manage protocol.
+	// Fails on fetchDisallowBacking.
+	// Returns the monitor that is raised once the page is initialized.
+	// Must be called under mutex.
+	// The caller must raise the appended management requests before awaiting the monitor.
+	// Precondition: on a SwapSpace, the page has a valid disk copy (i.e., page->swapCopyValid is true).
+	std::expected<frg::intrusive_shared_ptr<TransactionMonitor, Allocator>, Error>
+	initializePage(ManagedPage *page, FetchFlags flags, ManageList &pendingManagement);
 
 	void submitManagement(ManageNode *node);
 	void _progressManagement(ManageList &pending);
@@ -1066,9 +1096,10 @@ public:
 	smarter::borrowed_ptr<SwappableMemory> selfPtr;
 
 private:
-	// Returns the swap offset backing the given view page index, allocating one on demand.
+	// Returns the swap page backing the given view page index, allocating one on demand.
+	// Returns null if the swap space is exhausted.
 	// Must be called under the SwapSpace mutex.
-	frg::optional<uint64_t> _translate(uint64_t index);
+	ManagedSpace::ManagedPage *_translate(uint64_t index);
 
 	// Unlock counterpart of lockRange().
 	// Must be called under the SwapSpace mutex.
@@ -1077,7 +1108,8 @@ private:
 	smarter::shared_ptr<SwapSpace> _space;
 	size_t _length;
 
-	frg::rcu_radixtree<uint64_t, KernelAlloc, RcuPolicy> _table;
+	// Maps page index -> swap page. The swap pages are owned by _space.
+	frg::rcu_radixtree<ManagedSpace::ManagedPage *, KernelAlloc, RcuPolicy> _table;
 };
 
 struct IndirectMemory final : MemoryView {
