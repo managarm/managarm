@@ -850,11 +850,14 @@ struct ManagedSpace : CacheBundle {
 	// or once the in-flight transaction is completed. The frames are freed by
 	// the reclamation behind a fenceEphemeral().
 	// Idempotent: discarding an already discarded page is a no-op (i.e., the first call fixes the mode).
-	// Must be called under mutex; the caller must raise the appended monitors
-	// (and _discardEvent/_expediteEvent, if requested) after dropping it.
-	// After a batch of discards the caller must call _wakeDrain() as discards may release swap budget.
-	void discardPage(ManagedPage *pit, DiscardMode mode, bool &raiseDiscard,
+	// Must be called under mutex.
+	// The caller must raise the appended monitors and _dirtyEvent/_discardEvent/_expediteEvent as requested.
+	void discardPage(ManagedPage *pit, DiscardMode mode, bool &raiseDirty, bool &raiseDiscard,
 			bool &raiseExpedite, MonitorPendingList &pendingMonitors);
+
+	// Discards a single page and raises the resulting monitors and events.
+	// Must be called outside of locks.
+	void discardPageAndRaise(ManagedPage *page, DiscardMode mode);
 
 	// Moves a present page into TxState::dirty / _dirtyList.
 	// Arms the writeback deadline. Discarded pages expedite the writeback.
@@ -869,8 +872,8 @@ struct ManagedSpace : CacheBundle {
 
 	// Queues a discarded page for the reclamation coroutine, which erases its entry.
 	// Must be called under mutex with transactionState == TxState::none.
-	// Returns whether the caller must raise _discardEvent after dropping the mutex.
-	[[nodiscard]] bool _disposeDiscarded(ManagedPage *page);
+	// Sets raiseDiscard to true if _discardEvent needs to be raised (and doesn't modify it otherwise).
+	void _disposeDiscarded(ManagedPage *page, bool &raiseDiscard);
 
 	// Raises (and releases the references of) the given detached monitors.
 	// Must be called without holding mutex.
@@ -881,8 +884,9 @@ struct ManagedSpace : CacheBundle {
 	static void _raiseManagement(ManageList &pendingManagement);
 
 	// Notifies the subclass that a discarded page's entry is about to be erased.
+	// Sets raiseDirty to true if _dirtyEvent needs to be raised and doesn't modify it otherwise.
 	// Called under mutex.
-	virtual void _pageDiscarded(ManagedPage *page);
+	virtual void _pageDiscarded(ManagedPage *page, bool &raiseDirty);
 
 	// Unblocks the drain coroutine after the swap budget has grown.
 	void _wakeDrain();
@@ -991,7 +995,7 @@ struct SwapSpace final : ManagedSpace {
 	SwapSpace();
 
 	bool claimSwapBudget(ManagedPage *page) override;
-	void _pageDiscarded(ManagedPage *page) override;
+	void _pageDiscarded(ManagedPage *page, bool &raiseDirty) override;
 
 	void setBudget(size_t numSlots);
 
