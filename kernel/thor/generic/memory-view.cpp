@@ -1393,6 +1393,35 @@ bool ManagedSpace::claimSwapBudget(ManagedPage *) {
 	return true;
 }
 
+void ManagedSpace::installPage(ManagedPage *page, PhysicalAddr physical, bool dirty,
+		unsigned int extraLockCount, bool &raiseDirty, bool &raiseExpedite) {
+	assert(page->loadState == LoadState::missing);
+	assert(page->transactionState == TxState::none);
+	assert(!page->discarded);
+	assert(!page->swapCopyValid);
+	assert(page->physical == PhysicalAddr(-1));
+
+	globalPfnDb().insert(physical, PfnDescriptor::cachePage(&page->cachePage));
+	page->physical = physical;
+	page->loadState = LoadState::present;
+	hierarchy->chargeMemory(kPageSize);
+	page->lockCount += extraLockCount;
+
+	if(dirty) {
+		_enqueueDirty(page, raiseExpedite);
+		// Mirror markDirty()'s wake filter: while the drain coroutine is blocked
+		// on the writeback budget, a page without a disk slot cannot be promoted anyway.
+		if(!_drainBlocked || page->swapBudgetClaimed) {
+			_drainBlocked = false;
+			raiseDirty = true;
+		}
+	}else if(!page->lockCount
+			&& !page->cachePage.useCount.load(std::memory_order_relaxed)) {
+		globalReclaimer->addPage(&page->cachePage);
+		page->transactionState = TxState::inReclaimer;
+	}
+}
+
 void ManagedSpace::discardPage(ManagedPage *pit, DiscardMode mode, bool &raiseDiscard,
 		bool &raiseExpedite, MonitorPendingList &pendingMonitors) {
 	assert(mode != DiscardMode::none);
@@ -1604,6 +1633,16 @@ void SwapSpace::setBudget(size_t numSlots) {
 		_budget = numSlots;
 	}
 	_wakeDrain();
+}
+
+ManagedSpace::ManagedPage *SwapSpace::allocatePage() {
+	auto offset = _allocateOffset();
+	if(!offset)
+		return nullptr;
+	auto [pit, wasInserted] = pages.find_or_insert(*offset, this, *offset);
+	assert(pit);
+	assert(wasInserted);
+	return pit;
 }
 
 frg::optional<uint64_t> SwapSpace::_allocateOffset() {
@@ -2478,13 +2517,9 @@ ManagedSpace::ManagedPage *SwappableMemory::_translate(uint64_t index) {
 	if(tit)
 		return *tit;
 
-	auto allocated = _space->_allocateOffset();
-	if(!allocated)
+	auto pit = _space->allocatePage();
+	if(!pit)
 		return nullptr;
-
-	auto [pit, wasInserted] = _space->pages.find_or_insert(*allocated, _space.get(), *allocated);
-	assert(pit);
-	assert(wasInserted);
 	_table.insert(index, pit);
 	return pit;
 }
@@ -2624,17 +2659,12 @@ SwappableMemory::touchRange(uintptr_t offset, size_t, FetchFlags flags) {
 				// The page is logically all-zero - zero-fill it synchronously.
 				assert(pit->transactionState == ManagedSpace::TxState::none);
 				if(freshPhysical != PhysicalAddr(-1)) {
-					globalPfnDb().insert(freshPhysical,
-							PfnDescriptor::cachePage(&pit->cachePage));
-					pit->physical = freshPhysical;
-					pit->loadState = ManagedSpace::LoadState::present;
-					_space->hierarchy->chargeMemory(kPageSize);
+					// A clean install neither wakes the drain nor expedites writeback.
+					bool raiseDirty = false;
+					bool raiseExpedite = false;
+					_space->installPage(pit, freshPhysical, false, 0, raiseDirty, raiseExpedite);
+					assert(!raiseDirty && !raiseExpedite);
 					freshPhysical = PhysicalAddr(-1);
-					if(!pit->lockCount
-							&& !pit->cachePage.useCount.load(std::memory_order_relaxed)) {
-						globalReclaimer->addPage(&pit->cachePage);
-						pit->transactionState = ManagedSpace::TxState::inReclaimer;
-					}
 					co_return kPageSize - misalign;
 				}
 				// ... no frame at hand, allocate one below without the mutex held and retry.

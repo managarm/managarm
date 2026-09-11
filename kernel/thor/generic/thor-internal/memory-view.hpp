@@ -830,6 +830,22 @@ struct ManagedSpace : CacheBundle {
 	// Returning false leaves the page on _dirtyList until swap budget becomes available.
 	virtual bool claimSwapBudget(ManagedPage *page);
 
+	// Installs a frame for a page that is currently missing (and in no transaction):
+	// - registers it in the pfn-db,
+	// - makes the page present (charging it to hierarchy),
+	// - hands it to the dirty pipeline if its dirty,
+	// - hands it to the reclaimer LRU if its clean and unreferenced.
+	// Must be called under mutex.
+	// The caller must raise _dirtyEvent/_expediteEvent as requested.
+	// Precondition: !page->discarded.
+	// Precondition: The backing store holds no copy of the page (i.e., page->swapCopyValid is false).
+	//               Pages that have one are populated by initializePage() instead.
+	// Precondition: If !dirty, the frame is zero-filled.
+	//               This is needed since non-dirty pages can be reclaimed and would be re-created by zero-filling.
+	// Precondition: The caller owns the fully initialized frame, which is not in the pfn-db yet.
+	void installPage(ManagedPage *page, PhysicalAddr physical, bool dirty,
+			unsigned int extraLockCount, bool &raiseDirty, bool &raiseExpedite);
+
 	// Discards the given page. The entry is either immediately erased
 	// or once the in-flight transaction is completed. The frames are freed by
 	// the reclamation behind a fenceEphemeral().
@@ -979,9 +995,14 @@ struct SwapSpace final : ManagedSpace {
 
 	void setBudget(size_t numSlots);
 
-private:
-	friend struct SwappableMemory;
+	// Allocates a swap page (at the lowest free swap offset) without a phyiscal page frame.
+	// Returns null if the swap space is exhausted.
+	// The page is fresh (missing, unlocked, not discarded, no disk copy, i.e., fit for installPage())
+	// and owned by the caller, who must eventually discard it.
+	// Must be called under mutex.
+	ManagedPage *allocatePage();
 
+private:
 	// Allocates the lowest free swap offset (in pages, not bytes).
 	// Must be called under mutex.
 	frg::optional<uint64_t> _allocateOffset();
