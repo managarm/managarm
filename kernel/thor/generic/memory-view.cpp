@@ -3132,7 +3132,6 @@ CopyOnWriteMemory::touchRange(uintptr_t offset, size_t sizeHint, FetchFlags flag
 	assert(currentIpl() == ipl::exceptionalWork);
 
 	auto misalign = offset & (kPageSize - 1);
-	auto alignedOffset = offset & ~(kPageSize - 1);
 
 	smarter::shared_ptr<MemoryView> view;
 	uintptr_t viewOffset;
@@ -3187,7 +3186,6 @@ CopyOnWriteMemory::touchRange(uintptr_t offset, size_t sizeHint, FetchFlags flag
 	}
 	// Note: totalOffset is not necessarily page aligned.
 	auto totalOffset = viewOffset + offset;
-	auto pageOffset = totalOffset & ~(kPageSize - 1);
 
 	// Passthrough and waitForCopy are mutually exclusive:
 	// if waitForCopy is set, we may need to wait for eviction to finish
@@ -3220,6 +3218,17 @@ CopyOnWriteMemory::touchRange(uintptr_t offset, size_t sizeHint, FetchFlags flag
 		co_return kPageSize - misalign;
 	}
 
+	FRG_CO_TRY(co_await _materializePage(offset, cowPage, sharedPage));
+	co_return kPageSize - misalign;
+}
+
+coroutine<frg::expected<Error>>
+CopyOnWriteMemory::_materializePage(uintptr_t offset,
+		smarter::shared_ptr<CowPage> cowPage, smarter::shared_ptr<CowPage> sharedPage) {
+	auto alignedOffset = offset & ~(kPageSize - 1);
+	// Note: offset is not necessarily page aligned.
+	auto pageOffset = (_viewOffset + offset) & ~(kPageSize - 1);
+
 	PhysicalAddr physical = physicalAllocator->allocate(kPageSize);
 	assert(physical != PhysicalAddr(-1) && "OOM");
 	PageAccessor accessor{physical};
@@ -3230,7 +3239,7 @@ CopyOnWriteMemory::touchRange(uintptr_t offset, size_t sizeHint, FetchFlags flag
 		auto srcAccessor = PageAccessor{sharedPage->physical};
 		memcpy(accessor.get(), srcAccessor.get(), kPageSize);
 	}else{
-		FRG_CO_TRY(co_await view->copyFrom(pageOffset, accessor.get(), kPageSize));
+		FRG_CO_TRY(co_await _view->copyFrom(pageOffset, accessor.get(), kPageSize));
 	}
 
 	// To make CoW unobservable, we first need to evict the page here.
@@ -3253,7 +3262,7 @@ CopyOnWriteMemory::touchRange(uintptr_t offset, size_t sizeHint, FetchFlags flag
 			_sharedPages.erase(offset >> kPageShift);
 	}
 	_copyEvent.raise();
-	co_return kPageSize - misalign;
+	co_return {};
 }
 
 void CopyOnWriteMemory::chargePages_(size_t n) {

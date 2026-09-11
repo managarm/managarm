@@ -1176,6 +1176,13 @@ public:
 	// Contract: set by the code that constructs this object.
 	smarter::borrowed_ptr<CopyOnWriteMemory> selfPtr;
 private:
+	// Attaches a page frame for the given page and performs the copy
+	// from the shared page (if any) or the root view.
+	// Precondition: the caller has moved the page to CowState::inProgress.
+	// Postcondition: Moves the page into hasCopy state on success.
+	coroutine<frg::expected<Error>> _materializePage(uintptr_t offset,
+			smarter::shared_ptr<CowPage> cowPage, smarter::shared_ptr<CowPage> sharedPage);
+
 	frg::ticket_spinlock _mutex;
 
 	smarter::shared_ptr<Hierarchy> _hierarchy;
