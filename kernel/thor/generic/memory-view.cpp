@@ -3188,6 +3188,7 @@ CowPage::~CowPage() {
 		return;
 	assert(state == CowState::hasCopy);
 	if(swapPage) {
+		assert(currentIpl() < ipl::interrupt);
 		auto space = static_cast<ManagedSpace *>(swapPage->cachePage.bundle);
 		space->discardPageAndRaise(swapPage, DiscardMode::dropDirty);
 	}else{
