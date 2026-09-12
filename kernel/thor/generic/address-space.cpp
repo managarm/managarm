@@ -199,19 +199,6 @@ coroutine<void> Mapping::runEvictionLoop() {
 }
 
 // --------------------------------------------------------
-// CowMapping
-// --------------------------------------------------------
-
-CowChain::CowChain()
-: _pages{*kernelAlloc} {
-}
-
-CowChain::~CowChain() {
-	if(logCleanup)
-		infoLogger() << "thor: Releasing CowChain" << frg::endlog;
-}
-
-// --------------------------------------------------------
 // VirtualSpace
 // --------------------------------------------------------
 

@@ -1138,17 +1138,6 @@ struct CowPage {
 	unsigned int lockCount = 0;
 };
 
-struct CowChain {
-	CowChain();
-
-	~CowChain();
-
-// TODO: Either this private again or make this class POD-like.
-	frg::ticket_spinlock _mutex;
-
-	frg::rcu_radixtree<smarter::shared_ptr<CowPage>, KernelAlloc, RcuPolicy> _pages;
-};
-
 struct CopyOnWriteMemory final : MemoryView /*, MemoryObserver */ {
 private:
 	struct CtorToken {};
@@ -1160,8 +1149,7 @@ public:
 
 	CopyOnWriteMemory(CtorToken, smarter::shared_ptr<Hierarchy> hierarchy,
 			smarter::shared_ptr<MemoryView> view,
-			uintptr_t offset, size_t length,
-			smarter::shared_ptr<CowChain> chain);
+			uintptr_t offset, size_t length);
 	CopyOnWriteMemory(const CopyOnWriteMemory &) = delete;
 
 	~CopyOnWriteMemory();
@@ -1188,17 +1176,27 @@ public:
 	// Contract: set by the code that constructs this object.
 	smarter::borrowed_ptr<CopyOnWriteMemory> selfPtr;
 private:
+	// Attaches a page frame for the given page and performs the copy
+	// from the shared page (if any) or the root view.
+	// Precondition: the caller has moved the page to CowState::inProgress.
+	// Postcondition: Moves the page into hasCopy state on success,
+	//                or moves it back into null state on failure.
+	coroutine<frg::expected<Error>> _materializePage(uintptr_t offset,
+			smarter::shared_ptr<CowPage> cowPage, smarter::shared_ptr<CowPage> sharedPage);
+
 	frg::ticket_spinlock _mutex;
 
 	smarter::shared_ptr<Hierarchy> _hierarchy;
+	// Constant after construction.
 	smarter::shared_ptr<MemoryView> _view;
+	// Constant after construction.
 	uintptr_t _viewOffset;
 	size_t _length;
 	// Invariant: _chargedPages is equal to the number of pages in _ownedPages that have a page frame attached
-	//            plus the number of pages in _copyChain that are not shadowed by a page in _ownedPages.
+	//            plus the number of pages in _sharedPages.
 	size_t _chargedPages{0};
-	smarter::shared_ptr<CowChain> _copyChain;
 	frg::rcu_radixtree<smarter::shared_ptr<CowPage>, KernelAlloc, RcuPolicy> _ownedPages;
+	frg::rcu_radixtree<smarter::shared_ptr<CowPage>, KernelAlloc, RcuPolicy> _sharedPages;
 	async::recurring_event _copyEvent;
 	EvictionQueue _evictQueue;
 };
