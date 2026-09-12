@@ -77,8 +77,17 @@ struct LogHandler {
 	//
 	// This is called with the global logging mutex held but not serialized w.r.t. reentrancy:
 	// emitUrgent() may be called in an exception or NMI while an outer frame is currently
-	// calling into another LogHandler function (i.e., emit(), flush(), emitUrgent()) on the same CPU.
+	// calling into another LogHandler function (i.e., emit(), flush(), emitUrgent(), flushUrgent()) on the same CPU.
 	virtual void emitUrgent(frg::string_view record);
+
+	// Like flush() but for the urgent path.
+	// flushUrgent() is only called on handlers that have takesUrgentLogs set.
+	// The default implementation calls flush().
+	//
+	// This is called with the global logging mutex held but not serialized w.r.t. reentrancy:
+	// flushUrgent() may be called in an exception or NMI while an outer frame is currently
+	// calling into another LogHandler function (i.e., emit(), flush(), emitUrgent(), flushUrgent()) on the same CPU.
+	virtual void flushUrgent();
 
 	frg::intrusive_rcu_list_hook<LogHandler> hook;
 
