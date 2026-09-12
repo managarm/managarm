@@ -1187,7 +1187,9 @@ private:
 	frg::ticket_spinlock _mutex;
 
 	smarter::shared_ptr<Hierarchy> _hierarchy;
+	// Constant after construction.
 	smarter::shared_ptr<MemoryView> _view;
+	// Constant after construction.
 	uintptr_t _viewOffset;
 	size_t _length;
 	// Invariant: _chargedPages is equal to the number of pages in _ownedPages that have a page frame attached

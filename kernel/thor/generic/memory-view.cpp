@@ -3013,8 +3013,6 @@ void CopyOnWriteMemory::unlockRange(uintptr_t offset, size_t size) {
 PhysicalRange CopyOnWriteMemory::peekRange(uintptr_t offset, FetchFlags flags) {
 	auto misalign = offset & (kPageSize - 1);
 
-	smarter::shared_ptr<MemoryView> view;
-	uintptr_t viewOffset;
 	// Note: the passthrough cases here have to match touchRange() since
 	//       callers expect touchRange() to make the page available to peekRange().
 	bool passthrough = false;
@@ -3053,15 +3051,12 @@ PhysicalRange CopyOnWriteMemory::peekRange(uintptr_t offset, FetchFlags flags) {
 				};
 			}
 		}
-
-		view = _view;
-		viewOffset = _viewOffset;
 	}
 	// Note: totalOffset is not necessarily page aligned.
-	auto totalOffset = viewOffset + offset;
+	auto totalOffset = _viewOffset + offset;
 
 	if (passthrough) {
-		auto range = view->peekRange(totalOffset, flags);
+		auto range = _view->peekRange(totalOffset, flags);
 		// Note: passthrough caching mode etc. but clamp the size to kPageSize.
 		if(range.physical != PhysicalAddr(-1)) {
 			return PhysicalRange{
