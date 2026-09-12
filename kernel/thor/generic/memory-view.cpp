@@ -2892,7 +2892,6 @@ coroutine<frg::expected<Error, smarter::shared_ptr<MemoryView>>> CopyOnWriteMemo
 	// replace them by copies, we have to copy them eagerly.
 	// Therefore, they are special-cased below.
 	smarter::shared_ptr<CopyOnWriteMemory> forked;
-	frg::vector<frg::tuple<size_t, smarter::shared_ptr<CowPage>>, KernelAlloc> inProgressPages{*kernelAlloc};
 	frg::vector<frg::tuple<size_t, smarter::shared_ptr<CowPage>>, KernelAlloc> lockedCopies{*kernelAlloc};
 	size_t numSharedPages{0};
 
@@ -2919,9 +2918,9 @@ coroutine<frg::expected<Error, smarter::shared_ptr<MemoryView>>> CopyOnWriteMemo
 			if(it)
 				page = *it;
 
-			// Pages in state null only hold a lock count, so they do not shadow the shared pages.
-			if(!page || page->state == CowState::null) {
-				// If the page is missing in this memory object, look at the shared pages.
+			// Pages without a published copy (null or inProgress) still have the content
+			// of their source, i.e., the shared page (if any) or the root view.
+			if(!page || page->state != CowState::hasCopy) {
 				if(auto sharedIt = _sharedPages.find(pg >> kPageShift); sharedIt) {
 					auto sharedPage = *sharedIt;
 					assert(sharedPage->state == CowState::hasCopy);
@@ -2931,56 +2930,6 @@ coroutine<frg::expected<Error, smarter::shared_ptr<MemoryView>>> CopyOnWriteMemo
 				}
 				continue;
 			}
-
-			if(page->state == CowState::inProgress) {
-				// We wait for the in progress pages later, as we
-				// need to drop the locks we're holding before
-				// suspending, but they are ensuring consistency
-				// of the object we're working on.
-				inProgressPages.push(frg::make_tuple(pg, page));
-				continue;
-			}else
-				assert(page->state == CowState::hasCopy);
-
-			if(page->lockCount /*|| disableCow */) {
-				// The page is locked. We *need* to keep it in the old address space.
-				lockedCopies.push(frg::make_tuple(pg, page));
-			}else{
-				assert(page->physical != PhysicalAddr(-1));
-
-				_ownedPages.erase(pg >> kPageShift);
-				auto sharedIt = _sharedPages.insert(pg >> kPageShift);
-				*sharedIt = page;
-				auto newIt = forked->_sharedPages.insert(pg >> kPageShift);
-				*newIt = page;
-				++numSharedPages;
-			}
-		}
-	}
-
-	// Wait for the in progress pages to complete copying.
-	bool stillWaiting = inProgressPages.size() > 0;
-	while (stillWaiting) {
-		stillWaiting = co_await _copyEvent.async_wait_if([&] {
-			auto irqLock = frg::guard(&irqMutex());
-			auto lock = frg::guard(&_mutex);
-
-			for (auto [_, inProgressPage] : inProgressPages) {
-				if (inProgressPage->state == CowState::inProgress)
-					return true;
-			}
-
-			return false;
-		});
-	}
-
-	{
-		auto irqLock = frg::guard(&irqMutex());
-		auto lock = frg::guard(&_mutex);
-
-		// Copy all the previously in progress pages now that they're done copying.
-		for (auto [pg, page] : inProgressPages) {
-			assert(page->state == CowState::hasCopy);
 
 			if(page->lockCount /*|| disableCow */) {
 				// The page is locked. We *need* to keep it in the old address space.
