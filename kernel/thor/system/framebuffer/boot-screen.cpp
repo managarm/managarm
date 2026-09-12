@@ -95,6 +95,7 @@ BootScreen::BootScreen(TextDisplay *display)
 : _display{display} {
 	_width = _display->getWidth();
 	_height = _display->getHeight();
+	takesUrgentLogs = true;
 }
 
 void BootScreen::emit(frg::string_view) {
@@ -102,29 +103,59 @@ void BootScreen::emit(frg::string_view) {
 }
 
 void BootScreen::flush() {
-	redraw();
+	redrawUntilStable();
 }
 
-void BootScreen::redraw() {
+void BootScreen::flushUrgent() {
+	redrawUntilStable();
+	_urgentGen.fetch_add(1, std::memory_order_relaxed);
+}
+
+void BootScreen::redrawUntilStable() {
+	uint64_t expectedTopPtr;
+	uint64_t topPtr;
+	while(true) {
+		// Note: atomic_signal_fence() is enough since we only need to protect against reentrancy on the same CPU.
+		auto gen = _urgentGen.load(std::memory_order_relaxed);
+		std::atomic_signal_fence(std::memory_order_seq_cst);
+
+		expectedTopPtr = _topPtr.load(std::memory_order_relaxed);
+		topPtr = expectedTopPtr;
+		redraw(topPtr);
+
+		// A nested flushUrgent() may have rendered records that this redraw() did not account for.
+		// Redraw again if this happens such that we don't draw stale logs over new logs.
+		std::atomic_signal_fence(std::memory_order_seq_cst);
+		if(_urgentGen.load(std::memory_order_relaxed) == gen)
+			break;
+	}
+	// Do a CAS since a nested flushUrgent() may have advanced _topPtr in the meantime.
+	_topPtr.compare_exchange_strong(expectedTopPtr, topPtr,
+			std::memory_order_relaxed, std::memory_order_relaxed);
+}
+
+// Note: this function must be reentrancy-safe.
+//       It only operates on local state and the global log ring (which can be read lock-free).
+void BootScreen::redraw(uint64_t &topPtr) {
 	char buffer[logLineLength];
 
 	// The last row is always left blank.
 	auto numRows = _height - 1;
 
 	// Drop records until the tail of the log ring fits onto the screen.
-	auto numRecords = countRecords();
+	auto numRecords = countRecords(topPtr);
 	while(numRecords > numRows) {
-		auto [success, recordPtr, nextPtr, size] = retrieveLogRecord(_topPtr, buffer, 0);
+		auto [success, recordPtr, nextPtr, size] = retrieveLogRecord(topPtr, buffer, 0);
 		if(!success)
 			break;
-		_topPtr = nextPtr;
+		topPtr = nextPtr;
 		numRecords--;
 	}
 
 	// Render the records. Producers may append to the ring while we do so; those records
 	// are picked up by the next redraw().
 	size_t y = 0;
-	auto ptr = _topPtr;
+	auto ptr = topPtr;
 	while(y < numRows) {
 		auto [success, recordPtr, nextPtr, size] = retrieveLogRecord(ptr, buffer, logLineLength);
 		if(!success)
@@ -140,20 +171,20 @@ void BootScreen::redraw() {
 		_display->setBlanks(0, y, _width, -1);
 }
 
-size_t BootScreen::countRecords() {
+size_t BootScreen::countRecords(uint64_t &topPtr) {
 	// Only the record boundaries are of interest here; a maximal size of zero avoids copying.
 	char dummy;
 
 	size_t n = 0;
-	auto ptr = _topPtr;
+	auto ptr = topPtr;
 	while(true) {
 		auto [success, recordPtr, nextPtr, size] = retrieveLogRecord(ptr, &dummy, 0);
 		if(!success)
 			break;
 
-		// The ring may have invalidated the records that _topPtr points to.
+		// The ring may have invalidated the records that topPtr points to.
 		if(!n)
-			_topPtr = recordPtr;
+			topPtr = recordPtr;
 		ptr = nextPtr;
 		n++;
 	}
