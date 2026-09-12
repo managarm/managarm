@@ -202,7 +202,7 @@ async::result<void> FileSystem::init() {
 	}
 
 	// Allocate a page cache for the tree structures.
-	HEL_CHECK(helCreateManagedMemory(
+	HEL_CHECK(helCreateManagedMemory(metadataHierarchy(),
 	    superblock_.total_bytes, 0, &treeBackingMemory, &treeFrontalMemory
 	));
 	manageTree();
@@ -529,7 +529,7 @@ async::detached FileSystem::initiateInode(std::shared_ptr<Inode> inode) {
 
 	// Allocate a page cache for the file.
 	auto cache_size = (inode->fileSize() + 0xFFF) & ~size_t(0xFFF);
-	HEL_CHECK(helCreateManagedMemory(
+	HEL_CHECK(helCreateManagedMemory(fileDataHierarchy(),
 	    cache_size, kHelManagedReadahead, &inode->backingMemory, &inode->frontalMemory
 	));
 

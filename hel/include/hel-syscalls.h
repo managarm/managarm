@@ -28,6 +28,16 @@ extern inline __attribute__ (( always_inline )) HelError helSubmitAsyncNop(
 			(HelWord)queueHandle, (HelWord)context);
 }
 
+extern inline __attribute__ (( always_inline )) HelError helExtendHierarchy(HelHandle hierarchyHandle,
+		const struct HelHierarchyParameters *params, HelHandle *handle) {
+	HelWord handle_word;
+	HelError error = helSyscall2_1(
+		kHelCallExtendHierarchy, (HelWord)hierarchyHandle, (HelWord)params, &handle_word
+	);
+	*handle = (HelHandle)handle_word;
+	return error;
+};
+
 extern inline __attribute__ (( always_inline )) HelError helCreateUniverse(HelHandle *handle) {
 	HelWord handle_word;
 	HelError error = helSyscall0_1(kHelCallCreateUniverse, &handle_word);
@@ -85,21 +95,23 @@ extern inline __attribute__ (( always_inline )) HelError helAlertQueue(HelHandle
 	return helSyscall1(kHelCallAlertQueue, (HelWord)handle);
 };
 
-extern inline __attribute__ (( always_inline )) HelError helAllocateMemory(size_t size,
-		uint32_t flags, const struct HelAllocRestrictions *restrictions, HelHandle *handle) {
+extern inline __attribute__ (( always_inline )) HelError helAllocateMemory(
+	HelHandle hierarchy, size_t size, uint32_t flags, const struct HelAllocRestrictions *restrictions, HelHandle *handle
+) {
 	HelWord hel_handle;
-	HelError error = helSyscall3_1(kHelCallAllocateMemory, (HelWord)size, (HelWord)flags,
-			(HelWord)restrictions, &hel_handle);
+	HelError error = helSyscall4_1(
+		kHelCallAllocateMemory, (HelWord)hierarchy, (HelWord)size, (HelWord)flags, (HelWord)restrictions, &hel_handle
+	);
 	*handle = (HelHandle)hel_handle;
 	return error;
 };
 
-extern inline __attribute__ (( always_inline )) HelError helCreateManagedMemory(size_t size,
-		uint32_t flags, HelHandle *backing_handle, HelHandle *frontal_handle) {
+extern inline __attribute__ (( always_inline )) HelError helCreateManagedMemory(HelHandle hierarchy,
+		size_t size, uint32_t flags, HelHandle *backing_handle, HelHandle *frontal_handle) {
 	HelWord back_handle;
 	HelWord front_handle;
-	HelError error = helSyscall2_2(kHelCallCreateManagedMemory, (HelWord)size, (HelWord)flags,
-			&back_handle, &front_handle);
+	HelError error = helSyscall3_2(kHelCallCreateManagedMemory, (HelWord)hierarchy, (HelWord)size,
+			(HelWord)flags, &back_handle, &front_handle);
 	*backing_handle = (HelHandle)back_handle;
 	*frontal_handle = (HelHandle)front_handle;
 	return error;
@@ -130,10 +142,10 @@ extern inline __attribute__ (( always_inline )) HelError helSetSwapBudget(HelHan
 	return helSyscall2(kHelCallSetSwapBudget, (HelWord)swap_space, (HelWord)num_pages);
 };
 
-extern inline __attribute__ (( always_inline )) HelError helCopyOnWrite(HelHandle memoryHandle,
-		uintptr_t offset, size_t size, HelHandle *outHandle) {
+extern inline __attribute__ (( always_inline )) HelError helCopyOnWrite(HelHandle hierarchy,
+		HelHandle memoryHandle, uintptr_t offset, size_t size, HelHandle *outHandle) {
 	HelWord outWord;
-	HelError error = helSyscall3_1(kHelCallCopyOnWrite, (HelWord)memoryHandle,
+	HelError error = helSyscall4_1(kHelCallCopyOnWrite, (HelWord)hierarchy, (HelWord)memoryHandle,
 			(HelWord)offset, (HelWord)size, &outWord);
 	*outHandle = (HelHandle)outWord;
 	return error;

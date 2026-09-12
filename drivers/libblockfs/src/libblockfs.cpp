@@ -11,6 +11,7 @@
 
 #include <core/clock.hpp>
 #include <core/dispatch.hpp>
+#include <core/process-data.hpp>
 #include <frg/scope_exit.hpp>
 #include <helix/dispatcher-pool.hpp>
 #include <helix/ipc.hpp>
@@ -33,6 +34,30 @@ namespace blockfs {
 bool clkInitialized = false;
 
 async::mutex globalInitializationMutex;
+
+HelHandle metadataHierarchy() {
+	static HelHandle handle = [] {
+		HelHierarchyParameters params{};
+		strncpy(params.tag, "metadata", sizeof(params.tag));
+
+		HelHandle child;
+		HEL_CHECK(helExtendHierarchy(core::getProcessHierarchy(), &params, &child));
+		return child;
+	}();
+	return handle;
+}
+
+HelHandle fileDataHierarchy() {
+	static HelHandle handle = [] {
+		HelHierarchyParameters params{};
+		strncpy(params.tag, "file-data", sizeof(params.tag));
+
+		HelHandle child;
+		HEL_CHECK(helExtendHierarchy(core::getProcessHierarchy(), &params, &child));
+		return child;
+	}();
+	return handle;
+}
 
 BlockDevice::BlockDevice(size_t sector_size, int64_t parent_id, arch::contiguous_pool *pool)
 : size(0), sectorSize(sector_size), sectorShift(std::countr_zero(sector_size)), parentId(parent_id), pagePool{pool} {

@@ -15,6 +15,9 @@
 
 namespace blockfs {
 
+HelHandle metadataHierarchy();
+HelHandle fileDataHierarchy();
+
 using FlockManager = protocols::fs::FlockManager;
 using Flock = protocols::fs::Flock;
 

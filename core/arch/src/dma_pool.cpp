@@ -1,4 +1,5 @@
 #include <arch/dma_pool.hpp>
+#include <core/process-data.hpp>
 #include <frg/bitops.hpp>
 #include <algorithm>
 #include <hel-syscalls.h>
@@ -176,7 +177,7 @@ helix::UniqueDescriptor contiguous_pool::allocate_pages_(size_t region_size) {
 	restrictions.addressBits = options_.addressBits;
 
 	HelHandle memory;
-	HEL_CHECK(helAllocateMemory(region_size, options_.allocateContigous ? kHelAllocContinuous : 0, &restrictions, &memory));
+	HEL_CHECK(helAllocateMemory(core::getProcessHierarchy(), region_size, options_.allocateContigous ? kHelAllocContinuous : 0, &restrictions, &memory));
 
 	return helix::UniqueDescriptor{memory};
 }

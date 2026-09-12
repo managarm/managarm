@@ -319,7 +319,7 @@ extern "C" void thorMain() {
 	//				if(logInitialization)
 						debugLogger() << "thor: initrd file " << path << frg::endlog;
 
-					auto memoryOutcome = AllocatedMemory::create(
+					auto memoryOutcome = AllocatedMemory::create(rootHierarchy(),
 							(file_size + (kPageSize - 1)) & ~size_t{kPageSize - 1});
 					if(!memoryOutcome)
 						panicLogger() << "thor: Failed to create memory" << frg::endlog;
@@ -643,13 +643,13 @@ void handleSyscall(SyscallImageAccessor image) {
 
 	case kHelCallAllocateMemory: {
 		HelHandle handle;
-		*image.error() = helAllocateMemory((size_t)arg0, (uint32_t)arg1,
-				(const HelAllocRestrictions *)arg2, &handle);
+		*image.error() = helAllocateMemory((HelHandle)arg0, (size_t)arg1, (uint32_t)arg2,
+				(const HelAllocRestrictions *)arg3, &handle);
 		*image.out0() = handle;
 	} break;
 	case kHelCallCreateManagedMemory: {
 		HelHandle backing_handle, frontal_handle;
-		*image.error() = helCreateManagedMemory((size_t)arg0, (uint32_t)arg1,
+		*image.error() = helCreateManagedMemory((HelHandle)arg0, (size_t)arg1, (uint32_t)arg2,
 				&backing_handle, &frontal_handle);
 		*image.out0() = backing_handle;
 		*image.out1() = frontal_handle;
@@ -672,7 +672,8 @@ void handleSyscall(SyscallImageAccessor image) {
 	} break;
 	case kHelCallCopyOnWrite: {
 		HelHandle handle;
-		*image.error() = helCopyOnWrite((HelHandle)arg0, (uintptr_t)arg1, (size_t)arg2, &handle);
+		*image.error() = helCopyOnWrite((HelHandle)arg0, (HelHandle)arg1, (uintptr_t)arg2,
+				(size_t)arg3, &handle);
 		*image.out0() = handle;
 	} break;
 	case kHelCallAccessPhysical: {
@@ -698,6 +699,15 @@ void handleSyscall(SyscallImageAccessor image) {
 	case kHelCallCreateSpace: {
 		HelHandle handle;
 		*image.error() = helCreateSpace(&handle);
+		*image.out0() = handle;
+	} break;
+	case kHelCallExtendHierarchy: {
+		HelHandle handle;
+		*image.error() = helExtendHierarchy(
+			(HelHandle)arg0,
+			(const HelHierarchyParameters *)arg1,
+			&handle
+		);
 		*image.out0() = handle;
 	} break;
 	case kHelCallCreateDmaSpace: {

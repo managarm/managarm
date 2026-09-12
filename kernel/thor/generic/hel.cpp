@@ -13,6 +13,7 @@
 #include <thor-internal/cancel.hpp>
 #include <thor-internal/event.hpp>
 #include <thor-internal/coroutine.hpp>
+#include <thor-internal/hierarchy.hpp>
 #include <thor-internal/io.hpp>
 #include <thor-internal/iommu.hpp>
 #include <thor-internal/ipc-queue.hpp>
@@ -510,7 +511,7 @@ HelError helAlertQueue(HelHandle handle) {
 	return kHelErrNone;
 }
 
-HelError helAllocateMemory(size_t size, uint32_t flags,
+HelError helAllocateMemory(HelHandle hierarchyHandle, size_t size, uint32_t flags,
 		const HelAllocRestrictions *restrictions, HelHandle *handle) {
 	if(!size)
 		return kHelErrIllegalArgs;
@@ -519,6 +520,12 @@ HelError helAllocateMemory(size_t size, uint32_t flags,
 
 	auto thisThread = getCurrentThread();
 	auto thisUniverse = thisThread->getUniverse();
+
+	auto hierarchyOutcome = thisUniverse->resolveObject<DescriptorType::hierarchy>(
+		hierarchyHandle, kHelRightProvision
+	);
+	if(!hierarchyOutcome)
+		return translateError(hierarchyOutcome.error());
 
 //	auto pressure = physicalAllocator->numUsedPages() * kPageSize;
 //	infoLogger() << "Allocate " << (void *)size
@@ -533,13 +540,13 @@ HelError helAllocateMemory(size_t size, uint32_t flags,
 
 	std::expected<smarter::shared_ptr<AllocatedMemory>, Error> memoryOutcome;
 	if(flags & kHelAllocContinuous) {
-		memoryOutcome = AllocatedMemory::create(size, effective.addressBits,
+		memoryOutcome = AllocatedMemory::create(*hierarchyOutcome, size, effective.addressBits,
 				size, kPageSize);
 	}else if(flags & kHelAllocOnDemand) {
-		memoryOutcome = AllocatedMemory::create(size, effective.addressBits);
+		memoryOutcome = AllocatedMemory::create(*hierarchyOutcome, size, effective.addressBits);
 	}else{
 		// TODO:
-		memoryOutcome = AllocatedMemory::create(size, effective.addressBits);
+		memoryOutcome = AllocatedMemory::create(*hierarchyOutcome, size, effective.addressBits);
 	}
 	if(!memoryOutcome)
 		return translateError(memoryOutcome.error());
@@ -583,7 +590,7 @@ HelError doSubmitResizeMemory(HelHandle handle, smarter::shared_ptr<IpcQueue> qu
 	return kHelErrNone;
 }
 
-HelError helCreateManagedMemory(size_t size, uint32_t flags,
+HelError helCreateManagedMemory(HelHandle hierarchyHandle, size_t size, uint32_t flags,
 		HelHandle *backing_handle, HelHandle *frontal_handle) {
 	if(flags & ~uint32_t{kHelManagedReadahead})
 		return kHelErrIllegalArgs;
@@ -593,7 +600,13 @@ HelError helCreateManagedMemory(size_t size, uint32_t flags,
 	auto thisThread = getCurrentThread();
 	auto thisUniverse = thisThread->getUniverse();
 
-	auto managedOutcome = ManagedSpace::create(size, flags & kHelManagedReadahead);
+	auto hierarchyOutcome = thisUniverse->resolveObject<DescriptorType::hierarchy>(
+		hierarchyHandle, kHelRightProvision
+	);
+	if(!hierarchyOutcome)
+		return translateError(hierarchyOutcome.error());
+
+	auto managedOutcome = ManagedSpace::create(*hierarchyOutcome, size, flags & kHelManagedReadahead);
 	if(!managedOutcome)
 		return translateError(managedOutcome.error());
 	auto managed = std::move(*managedOutcome);
@@ -695,19 +708,27 @@ HelError helSetSwapBudget(HelHandle swapSpaceHandle, size_t numPages) {
 	return kHelErrNone;
 }
 
-HelError helCopyOnWrite(HelHandle memoryHandle,
+HelError helCopyOnWrite(HelHandle hierarchyHandle, HelHandle memoryHandle,
 		uintptr_t offset, size_t size, HelHandle *outHandle) {
-	auto this_thread = getCurrentThread();
-	auto this_universe = this_thread->getUniverse();
+	auto thisThread = getCurrentThread();
+	auto thisUniverse = thisThread->getUniverse();
 
-	auto viewOutcome = this_universe->resolveObject<DescriptorType::memoryView>(memoryHandle, kHelRightRead | kHelRightAssign);
+	auto hierarchyOutcome = thisUniverse->resolveObject<DescriptorType::hierarchy>(
+		hierarchyHandle, kHelRightProvision
+	);
+	if(!hierarchyOutcome)
+		return translateError(hierarchyOutcome.error());
+
+	auto viewOutcome = thisUniverse->resolveObject<DescriptorType::memoryView>(memoryHandle, kHelRightRead | kHelRightAssign);
 	if(!viewOutcome)
 		return translateError(viewOutcome.error());
 
-	auto sliceOutcome = CopyOnWriteMemory::create(std::move(*viewOutcome), offset, size);
+	auto sliceOutcome = CopyOnWriteMemory::create(*hierarchyOutcome, std::move(*viewOutcome),
+			offset, size);
 	if(!sliceOutcome)
 		return translateError(sliceOutcome.error());
-	*outHandle = this_universe->attachDescriptor(
+
+	*outHandle = thisUniverse->attachDescriptor(
 		AnyDescriptor::make<DescriptorType::memoryView>(
 			std::move(*sliceOutcome),
 			kHelRightRead | kHelRightWrite | kHelRightExecute | kHelRightAssign | kHelRightDerive | kHelRightProvision | kHelRightPin | kHelRightFence | kHelRightManage
@@ -865,12 +886,18 @@ HelError helCreateSliceView(HelHandle memoryHandle,
 	return kHelErrNone;
 }
 
-HelError doSubmitForkMemory(HelHandle handle, smarter::shared_ptr<IpcQueue> queue,
+HelError doSubmitForkMemory(HelHandle hierarchyHandle, HelHandle handle, smarter::shared_ptr<IpcQueue> queue,
 		uintptr_t context) {
-	auto this_thread = getCurrentThread();
-	auto this_universe = this_thread->getUniverse();
+	auto thisThread = getCurrentThread();
+	auto thisUniverse = thisThread->getUniverse();
 
-	auto viewOutcome = this_universe->resolveCapability<DescriptorType::memoryView>(handle, kHelRightRead | kHelRightDerive);
+	auto hierarchyOutcome = thisUniverse->resolveObject<DescriptorType::hierarchy>(
+		hierarchyHandle, kHelRightProvision
+	);
+	if(!hierarchyOutcome)
+		return translateError(hierarchyOutcome.error());
+
+	auto viewOutcome = thisUniverse->resolveCapability<DescriptorType::memoryView>(handle, kHelRightRead | kHelRightDerive);
 	if(!viewOutcome)
 		return translateError(viewOutcome.error());
 	auto [view, rights] = std::move(*viewOutcome);
@@ -879,10 +906,11 @@ HelError doSubmitForkMemory(HelHandle handle, smarter::shared_ptr<IpcQueue> queu
 		return kHelErrQueueTooSmall;
 
 	[](smarter::weak_ptr<Universe> weakUniverse,
+			smarter::shared_ptr<Hierarchy> hierarchy,
 			smarter::shared_ptr<MemoryView> view, uint32_t rights,
 			smarter::shared_ptr<IpcQueue> queue, uintptr_t context,
 			enable_detached_coroutine) -> void {
-		auto outcome = co_await onExceptionalWq(view->fork());
+		auto outcome = co_await onExceptionalWq(view->fork(std::move(hierarchy)));
 
 		if(!outcome) {
 			HelHandleResult helResult{.error = translateError(outcome.error())};
@@ -909,7 +937,7 @@ HelError doSubmitForkMemory(HelHandle handle, smarter::shared_ptr<IpcQueue> queu
 		HelHandleResult helResult{.error = kHelErrNone, .handle = forkedHandle};
 		QueueSource ipcSource{&helResult, sizeof(HelHandleResult), nullptr};
 		co_await queue->submit(&ipcSource, context);
-	}(this_universe.lock(), std::move(view), rights, std::move(queue), context,
+	}(thisUniverse.lock(), std::move(*hierarchyOutcome), std::move(view), rights, std::move(queue), context,
 		enable_detached_coroutine{getCurrentThread()->mainWorkQueue().lock()});
 
 	return kHelErrNone;
@@ -1011,6 +1039,41 @@ HelError doSubmitPopulateSpace(HelHandle handle, smarter::shared_ptr<IpcQueue> q
 		co_await queue->submit(&ipcSource, context);
 	}(std::move(space), addr, len, std::move(queue), context,
 		enable_detached_coroutine{getCurrentThread()->mainWorkQueue().lock()});
+
+	return kHelErrNone;
+}
+
+HelError helExtendHierarchy(HelHandle hierarchyHandle,
+		const HelHierarchyParameters *paramsPtr, HelHandle *handle) {
+	auto this_thread = getCurrentThread();
+	auto this_universe = this_thread->getUniverse();
+
+	HelHierarchyParameters params;
+	if(!readUserObject(paramsPtr, params))
+		return kHelErrFault;
+
+	// A tag that fills the entire array is accepted without a terminator.
+	size_t tagLen = 0;
+	while(tagLen < sizeof(params.tag) && params.tag[tagLen])
+		++tagLen;
+
+	frg::string<KernelAlloc> tagStr{params.tag, tagLen, *kernelAlloc};
+
+	auto parentOutcome = this_universe->resolveObject<DescriptorType::hierarchy>(
+			hierarchyHandle, kHelRightDerive);
+	if(!parentOutcome)
+		return translateError(parentOutcome.error());
+
+	auto childOutcome = Hierarchy::extend(std::move(*parentOutcome), std::move(tagStr));
+	if(!childOutcome)
+		return translateError(childOutcome.error());
+
+	*handle = this_universe->attachDescriptor(
+		AnyDescriptor::make<DescriptorType::hierarchy>(
+			std::move(*childOutcome),
+			kHelRightDerive | kHelRightProvision
+		)
+	);
 
 	return kHelErrNone;
 }
@@ -4381,7 +4444,7 @@ void thor::submitFromSq(smarter::shared_ptr<IpcQueue> queue, uint32_t opcode,
 		}
 		HelSqForkMemory sqData;
 		memcpy(&sqData, sqSpan.data(), sizeof(sqData));
-		error = doSubmitForkMemory(sqData.handle, queue, context);
+		error = doSubmitForkMemory(sqData.hierarchyHandle, sqData.handle, queue, context);
 		break;
 	}
 	case kHelSubmitWritebackFence: {

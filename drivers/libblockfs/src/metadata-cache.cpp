@@ -6,6 +6,7 @@
 #include <frg/scope_exit.hpp>
 #include <helix/dispatcher-pool.hpp>
 
+#include "fs.hpp"
 #include "metadata-cache.hpp"
 #include "service-budget.hpp"
 #include "trace.hpp"
@@ -28,7 +29,7 @@ MetadataCache::MetadataCache(BlockDevice *device, uint64_t baseBlock, uint64_t n
 	sectorsPerBlock_ = blockSize / device->sectorSize;
 
 	HelHandle backing, frontal;
-	HEL_CHECK(helCreateManagedMemory(numBlocks << blockPagesShift_,
+	HEL_CHECK(helCreateManagedMemory(metadataHierarchy(), numBlocks << blockPagesShift_,
 			0, &backing, &frontal));
 	frontal_ = helix::UniqueDescriptor{frontal};
 	backing_ = helix::UniqueDescriptor{backing};

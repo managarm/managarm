@@ -1296,11 +1296,12 @@ private:
 
 template <typename Receiver>
 struct ForkMemoryOperation : private Context {
-	ForkMemoryOperation(BorrowedDescriptor memory, Receiver r)
-	: memory_{std::move(memory)}, r_{std::move(r)} {}
+	ForkMemoryOperation(BorrowedDescriptor hierarchy, BorrowedDescriptor memory, Receiver r)
+	: hierarchy_{std::move(hierarchy)}, memory_{std::move(memory)}, r_{std::move(r)} {}
 
 	void start() {
 		HelSqForkMemory header;
+		header.hierarchyHandle = hierarchy_.getHandle();
 		header.handle = memory_.getHandle();
 
 		std::array segments{
@@ -1323,6 +1324,7 @@ private:
 		async::execution::set_value(r_, std::move(result));
 	}
 
+	BorrowedDescriptor hierarchy_;
 	BorrowedDescriptor memory_;
 	Receiver r_;
 };
@@ -1330,15 +1332,16 @@ private:
 struct [[nodiscard]] ForkMemorySender {
 	using value_type = ForkMemoryResult;
 
-	ForkMemorySender(BorrowedDescriptor memory)
-	: memory_{std::move(memory)} { }
+	ForkMemorySender(BorrowedDescriptor hierarchy, BorrowedDescriptor memory)
+	: hierarchy_{std::move(hierarchy)}, memory_{std::move(memory)} { }
 
 	template<typename Receiver>
 	ForkMemoryOperation<Receiver> connect(Receiver receiver) {
-		return {std::move(memory_), std::move(receiver)};
+		return {std::move(hierarchy_), std::move(memory_), std::move(receiver)};
 	}
 
 private:
+	BorrowedDescriptor hierarchy_;
 	BorrowedDescriptor memory_;
 };
 
@@ -1347,8 +1350,8 @@ operator co_await (ForkMemorySender sender) {
 	return {std::move(sender)};
 }
 
-inline auto forkMemory(BorrowedDescriptor memory) {
-	return ForkMemorySender{std::move(memory)};
+inline auto forkMemory(BorrowedDescriptor hierarchy, BorrowedDescriptor memory) {
+	return ForkMemorySender{std::move(hierarchy), std::move(memory)};
 }
 
 // --------------------------------------------------------------------

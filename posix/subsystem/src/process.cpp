@@ -10,6 +10,7 @@
 #include "gdbserver.hpp"
 #include "process.hpp"
 
+#include <core/process-data.hpp>
 #include <protocols/posix/data.hpp>
 #include <helix/ipc.hpp>
 
@@ -55,11 +56,54 @@ helix::BorrowedDescriptor getZeroMemory() {
 }
 
 // ----------------------------------------------------------------------------
+// Hierarchy helpers.
+// ----------------------------------------------------------------------------
+
+HelHandle rootHierarchy() {
+	static HelHandle handle = [] {
+		HelHierarchyParameters params{};
+		strncpy(params.tag, "posix-root", sizeof(params.tag));
+
+		HelHandle child;
+		HEL_CHECK(helExtendHierarchy(core::getProcessHierarchy(), &params, &child));
+		return child;
+	}();
+	return handle;
+}
+
+HelHandle sharedHierarchy() {
+	static HelHandle handle = [] {
+		HelHierarchyParameters params{};
+		strncpy(params.tag, "shared-memory", sizeof(params.tag));
+
+		HelHandle child;
+		HEL_CHECK(helExtendHierarchy(rootHierarchy(), &params, &child));
+		return child;
+	}();
+	return handle;
+}
+
+namespace {
+	helix::UniqueDescriptor extendHierarchyForProcess(ProcessId pid,
+			std::string_view path) {
+		std::string tag = "pid" + std::to_string(pid) + ":" + std::string{path};
+
+		HelHierarchyParameters params{};
+		strncpy(params.tag, tag.data(), sizeof(params.tag));
+
+		HelHandle child;
+		HEL_CHECK(helExtendHierarchy(rootHierarchy(), &params, &child));
+		return helix::UniqueDescriptor{child};
+	}
+}
+
+// ----------------------------------------------------------------------------
 // VmContext.
 // ----------------------------------------------------------------------------
 
-std::shared_ptr<VmContext> VmContext::create() {
+std::shared_ptr<VmContext> VmContext::create(helix::UniqueDescriptor hierarchy) {
 	auto context = std::make_shared<VmContext>();
+	context->_hierarchy = std::move(hierarchy);
 
 	HelHandle space;
 	HEL_CHECK(helCreateSpace(&space));
@@ -68,8 +112,11 @@ std::shared_ptr<VmContext> VmContext::create() {
 	return context;
 }
 
-async::result<std::shared_ptr<VmContext>> VmContext::clone(std::shared_ptr<VmContext> original) {
+async::result<std::shared_ptr<VmContext>> VmContext::clone(
+	helix::UniqueDescriptor hierarchy, std::shared_ptr<VmContext> original
+) {
 	auto context = std::make_shared<VmContext>();
+	context->_hierarchy = std::move(hierarchy);
 
 	HelHandle space;
 	HEL_CHECK(helCreateSpace(&space));
@@ -80,7 +127,7 @@ async::result<std::shared_ptr<VmContext>> VmContext::clone(std::shared_ptr<VmCon
 
 		helix::UniqueDescriptor copyView;
 		if(area.copyOnWrite) {
-			auto forkResult = co_await helix_ng::forkMemory(area.copyView);
+			auto forkResult = co_await helix_ng::forkMemory(context->_hierarchy, area.copyView);
 			HEL_CHECK(forkResult.error());
 			copyView = forkResult.descriptor();
 
@@ -172,9 +219,10 @@ VmContext::mapFile(uintptr_t hint, helix::UniqueDescriptor memory,
 	if(copyOnWrite) {
 		HelHandle handle;
 		if(memory) {
-			HEL_CHECK(helCopyOnWrite(memory.getHandle(), offset, alignedSize, &handle));
+			HEL_CHECK(helCopyOnWrite(_hierarchy.getHandle(), memory.getHandle(), offset, alignedSize, &handle));
 		}else{
-			HEL_CHECK(helCopyOnWrite(getZeroMemory().getHandle(), offset, alignedSize, &handle));
+			HEL_CHECK(helCopyOnWrite(_hierarchy.getHandle(), getZeroMemory().getHandle(),
+					offset, alignedSize, &handle));
 		}
 		copyView = helix::UniqueDescriptor{handle};
 
@@ -397,7 +445,7 @@ std::shared_ptr<FileContext> FileContext::create() {
 	context->_universe = helix::UniqueDescriptor(universe);
 
 	HelHandle memory;
-	HEL_CHECK(helAllocateMemory(0x1000, 0, nullptr, &memory));
+	HEL_CHECK(helAllocateMemory(rootHierarchy(), 0x1000, 0, nullptr, &memory));
 	context->_fileTableMemory = helix::UniqueDescriptor(memory);
 	context->fileTableWindow_ = helix::Mapping{context->_fileTableMemory, 0, 0x1000};
 
@@ -421,7 +469,7 @@ std::shared_ptr<FileContext> FileContext::clone(std::shared_ptr<FileContext> ori
 	context->_universe = helix::UniqueDescriptor(universe);
 
 	HelHandle memory;
-	HEL_CHECK(helAllocateMemory(0x1000, 0, nullptr, &memory));
+	HEL_CHECK(helAllocateMemory(rootHierarchy(), 0x1000, 0, nullptr, &memory));
 	context->_fileTableMemory = helix::UniqueDescriptor(memory);
 	context->fileTableWindow_ = helix::Mapping{context->_fileTableMemory, 0, 0x1000};
 
@@ -1317,13 +1365,15 @@ async::result<std::shared_ptr<ThreadGroup>> Process::init(std::string path) {
 	threadGroup->_suid = 0;
 	threadGroup->_sgid = 0;
 
+	auto hierarchy = extendHierarchyForProcess(hull->getPid(), path);
+
 	auto process = std::make_shared<Process>(threadGroup.get(), std::move(hull));
 	process->threadGroup()->associateProcess(process);
 	size_t pos = path.rfind('/');
 	assert(pos != std::string::npos);
 	process->_path = path;
 	process->_name = path.substr(pos + 1);
-	process->_vmContext = VmContext::create();
+	process->_vmContext = VmContext::create(std::move(hierarchy));
 	process->_fsContext = FsContext::create();
 	process->_fileContext = FileContext::create();
 	process->threadGroup()->_signalContext = SignalContext::create();
@@ -1331,7 +1381,7 @@ async::result<std::shared_ptr<ThreadGroup>> Process::init(std::string path) {
 	TerminalSession::initializeNewSession(threadGroup.get());
 
 	HelHandle thread_memory;
-	HEL_CHECK(helAllocateMemory(0x1000, 0, nullptr, &thread_memory));
+	HEL_CHECK(helAllocateMemory(rootHierarchy(), 0x1000, 0, nullptr, &thread_memory));
 	process->_threadPageMemory = helix::UniqueDescriptor{thread_memory};
 	process->_threadPageMapping = helix::Mapping{process->_threadPageMemory, 0, 0x1000};
 	new (process->_threadPageMapping.get()) posix::ThreadPage{};
@@ -1349,6 +1399,15 @@ async::result<std::shared_ptr<ThreadGroup>> Process::init(std::string path) {
 	    &process->_clientPosixLane
 	));
 	client_lane.release();
+
+	HEL_CHECK(helTransferDescriptor(
+		process->_vmContext->getHierarchy().getHandle(),
+		process->_fileContext->getUniverse().getHandle(),
+		kHelTransferDescriptorOut,
+		kHelRightDerive | kHelRightProvision,
+		kHelRightDerive | kHelRightProvision,
+		&process->_clientHierarchyHandle
+	));
 
 	HEL_CHECK(helMapMemory(process->_threadPageMemory.getHandle(),
 			process->_vmContext->getSpace().getHandle(),
@@ -1399,11 +1458,12 @@ async::result<std::shared_ptr<ThreadGroup>> Process::init(std::string path) {
 async::result<std::shared_ptr<Process>> Process::fork(std::shared_ptr<Process> original) {
 	auto hull = std::make_shared<PidHull>(nextPid++);
 	auto threadGroup = ThreadGroup::create(hull, original->threadGroup());
+	auto hierarchy = extendHierarchyForProcess(hull->getPid(), original->path());
 	auto process = std::make_shared<Process>(threadGroup, std::move(hull));
 	process->threadGroup()->associateProcess(process);
 	process->_path = original->path();
 	process->_name = original->name();
-	process->_vmContext = co_await VmContext::clone(original->_vmContext);
+	process->_vmContext = co_await VmContext::clone(std::move(hierarchy), original->_vmContext);
 	process->_fsContext = FsContext::clone(original->_fsContext);
 	process->_fileContext = FileContext::clone(original->_fileContext);
 	process->threadGroup()->_signalContext = SignalContext::clone(original->threadGroup()->_signalContext);
@@ -1411,7 +1471,7 @@ async::result<std::shared_ptr<Process>> Process::fork(std::shared_ptr<Process> o
 	original->pgPointer()->reassociateProcess(threadGroup);
 
 	HelHandle thread_memory;
-	HEL_CHECK(helAllocateMemory(0x1000, 0, nullptr, &thread_memory));
+	HEL_CHECK(helAllocateMemory(rootHierarchy(), 0x1000, 0, nullptr, &thread_memory));
 	process->_threadPageMemory = helix::UniqueDescriptor{thread_memory};
 	process->_threadPageMapping = helix::Mapping{process->_threadPageMemory, 0, 0x1000};
 	new (process->_threadPageMapping.get()) posix::ThreadPage{};
@@ -1429,6 +1489,15 @@ async::result<std::shared_ptr<Process>> Process::fork(std::shared_ptr<Process> o
 	    &process->_clientPosixLane
 	));
 	client_lane.release();
+
+	HEL_CHECK(helTransferDescriptor(
+		process->_vmContext->getHierarchy().getHandle(),
+		process->_fileContext->getUniverse().getHandle(),
+		kHelTransferDescriptorOut,
+		kHelRightDerive | kHelRightProvision,
+		kHelRightDerive | kHelRightProvision,
+		&process->_clientHierarchyHandle
+	));
 
 	HEL_CHECK(helMapMemory(process->_threadPageMemory.getHandle(),
 			process->_vmContext->getSpace().getHandle(),
@@ -1512,10 +1581,12 @@ Process::clone(std::shared_ptr<Process> original, void *ip, void *sp, posix::sup
 	process->_path = original->path();
 	process->_name = original->name();
 
-	if (args->flags & CLONE_VM)
+	if (args->flags & CLONE_VM) {
 		process->_vmContext = original->_vmContext;
-	else
-		process->_vmContext = co_await VmContext::clone(original->_vmContext);
+	} else {
+		auto hierarchy = extendHierarchyForProcess(process->pid(), process->_path);
+		process->_vmContext = co_await VmContext::clone(std::move(hierarchy), original->_vmContext);
+	}
 
 	if (args->flags & CLONE_FS)
 		process->_fsContext = original->_fsContext;
@@ -1545,7 +1616,7 @@ Process::clone(std::shared_ptr<Process> original, void *ip, void *sp, posix::sup
 	}
 
 	HelHandle thread_memory;
-	HEL_CHECK(helAllocateMemory(0x1000, 0, nullptr, &thread_memory));
+	HEL_CHECK(helAllocateMemory(rootHierarchy(), 0x1000, 0, nullptr, &thread_memory));
 	process->_threadPageMemory = helix::UniqueDescriptor{thread_memory};
 	process->_threadPageMapping = helix::Mapping{process->_threadPageMemory, 0, 0x1000};
 	new (process->_threadPageMapping.get()) posix::ThreadPage{};
@@ -1563,6 +1634,21 @@ Process::clone(std::shared_ptr<Process> original, void *ip, void *sp, posix::sup
 	    &process->_clientPosixLane
 	));
 	client_lane.release();
+
+	// The hierarchy is owned by the VmContext but the universe is owned by the FileContext.
+	// Share the hierarchy handle only if both contexts are shared.
+	if ((args->flags & CLONE_VM) && (args->flags & CLONE_FILES)) {
+		process->_clientHierarchyHandle = original->_clientHierarchyHandle;
+	} else {
+		HEL_CHECK(helTransferDescriptor(
+			process->_vmContext->getHierarchy().getHandle(),
+			process->_fileContext->getUniverse().getHandle(),
+			kHelTransferDescriptorOut,
+			kHelRightDerive | kHelRightProvision,
+			kHelRightDerive | kHelRightProvision,
+			&process->_clientHierarchyHandle
+		));
+	}
 
 	HEL_CHECK(helMapMemory(process->_threadPageMemory.getHandle(),
 			process->_vmContext->getSpace().getHandle(),
@@ -1621,7 +1707,8 @@ Process::clone(std::shared_ptr<Process> original, void *ip, void *sp, posix::sup
 
 async::result<Error> Process::exec(std::shared_ptr<Process> process,
 		std::string path, std::vector<std::string> args, std::vector<std::string> env) {
-	auto exec_vm_context = VmContext::create();
+	auto exec_hierarchy = extendHierarchyForProcess(process->pid(), path);
+	auto exec_vm_context = VmContext::create(std::move(exec_hierarchy));
 
 	// Perform the exec() in a new VM context so that we
 	// can catch errors before trashing the calling process.
@@ -1643,6 +1730,16 @@ async::result<Error> Process::exec(std::shared_ptr<Process> process,
 	    &exec_posix_lane
 	));
 	client_lane.release();
+
+	HelHandle exec_client_hierarchy;
+	HEL_CHECK(helTransferDescriptor(
+		exec_vm_context->getHierarchy().getHandle(),
+		process->_fileContext->getUniverse().getHandle(),
+		kHelTransferDescriptorOut,
+		kHelRightDerive | kHelRightProvision,
+		kHelRightDerive | kHelRightProvision,
+		&exec_client_hierarchy
+	));
 
 	posix::ThreadPage *exec_thread_page;
 	void *exec_clk_tracker_page;
@@ -1693,6 +1790,7 @@ async::result<Error> Process::exec(std::shared_ptr<Process> process,
 
 	process->_clientThreadPage = exec_thread_page;
 	process->_clientPosixLane = exec_posix_lane;
+	process->_clientHierarchyHandle = exec_client_hierarchy;
 	process->_clientFileTable = exec_client_table;
 	process->_clientClkTrackerPage = exec_clk_tracker_page;
 	process->_clientAuxBegin = execResult.auxBegin;

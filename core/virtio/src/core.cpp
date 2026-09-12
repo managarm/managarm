@@ -7,6 +7,7 @@
 #include <optional>
 #include <print>
 
+#include <core/process-data.hpp>
 #include <core/virtio/core.hpp>
 #include <fafnir/dsl.hpp>
 #include <protocols/kernlet/compiler.hpp>
@@ -241,7 +242,7 @@ async::result<Queue *> LegacyPciTransport::setupQueue(unsigned int queue_index) 
 	assert(region_size < 0x4000); // FIXME: do not hardcode 0x4000
 	HelHandle memory;
 	void *window;
-	HEL_CHECK(helAllocateMemory(0x4000, kHelAllocContinuous, nullptr, &memory));
+	HEL_CHECK(helAllocateMemory(core::getProcessHierarchy(), 0x4000, kHelAllocContinuous, nullptr, &memory));
 	HEL_CHECK(helMapMemory(memory, kHelNullHandle, nullptr,
 			0, 0x4000, kHelMapProtRead | kHelMapProtWrite, &window));
 	HEL_CHECK(helCloseDescriptor(kHelThisUniverse, memory));

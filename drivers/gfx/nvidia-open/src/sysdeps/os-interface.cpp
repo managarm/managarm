@@ -1,5 +1,6 @@
 #include <assert.h>
 #include <core/clock.hpp>
+#include <core/process-data.hpp>
 #include <fcntl.h>
 #include <filesystem>
 #include <frg/spinlock.hpp>
@@ -670,7 +671,7 @@ NV_STATUS NV_API_CALL nv_alloc_pages(
 	if (contiguous)
 		flags |= kHelAllocContinuous;
 
-	HEL_CHECK(helAllocateMemory(page_count << 12, flags, nullptr, &handle));
+	HEL_CHECK(helAllocateMemory(core::getProcessHierarchy(), page_count << 12, flags, nullptr, &handle));
 
 	if (cache_type == NV_MEMORY_DEFAULT || cache_type == NV_MEMORY_WRITECOMBINED) {
 		HEL_CHECK(helCreateSliceView(handle, 0, page_count << 12,

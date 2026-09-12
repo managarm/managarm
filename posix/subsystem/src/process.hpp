@@ -33,13 +33,23 @@ typedef int ProcessId;
 // Returns the global memory object that reads as zeros.
 helix::BorrowedDescriptor getZeroMemory();
 
-// TODO: This struct should store the process' VMAs once we implement them.
+HelHandle rootHierarchy();
+HelHandle sharedHierarchy();
+
+// This struct holds the process' VMAs.
 // TODO: We need a clarification here: Does mmap() keep file descriptions open (e.g. for flock())?
 struct VmContext {
-	static std::shared_ptr<VmContext> create();
-	static async::result<std::shared_ptr<VmContext>> clone(std::shared_ptr<VmContext> original);
+	static std::shared_ptr<VmContext> create(helix::UniqueDescriptor hierarchy);
+
+	static async::result<std::shared_ptr<VmContext>> clone(
+		helix::UniqueDescriptor hierarchy, std::shared_ptr<VmContext> original
+	);
 
 	~VmContext();
+
+	helix::BorrowedDescriptor getHierarchy() {
+		return _hierarchy;
+	}
 
 	helix::BorrowedDescriptor getSpace() {
 		return _space;
@@ -73,6 +83,7 @@ private:
 		std::map<uintptr_t, Area>::iterator
 	> splitAreaOn_(uintptr_t addr, size_t size);
 
+	helix::UniqueDescriptor _hierarchy;
 	helix::UniqueDescriptor _space;
 
 	std::map<uintptr_t, Area> _areaTree;
@@ -612,6 +623,7 @@ public:
 	posix::ThreadPage *clientThreadPage() { return _clientThreadPage; }
 	void *clientFileTable() { return _clientFileTable; }
 	void *clientClkTrackerPage() { return _clientClkTrackerPage; }
+	HelHandle clientHierarchyHandle() { return _clientHierarchyHandle; }
 	void *clientAuxBegin() { return _clientAuxBegin; }
 	void *clientAuxEnd() { return _clientAuxEnd; }
 
@@ -733,6 +745,7 @@ private:
 	helix::Mapping _threadPageMapping;
 
 	HelHandle _clientPosixLane = kHelNullHandle;
+	HelHandle _clientHierarchyHandle = kHelNullHandle;
 	posix::ThreadPage *_clientThreadPage;
 	void *_clientFileTable = nullptr;
 	void *_clientClkTrackerPage;

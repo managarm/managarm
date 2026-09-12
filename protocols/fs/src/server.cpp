@@ -13,6 +13,7 @@
 #include <core/cancel-events.hpp>
 #include <core/clock.hpp>
 #include <core/dispatch.hpp>
+#include <core/process-data.hpp>
 #include <protocols/fs/server.hpp>
 #include <protocols/ostrace/ostrace.hpp>
 #include <bragi/helpers-std.hpp>
@@ -2311,7 +2312,7 @@ StatusPageProvider::StatusPageProvider() {
 	// Allocate and map our stauts page.
 	size_t page_size = 4096;
 	HelHandle handle;
-	HEL_CHECK(helAllocateMemory(page_size, 0, nullptr, &handle));
+	HEL_CHECK(helAllocateMemory(core::getProcessHierarchy(), page_size, 0, nullptr, &handle));
 	_memory = helix::UniqueDescriptor{handle};
 	_mapping = helix::Mapping{_memory, 0, page_size};
 }

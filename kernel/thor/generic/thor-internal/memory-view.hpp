@@ -17,6 +17,7 @@
 #include <thor-internal/arch-generic/paging.hpp>
 #include <thor-internal/error.hpp>
 #include <thor-internal/futex.hpp>
+#include <thor-internal/hierarchy.hpp>
 #include <thor-internal/types.hpp>
 #include <thor-internal/pfn-db.hpp>
 #include <thor-internal/rcu.hpp>
@@ -350,7 +351,9 @@ public:
 
 	virtual coroutine<frg::expected<Error>> resize(size_t newLength);
 
-	virtual coroutine<frg::expected<Error, smarter::shared_ptr<MemoryView>>> fork();
+	virtual coroutine<frg::expected<Error, smarter::shared_ptr<MemoryView>>> fork(
+		smarter::shared_ptr<Hierarchy> hierarchy
+	);
 
 	virtual coroutine<frg::expected<Error>> copyTo(uintptr_t offset,
 			const void *pointer, size_t size,
@@ -615,11 +618,22 @@ private:
 
 public:
 	static std::expected<smarter::shared_ptr<AllocatedMemory>, Error> create(
-			size_t length, int addressBits = 64,
-			size_t chunkSize = kPageSize, size_t chunkAlign = kPageSize);
+		smarter::shared_ptr<Hierarchy> hierarchy,
+		size_t length,
+		int addressBits = 64,
+		size_t chunkSize = kPageSize,
+		size_t chunkAlign = kPageSize
+	);
 
-	AllocatedMemory(CtorToken, size_t length, int addressBits,
-			size_t chunkSize, size_t chunkAlign);
+	AllocatedMemory(
+		CtorToken,
+		smarter::shared_ptr<Hierarchy> hierarchy,
+		size_t length,
+		int addressBits,
+		size_t chunkSize,
+		size_t chunkAlign
+	);
+
 	AllocatedMemory(const AllocatedMemory &) = delete;
 	~AllocatedMemory();
 
@@ -639,6 +653,7 @@ public:
 private:
 	frg::ticket_spinlock _mutex;
 
+	smarter::shared_ptr<Hierarchy> _hierarchy;
 	frg::vector<PhysicalAddr, KernelAlloc> _physicalChunks;
 	int _addressBits;
 	size_t _chunkSize, _chunkAlign;
@@ -802,9 +817,9 @@ struct ManagedSpace : CacheBundle {
 	};
 
 	static std::expected<smarter::shared_ptr<ManagedSpace>, Error> create(
-			size_t length, bool readahead);
+			smarter::shared_ptr<Hierarchy> hierarchy, size_t length, bool readahead);
 
-	ManagedSpace(size_t length, bool readahead);
+	ManagedSpace(smarter::shared_ptr<Hierarchy> hierarchy, size_t length, bool readahead);
 	~ManagedSpace();
 
 	void incrementUses(CachePage *page) override;
@@ -863,6 +878,8 @@ struct ManagedSpace : CacheBundle {
 	void _progressManagement(ManageList &pending);
 
 	smarter::borrowed_ptr<ManagedSpace> selfPtr;
+
+	smarter::shared_ptr<Hierarchy> hierarchy;
 
 	frg::ticket_spinlock mutex;
 
@@ -1138,9 +1155,11 @@ private:
 
 public:
 	static std::expected<smarter::shared_ptr<CopyOnWriteMemory>, Error> create(
+			smarter::shared_ptr<Hierarchy> hierarchy,
 			smarter::shared_ptr<MemoryView> view, uintptr_t offset, size_t length);
 
-	CopyOnWriteMemory(CtorToken, smarter::shared_ptr<MemoryView> view,
+	CopyOnWriteMemory(CtorToken, smarter::shared_ptr<Hierarchy> hierarchy,
+			smarter::shared_ptr<MemoryView> view,
 			uintptr_t offset, size_t length,
 			smarter::shared_ptr<CowChain> chain);
 	CopyOnWriteMemory(const CopyOnWriteMemory &) = delete;
@@ -1150,12 +1169,20 @@ public:
 	CopyOnWriteMemory &operator= (const CopyOnWriteMemory &) = delete;
 
 	size_t getLength() override;
-	coroutine<frg::expected<Error, smarter::shared_ptr<MemoryView>>> fork() override;
+	coroutine<frg::expected<Error, smarter::shared_ptr<MemoryView>>> fork(
+		smarter::shared_ptr<Hierarchy> hierarchy
+	) override;
 	Error lockRange(uintptr_t offset, size_t size) override;
 	void unlockRange(uintptr_t offset, size_t size) override;
 	PhysicalRange peekRange(uintptr_t offset, FetchFlags flags) override;
 	coroutine<frg::expected<Error, size_t>>
 			touchRange(uintptr_t offset, size_t sizeHint, FetchFlags flags) override;
+
+private:
+	// Callers must hold _mutex.
+	void chargePages_(size_t n);
+	// Callers must hold _mutex.
+	void unchargePages_(size_t n);
 
 public:
 	// Contract: set by the code that constructs this object.
@@ -1163,9 +1190,13 @@ public:
 private:
 	frg::ticket_spinlock _mutex;
 
+	smarter::shared_ptr<Hierarchy> _hierarchy;
 	smarter::shared_ptr<MemoryView> _view;
 	uintptr_t _viewOffset;
 	size_t _length;
+	// Invariant: _chargedPages is equal to the number of pages in _ownedPages that have a page frame attached
+	//            plus the number of pages in _copyChain that are not shadowed by a page in _ownedPages.
+	size_t _chargedPages{0};
 	smarter::shared_ptr<CowChain> _copyChain;
 	frg::rcu_radixtree<smarter::shared_ptr<CowPage>, KernelAlloc, RcuPolicy> _ownedPages;
 	async::recurring_event _copyEvent;

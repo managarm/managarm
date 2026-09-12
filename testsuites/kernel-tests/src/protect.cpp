@@ -4,6 +4,7 @@
 #include <async/result.hpp>
 #include <helix/ipc.hpp>
 
+#include <core/process-data.hpp>
 #include <hel.h>
 #include <hel-syscalls.h>
 
@@ -16,7 +17,7 @@ namespace {
 
 async::result<void> testProtectProtNone() {
 	HelHandle handle;
-	HEL_CHECK(helAllocateMemory(0x1000, 0, nullptr, &handle));
+	HEL_CHECK(helAllocateMemory(core::getProcessHierarchy(), 0x1000, 0, nullptr, &handle));
 	void *window;
 	HEL_CHECK(helMapMemory(handle, kHelNullHandle, nullptr, 0, 0x1000,
 			kHelMapProtRead | kHelMapProtWrite, &window));
@@ -53,7 +54,7 @@ async::result<void> testProtectProtNone() {
 
 DEFINE_TEST(mapProtNone, ([] {
 	HelHandle handle;
-	HEL_CHECK(helAllocateMemory(0x1000, 0, nullptr, &handle));
+	HEL_CHECK(helAllocateMemory(core::getProcessHierarchy(), 0x1000, 0, nullptr, &handle));
 	void *window;
 	HEL_CHECK(helMapMemory(handle, kHelNullHandle, nullptr, 0, 0x1000, 0, &window));
 

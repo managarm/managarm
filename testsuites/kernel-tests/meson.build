@@ -8,6 +8,6 @@ executable('kernel-tests',
 		'src/protect.cpp',
 		'src/swap.cpp',
 	],
-	dependencies: [ helix_dep ],
+	dependencies: [ helix_dep, core_dep ],
 	install : true
 )

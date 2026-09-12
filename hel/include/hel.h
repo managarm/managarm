@@ -116,6 +116,8 @@ enum {
 
 	kHelCallCreateToken = 104,
 
+	kHelCallExtendHierarchy = 7,
+
 	kHelCallSuper = 0x80000000
 };
 
@@ -231,6 +233,7 @@ static const HelRights kHelRightInvoke = UINT32_C(1) << 5;
 static const HelRights kHelRightAssign = UINT32_C(1) << 6;
 // Right to derive new objects that affect the original one.
 // - Memory view: required to fork.
+// - Hierarchy: required to extend it by a child hierarchy node.
 static const HelRights kHelRightDerive = UINT32_C(1) << 7;
 // Right to add, remove or manipulate components.
 // - Memory views: required to perform loadahead.
@@ -238,6 +241,7 @@ static const HelRights kHelRightDerive = UINT32_C(1) << 7;
 // - Address space: required to resolve physical addresses.
 // - DMA space: required to populate.
 // - DMA space: required to resolve physical addresses.
+// - Hierarchy: required to charge resources to it.
 static const HelRights kHelRightProvision = UINT32_C(1) << 8;
 // Right to pin memory pages.
 // - Memory view: required to pin pages.
@@ -734,6 +738,12 @@ struct HelQueueParameters {
 	unsigned int numSqChunks;
 };
 
+struct HelHierarchyParameters {
+	// Optional tag to identify the hierarchy in kernel messages.
+	// Null-terminated unless it fills the entire array.
+	char tag[128];
+};
+
 //! Set in userNotify after kernel has written progress.
 static const int kHelUserNotifyCqProgress = (1 << 0);
 //! Set in userNotify after kernel has supplied new SQ chunks.
@@ -955,6 +965,8 @@ struct HelSqResizeMemory {
 
 //! SQ data for kHelSubmitForkMemory.
 struct HelSqForkMemory {
+	//! Handle to the hierarchy object that owns the memory object.
+	HelHandle hierarchyHandle;
 	//! Handle to the memory object.
 	HelHandle handle;
 };
@@ -1205,6 +1217,16 @@ HEL_C_LINKAGE HelError helNop();
 //! This is an asynchronous operation.
 HEL_C_LINKAGE HelError helSubmitAsyncNop(HelHandle queueHandle, uintptr_t context);
 
+//! Creates a child hierarchy capability.
+//! @param[in] hierarchyHandle
+//!     Handle to the parent hierarchy capability.
+//! @param[in] params
+//!     Parameters for the new hierarchy node.
+//! @param[out] handle
+//!     Handle to the new child hierarchy capability.
+HEL_C_LINKAGE HelError helExtendHierarchy(HelHandle hierarchyHandle,
+		const struct HelHierarchyParameters *params, HelHandle *handle);
+
 //! @}
 //! @name Management of Descriptors and Universes
 //! @{
@@ -1287,6 +1309,9 @@ HEL_C_LINKAGE HelError helAlertQueue(HelHandle queueHandle);
 //! @{
 
 //! Creates a memory object consisting of unmanaged RAM.
+//! @param[in] hierarchy
+//!    	Handle to the hierarchy that owns the new memory object.
+//!    	The allocated physical memory is accounted to this hierarchy node.
 //! @param[in] size
 //!    	Size of the memory object in bytes.
 //!    	Must be aligned to the system's page size.
@@ -1295,7 +1320,7 @@ HEL_C_LINKAGE HelError helAlertQueue(HelHandle queueHandle);
 //!    	May be @p NULL if there are no restrictions.
 //! @param[out] handle
 //!    	Handle to the new memory object.
-HEL_C_LINKAGE HelError helAllocateMemory(size_t size, uint32_t flags,
+HEL_C_LINKAGE HelError helAllocateMemory(HelHandle hierarchy, size_t size, uint32_t flags,
 		const struct HelAllocRestrictions *restrictions, HelHandle *handle);
 
 //! Resizes a memory object.
@@ -1310,6 +1335,9 @@ HEL_C_LINKAGE HelError helResizeMemory(HelHandle handle, size_t newSize);
 //!
 //!    The @p backingHandle is used to manage the memory object, while
 //! the @p frontalHandle provides a view on the memory object for consumers.
+//! @param[in] hierarchy
+//!    	Handle to the hierarchy that owns the new memory object.
+//!    	The allocated physical memory is accounted to this hierarchy node.
 //! @param[in] size
 //!    	Size of the memory object in bytes.
 //!    	Must be aligned to the system's page size.
@@ -1317,7 +1345,7 @@ HEL_C_LINKAGE HelError helResizeMemory(HelHandle handle, size_t newSize);
 //!    	Handle to the new memory object (for management)
 //! @param[out] frontalHandle
 //!    	Handle to the new memory object (for consumers).
-HEL_C_LINKAGE HelError helCreateManagedMemory(size_t size, uint32_t flags,
+HEL_C_LINKAGE HelError helCreateManagedMemory(HelHandle hierarchy, size_t size, uint32_t flags,
 		HelHandle *backingHandle, HelHandle *frontalHandle);
 
 //! Creates a swap space, the backing store for swappable anonymous
@@ -1358,6 +1386,9 @@ HEL_C_LINKAGE HelError helAllocateSwappableMemory(HelHandle swapSpace,
 HEL_C_LINKAGE HelError helSetSwapBudget(HelHandle swapSpace, size_t numPages);
 
 //! Creates memory object that obtains its memory by copy-on-write from another memory object.
+//! @param[in] hierarchy
+//!    	Handle to the hierarchy that owns the new memory object.
+//!    	The copied physical pages are accounted to this hierarchy node.
 //! @param[in] memory
 //!    	Handle to the source memory object.
 //! @param[in] offset
@@ -1367,7 +1398,7 @@ HEL_C_LINKAGE HelError helSetSwapBudget(HelHandle swapSpace, size_t numPages);
 //!    	Must be aligned to the system's page size.
 //! @param[out] handle
 //!    	Handle to the new memory object.
-HEL_C_LINKAGE HelError helCopyOnWrite(HelHandle memory,
+HEL_C_LINKAGE HelError helCopyOnWrite(HelHandle hierarchy, HelHandle memory,
 		uintptr_t offset, size_t size, HelHandle *handle);
 
 HEL_C_LINKAGE HelError helAccessPhysical(

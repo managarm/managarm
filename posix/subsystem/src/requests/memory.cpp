@@ -87,7 +87,8 @@ HandleRequest::operator()(managarm::posix::VmMapRequest &&req,
 					0, size, true, nativeFlags);
 		}else{
 			HelHandle handle;
-			HEL_CHECK(helAllocateMemory(size, 0, nullptr, &handle));
+			HEL_CHECK(helAllocateMemory(sharedHierarchy(), size, 0, nullptr,
+					&handle));
 
 			result = co_await self->vmContext()->mapFile(hint,
 					helix::UniqueDescriptor{handle}, nullptr,

@@ -307,7 +307,7 @@ coroutine<frg::expected<Error>> MemoryView::resize(size_t newSize) {
 	co_return Error::illegalObject;
 }
 
-coroutine<frg::expected<Error, smarter::shared_ptr<MemoryView>>> MemoryView::fork() {
+coroutine<frg::expected<Error, smarter::shared_ptr<MemoryView>>> MemoryView::fork(smarter::shared_ptr<Hierarchy>) {
 	assert(currentIpl() == ipl::exceptionalWork);
 	co_return Error::illegalObject;
 }
@@ -793,16 +793,18 @@ size_t HardwareMemory::getLength() {
 // --------------------------------------------------------
 
 std::expected<smarter::shared_ptr<AllocatedMemory>, Error> AllocatedMemory::create(
-		size_t length, int addressBits, size_t chunkSize, size_t chunkAlign) {
+	smarter::shared_ptr<Hierarchy> hierarchy, size_t length, int addressBits, size_t chunkSize, size_t chunkAlign
+) {
 	auto ptr = smarter::allocate_shared<AllocatedMemory>(*kernelAlloc, CtorToken{},
-			length, addressBits, chunkSize, chunkAlign);
+			std::move(hierarchy), length, addressBits, chunkSize, chunkAlign);
 	ptr->selfPtr = ptr;
 	return ptr;
 }
 
-AllocatedMemory::AllocatedMemory(CtorToken, size_t desiredLngth,
-		int addressBits, size_t desiredChunkSize, size_t chunkAlign)
-: _physicalChunks{*kernelAlloc},
+AllocatedMemory::AllocatedMemory(
+	CtorToken, smarter::shared_ptr<Hierarchy> hierarchy, size_t desiredLngth, int addressBits, size_t desiredChunkSize, size_t chunkAlign
+)
+: _hierarchy{std::move(hierarchy)}, _physicalChunks{*kernelAlloc},
 		_addressBits{addressBits}, _chunkAlign{chunkAlign} {
 	static_assert(sizeof(unsigned long) == sizeof(uint64_t), "Fix use of __builtin_clzl");
 	_chunkSize = size_t(1) << (64 - __builtin_clzl(desiredChunkSize - 1));
@@ -833,6 +835,7 @@ AllocatedMemory::~AllocatedMemory() {
 			for(size_t pg = 0; pg < _chunkSize; pg += kPageSize)
 				globalPfnDb().erase(_physicalChunks[i] + pg);
 			physicalAllocator->free(_physicalChunks[i], _chunkSize);
+			_hierarchy->unchargeMemory(_chunkSize);
 		}
 	}
 	if(logUsage)
@@ -912,6 +915,7 @@ AllocatedMemory::touchRange(uintptr_t offset, size_t, FetchFlags) {
 			globalPfnDb().insert(physical + pg_progress, PfnDescriptor::otherPage());
 		}
 		_physicalChunks[index] = physical;
+		_hierarchy->chargeMemory(_chunkSize);
 	}
 
 	assert(_physicalChunks[index] != PhysicalAddr(-1));
@@ -990,10 +994,11 @@ bool ManagedSpace::ManagedPage::hasUnwrittenData() {
 }
 
 std::expected<smarter::shared_ptr<ManagedSpace>, Error> ManagedSpace::create(
-		size_t length, bool readahead) {
+		smarter::shared_ptr<Hierarchy> hierarchy, size_t length, bool readahead) {
 	if(length > backingMemoryLength)
 		return std::unexpected{Error::illegalArgs};
-	auto self = smarter::allocate_shared<ManagedSpace>(*kernelAlloc, length, readahead);
+	auto self = smarter::allocate_shared<ManagedSpace>(*kernelAlloc, std::move(hierarchy),
+			length, readahead);
 	self->selfPtr = self;
 	spawnOnWorkQueue(*kernelAlloc, WorkQueue::generalQueue().lock(), self->_runReclaimLoop());
 	spawnOnWorkQueue(*kernelAlloc, WorkQueue::generalQueue().lock(), self->_runDrainLoop());
@@ -1001,8 +1006,9 @@ std::expected<smarter::shared_ptr<ManagedSpace>, Error> ManagedSpace::create(
 	return self;
 }
 
-ManagedSpace::ManagedSpace(size_t length, bool readahead)
-: pages{*kernelAlloc}, numPages{length >> kPageShift}, readahead{readahead} {
+ManagedSpace::ManagedSpace(smarter::shared_ptr<Hierarchy> hierarchy, size_t length, bool readahead)
+: hierarchy{std::move(hierarchy)}, pages{*kernelAlloc},
+		numPages{length >> kPageShift}, readahead{readahead} {
 	assert(!(length & (kPageSize - 1)));
 
 	globalReclaimer->registerBundle(this);
@@ -1125,6 +1131,7 @@ coroutine<void> ManagedSpace::_runReclaimLoop() {
 
 			globalPfnDb().erase(physical);
 			physicalAllocator->free(physical, kPageSize);
+			hierarchy->unchargeMemory(kPageSize);
 			sizeFreed += kPageSize;
 		}
 
@@ -1174,6 +1181,7 @@ coroutine<void> ManagedSpace::_runReclaimLoop() {
 
 			if(physical != PhysicalAddr(-1)) {
 				physicalAllocator->free(physical, kPageSize);
+				hierarchy->unchargeMemory(kPageSize);
 				sizeFreed += kPageSize;
 			}
 			anyDiscardErased = true;
@@ -1551,7 +1559,7 @@ std::expected<smarter::shared_ptr<SwapSpace>, Error> SwapSpace::create() {
 }
 
 SwapSpace::SwapSpace()
-: ManagedSpace{UINT64_C(1) << 32, false}, _buddyMetadata{*kernelAlloc} {
+: ManagedSpace{rootHierarchy(), UINT64_C(1) << 32, false}, _buddyMetadata{*kernelAlloc} {
 	isSwapSpace = true;
 
 	assert(numPages);
@@ -1952,6 +1960,7 @@ BackingMemory::touchRange(uintptr_t offset, size_t, FetchFlags) {
 
 		globalPfnDb().insert(physical, PfnDescriptor::cachePage(&pit->cachePage));
 		pit->physical = physical;
+		_managed->hierarchy->chargeMemory(kPageSize);
 	}
 
 	co_return kPageSize - misalign;
@@ -2645,6 +2654,7 @@ SwappableMemory::touchRange(uintptr_t offset, size_t, FetchFlags flags) {
 							PfnDescriptor::cachePage(&pit->cachePage));
 					pit->physical = freshPhysical;
 					pit->loadState = ManagedSpace::LoadState::present;
+					_space->hierarchy->chargeMemory(kPageSize);
 					freshPhysical = PhysicalAddr(-1);
 					if(!pit->lockCount
 							&& !pit->cachePage.useCount.load(std::memory_order_relaxed)) {
@@ -2846,17 +2856,19 @@ CowPage::~CowPage() {
 }
 
 std::expected<smarter::shared_ptr<CopyOnWriteMemory>, Error> CopyOnWriteMemory::create(
+		smarter::shared_ptr<Hierarchy> hierarchy,
 		smarter::shared_ptr<MemoryView> view, uintptr_t offset, size_t length) {
 	auto ptr = smarter::allocate_shared<CopyOnWriteMemory>(*kernelAlloc, CtorToken{},
-			std::move(view), offset, length, nullptr);
+			std::move(hierarchy), std::move(view), offset, length, nullptr);
 	ptr->selfPtr = ptr;
 	return ptr;
 }
 
-CopyOnWriteMemory::CopyOnWriteMemory(CtorToken, smarter::shared_ptr<MemoryView> view,
+CopyOnWriteMemory::CopyOnWriteMemory(CtorToken, smarter::shared_ptr<Hierarchy> hierarchy,
+		smarter::shared_ptr<MemoryView> view,
 		uintptr_t offset, size_t length,
 		smarter::shared_ptr<CowChain> chain)
-: MemoryView{&_evictQueue}, _view{std::move(view)},
+: MemoryView{&_evictQueue}, _hierarchy{std::move(hierarchy)}, _view{std::move(view)},
 		_viewOffset{offset}, _length{length}, _copyChain{std::move(chain)},
 		_ownedPages{*kernelAlloc} {
 	assert(length);
@@ -2865,13 +2877,16 @@ CopyOnWriteMemory::CopyOnWriteMemory(CtorToken, smarter::shared_ptr<MemoryView> 
 }
 
 CopyOnWriteMemory::~CopyOnWriteMemory() {
+	unchargePages_(_chargedPages);
 }
 
 size_t CopyOnWriteMemory::getLength() {
 	return _length;
 }
 
-coroutine<frg::expected<Error, smarter::shared_ptr<MemoryView>>> CopyOnWriteMemory::fork() {
+coroutine<frg::expected<Error, smarter::shared_ptr<MemoryView>>> CopyOnWriteMemory::fork(
+	smarter::shared_ptr<Hierarchy> hierarchy
+) {
 	assert(currentIpl() == ipl::exceptionalWork);
 
 	// Note that locked pages require special attention during CoW: as we cannot
@@ -2881,6 +2896,7 @@ coroutine<frg::expected<Error, smarter::shared_ptr<MemoryView>>> CopyOnWriteMemo
 	smarter::shared_ptr<CowChain> newChain;
 	frg::vector<frg::tuple<size_t, smarter::shared_ptr<CowPage>>, KernelAlloc> inProgressPages{*kernelAlloc};
 	frg::vector<frg::tuple<size_t, smarter::shared_ptr<CowPage>>, KernelAlloc> lockedCopies{*kernelAlloc};
+	size_t chainPages{0};
 
 	// Note: We turn owned pages into shared pages while holding the locks below.
 	//       Since this happens while the lock is held, peekRange() and touchRange() can never
@@ -2902,7 +2918,7 @@ coroutine<frg::expected<Error, smarter::shared_ptr<MemoryView>>> CopyOnWriteMemo
 
 		// Create a new mapping in the forked space.
 		forked = smarter::allocate_shared<CopyOnWriteMemory>(*kernelAlloc, CtorToken{},
-				_view, _viewOffset, _length, newChain);
+				std::move(hierarchy), _view, _viewOffset, _length, newChain);
 		forked->selfPtr = forked;
 
 		// Inspect all copied pages owned by the original mapping.
@@ -2924,6 +2940,7 @@ coroutine<frg::expected<Error, smarter::shared_ptr<MemoryView>>> CopyOnWriteMemo
 						assert(chainPage->state == CowState::hasCopy);
 						auto newIt = newChain->_pages.insert(pageOffset >> kPageShift);
 						*newIt = chainPage;
+						++chainPages;
 					}
 				}
 				continue;
@@ -2948,6 +2965,7 @@ coroutine<frg::expected<Error, smarter::shared_ptr<MemoryView>>> CopyOnWriteMemo
 				auto pageOffset = _viewOffset + pg;
 				auto newIt = newChain->_pages.insert(pageOffset >> kPageShift);
 				*newIt = page;
+				++chainPages;
 				_ownedPages.erase(pg >> kPageShift);
 			}
 		}
@@ -2986,6 +3004,7 @@ coroutine<frg::expected<Error, smarter::shared_ptr<MemoryView>>> CopyOnWriteMemo
 				auto pageOffset = _viewOffset + pg;
 				auto newIt = newChain->_pages.insert(pageOffset >> kPageShift);
 				*newIt = page;
+				++chainPages;
 				_ownedPages.erase(pg >> kPageShift);
 			}
 		}
@@ -3006,6 +3025,15 @@ coroutine<frg::expected<Error, smarter::shared_ptr<MemoryView>>> CopyOnWriteMemo
 		globalPfnDb().insert(copyPhysical, PfnDescriptor::otherPage());
 		auto copyIt = forked->_ownedPages.insert(pg >> kPageShift);
 		*copyIt = copyPage;
+	}
+
+	// Charge the memory to the forked memory view.
+	// Shared pages are counted twice: once in the original and once in the forked memory view.
+	// This ensures that uncharging behaves correctly.
+	{
+		auto irqLock = frg::guard(&irqMutex());
+		auto forkedLock = frg::guard(&forked->_mutex);
+		forked->chargePages_(chainPages + lockedCopies.size());
 	}
 
 	co_await _evictQueue.breakRange(0, _length);
@@ -3249,10 +3277,25 @@ CopyOnWriteMemory::touchRange(uintptr_t offset, size_t sizeHint, FetchFlags flag
 		assert(cowPage->state == CowState::inProgress);
 		cowPage->state = CowState::hasCopy;
 		cowPage->physical = physical;
+		// Replacing a shared page by an owned one does not charge here
+		// since we already charged for the shared page at fork() time.
+		if (!chainHasCopy)
+			chargePages_(1);
 		globalPfnDb().insert(physical, PfnDescriptor::otherPage());
 	}
 	_copyEvent.raise();
 	co_return kPageSize - misalign;
+}
+
+void CopyOnWriteMemory::chargePages_(size_t n) {
+	_chargedPages += n;
+	_hierarchy->chargeMemory(n << kPageShift);
+}
+
+void CopyOnWriteMemory::unchargePages_(size_t n) {
+	assert(_chargedPages >= n);
+	_chargedPages -= n;
+	_hierarchy->unchargeMemory(n << kPageShift);
 }
 
 // --------------------------------------------------------------------------------------

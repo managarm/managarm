@@ -34,6 +34,7 @@ struct ManagarmProcessData {
     thread_page: NonNull<()>,
     file_table: NonNull<hel_sys::HelHandle>,
     clock_tracker_page: NonNull<()>,
+    hierarchy_handle: hel_sys::HelHandle,
 }
 
 unsafe impl Send for ManagarmProcessData {}

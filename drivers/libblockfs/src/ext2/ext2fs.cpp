@@ -1277,7 +1277,7 @@ async::result<void> FileSystem::initiateInode(std::shared_ptr<Inode> inode) {
 
 	// Allocate a page cache for the file.
 	auto cache_size = (inode->fileSize() + 0xFFF) & ~size_t(0xFFF);
-	HEL_CHECK(helCreateManagedMemory(cache_size, kHelManagedReadahead,
+	HEL_CHECK(helCreateManagedMemory(fileDataHierarchy(), cache_size, kHelManagedReadahead,
 			&inode->backingMemory, &inode->frontalMemory));
 
 	if (inode->fileType == kTypeDirectory) {

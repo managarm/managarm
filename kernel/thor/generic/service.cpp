@@ -33,6 +33,7 @@ static MfsRegular *urandomNode = nullptr;
 void runService(
 	managarm::svrctl::Description<KernelAlloc> desc,
 	smarter::shared_ptr<Stream, LanePolicy> controlLane,
+	smarter::shared_ptr<Hierarchy> hierarchy,
 	smarter::shared_ptr<Thread, ActiveHandle> thread
 );
 
@@ -450,7 +451,7 @@ namespace posix {
 	struct Process {
 		Process(frg::string<KernelAlloc> name)
 		: _name{std::move(name)}, openFiles(*kernelAlloc) {
-			auto memoryOutcome = AllocatedMemory::create(0x1000);
+			auto memoryOutcome = AllocatedMemory::create(rootHierarchy(), 0x1000);
 			if(!memoryOutcome)
 				panicLogger() << "thor: Failed to create memory" << frg::endlog;
 			fileTableMemory = std::move(*memoryOutcome);
@@ -502,6 +503,16 @@ namespace posix {
 					AnyDescriptor::make<DescriptorType::lane>(lane, kHelRightInvoke));
 		}
 
+		void attachHierarchy(smarter::shared_ptr<Thread, ActiveHandle> thread,
+				smarter::shared_ptr<Hierarchy> hierarchy) {
+			this->hierarchy = hierarchy;
+			hierarchyHandle = thread->getUniverse()->attachDescriptor(
+				AnyDescriptor::make<DescriptorType::hierarchy>(
+					std::move(hierarchy), kHelRightDerive | kHelRightProvision
+				)
+			);
+		}
+
 		void attachMbus(smarter::shared_ptr<Thread, ActiveHandle> thread) {
 			mbusHandle = thread->getUniverse()->attachDescriptor(
 					AnyDescriptor::make<DescriptorType::lane>(*mbusClient, kHelRightInvoke));
@@ -534,9 +545,11 @@ namespace posix {
 
 		uint64_t nextTid_ = 1;
 
+		smarter::shared_ptr<Hierarchy> hierarchy;
 		Handle hardwareAccessHandle{kHelNullHandle};
 		Handle mbusHandle;
 		Handle controlHandle;
+		Handle hierarchyHandle;
 		frg::vector<OpenFile *, KernelAlloc> openFiles;
 		smarter::shared_ptr<AllocatedMemory> fileTableMemory;
 		VirtualAddr clientFileTable;
@@ -879,7 +892,8 @@ namespace posix {
 					if(req->flags() & MAP_PRIVATE) { // MAP_PRIVATE.
 						fileMemory = getZeroMemory();
 					}else{
-						auto memoryOutcome = AllocatedMemory::create(req->size());
+						auto memoryOutcome = AllocatedMemory::create(hierarchy,
+								req->size());
 						if(!memoryOutcome)
 							panicLogger() << "thor: Failed to create memory" << frg::endlog;
 						fileMemory = std::move(*memoryOutcome);
@@ -894,7 +908,7 @@ namespace posix {
 
 				smarter::shared_ptr<MemorySlice> slice;
 				if(req->flags() & MAP_PRIVATE) { // MAP_PRIVATE.
-					auto cowOutcome = CopyOnWriteMemory::create(
+					auto cowOutcome = CopyOnWriteMemory::create(hierarchy,
 							std::move(fileMemory), req->rel_offset(), req->size());
 					if(!cowOutcome)
 						panicLogger() << "thor: Failed to create copy-on-write memory" << frg::endlog;
@@ -1030,7 +1044,8 @@ namespace posix {
 				});
 				if(!readOutcome)
 					panicLogger() << "thor: Failed to access server registers" << frg::endlog;
-				auto cowOutcome = CopyOnWriteMemory::create(getZeroMemory(), 0, size);
+				auto cowOutcome = CopyOnWriteMemory::create(hierarchy,
+						getZeroMemory(), 0, size);
 				if(!cowOutcome)
 					panicLogger() << "thor: Failed to create copy-on-write memory" << frg::endlog;
 				auto sliceOutcome = MemorySlice::create(std::move(*cowOutcome), 0, size);
@@ -1094,7 +1109,8 @@ namespace posix {
 					mbusHandle,
 					nullptr,
 					reinterpret_cast<HelHandle *>(clientFileTable),
-					nullptr
+					nullptr,
+					hierarchyHandle,
 				};
 
 				auto writeSize = frg::min(dataSize, sizeof(::posix::ManagarmProcessData));
@@ -1243,8 +1259,9 @@ coroutine<void> initPosixEmulation() {
 
 void runService(managarm::svrctl::Description<KernelAlloc> desc,
 		smarter::shared_ptr<Stream, LanePolicy> controlLane,
+		smarter::shared_ptr<Hierarchy> hierarchy,
 		smarter::shared_ptr<Thread, ActiveHandle> thread) {
-	KernelFiber::run([desc, thread, controlLane = std::move(controlLane)] () mutable {
+	KernelFiber::run([=] () mutable {
 		auto stdioStreamOutcome = createStream();
 		if(!stdioStreamOutcome)
 			panicLogger() << "thor: Failed to create stream" << frg::endlog;
@@ -1271,6 +1288,7 @@ void runService(managarm::svrctl::Description<KernelAlloc> desc,
 			);
 		}
 		process->attachControl(thread, std::move(controlLane));
+		process->attachHierarchy(thread, std::move(hierarchy));
 		process->attachMbus(thread);
 		KernelFiber::asyncBlockCurrent(process->attachFile(thread, stdioFile));
 		KernelFiber::asyncBlockCurrent(process->attachFile(thread, stdioFile));
