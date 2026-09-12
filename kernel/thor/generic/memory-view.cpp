@@ -3082,93 +3082,88 @@ CopyOnWriteMemory::touchRange(uintptr_t offset, size_t sizeHint, FetchFlags flag
 
 	auto misalign = offset & (kPageSize - 1);
 
-	smarter::shared_ptr<MemoryView> view;
-	uintptr_t viewOffset;
-	smarter::shared_ptr<CowPage> cowPage;
-	smarter::shared_ptr<CowPage> sharedPage;
-	// Note: the passthrough cases here have to match peekRange() since
-	//       callers expect touchRange() to make the page available to peekRange().
-	bool passthrough = false;
-	bool waitForCopy = false;
-	{
-		// If the page is owned by this memory object, we just return it.
-		auto irqLock = frg::guard(&irqMutex());
-		auto lock = frg::guard(&_mutex);
+	while(true) {
+		smarter::shared_ptr<CowPage> cowPage;
+		smarter::shared_ptr<CowPage> sharedPage;
+		// Note: the passthrough cases here have to match peekRange() since
+		//       callers expect touchRange() to make the page available to peekRange().
+		bool passthrough = false;
+		bool waitForCopy = false;
+		{
+			// If the page is owned by this memory object, we just return it.
+			auto irqLock = frg::guard(&irqMutex());
+			auto lock = frg::guard(&_mutex);
 
-		if(offset >= _length)
-			co_return Error::fault;
+			if(offset >= _length)
+				co_return Error::fault;
 
-		auto cowIt = _ownedPages.find(offset >> kPageShift);
-		if(cowIt) {
-			cowPage = *cowIt;
-			if(cowPage->state == CowState::hasCopy) {
-				assert(cowPage->physical != PhysicalAddr(-1));
-				co_return kPageSize - misalign;
-			}else if(cowPage->state == CowState::inProgress) {
-				waitForCopy = true;
+			auto cowIt = _ownedPages.find(offset >> kPageShift);
+			if(cowIt) {
+				cowPage = *cowIt;
+				if(cowPage->state == CowState::hasCopy) {
+					assert(cowPage->physical != PhysicalAddr(-1));
+					co_return kPageSize - misalign;
+				}else if(cowPage->state == CowState::inProgress) {
+					waitForCopy = true;
+				}else{
+					assert(cowPage->state == CowState::null);
+					cowPage->state = CowState::inProgress;
+				}
 			}else{
-				assert(cowPage->state == CowState::null);
-				cowPage->state = CowState::inProgress;
+				if (!(flags & fetchRequireMutable)) {
+					passthrough = true;
+				} else {
+					// Otherwise we need to copy from a shared page or from the root view.
+					cowPage = smarter::allocate_shared<CowPage>(*kernelAlloc);
+					cowPage->state = CowState::inProgress;
+					cowIt = _ownedPages.insert(offset >> kPageShift);
+					*cowIt = cowPage;
+				}
 			}
-		}else{
-			if (!(flags & fetchRequireMutable)) {
-				passthrough = true;
-			} else {
-				// Otherwise we need to copy from a shared page or from the root view.
-				cowPage = smarter::allocate_shared<CowPage>(*kernelAlloc);
-				cowPage->state = CowState::inProgress;
-				cowIt = _ownedPages.insert(offset >> kPageShift);
-				*cowIt = cowPage;
-			}
-		}
 
-		if(!waitForCopy) {
-			if(auto sharedIt = _sharedPages.find(offset >> kPageShift); sharedIt) {
-				sharedPage = *sharedIt;
-				assert(sharedPage->state == CowState::hasCopy);
-				assert(sharedPage->physical != PhysicalAddr(-1));
+			if(!waitForCopy) {
+				if(auto sharedIt = _sharedPages.find(offset >> kPageShift); sharedIt) {
+					sharedPage = *sharedIt;
+					assert(sharedPage->state == CowState::hasCopy);
+					assert(sharedPage->physical != PhysicalAddr(-1));
+				}
 			}
 		}
 
-		view = _view;
-		viewOffset = _viewOffset;
-	}
-	// Note: totalOffset is not necessarily page aligned.
-	auto totalOffset = viewOffset + offset;
+		// Passthrough and waitForCopy are mutually exclusive:
+		// if waitForCopy is set, we may need to wait for eviction to finish
+		// and we must not return passed through pages after eviction started.
+		assert(!(passthrough && waitForCopy));
 
-	// Passthrough and waitForCopy are mutually exclusive:
-	// if waitForCopy is set, we may need to wait for eviction to finish
-	// and we must not return passed through pages after eviction started.
-	assert(!(passthrough && waitForCopy));
+		if(passthrough) {
+			if(sharedPage)
+				co_return kPageSize - misalign;
 
-	if(passthrough) {
-		if(sharedPage)
-			co_return kPageSize - misalign;
+			// Note: totalOffset is not necessarily page aligned.
+			auto totalOffset = _viewOffset + offset;
+			auto affectedSize = FRG_CO_TRY(co_await _view->touchRange(totalOffset, sizeHint, flags));
+			co_return frg::min(affectedSize, kPageSize - misalign);
+		}
 
-		auto affectedSize = FRG_CO_TRY(co_await view->touchRange(totalOffset, sizeHint, flags));
-		co_return frg::min(affectedSize, kPageSize - misalign);
-	}
+		if(waitForCopy) {
+			bool stillWaiting;
+			do {
+				stillWaiting = co_await _copyEvent.async_wait_if([&] () -> bool {
+					// TODO: this could be faster if cowIt->state was atomic.
+					auto irqLock = frg::guard(&irqMutex());
+					auto lock = frg::guard(&_mutex);
 
-	if(waitForCopy) {
-		bool stillWaiting;
-		do {
-			stillWaiting = co_await _copyEvent.async_wait_if([&] () -> bool {
-				// TODO: this could be faster if cowIt->state was atomic.
-				auto irqLock = frg::guard(&irqMutex());
-				auto lock = frg::guard(&_mutex);
+					return cowPage->state == CowState::inProgress;
+				});
+			} while(stillWaiting);
 
-				if(cowPage->state == CowState::inProgress)
-					return true;
-				assert(cowPage->state == CowState::hasCopy);
-				return false;
-			});
-		} while(stillWaiting);
+			// The copy may have failed (rolling the page back); re-inspect the page.
+			continue;
+		}
 
+		FRG_CO_TRY(co_await _materializePage(offset, cowPage, sharedPage));
 		co_return kPageSize - misalign;
 	}
-
-	FRG_CO_TRY(co_await _materializePage(offset, cowPage, sharedPage));
-	co_return kPageSize - misalign;
 }
 
 coroutine<frg::expected<Error>>
@@ -3178,6 +3173,7 @@ CopyOnWriteMemory::_materializePage(uintptr_t offset,
 	// Note: offset is not necessarily page aligned.
 	auto pageOffset = (_viewOffset + offset) & ~(kPageSize - 1);
 
+	// TODO: On OOM, wait for memory and retry; the page stays inProgress meanwhile.
 	PhysicalAddr physical = physicalAllocator->allocate(kPageSize);
 	assert(physical != PhysicalAddr(-1) && "OOM");
 	PageAccessor accessor{physical};
@@ -3188,7 +3184,23 @@ CopyOnWriteMemory::_materializePage(uintptr_t offset,
 		auto srcAccessor = PageAccessor{sharedPage->physical};
 		memcpy(accessor.get(), srcAccessor.get(), kPageSize);
 	}else{
-		FRG_CO_TRY(co_await _view->copyFrom(pageOffset, accessor.get(), kPageSize));
+		auto copyOutcome = co_await _view->copyFrom(pageOffset, accessor.get(), kPageSize);
+		if(!copyOutcome) {
+			// There is no copy; roll the page back so that waiters do not wait forever.
+			physicalAllocator->free(physical, kPageSize);
+			{
+				auto irqLock = frg::guard(&irqMutex());
+				auto lock = frg::guard(&_mutex);
+
+				assert(cowPage->state == CowState::inProgress);
+				cowPage->state = CowState::null;
+				// Locked pages stay as placeholders (as created by lockRange()).
+				if(!cowPage->lockCount)
+					_ownedPages.erase(offset >> kPageShift);
+			}
+			_copyEvent.raise();
+			co_return copyOutcome.error();
+		}
 	}
 
 	// To make CoW unobservable, we first need to evict the page here.

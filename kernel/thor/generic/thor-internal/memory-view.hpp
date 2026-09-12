@@ -1179,7 +1179,8 @@ private:
 	// Attaches a page frame for the given page and performs the copy
 	// from the shared page (if any) or the root view.
 	// Precondition: the caller has moved the page to CowState::inProgress.
-	// Postcondition: Moves the page into hasCopy state on success.
+	// Postcondition: Moves the page into hasCopy state on success,
+	//                or moves it back into null state on failure.
 	coroutine<frg::expected<Error>> _materializePage(uintptr_t offset,
 			smarter::shared_ptr<CowPage> cowPage, smarter::shared_ptr<CowPage> sharedPage);
 
