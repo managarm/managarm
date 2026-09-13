@@ -1219,7 +1219,12 @@ enum class CowState {
 struct CowPage {
 	~CowPage();
 
+	// For non-swappable views the physical field holds the owned frame.
+	// For swappable views the swapPage field holds the swap page that owns the
+	// frame and tracks residency and dirtiness instead.
+	// Exactly one of these fields will be valid if state == CowState::hasCopy.
 	PhysicalAddr physical = -1;
+	ManagedSpace::ManagedPage *swapPage = nullptr;
 	CowState state = CowState::null;
 	unsigned int lockCount = 0;
 };
@@ -1230,11 +1235,11 @@ private:
 
 public:
 	static std::expected<smarter::shared_ptr<CopyOnWriteMemory>, Error> create(
-			smarter::shared_ptr<Hierarchy> hierarchy,
+			smarter::shared_ptr<Hierarchy> hierarchy, smarter::shared_ptr<SwapSpace> space,
 			smarter::shared_ptr<MemoryView> view, uintptr_t offset, size_t length);
 
 	CopyOnWriteMemory(CtorToken, smarter::shared_ptr<Hierarchy> hierarchy,
-			smarter::shared_ptr<MemoryView> view,
+			smarter::shared_ptr<SwapSpace> space, smarter::shared_ptr<MemoryView> view,
 			uintptr_t offset, size_t length);
 	CopyOnWriteMemory(const CopyOnWriteMemory &) = delete;
 
@@ -1262,13 +1267,40 @@ public:
 	// Contract: set by the code that constructs this object.
 	smarter::borrowed_ptr<CopyOnWriteMemory> selfPtr;
 private:
+	// Page-level operations on materialized pages that hide whether the view is swappable.
+	// Lock order: _mutex is taken before the swap space's mutex.
+
+	// Returns the frame of a materialized page, or PhysicalAddr(-1) if it is swapped out.
+	// Must be called under _mutex.
+	PhysicalAddr _getResident(CowPage *page);
+
+	// Ensures the materialized page is resident, no-op for unswappable views.
+	// The caller must keep the page alive.
+	coroutine<frg::expected<Error>> _ensureResident(CowPage *page, FetchFlags flags);
+
+	// Locks/unlocks a page. For swappable views locks of materialized pages are
+	// mirrored into the swap page.
+	// Must be called under _mutex.
+	void _lockPage(CowPage *page);
+	void _unlockPage(CowPage *page, bool &raiseDiscard);
+
+	// Copies the content of a materialized page into the given frame.
+	coroutine<frg::expected<Error>> _copyFromCowPage(CowPage *src, PhysicalAddr dst, FetchFlags flags);
+
+	// Publishes the given frame as the page's content (state becomes hasCopy).
+	// Swappable views install the frame dirty into the swap space and transfer the lock count.
+	// Must be called under _mutex unless the page is not visible to other threads yet.
+	frg::expected<Error> _publishCopy(CowPage *page, PhysicalAddr physical,
+			bool &raiseDirty, bool &raiseExpedite);
+
 	// Attaches a page frame for the given page and performs the copy
 	// from the shared page (if any) or the root view.
 	// Precondition: the caller has moved the page to CowState::inProgress.
 	// Postcondition: Moves the page into hasCopy state on success,
 	//                or moves it back into null state on failure.
 	coroutine<frg::expected<Error>> _materializePage(uintptr_t offset,
-			smarter::shared_ptr<CowPage> cowPage, smarter::shared_ptr<CowPage> sharedPage);
+			smarter::shared_ptr<CowPage> cowPage, smarter::shared_ptr<CowPage> sharedPage,
+			FetchFlags flags);
 
 	frg::ticket_spinlock _mutex;
 
@@ -1281,6 +1313,8 @@ private:
 	// Invariant: _chargedPages is equal to the number of pages in _ownedPages that have a page frame attached
 	//            plus the number of pages in _sharedPages.
 	size_t _chargedPages{0};
+	// Swap space that backs private copies, null if the view is not swappable.
+	smarter::shared_ptr<SwapSpace> _space;
 	frg::rcu_radixtree<smarter::shared_ptr<CowPage>, KernelAlloc, RcuPolicy> _ownedPages;
 	frg::rcu_radixtree<smarter::shared_ptr<CowPage>, KernelAlloc, RcuPolicy> _sharedPages;
 	async::recurring_event _copyEvent;

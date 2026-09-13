@@ -723,7 +723,7 @@ HelError helCopyOnWrite(HelHandle hierarchyHandle, HelHandle memoryHandle,
 	if(!viewOutcome)
 		return translateError(viewOutcome.error());
 
-	auto sliceOutcome = CopyOnWriteMemory::create(*hierarchyOutcome, std::move(*viewOutcome),
+	auto sliceOutcome = CopyOnWriteMemory::create(*hierarchyOutcome, nullptr, std::move(*viewOutcome),
 			offset, size);
 	if(!sliceOutcome)
 		return translateError(sliceOutcome.error());
