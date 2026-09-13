@@ -263,7 +263,7 @@ private:
 	async::post_ack_agent<RangeToEvict> agent_;
 };
 
-struct EvictionQueue {
+struct EvictionQueue final : frg::intrusive_rc {
 	void addObserver(MemoryObserver *observer) {
 		auto irqLock = frg::guard(&irqMutex());
 		auto lock = frg::guard(&mutex_);
@@ -297,6 +297,8 @@ struct EvictionQueue {
 		return mechanism_.post(RangeToEvict{EvictMode::fenceDirty, 0, 0});
 	}
 
+	frg::default_list_hook<EvictionQueue> attachHook;
+
 private:
 	frg::ticket_spinlock mutex_;
 
@@ -327,21 +329,25 @@ enum class DiscardMode : uint8_t {
 // View on some pages of memory. This is the "frontend" part of a memory object.
 struct MemoryView {
 protected:
-	MemoryView(EvictionQueue *associatedEvictionQueue = nullptr)
-	: associatedEvictionQueue_{associatedEvictionQueue} { }
+	MemoryView(frg::intrusive_shared_ptr<EvictionQueue, Allocator> evictionQueue = {})
+	: evictionQueue_{std::move(evictionQueue)} { }
 
 	~MemoryView() = default;
+
+	EvictionQueue *evictionQueue() {
+		return evictionQueue_.get();
+	}
 
 public:
 	// Add/remove memory observers. These will be notified of page evictions.
 	void addObserver(MemoryObserver *observer) {
-		if(associatedEvictionQueue_)
-			associatedEvictionQueue_->addObserver(observer);
+		if(evictionQueue_)
+			evictionQueue_->addObserver(observer);
 	}
 
 	void removeObserver(MemoryObserver *observer) {
-		if(associatedEvictionQueue_)
-			associatedEvictionQueue_->removeObserver(observer);
+		if(evictionQueue_)
+			evictionQueue_->removeObserver(observer);
 	}
 
 	// Returns the current size of the memory object.
@@ -407,7 +413,7 @@ public:
 	// ----------------------------------------------------------------------------------
 
 	bool canEvictMemory() {
-		return associatedEvictionQueue_;
+		return static_cast<bool>(evictionQueue_);
 	}
 
 	auto pollEviction(MemoryObserver *observer, async::cancellation_token ct) {
@@ -419,7 +425,7 @@ public:
 	}
 
 private:
-	EvictionQueue *associatedEvictionQueue_;
+	frg::intrusive_shared_ptr<EvictionQueue, Allocator> evictionQueue_;
 };
 
 struct SliceRange {
@@ -891,9 +897,20 @@ struct ManagedSpace : CacheBundle {
 	// Unblocks the drain coroutine after the swap budget has grown.
 	void _wakeDrain();
 
+	// Registers/deregisters the queue of an attached view, the space's fences are posted
+	// on all registered queues. The managed space takes a reference to the queue and releases
+	// it on detach.
+	void attachQueue(EvictionQueue *queue);
+	void detachQueue(EvictionQueue *queue);
+
 	coroutine<void> _runReclaimLoop();
 	coroutine<void> _runDrainLoop();
 	coroutine<void> _runInvalidationLoop();
+
+	// Post the given fence on every attached queue and await all acknowledgements.
+	coroutine<void> _fenceEphemeral();
+	coroutine<void> _fenceDirty();
+	coroutine<void> _fenceAll(EvictMode mode);
 
 	Error lockPages(uintptr_t offset, size_t size);
 	void unlockPages(uintptr_t offset, size_t size);
@@ -944,7 +961,19 @@ struct ManagedSpace : CacheBundle {
 	// Delay before dirty pages enter writeback. Longer delays allow for more coalescing.
 	uint64_t writebackDelayNanos = 200'000'000;
 
-	EvictionQueue _evictQueue;
+	// Queue that BackingMemory/FrontalMemory mappings observe.
+	frg::intrusive_shared_ptr<EvictionQueue, Allocator> _evictQueue;
+
+	// Queues of all views whose mappings must observe this space's fences (always
+	// including _evictQueue). Protected by mutex.
+	frg::intrusive_list<
+		EvictionQueue,
+		frg::locate_member<
+			EvictionQueue,
+			frg::default_list_hook<EvictionQueue>,
+			&EvictionQueue::attachHook
+		>
+	> _attachedQueues;
 
 	CachePagesList _dirtyList;
 
@@ -1039,7 +1068,7 @@ public:
 			smarter::shared_ptr<ManagedSpace> managed);
 
 	BackingMemory(CtorToken, smarter::shared_ptr<ManagedSpace> managed)
-	: MemoryView{&managed->_evictQueue}, _managed{std::move(managed)} { }
+	: MemoryView{managed->_evictQueue}, _managed{std::move(managed)} { }
 
 	BackingMemory(const BackingMemory &) = delete;
 
@@ -1071,7 +1100,7 @@ public:
 			smarter::shared_ptr<ManagedSpace> managed);
 
 	FrontalMemory(CtorToken, smarter::shared_ptr<ManagedSpace> managed)
-	: MemoryView{&managed->_evictQueue}, _managed{std::move(managed)} { }
+	: MemoryView{managed->_evictQueue}, _managed{std::move(managed)} { }
 
 	FrontalMemory(const FrontalMemory &) = delete;
 
@@ -1190,7 +1219,12 @@ enum class CowState {
 struct CowPage {
 	~CowPage();
 
+	// For non-swappable views the physical field holds the owned frame.
+	// For swappable views the swapPage field holds the swap page that owns the
+	// frame and tracks residency and dirtiness instead.
+	// Exactly one of these fields will be valid if state == CowState::hasCopy.
 	PhysicalAddr physical = -1;
+	ManagedSpace::ManagedPage *swapPage = nullptr;
 	CowState state = CowState::null;
 	unsigned int lockCount = 0;
 };
@@ -1201,11 +1235,11 @@ private:
 
 public:
 	static std::expected<smarter::shared_ptr<CopyOnWriteMemory>, Error> create(
-			smarter::shared_ptr<Hierarchy> hierarchy,
+			smarter::shared_ptr<Hierarchy> hierarchy, smarter::shared_ptr<SwapSpace> space,
 			smarter::shared_ptr<MemoryView> view, uintptr_t offset, size_t length);
 
 	CopyOnWriteMemory(CtorToken, smarter::shared_ptr<Hierarchy> hierarchy,
-			smarter::shared_ptr<MemoryView> view,
+			smarter::shared_ptr<SwapSpace> space, smarter::shared_ptr<MemoryView> view,
 			uintptr_t offset, size_t length);
 	CopyOnWriteMemory(const CopyOnWriteMemory &) = delete;
 
@@ -1233,13 +1267,40 @@ public:
 	// Contract: set by the code that constructs this object.
 	smarter::borrowed_ptr<CopyOnWriteMemory> selfPtr;
 private:
+	// Page-level operations on materialized pages that hide whether the view is swappable.
+	// Lock order: _mutex is taken before the swap space's mutex.
+
+	// Returns the frame of a materialized page, or PhysicalAddr(-1) if it is swapped out.
+	// Must be called under _mutex.
+	PhysicalAddr _getResident(CowPage *page);
+
+	// Ensures the materialized page is resident, no-op for unswappable views.
+	// The caller must keep the page alive.
+	coroutine<frg::expected<Error>> _ensureResident(CowPage *page, FetchFlags flags);
+
+	// Locks/unlocks a page. For swappable views locks of materialized pages are
+	// mirrored into the swap page.
+	// Must be called under _mutex.
+	void _lockPage(CowPage *page);
+	void _unlockPage(CowPage *page, bool &raiseDiscard);
+
+	// Copies the content of a materialized page into the given frame.
+	coroutine<frg::expected<Error>> _copyFromCowPage(CowPage *src, PhysicalAddr dst, FetchFlags flags);
+
+	// Publishes the given frame as the page's content (state becomes hasCopy).
+	// Swappable views install the frame dirty into the swap space and transfer the lock count.
+	// Must be called under _mutex unless the page is not visible to other threads yet.
+	frg::expected<Error> _publishCopy(CowPage *page, PhysicalAddr physical,
+			bool &raiseDirty, bool &raiseExpedite);
+
 	// Attaches a page frame for the given page and performs the copy
 	// from the shared page (if any) or the root view.
 	// Precondition: the caller has moved the page to CowState::inProgress.
 	// Postcondition: Moves the page into hasCopy state on success,
 	//                or moves it back into null state on failure.
 	coroutine<frg::expected<Error>> _materializePage(uintptr_t offset,
-			smarter::shared_ptr<CowPage> cowPage, smarter::shared_ptr<CowPage> sharedPage);
+			smarter::shared_ptr<CowPage> cowPage, smarter::shared_ptr<CowPage> sharedPage,
+			FetchFlags flags);
 
 	frg::ticket_spinlock _mutex;
 
@@ -1252,10 +1313,11 @@ private:
 	// Invariant: _chargedPages is equal to the number of pages in _ownedPages that have a page frame attached
 	//            plus the number of pages in _sharedPages.
 	size_t _chargedPages{0};
+	// Swap space that backs private copies, null if the view is not swappable.
+	smarter::shared_ptr<SwapSpace> _space;
 	frg::rcu_radixtree<smarter::shared_ptr<CowPage>, KernelAlloc, RcuPolicy> _ownedPages;
 	frg::rcu_radixtree<smarter::shared_ptr<CowPage>, KernelAlloc, RcuPolicy> _sharedPages;
 	async::recurring_event _copyEvent;
-	EvictionQueue _evictQueue;
 };
 
 FutexRealm *getGlobalFutexRealm();

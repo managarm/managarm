@@ -1008,10 +1008,64 @@ std::expected<smarter::shared_ptr<ManagedSpace>, Error> ManagedSpace::create(
 
 ManagedSpace::ManagedSpace(smarter::shared_ptr<Hierarchy> hierarchy, size_t length, bool readahead)
 : hierarchy{std::move(hierarchy)}, pages{*kernelAlloc},
-		numPages{length >> kPageShift}, readahead{readahead} {
+		numPages{length >> kPageShift}, readahead{readahead},
+		_evictQueue{frg::allocate_intrusive_shared<EvictionQueue>(Allocator{})} {
 	assert(!(length & (kPageSize - 1)));
 
+	attachQueue(_evictQueue.get());
 	globalReclaimer->registerBundle(this);
+}
+
+void ManagedSpace::attachQueue(EvictionQueue *queue) {
+	auto irqLock = frg::guard(&irqMutex());
+	auto lock = frg::guard(&mutex);
+
+	ref_rc(queue);
+	_attachedQueues.push_back(queue);
+}
+
+void ManagedSpace::detachQueue(EvictionQueue *queue) {
+	{
+		auto irqLock = frg::guard(&irqMutex());
+		auto lock = frg::guard(&mutex);
+
+		_attachedQueues.erase(_attachedQueues.iterator_to(queue));
+	}
+	// Drop the space's reference outside the mutex, this may destroy the queue.
+	frg::intrusive_shared_ptr<EvictionQueue, Allocator> drop{frg::adopt_rc, queue};
+}
+
+coroutine<void> ManagedSpace::_fenceEphemeral() {
+	return _fenceAll(EvictMode::fenceEphemeral);
+}
+
+coroutine<void> ManagedSpace::_fenceDirty() {
+	return _fenceAll(EvictMode::fenceDirty);
+}
+
+coroutine<void> ManagedSpace::_fenceAll(EvictMode mode) {
+	assert(mode == EvictMode::fenceEphemeral || mode == EvictMode::fenceDirty);
+
+	// Snapshot the list under the mutex, the references keep the queues alive
+	// even if their views detach concurrently.
+	frg::vector<frg::intrusive_shared_ptr<EvictionQueue, Allocator>, KernelAlloc>
+			snapshot{*kernelAlloc};
+	{
+		auto irqLock = frg::guard(&irqMutex());
+		auto lock = frg::guard(&mutex);
+
+		for(auto queue : _attachedQueues) {
+			ref_rc(queue);
+			snapshot.emplace_back(frg::adopt_rc, queue);
+		}
+	}
+
+	for(auto &queue : snapshot) {
+		if(mode == EvictMode::fenceEphemeral)
+			co_await queue->fenceEphemeral();
+		else
+			co_await queue->fenceDirty();
+	}
 }
 
 coroutine<void> ManagedSpace::_runReclaimLoop() {
@@ -1066,7 +1120,7 @@ coroutine<void> ManagedSpace::_runReclaimLoop() {
 		if(batch.empty() && discardBatch.empty())
 			continue;
 
-		co_await _evictQueue.fenceEphemeral();
+		co_await _fenceEphemeral();
 
 		bool anyDirty = false;
 		bool anyExpedite = false;
@@ -1274,7 +1328,7 @@ coroutine<void> ManagedSpace::_runDrainLoop() {
 		if (pending.empty())
 			continue;
 
-		co_await _evictQueue.fenceDirty();
+		co_await _fenceDirty();
 
 		ManageList mgmtPending;
 		MonitorPendingList pendingMonitors;
@@ -1343,7 +1397,7 @@ coroutine<void> ManagedSpace::_runInvalidationLoop() {
 				processed.push_back(batch.pop_front());
 				count++;
 			}
-			co_await _evictQueue.breakRange(index << kPageShift, count << kPageShift);
+			co_await _evictQueue->breakRange(index << kPageShift, count << kPageShift);
 		}
 
 		bool raiseDiscard = false;
@@ -2509,11 +2563,17 @@ std::expected<smarter::shared_ptr<SwappableMemory>, Error> SwappableMemory::crea
 }
 
 SwappableMemory::SwappableMemory(CtorToken, smarter::shared_ptr<SwapSpace> space, size_t length)
-: MemoryView{&space->_evictQueue}, _space{std::move(space)}, _length{length}, _table{*kernelAlloc} {
+: MemoryView{frg::allocate_intrusive_shared<EvictionQueue>(Allocator{})},
+		_space{std::move(space)}, _length{length}, _table{*kernelAlloc} {
 	assert(!(length & (kPageSize - 1)));
+
+	_space->attachQueue(evictionQueue());
 }
 
 SwappableMemory::~SwappableMemory() {
+	// No mappings (which hold view references) observe our queue anymore.
+	_space->detachQueue(evictionQueue());
+
 	for(auto it = _table.begin(); it != _table.end(); ++it)
 		_space->discardPageAndRaise(*it, DiscardMode::dropDirty);
 }
@@ -2841,41 +2901,180 @@ Error IndirectMemory::setIndirection(size_t slot, smarter::shared_ptr<MemoryView
 // CopyOnWriteMemory
 // --------------------------------------------------------
 
+// Must run outside any locks since discardPageAndRaise take ManagedSpace mutex.
 CowPage::~CowPage() {
 	if(state == CowState::null)
 		return;
 	assert(state == CowState::hasCopy);
-	assert(physical != PhysicalAddr(-1));
-	globalPfnDb().erase(physical);
-	physicalAllocator->free(physical, kPageSize);
+	if(swapPage) {
+		auto space = static_cast<ManagedSpace *>(swapPage->cachePage.bundle);
+		space->discardPageAndRaise(swapPage, DiscardMode::dropDirty);
+	}else{
+		assert(physical != PhysicalAddr(-1));
+		globalPfnDb().erase(physical);
+		physicalAllocator->free(physical, kPageSize);
+	}
 }
 
 std::expected<smarter::shared_ptr<CopyOnWriteMemory>, Error> CopyOnWriteMemory::create(
-		smarter::shared_ptr<Hierarchy> hierarchy,
+		smarter::shared_ptr<Hierarchy> hierarchy, smarter::shared_ptr<SwapSpace> space,
 		smarter::shared_ptr<MemoryView> view, uintptr_t offset, size_t length) {
 	auto ptr = smarter::allocate_shared<CopyOnWriteMemory>(*kernelAlloc, CtorToken{},
-			std::move(hierarchy), std::move(view), offset, length);
+			std::move(hierarchy), std::move(space), std::move(view), offset, length);
 	ptr->selfPtr = ptr;
 	return ptr;
 }
 
 CopyOnWriteMemory::CopyOnWriteMemory(CtorToken, smarter::shared_ptr<Hierarchy> hierarchy,
-		smarter::shared_ptr<MemoryView> view,
+		smarter::shared_ptr<SwapSpace> space, smarter::shared_ptr<MemoryView> view,
 		uintptr_t offset, size_t length)
-: MemoryView{&_evictQueue}, _hierarchy{std::move(hierarchy)}, _view{std::move(view)},
-		_viewOffset{offset}, _length{length},
+: MemoryView{frg::allocate_intrusive_shared<EvictionQueue>(Allocator{})},
+		_hierarchy{std::move(hierarchy)}, _view{std::move(view)},
+		_viewOffset{offset}, _length{length}, _space{std::move(space)},
 		_ownedPages{*kernelAlloc}, _sharedPages{*kernelAlloc} {
 	assert(length);
 	assert(!(offset & (kPageSize - 1)));
 	assert(!(length & (kPageSize - 1)));
+
+	// Our mappings must observe the space's fences.
+	if(_space)
+		_space->attachQueue(evictionQueue());
 }
 
 CopyOnWriteMemory::~CopyOnWriteMemory() {
 	unchargePages_(_chargedPages);
+
+	if(_space)
+		_space->detachQueue(evictionQueue());
 }
 
 size_t CopyOnWriteMemory::getLength() {
 	return _length;
+}
+
+PhysicalAddr CopyOnWriteMemory::_getResident(CowPage *page) {
+	assert(page->state == CowState::hasCopy);
+	if(!_space) {
+		assert(page->physical != PhysicalAddr(-1));
+		return page->physical;
+	}
+
+	auto spaceLock = frg::guard(&_space->mutex);
+	return _space->peekPage(page->swapPage);
+}
+
+coroutine<frg::expected<Error>>
+CopyOnWriteMemory::_ensureResident(CowPage *page, FetchFlags flags) {
+	assert(page->state == CowState::hasCopy);
+	if(!_space)
+		co_return {};
+
+	ManageList pendingManagement;
+	frg::intrusive_shared_ptr<ManagedSpace::TransactionMonitor, Allocator> fetchMonitor;
+	{
+		auto irqLock = frg::guard(&irqMutex());
+		auto spaceLock = frg::guard(&_space->mutex);
+
+		if(_space->touchPresentPage(page->swapPage))
+			co_return {};
+		// Copies are installed dirty, hence swapped-out copies always have a valid disk copy.
+		assert(page->swapPage->swapCopyValid);
+		auto monitorOutcome = _space->initializePage(page->swapPage, flags, pendingManagement);
+		if(!monitorOutcome)
+			co_return monitorOutcome.error();
+		fetchMonitor = std::move(*monitorOutcome);
+	}
+
+	ManagedSpace::_raiseManagement(pendingManagement);
+	co_await fetchMonitor->event.wait();
+	co_return {};
+}
+
+void CopyOnWriteMemory::_lockPage(CowPage *page) {
+	page->lockCount++;
+
+	// Locks taken before materialization are transferred by _publishCopy().
+	if(_space && page->state == CowState::hasCopy) {
+		auto spaceLock = frg::guard(&_space->mutex);
+		_space->lockPage(page->swapPage);
+	}
+}
+
+void CopyOnWriteMemory::_unlockPage(CowPage *page, bool &raiseDiscard) {
+	assert(page->lockCount > 0);
+	page->lockCount--;
+
+	if(_space && page->state == CowState::hasCopy) {
+		auto spaceLock = frg::guard(&_space->mutex);
+		_space->unlockPage(page->swapPage, raiseDiscard);
+	}
+}
+
+coroutine<frg::expected<Error>>
+CopyOnWriteMemory::_copyFromCowPage(CowPage *src, PhysicalAddr dst, FetchFlags flags) {
+	assert(src->state == CowState::hasCopy);
+	PageAccessor dstAccessor{dst};
+
+	if(!_space) {
+		assert(src->physical != PhysicalAddr(-1));
+		PageAccessor srcAccessor{src->physical};
+		memcpy(dstAccessor.get(), srcAccessor.get(), kPageSize);
+		co_return {};
+	}
+
+	// Pin the source across the copy and page it in.
+	{
+		auto irqLock = frg::guard(&irqMutex());
+		auto spaceLock = frg::guard(&_space->mutex);
+
+		_space->lockPage(src->swapPage);
+	}
+	auto outcome = co_await _ensureResident(src, flags);
+	if(outcome) {
+		PhysicalAddr srcPhysical;
+		{
+			auto irqLock = frg::guard(&irqMutex());
+			auto spaceLock = frg::guard(&_space->mutex);
+
+			srcPhysical = _space->peekPage(src->swapPage);
+			assert(srcPhysical != PhysicalAddr(-1));
+		}
+		PageAccessor srcAccessor{srcPhysical};
+		memcpy(dstAccessor.get(), srcAccessor.get(), kPageSize);
+	}
+
+	bool raiseDiscard = false;
+	{
+		auto irqLock = frg::guard(&irqMutex());
+		auto spaceLock = frg::guard(&_space->mutex);
+
+		_space->unlockPage(src->swapPage, raiseDiscard);
+	}
+	if(raiseDiscard)
+		_space->_discardEvent.raise();
+	co_return outcome;
+}
+
+frg::expected<Error> CopyOnWriteMemory::_publishCopy(CowPage *page, PhysicalAddr physical,
+		bool &raiseDirty, bool &raiseExpedite) {
+	assert(page->state != CowState::hasCopy);
+	if(!_space) {
+		page->physical = physical;
+		globalPfnDb().insert(physical, PfnDescriptor::otherPage());
+	}else{
+		auto irqLock = frg::guard(&irqMutex());
+		auto spaceLock = frg::guard(&_space->mutex);
+
+		auto swapPage = _space->allocatePage();
+		if(!swapPage)
+			return Error::noMemory;
+		// Copies are installed dirty - their content doesn't exist anywhere
+		// elsewhere, so the frame can only be dropped after a writeback.
+		_space->installPage(swapPage, physical, true, page->lockCount, raiseDirty, raiseExpedite);
+		page->swapPage = swapPage;
+	}
+	page->state = CowState::hasCopy;
+	return {};
 }
 
 coroutine<frg::expected<Error, smarter::shared_ptr<MemoryView>>> CopyOnWriteMemory::fork(
@@ -2901,7 +3100,7 @@ coroutine<frg::expected<Error, smarter::shared_ptr<MemoryView>>> CopyOnWriteMemo
 
 		// Create a new mapping in the forked space.
 		forked = smarter::allocate_shared<CopyOnWriteMemory>(*kernelAlloc, CtorToken{},
-				std::move(hierarchy), _view, _viewOffset, _length);
+				std::move(hierarchy), _space, _view, _viewOffset, _length);
 		forked->selfPtr = forked;
 
 		// Inspect all copied pages owned by the original mapping.
@@ -2930,8 +3129,7 @@ coroutine<frg::expected<Error, smarter::shared_ptr<MemoryView>>> CopyOnWriteMemo
 				// The page is locked. We *need* to keep it in the old address space.
 				lockedCopies.push(frg::make_tuple(pg, page));
 			}else{
-				assert(page->physical != PhysicalAddr(-1));
-
+				// Sharing the page shares its content (frame or swap page) with the child.
 				_ownedPages.erase(pg >> kPageShift);
 				auto sharedIt = _sharedPages.insert(pg >> kPageShift);
 				*sharedIt = page;
@@ -2947,16 +3145,26 @@ coroutine<frg::expected<Error, smarter::shared_ptr<MemoryView>>> CopyOnWriteMemo
 		auto copyPhysical = physicalAllocator->allocate(kPageSize);
 		assert(copyPhysical != PhysicalAddr(-1) && "OOM");
 
-		PageAccessor lockedAccessor{src->physical};
-		PageAccessor copyAccessor{copyPhysical};
-		memcpy(copyAccessor.get(), lockedAccessor.get(), kPageSize);
+		// The lock observed above may have been dropped concurrently, so the source
+		// is pinned again by the copy itself.
+		if(auto outcome = co_await _copyFromCowPage(src.get(), copyPhysical, 0); !outcome) {
+			physicalAllocator->free(copyPhysical, kPageSize);
+			co_return outcome.error();
+		}
 
 		auto copyPage = smarter::allocate_shared<CowPage>(*kernelAlloc);
-		copyPage->state = CowState::hasCopy;
-		copyPage->physical = copyPhysical;
-		globalPfnDb().insert(copyPhysical, PfnDescriptor::otherPage());
+		bool raiseDirty = false;
+		bool raiseExpedite = false;
+		if(auto outcome = _publishCopy(copyPage.get(), copyPhysical, raiseDirty, raiseExpedite); !outcome) {
+			physicalAllocator->free(copyPhysical, kPageSize);
+			co_return outcome.error();
+		}
 		auto copyIt = forked->_ownedPages.insert(pg >> kPageShift);
 		*copyIt = copyPage;
+		if(raiseDirty)
+			_space->_dirtyEvent.raise();
+		if(raiseExpedite)
+			_space->_expediteEvent.raise();
 	}
 
 	// Charge the memory to the forked memory view.
@@ -2968,7 +3176,7 @@ coroutine<frg::expected<Error, smarter::shared_ptr<MemoryView>>> CopyOnWriteMemo
 		forked->chargePages_(numSharedPages + lockedCopies.size());
 	}
 
-	co_await _evictQueue.breakRange(0, _length);
+	co_await evictionQueue()->breakRange(0, _length);
 	co_return smarter::shared_ptr<MemoryView>{std::move(forked)};
 }
 
@@ -2980,7 +3188,7 @@ Error CopyOnWriteMemory::lockRange(uintptr_t offset, size_t size) {
 		auto it = _ownedPages.find((offset + pg) >> kPageShift);
 		if(it) {
 			auto page = *it;
-			page->lockCount++;
+			_lockPage(page.get());
 		}else{
 			auto cowPage = smarter::allocate_shared<CowPage>(*kernelAlloc);
 			cowPage->lockCount = 1;
@@ -2993,16 +3201,20 @@ Error CopyOnWriteMemory::lockRange(uintptr_t offset, size_t size) {
 }
 
 void CopyOnWriteMemory::unlockRange(uintptr_t offset, size_t size) {
-	auto irqLock = frg::guard(&irqMutex());
-	auto lock = frg::guard(&_mutex);
+	bool raiseDiscard = false;
+	{
+		auto irqLock = frg::guard(&irqMutex());
+		auto lock = frg::guard(&_mutex);
 
-	for(size_t pg = 0; pg < size; pg += kPageSize) {
-		auto it = _ownedPages.find((offset + pg) >> kPageShift);
-		assert(it);
-		auto page = *it;
-		assert(page->lockCount > 0);
-		page->lockCount--;
+		for(size_t pg = 0; pg < size; pg += kPageSize) {
+			auto it = _ownedPages.find((offset + pg) >> kPageShift);
+			assert(it);
+			auto page = *it;
+			_unlockPage(page.get(), raiseDiscard);
+		}
 	}
+	if(raiseDiscard)
+		_space->_discardEvent.raise();
 }
 
 PhysicalRange CopyOnWriteMemory::peekRange(uintptr_t offset, FetchFlags flags) {
@@ -3021,9 +3233,11 @@ PhysicalRange CopyOnWriteMemory::peekRange(uintptr_t offset, FetchFlags flags) {
 		if(auto it = _ownedPages.find(offset >> kPageShift); it) {
 			auto page = *it;
 			if(page->state == CowState::hasCopy) {
-				assert(page->physical != PhysicalAddr(-1));
+				auto physical = _getResident(page.get());
+				if(physical == PhysicalAddr(-1))
+					return PhysicalRange{};
 				return PhysicalRange{
-					.physical = page->physical + misalign,
+					.physical = physical + misalign,
 					.size = kPageSize - misalign,
 					.cachingMode = CachingMode::null,
 					.isMutable = true
@@ -3038,8 +3252,11 @@ PhysicalRange CopyOnWriteMemory::peekRange(uintptr_t offset, FetchFlags flags) {
 		if (passthrough) {
 			if(auto it = _sharedPages.find(offset >> kPageShift); it) {
 				auto page = *it;
+				auto physical = _getResident(page.get());
+				if(physical == PhysicalAddr(-1))
+					return PhysicalRange{};
 				return PhysicalRange{
-					.physical = page->physical + misalign,
+					.physical = physical + misalign,
 					.size = kPageSize - misalign,
 					.cachingMode = CachingMode::null,
 					.isMutable = false
@@ -3079,6 +3296,7 @@ CopyOnWriteMemory::touchRange(uintptr_t offset, size_t sizeHint, FetchFlags flag
 		//       callers expect touchRange() to make the page available to peekRange().
 		bool passthrough = false;
 		bool waitForCopy = false;
+		bool touchOwned = false;
 		{
 			// If the page is owned by this memory object, we just return it.
 			auto irqLock = frg::guard(&irqMutex());
@@ -3091,8 +3309,7 @@ CopyOnWriteMemory::touchRange(uintptr_t offset, size_t sizeHint, FetchFlags flag
 			if(cowIt) {
 				cowPage = *cowIt;
 				if(cowPage->state == CowState::hasCopy) {
-					assert(cowPage->physical != PhysicalAddr(-1));
-					co_return kPageSize - misalign;
+					touchOwned = true;
 				}else if(cowPage->state == CowState::inProgress) {
 					waitForCopy = true;
 				}else{
@@ -3111,13 +3328,18 @@ CopyOnWriteMemory::touchRange(uintptr_t offset, size_t sizeHint, FetchFlags flag
 				}
 			}
 
-			if(!waitForCopy) {
+			if(!waitForCopy && !touchOwned) {
 				if(auto sharedIt = _sharedPages.find(offset >> kPageShift); sharedIt) {
 					sharedPage = *sharedIt;
 					assert(sharedPage->state == CowState::hasCopy);
-					assert(sharedPage->physical != PhysicalAddr(-1));
 				}
 			}
+		}
+
+		if(touchOwned) {
+			// The copy may be swapped out.
+			FRG_CO_TRY(co_await _ensureResident(cowPage.get(), flags));
+			co_return kPageSize - misalign;
 		}
 
 		// Passthrough and waitForCopy are mutually exclusive:
@@ -3126,8 +3348,11 @@ CopyOnWriteMemory::touchRange(uintptr_t offset, size_t sizeHint, FetchFlags flag
 		assert(!(passthrough && waitForCopy));
 
 		if(passthrough) {
-			if(sharedPage)
+			if(sharedPage) {
+				// The shared page may be swapped out.
+				FRG_CO_TRY(co_await _ensureResident(sharedPage.get(), flags));
 				co_return kPageSize - misalign;
+			}
 
 			// Note: totalOffset is not necessarily page aligned.
 			auto totalOffset = _viewOffset + offset;
@@ -3147,18 +3372,20 @@ CopyOnWriteMemory::touchRange(uintptr_t offset, size_t sizeHint, FetchFlags flag
 				});
 			} while(stillWaiting);
 
-			// The copy may have failed (rolling the page back); re-inspect the page.
+			// The copy may have failed (rolling the page back) or may already
+			// have been swapped out again; re-inspect the page.
 			continue;
 		}
 
-		FRG_CO_TRY(co_await _materializePage(offset, cowPage, sharedPage));
+		FRG_CO_TRY(co_await _materializePage(offset, cowPage, sharedPage, flags));
 		co_return kPageSize - misalign;
 	}
 }
 
 coroutine<frg::expected<Error>>
 CopyOnWriteMemory::_materializePage(uintptr_t offset,
-		smarter::shared_ptr<CowPage> cowPage, smarter::shared_ptr<CowPage> sharedPage) {
+		smarter::shared_ptr<CowPage> cowPage, smarter::shared_ptr<CowPage> sharedPage,
+		FetchFlags flags) {
 	auto alignedOffset = offset & ~(kPageSize - 1);
 	// Note: offset is not necessarily page aligned.
 	auto pageOffset = (_viewOffset + offset) & ~(kPageSize - 1);
@@ -3166,54 +3393,54 @@ CopyOnWriteMemory::_materializePage(uintptr_t offset,
 	// TODO: On OOM, wait for memory and retry; the page stays inProgress meanwhile.
 	PhysicalAddr physical = physicalAllocator->allocate(kPageSize);
 	assert(physical != PhysicalAddr(-1) && "OOM");
-	PageAccessor accessor{physical};
 
 	// Copy from the shared page (outside of the locks; it remains in hasCopy state)
 	// or from the root view.
+	frg::expected<Error> outcome;
 	if(sharedPage) {
-		auto srcAccessor = PageAccessor{sharedPage->physical};
-		memcpy(accessor.get(), srcAccessor.get(), kPageSize);
+		outcome = co_await _copyFromCowPage(sharedPage.get(), physical, flags);
 	}else{
-		auto copyOutcome = co_await _view->copyFrom(pageOffset, accessor.get(), kPageSize);
-		if(!copyOutcome) {
-			// There is no copy; roll the page back so that waiters do not wait forever.
-			physicalAllocator->free(physical, kPageSize);
-			{
-				auto irqLock = frg::guard(&irqMutex());
-				auto lock = frg::guard(&_mutex);
-
-				assert(cowPage->state == CowState::inProgress);
-				cowPage->state = CowState::null;
-				// Locked pages stay as placeholders (as created by lockRange()).
-				if(!cowPage->lockCount)
-					_ownedPages.erase(offset >> kPageShift);
-			}
-			_copyEvent.raise();
-			co_return copyOutcome.error();
-		}
+		PageAccessor accessor{physical};
+		outcome = co_await _view->copyFrom(pageOffset, accessor.get(), kPageSize);
 	}
 
 	// To make CoW unobservable, we first need to evict the page here.
-	co_await _evictQueue.breakRange(alignedOffset, kPageSize);
+	if(outcome)
+		co_await evictionQueue()->breakRange(alignedOffset, kPageSize);
 
+	bool raiseDirty = false;
+	bool raiseExpedite = false;
 	{
 		auto irqLock = frg::guard(&irqMutex());
 		auto lock = frg::guard(&_mutex);
 
 		assert(cowPage->state == CowState::inProgress);
-		cowPage->state = CowState::hasCopy;
-		cowPage->physical = physical;
-		// Replacing a shared page by an owned one does not charge here
-		// since we already charged for the shared page at fork() time.
-		if (!sharedPage)
-			chargePages_(1);
-		globalPfnDb().insert(physical, PfnDescriptor::otherPage());
-		// The owned copy supersedes the shared page, so drop our reference to it.
-		if(sharedPage)
-			_sharedPages.erase(offset >> kPageShift);
+		if(outcome)
+			outcome = _publishCopy(cowPage.get(), physical, raiseDirty, raiseExpedite);
+		if(outcome) {
+			// Replacing a shared page by an owned one does not charge here
+			// since we already charged for the shared page at fork() time.
+			if (!sharedPage)
+				chargePages_(1);
+			// The owned copy supersedes the shared page, so drop our reference to it.
+			if(sharedPage)
+				_sharedPages.erase(offset >> kPageShift);
+		}else{
+			// There is no copy, roll the page back so that waiters do not wait forever.
+			cowPage->state = CowState::null;
+			// Locked pages stay as placeholders, as created by lockRange().
+			if(!cowPage->lockCount)
+				_ownedPages.erase(offset >> kPageShift);
+		}
 	}
+	if(!outcome)
+		physicalAllocator->free(physical, kPageSize);
 	_copyEvent.raise();
-	co_return {};
+	if(raiseDirty)
+		_space->_dirtyEvent.raise();
+	if(raiseExpedite)
+		_space->_expediteEvent.raise();
+	co_return outcome;
 }
 
 void CopyOnWriteMemory::chargePages_(size_t n) {

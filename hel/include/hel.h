@@ -1389,6 +1389,10 @@ HEL_C_LINKAGE HelError helSetSwapBudget(HelHandle swapSpace, size_t numPages);
 //! @param[in] hierarchy
 //!    	Handle to the hierarchy that owns the new memory object.
 //!    	The copied physical pages are accounted to this hierarchy node.
+//! @param[in] swapSpace
+//!    	Handle to a swap space (from helCreateSwapSpace()) that backs the private copies.
+//!    	Forked copies (helForkMemory()) inherit the swap space.
+//!    	kHelNullHandle makes the private copies unswappable.
 //! @param[in] memory
 //!    	Handle to the source memory object.
 //! @param[in] offset
@@ -1398,7 +1402,7 @@ HEL_C_LINKAGE HelError helSetSwapBudget(HelHandle swapSpace, size_t numPages);
 //!    	Must be aligned to the system's page size.
 //! @param[out] handle
 //!    	Handle to the new memory object.
-HEL_C_LINKAGE HelError helCopyOnWrite(HelHandle hierarchy, HelHandle memory,
+HEL_C_LINKAGE HelError helCopyOnWrite(HelHandle hierarchy, HelHandle swapSpace, HelHandle memory,
 		uintptr_t offset, size_t size, HelHandle *handle);
 
 HEL_C_LINKAGE HelError helAccessPhysical(
