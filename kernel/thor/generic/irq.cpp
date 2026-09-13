@@ -496,6 +496,11 @@ void IrqPin::_updateMask() {
 IrqObject::IrqObject(frg::string<KernelAlloc> name)
 : IrqSink{std::move(name)} { }
 
+void IrqObject::finalizeBeforeRcu() {
+	if(getPin())
+		IrqPin::detachSink(this);
+}
+
 std::expected<smarter::shared_ptr<GenericIrqObject>, Error> GenericIrqObject::create(
 		frg::string<KernelAlloc> name) {
 	auto ptr = allocate_rcu_shared<GenericIrqObject>(*kernelAlloc, CtorToken{}, std::move(name));

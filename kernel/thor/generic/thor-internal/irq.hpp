@@ -298,6 +298,8 @@ smarter::shared_ptr<Pin> createIrqPin(Args &&... args) {
 struct IrqObject : IrqSink, RcuProtected {
 	friend AwaitIrqNode;
 
+	void finalizeBeforeRcu();
+
 	void automate(smarter::shared_ptr<BoundKernlet> kernlet);
 
 	IrqStatus raise() override;
@@ -374,6 +376,7 @@ protected:
 
 	~IrqObject() = default;
 };
+static_assert(HasFinalizeBeforeRcu<IrqObject>);
 
 struct GenericIrqObject final : IrqObject {
 private:
