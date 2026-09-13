@@ -117,6 +117,8 @@ protected:
 	~FsSuperblock() = default;
 
 public:
+	virtual async::result<Error> synchronize(protocols::fs::SynchronizeFlags flags);
+
 	virtual FutureMaybe<smarter::shared_ptr<FsNode>> createRegular(Process *) = 0;
 
 	virtual async::result<frg::expected<Error, smarter::shared_ptr<FsLink, LinkRc>>>
@@ -181,6 +183,8 @@ protected:
 	~FsNode() = default;
 
 public:
+	virtual async::result<Error> synchronize(protocols::fs::SynchronizeFlags flags);
+
 	virtual VfsType getType() = 0;
 
 	// TODO: This should be async.

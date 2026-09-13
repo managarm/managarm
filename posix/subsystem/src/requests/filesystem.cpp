@@ -7,6 +7,23 @@
 
 namespace requests {
 
+namespace {
+
+void collectSuperblocks(const std::shared_ptr<MountView> &mount,
+		std::set<FsSuperblock *> &superblocks) {
+	auto origin = mount->getOrigin();
+	if(origin) {
+		auto target = origin->getTarget();
+		if(target)
+			superblocks.insert(target->superblock());
+	}
+
+	for(auto &child : mount->mounts())
+		collectSuperblocks(child, superblocks);
+}
+
+} // namespace
+
 async::result<std::expected<void, DispatchError>>
 HandleRequest::operator()(managarm::posix::ChrootRequest &&req,
 		helix::BorrowedDescriptor conversation, bragi::preamble preamble,
@@ -1079,6 +1096,70 @@ HandleRequest::operator()(managarm::posix::FstatfsRequest &&req,
 		);
 
 	HEL_CHECK(send_resp.error());
+	logBragiReply(resp);
+	co_return {};
+}
+
+async::result<std::expected<void, DispatchError>>
+HandleRequest::operator()(managarm::posix::SynchronizeRequest &&req,
+		helix::BorrowedDescriptor conversation, bragi::preamble preamble,
+		std::shared_ptr<Process> self, std::shared_ptr<Generation>) {
+	id = preamble.id();
+	logBragiRequest(req);
+	logRequest(logRequests, self, "SYNCHRONIZE", "fd={}, scope={}, flags={:#x}",
+			req.fd(), static_cast<int>(req.scope()), req.flags());
+
+	if(req.flags() & ~managarm::posix::SynchronizeFlags::DATA_ONLY) {
+		co_await sendErrorResponse<managarm::posix::SynchronizeResponse>(
+			conversation, managarm::posix::Errors::ILLEGAL_ARGUMENTS);
+		co_return {};
+	}
+
+	auto flags = req.flags() & managarm::posix::SynchronizeFlags::DATA_ONLY
+		? protocols::fs::SynchronizeFlags::dataOnly
+		: protocols::fs::SynchronizeFlags::none;
+	Error result = Error::success;
+
+	if(req.scope() == managarm::posix::SynchronizeScope::FILE
+			|| req.scope() == managarm::posix::SynchronizeScope::FILESYSTEM) {
+		auto file = self->fileContext()->getFile(req.fd());
+		if(!file) {
+			co_await sendErrorResponse<managarm::posix::SynchronizeResponse>(
+				conversation, managarm::posix::Errors::NO_SUCH_FD);
+			co_return {};
+		}
+
+		auto link = file->associatedLink();
+		if(!link || !link->getTarget()) {
+			co_await sendErrorResponse<managarm::posix::SynchronizeResponse>(
+				conversation, managarm::posix::Errors::ILLEGAL_OPERATION_TARGET);
+			co_return {};
+		}
+
+		auto target = link->getTarget();
+		if(req.scope() == managarm::posix::SynchronizeScope::FILE)
+			result = co_await target->synchronize(flags);
+		else
+			result = co_await target->superblock()->synchronize(flags);
+	} else if(req.scope() == managarm::posix::SynchronizeScope::ALL) {
+		std::set<FsSuperblock *> superblocks;
+		collectSuperblocks(rootPath().first, superblocks);
+		for(auto superblock : superblocks) {
+			auto e = co_await superblock->synchronize(flags);
+			if(result == Error::success && e != Error::success)
+				result = e;
+		}
+	} else {
+		result = Error::illegalArguments;
+	}
+
+	managarm::posix::SynchronizeResponse resp;
+	resp.set_error(result | toPosixProtoError);
+	auto [sendResp] = co_await helix_ng::exchangeMsgs(
+		conversation,
+		helix_ng::sendBragiHeadOnly(resp, frg::stl_allocator{})
+	);
+	HEL_CHECK(sendResp.error());
 	logBragiReply(resp);
 	co_return {};
 }

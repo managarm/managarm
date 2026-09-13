@@ -114,6 +114,7 @@ private:
 
 struct Superblock final : FsSuperblock, LinkReclaimer {
 	Superblock(helix::UniqueLane lane, std::shared_ptr<UnixDevice> device, uint64_t mountCaps);
+	async::result<Error> synchronize(protocols::fs::SynchronizeFlags flags) override;
 
 	FutureMaybe<smarter::shared_ptr<FsNode>> createRegular(Process *process) override;
 
@@ -225,6 +226,10 @@ private:
 };
 
 struct Node : FsNode {
+	async::result<Error> synchronize(protocols::fs::SynchronizeFlags flags) override {
+		co_return (co_await protocols::fs::synchronize(getLane(), flags)) | toPosixError;
+	}
+
 	async::result<frg::expected<Error, FileStats>> getStats() override {
 		managarm::fs::CntRequest req;
 		req.set_req_type(managarm::fs::CntReqType::NODE_GET_STATS);
@@ -1207,6 +1212,10 @@ Superblock::Superblock(helix::UniqueLane lane, std::shared_ptr<UnixDevice> devic
 		_nameCacheBuckets.resize(nameCacheBuckets);
 }
 
+async::result<Error> Superblock::synchronize(protocols::fs::SynchronizeFlags flags) {
+	co_return (co_await protocols::fs::synchronize(_lane, flags)) | toPosixError;
+}
+
 FutureMaybe<smarter::shared_ptr<FsNode>> Superblock::createRegular(Process *process) {
 	managarm::fs::CntRequest req;
 	req.set_req_type(managarm::fs::CntReqType::SB_CREATE_REGULAR);
@@ -1536,4 +1545,3 @@ createFile(helix::UniqueLane lane, std::shared_ptr<MountView> mount, smarter::sh
 }
 
 } // namespace extern_fs
-
