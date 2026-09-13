@@ -262,6 +262,44 @@ public:
 			sanityCheck();
 	}
 
+	// Marks a completely free block as allocated (e.g., to exclude it from allocation).
+	void reserve(AddressType address, int order) {
+		assert(address >= _baseAddress);
+		assert(order >= 0 && order <= tableOrder_);
+		if constexpr (enableBuddySanityChecking)
+			sanityCheck();
+
+		AddressType index = (address - _baseAddress) >> _sizeShift;
+		assert(index % (size_t(1) << order) == 0);
+
+		int currentOrder = tableOrder_;
+		int8_t *slice = buddyPointer_;
+
+		// Analogous to the free operation:
+		// First we decend to the target order.
+		while (currentOrder > order) {
+			slice += size_t(numRoots_) << (tableOrder_ - currentOrder);
+			currentOrder--;
+		}
+
+		// Perform the actual reservation.
+		AddressType updateIndex = index >> order;
+		assert(slice[updateIndex] == order);
+		slice[updateIndex] = -1;
+
+		// Update all superior elements.
+		while (currentOrder < tableOrder_) {
+			updateIndex /= 2;
+			auto freeOrder = scanFreeChunks(slice, 2 * updateIndex, 2, currentOrder);
+			currentOrder++;
+			slice -= size_t(numRoots_) << (tableOrder_ - currentOrder);
+			slice[updateIndex] = freeOrder;
+		}
+
+		if constexpr (enableBuddySanityChecking)
+			sanityCheck();
+	}
+
 	void sanityCheck() {
 		for (size_t i = 0; i < size_t(numRoots_); ++i)
 			traverseForSanityCheck(buddyPointer_, tableOrder_, i);

@@ -1,3 +1,5 @@
+#include <bit>
+
 #include <async/scope.hpp>
 #include <frg/cmdline.hpp>
 #include <frg/scope_exit.hpp>
@@ -1795,24 +1797,14 @@ std::expected<smarter::shared_ptr<SwapSpace>, Error> SwapSpace::create(
 SwapSpace::SwapSpace(smarter::shared_ptr<Hierarchy> hierarchy)
 : ManagedSpace{std::move(hierarchy), UINT64_C(1) << 32, false}, _buddyMetadata{*kernelAlloc} {
 	isSwapSpace = true;
-
-	assert(numPages);
-	auto tableOrder = BuddyAccessor::suitableOrder(numPages);
-	auto numRoots = numPages >> tableOrder;
-	_buddyMetadata.resize(BuddyAccessor::determineSize(numRoots, tableOrder));
-	BuddyAccessor::initialize(_buddyMetadata.data(), numRoots, tableOrder);
-	_buddyAccessor = BuddyAccessor{0, 0, _buddyMetadata.data(), numRoots, tableOrder};
 }
 
 bool SwapSpace::claimSlot(ManagedPage *page) {
 	if(page->hasSlot())
 		return true;
-	if(_budgetClaimed >= _budget)
-		return false;
 	auto offset = _allocateOffset();
 	if(!offset)
 		return false;
-	_budgetClaimed++;
 	page->cachePage.identity = *offset;
 	pages.insert(*offset, page);
 	return true;
@@ -1826,8 +1818,6 @@ void SwapSpace::_releaseSlot(ManagedPage *page) {
 	pages.erase(page->cachePage.identity);
 	_freeOffset(page->cachePage.identity);
 	page->cachePage.identity = noSlot;
-	assert(_budgetClaimed);
-	_budgetClaimed--;
 	_drainBlocked = false;
 }
 
@@ -1838,13 +1828,39 @@ void SwapSpace::_pageDiscarded(ManagedPage *page, bool &raiseDirty) {
 	raiseDirty = true;
 }
 
-void SwapSpace::setBudget(size_t numSlots) {
+Error SwapSpace::setBudget(size_t numSlots) {
+	if(!numSlots || numSlots > numPages)
+		return Error::illegalArgs;
+	// TODO: Changing the budget requires the pages in removed slots to be brought back into RAM.
+	if(_budgetSet.exchange(true, std::memory_order_relaxed))
+		return Error::illegalState;
+
+	// Only the winner of the exchange above touches the metadata, so it can be built without the mutex.
+	auto tableOrder = BuddyAccessor::suitableOrder(numSlots);
+	auto numRoots = (numSlots + (size_t{1} << tableOrder) - 1) >> tableOrder;
+	_buddyMetadata.resize(BuddyAccessor::determineSize(numRoots, tableOrder));
+	BuddyAccessor::initialize(_buddyMetadata.data(), numRoots, tableOrder);
+	BuddyAccessor accessor{0, 0, _buddyMetadata.data(), numRoots, tableOrder};
+
+	// The table covers a multiple of 2^tableOrder slots; reserve the excess beyond numSlots
+	// (decomposed into aligned blocks) so that it is never handed out.
+	auto covered = size_t{numRoots} << tableOrder;
+	auto index = numSlots;
+	while(index < covered) {
+		int order = std::countr_zero(index);
+		while(index + (size_t{1} << order) > covered)
+			order--;
+		accessor.reserve(index, order);
+		index += size_t{1} << order;
+	}
+
 	{
 		auto irqLock = frg::guard(&irqMutex());
 		auto lock = frg::guard(&mutex);
-		_budget = numSlots;
+		_buddyAccessor = accessor;
 	}
 	_wakeDrain();
+	return Error::success;
 }
 
 ManagedSpace::ManagedPage *SwapSpace::allocatePage() {

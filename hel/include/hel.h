@@ -1468,6 +1468,9 @@ HEL_C_LINKAGE HelError helAllocateSwappableMemory(HelHandle hierarchy, HelHandle
 		size_t size, uint32_t flags, HelHandle *handle);
 
 //! Sets a swap space's budget, which is the number of pages that may be swapped out.
+//! The budget is the range [0, numPages * page size) of the backing memory: manage
+//! requests only ever address offsets in this range. The budget can only be set
+//! once; subsequent calls fail with kHelErrIllegalState.
 //! @param[in] swapSpace
 //!    	Handle to the swap space (from helCreateSwapSpace()).
 //! @param[in] numPages

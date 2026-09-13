@@ -1138,7 +1138,10 @@ struct SwapSpace final : ManagedSpace, RcuProtected {
 	void _releaseSlot(ManagedPage *page) override;
 	void _pageDiscarded(ManagedPage *page, bool &raiseDirty) override;
 
-	void setBudget(size_t numSlots);
+	// Sets the budget to numSlots, i.e., makes the offsets [0, numSlots) available as slots.
+	// Manage requests only ever address offsets below the budget.
+	// Fails if the budget has already been set.
+	Error setBudget(size_t numSlots);
 
 	// Allocates a swap page without a slot or a physical page frame.
 	// Returns null if the page cannot be allocated (which currently never happens).
@@ -1156,14 +1159,13 @@ private:
 	// Must be called under mutex.
 	void _freeOffset(uint64_t offset);
 
+	// Set by the first setBudget() call.
+	std::atomic<bool> _budgetSet{false};
+
+	// Built by setBudget() before _buddyAccessor is set.
 	frg::vector<int8_t, KernelAlloc> _buddyMetadata;
+	// Allocates no slots until setBudget() is called. Protected by mutex.
 	BuddyAccessor _buddyAccessor;
-
-	// Protected by mutex.
-	size_t _budget = 0;
-
-	// Protected by mutex.
-	size_t _budgetClaimed = 0;
 };
 static_assert(HasDispose<SwapSpace>);
 
