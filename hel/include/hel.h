@@ -1454,7 +1454,8 @@ HEL_C_LINKAGE HelError helCreateSwapSpace(HelHandle hierarchy, uint32_t flags,
 //! swap space's manage protocol and their frames are reclaimed.
 //! @param[in] hierarchy
 //!    	Handle to the hierarchy that owns the new memory object.
-//!    	The swap slots held by the memory object are accounted to this hierarchy node as swap
+//!    	The pages populated by the memory object are accounted to this hierarchy node as swap,
+//!    	whether or not they currently occupy swap space
 //!    	(their resident frames are accounted to the swap space's hierarchy).
 //! @param[in] swapSpace
 //!    	Handle to the swap space (from helCreateSwapSpace()).

@@ -1314,8 +1314,6 @@ coroutine<void> ManagedSpace::_runReclaimLoop() {
 					if(page->stillDirty) {
 						page->stillDirty = false;
 						_enqueueDirty(page, anyExpedite);
-						if(page->swapBudgetClaimed)
-							_drainBlocked = false;
 						anyDirty = true;
 					} else if(page->lockCount
 							|| page->cachePage.useCount.load(std::memory_order_relaxed)) {
@@ -1474,8 +1472,9 @@ coroutine<void> ManagedSpace::_runDrainLoop() {
 				auto *page = frg::container_of(cp, &ManagedPage::cachePage);
 				assert(page->transactionState == TxState::dirty);
 				assert(!page->discarded || page->discardMode == DiscardMode::keepDirty);
-				if(!claimSwapBudget(page))
-					continue;
+				// Dirty pages hold no slot, so once a claim fails, all further claims fail too.
+				if(!claimSlot(page))
+					break;
 				_dequeueDirty(page);
 				page->transactionState = TxState::wantWriteback;
 				_writebackList.push_back(cp);
@@ -1567,10 +1566,12 @@ coroutine<void> ManagedSpace::_runInvalidationLoop() {
 	_runningLoops.done();
 }
 
-bool ManagedSpace::claimSwapBudget(ManagedPage *) {
-	// File caches write back to their backing store, so no budget applies.
+bool ManagedSpace::claimSlot(ManagedPage *) {
+	// File caches write back to their backing store, so pages always hold their slot.
 	return true;
 }
+
+void ManagedSpace::_releaseSlot(ManagedPage *) {}
 
 void ManagedSpace::installPage(ManagedPage *page, PhysicalAddr physical, bool dirty,
 		unsigned int extraLockCount, bool &raiseDirty, bool &raiseExpedite) {
@@ -1578,6 +1579,7 @@ void ManagedSpace::installPage(ManagedPage *page, PhysicalAddr physical, bool di
 	assert(page->transactionState == TxState::none);
 	assert(!page->discarded);
 	assert(!page->swapCopyValid);
+	assert(!isSwapSpace || !page->hasSlot());
 	assert(page->physical == PhysicalAddr(-1));
 
 	globalPfnDb().insert(physical, PfnDescriptor::cachePage(&page->cachePage));
@@ -1589,11 +1591,9 @@ void ManagedSpace::installPage(ManagedPage *page, PhysicalAddr physical, bool di
 	if(dirty) {
 		_enqueueDirty(page, raiseExpedite);
 		// Mirror markDirty()'s wake filter: while the drain coroutine is blocked
-		// on the writeback budget, a page without a disk slot cannot be promoted anyway.
-		if(!_drainBlocked || page->swapBudgetClaimed) {
-			_drainBlocked = false;
+		// on swap slots, a page without one cannot be promoted anyway.
+		if(!_drainBlocked)
 			raiseDirty = true;
-		}
 	}else if(!page->lockCount
 			&& !page->cachePage.useCount.load(std::memory_order_relaxed)) {
 		globalReclaimer->addPage(&page->cachePage);
@@ -1705,6 +1705,8 @@ void ManagedSpace::discardPageAndRaise(ManagedPage *page, DiscardMode mode) {
 }
 
 void ManagedSpace::_enqueueDirty(ManagedPage *page, bool &raiseExpedite) {
+	// The disk copy is stale now; the page obtains a slot again once it is written back.
+	_releaseSlot(page);
 	page->transactionState = TxState::dirty;
 	_dirtyList.push_back(&page->cachePage);
 	if(!_writebackDeadline)
@@ -1802,24 +1804,37 @@ SwapSpace::SwapSpace(smarter::shared_ptr<Hierarchy> hierarchy)
 	_buddyAccessor = BuddyAccessor{0, 0, _buddyMetadata.data(), numRoots, tableOrder};
 }
 
-bool SwapSpace::claimSwapBudget(ManagedPage *page) {
-	if(page->swapBudgetClaimed)
+bool SwapSpace::claimSlot(ManagedPage *page) {
+	if(page->hasSlot())
 		return true;
 	if(_budgetClaimed >= _budget)
 		return false;
+	auto offset = _allocateOffset();
+	if(!offset)
+		return false;
 	_budgetClaimed++;
-	page->swapBudgetClaimed = true;
+	page->cachePage.identity = *offset;
+	pages.insert(*offset, page);
 	return true;
 }
 
-void SwapSpace::_pageDiscarded(ManagedPage *page, bool &raiseDirty) {
-	_freeOffset(page->cachePage.identity);
-	if(!page->swapBudgetClaimed)
+void SwapSpace::_releaseSlot(ManagedPage *page) {
+	if(!page->hasSlot())
 		return;
+	// The daemon cannot reach the slot anymore, so the slot can be reused.
+	assert(!_slotStates.find(page->cachePage.identity));
+	pages.erase(page->cachePage.identity);
+	_freeOffset(page->cachePage.identity);
+	page->cachePage.identity = noSlot;
 	assert(_budgetClaimed);
 	_budgetClaimed--;
-	page->swapBudgetClaimed = false;
 	_drainBlocked = false;
+}
+
+void SwapSpace::_pageDiscarded(ManagedPage *page, bool &raiseDirty) {
+	if(!page->hasSlot())
+		return;
+	_releaseSlot(page);
 	raiseDirty = true;
 }
 
@@ -1833,12 +1848,7 @@ void SwapSpace::setBudget(size_t numSlots) {
 }
 
 ManagedSpace::ManagedPage *SwapSpace::allocatePage() {
-	auto offset = _allocateOffset();
-	if(!offset)
-		return nullptr;
-	auto page = frg::construct<ManagedPage>(*kernelAlloc, this, *offset);
-	pages.insert(*offset, page);
-	return page;
+	return frg::construct<ManagedPage>(*kernelAlloc, this, noSlot);
 }
 
 frg::optional<uint64_t> SwapSpace::_allocateOffset() {
@@ -1868,9 +1878,17 @@ coroutine<void> ManagedSpace::dispose() {
 	// No views exist anymore, hence there are no waiters, managers or lock holders.
 	assert(_managementQueue.empty());
 
+	// Discarded swap pages that hold no slot are not indexed by pages.
+	CachePagesList unindexed;
 	{
 		auto irqLock = frg::guard(&irqMutex());
 		auto lock = frg::guard(&mutex);
+
+		while(!_discardList.empty()) {
+			auto cachePage = _discardList.pop_front();
+			if(!frg::container_of(cachePage, &ManagedPage::cachePage)->hasSlot())
+				unindexed.push_back(cachePage);
+		}
 
 		// The pages themselves are released below.
 		_initializationList.clear();
@@ -1878,6 +1896,39 @@ coroutine<void> ManagedSpace::dispose() {
 		_writebackList.clear();
 		_discardList.clear();
 		_invalidationList.clear();
+	}
+
+	// Destroys the page and returns its frame, which the caller frees outside of the mutex.
+	// Must be called under mutex.
+	auto releasePage = [this] (ManagedPage *pit) -> PhysicalAddr {
+		assert(!pit->lockCount);
+		assert(!pit->cachePage.useCount.load(std::memory_order_relaxed));
+		if(pit->transactionState == TxState::inReclaimer)
+			globalReclaimer->removePage(&pit->cachePage);
+		// Abandoned transactions can leave monitors attached; their waiters are gone.
+		pit->detachMonitor(MonitorType::initialization);
+		pit->detachMonitor(MonitorType::writeback);
+		pit->detachMonitor(MonitorType::discard);
+		auto physical = pit->physical;
+		if(physical != PhysicalAddr(-1))
+			globalPfnDb().erase(physical);
+		_erasePage(pit);
+		return physical;
+	};
+
+	while(!unindexed.empty()) {
+		PhysicalAddr physical = PhysicalAddr(-1);
+		{
+			auto irqLock = frg::guard(&irqMutex());
+			auto lock = frg::guard(&mutex);
+
+			physical = releasePage(frg::container_of(unindexed.pop_front(),
+					&ManagedPage::cachePage));
+		}
+		if(physical != PhysicalAddr(-1)) {
+			physicalAllocator->free(physical, kPageSize);
+			hierarchy->unchargeMemory(kPageSize);
+		}
 	}
 
 	uint64_t nextIdentity = 0;
@@ -1890,22 +1941,8 @@ coroutine<void> ManagedSpace::dispose() {
 			auto it = pages.lower_bound(nextIdentity);
 			if(it == pages.end())
 				break;
-			auto *pit = *it;
-			auto identity = pit->cachePage.identity;
-
-			assert(!pit->lockCount);
-			assert(!pit->cachePage.useCount.load(std::memory_order_relaxed));
-			if(pit->transactionState == TxState::inReclaimer)
-				globalReclaimer->removePage(&pit->cachePage);
-			// Abandoned transactions can leave monitors attached; their waiters are gone.
-			pit->detachMonitor(MonitorType::initialization);
-			pit->detachMonitor(MonitorType::writeback);
-			pit->detachMonitor(MonitorType::discard);
-			physical = pit->physical;
-			if(physical != PhysicalAddr(-1))
-				globalPfnDb().erase(physical);
-			_erasePage(pit);
-			nextIdentity = identity + 1;
+			nextIdentity = (*it)->cachePage.identity + 1;
+			physical = releasePage(*it);
 		}
 		if(physical != PhysicalAddr(-1)) {
 			physicalAllocator->free(physical, kPageSize);
@@ -1940,7 +1977,8 @@ bool ManagedSpace::isHandedToManager(ManagedPage *page) {
 }
 
 void ManagedSpace::_erasePage(ManagedPage *page) {
-	pages.erase(page->cachePage.identity);
+	if(page->hasSlot())
+		pages.erase(page->cachePage.identity);
 	frg::destruct(*kernelAlloc, page);
 }
 
@@ -2115,7 +2153,7 @@ bool ManagedSpace::touchPresentPage(ManagedPage *page) {
 std::expected<frg::intrusive_shared_ptr<ManagedSpace::TransactionMonitor, Allocator>, Error>
 ManagedSpace::initializePage(ManagedPage *page, FetchFlags flags, ManageList &pendingManagement) {
 	assert(page->loadState == LoadState::missing);
-	assert(!isSwapSpace || page->swapCopyValid);
+	assert(!isSwapSpace || (page->swapCopyValid && page->hasSlot()));
 
 	if(flags & fetchDisallowBacking) {
 		urgentLogger() << "thor: Backing of page is disallowed" << frg::endlog;
@@ -2171,6 +2209,7 @@ void ManagedSpace::_progressManagement(ManageList &pending) {
 	while(!_writebackList.empty() && !_managementQueue.empty()) {
 		auto page = _writebackList.front();
 		auto index = page->identity;
+		assert(index != noSlot);
 
 		// Fuse the request with adjacent pages in the list.
 		ptrdiff_t count = 0;
@@ -2196,6 +2235,7 @@ void ManagedSpace::_progressManagement(ManageList &pending) {
 	while(!_initializationList.empty() && !_managementQueue.empty()) {
 		auto page = _initializationList.front();
 		auto index = page->identity;
+		assert(index != noSlot);
 
 		// Fuse the request with adjacent pages in the list.
 		ptrdiff_t count = 0;
@@ -2308,12 +2348,10 @@ void ManagedSpace::markDirtyPage(ManagedPage *page, bool &needsEvent, bool &need
 		if(page->transactionState == TxState::inReclaimer)
 			globalReclaimer->removePage(&page->cachePage);
 		_enqueueDirty(page, needsExpedite);
-		// When the drain coroutine is blocked on swap budget, only pages that
-		// already claimed swap budget can enter writeback.
-		if(!_drainBlocked || page->swapBudgetClaimed) {
-			_drainBlocked = false;
+		// While the drain coroutine is blocked on swap slots, a page without one
+		// cannot be promoted anyway (_releaseSlot() unblocks the drain if it freed a slot).
+		if(!_drainBlocked)
 			needsEvent = true;
-		}
 	} else if(page->transactionState == TxState::performReclaim
 			|| page->transactionState == TxState::avertReclaim) {
 		page->transactionState = TxState::avertReclaim;
@@ -3030,7 +3068,7 @@ Error SwappableMemory::lockRange(uintptr_t offset, size_t size) {
 			auto index = (offset + pg) >> kPageShift;
 			auto page = _translate(index);
 			if(!page) {
-				// The swap space is exhausted, unwind the locks we already took.
+				// The page cannot be allocated, unwind the locks we already took.
 				_unlockPagesLocked(offset, pg, raiseDiscard);
 				result = Error::noMemory;
 				break;
