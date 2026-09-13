@@ -1,5 +1,7 @@
 #pragma once
 
+#include <atomic>
+
 #include <thor-internal/debug.hpp>
 
 namespace thor {
@@ -41,10 +43,15 @@ struct BootScreen final : public LogHandler {
 
 	void emit(frg::string_view record) override;
 	void flush() override;
+	void flushUrgent() override;
 
 private:
-	void redraw();
-	size_t countRecords();
+	// Redraws until no nested flushUrgent() interfered.
+	void redrawUntilStable();
+	// Renders the tail of the log ring starting at topPtr.
+	// Updates topPtr to the advanced top pointer.
+	void redraw(uint64_t &topPtr);
+	size_t countRecords(uint64_t &topPtr);
 	void renderLine(size_t y, frg::string_view record);
 
 	TextDisplay *_display;
@@ -52,7 +59,10 @@ private:
 	size_t _height;
 
 	// Ring pointer of the first record that is displayed on screen.
-	uint64_t _topPtr{0};
+	std::atomic<uint64_t> _topPtr{0};
+
+	// Bumped by flushUrgent() to inform interrupted flush() / flushUrgent() calls that they need to redraw.
+	std::atomic<uint64_t> _urgentGen{0};
 };
 
 } // namespace thor

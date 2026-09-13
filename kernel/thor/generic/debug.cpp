@@ -42,6 +42,12 @@ void LogHandler::emitUrgent(frg::string_view record) {
 	emit(record);
 }
 
+void LogHandler::flushUrgent() {
+	if (!takesUrgentLogs)
+		panic();
+	flush();
+}
+
 void enableLogHandler(LogHandler *sink) {
 	{
 		auto lock = frg::guard(&listMutex);

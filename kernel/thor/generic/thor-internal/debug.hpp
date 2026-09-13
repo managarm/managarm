@@ -51,8 +51,8 @@ inline frg::tuple<LogMetadata, frg::string_view> destructureLogRecord(frg::strin
 // Both emit() and emitUrgent() can be called from arbitrary contexts (including NMI).
 // Hence, these functions must ensure that they do not to take locks and that they do not rely
 // on kernel infrastructure that takes locks.
-// Logging sinks that make use of extensive kernel infrastructure should copy the logs
-// to a ring buffer first and use a kernel thread to process them.
+// Logging sinks that make use of extensive kernel infrastructure should perform their work
+// on a kernel thread instead.
 //
 // Log messages
 // ---
@@ -61,21 +61,33 @@ inline frg::tuple<LogMetadata, frg::string_view> destructureLogRecord(frg::strin
 struct LogHandler {
 	// Writes a log message to this handler.
 	//
-	// emit() is called with a global logging mutex held;
-	// in particular, all calls to emit() are serialized.
+	// This is called with the global logging mutex held.
+	// Calls to emit() and flush() are serialized.
 	virtual void emit(frg::string_view record) = 0;
 
 	// Called after a batch of emit() calls to allow the handler to flush/redraw.
+	//
+	// This is called with the global logging mutex held.
+	// Calls to emit() and flush() are serialized.
 	virtual void flush() {}
 
-	// Like emit() but logs out-of-band messages.
-	// This is usually called in emergencies when the usual logging infrastrcture is broken.
+	// Like emit() for logs urgent messages.
 	// emitUrgent() is only called on handlers that have takesUrgentLogs set.
-	//
-	// emitUrgent() is called without any mutexes held.
-	// Hence, calls to emitUrgent() are not serialized.
 	// The default implementation calls emit().
+	//
+	// This is called with the global logging mutex held but not serialized w.r.t. reentrancy:
+	// emitUrgent() may be called in an exception or NMI while an outer frame is currently
+	// calling into another LogHandler function (i.e., emit(), flush(), emitUrgent(), flushUrgent()) on the same CPU.
 	virtual void emitUrgent(frg::string_view record);
+
+	// Like flush() but for the urgent path.
+	// flushUrgent() is only called on handlers that have takesUrgentLogs set.
+	// The default implementation calls flush().
+	//
+	// This is called with the global logging mutex held but not serialized w.r.t. reentrancy:
+	// flushUrgent() may be called in an exception or NMI while an outer frame is currently
+	// calling into another LogHandler function (i.e., emit(), flush(), emitUrgent(), flushUrgent()) on the same CPU.
+	virtual void flushUrgent();
 
 	frg::intrusive_rcu_list_hook<LogHandler> hook;
 

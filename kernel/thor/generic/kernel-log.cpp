@@ -87,7 +87,7 @@ namespace {
 		for (const auto &it : globalLogList) {
 			if (!it->takesUrgentLogs)
 				continue;
-			it->flush();
+			it->flushUrgent();
 		}
 	}
 
