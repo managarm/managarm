@@ -42,7 +42,6 @@ inline constinit protocols::ostrace::Event ostEvtExt2WritebackFile{"ext2.writeba
 inline constinit protocols::ostrace::Event ostEvtExt2AllocateBlocks{"ext2.allocateBlocks"};
 inline constinit protocols::ostrace::Event ostEvtExt2FreeBlocks{"ext2.freeBlocks"};
 inline constinit protocols::ostrace::Event ostEvtExt2AllocateInode{"ext2.allocateInode"};
-inline constinit protocols::ostrace::Event ostEvtExt2BgdtWriteback{"ext2.bgdtWriteback"};
 inline constinit protocols::ostrace::Event ostEvtVirtioBlkReadSectors{"virtio-blk.readSectors"};
 inline constinit protocols::ostrace::Event ostEvtVirtioBlkWriteSectors{"virtio-blk.writeSectors"};
 inline constinit protocols::ostrace::Event ostEvtVirtioBlkRequest{"virtio-blk.request"};
@@ -72,8 +71,6 @@ inline constinit protocols::ostrace::UintAttribute ostAttrNumBlocks{"numBlocks"}
 inline constinit protocols::ostrace::UintAttribute ostAttrNumGroups{"numGroups"};
 // Block groups that the filesystem consists of.
 inline constinit protocols::ostrace::UintAttribute ostAttrNumBlockGroups{"numBlockGroups"};
-// Writeback requests merged into this one device write. 1 means no coalescing.
-inline constinit protocols::ostrace::UintAttribute ostAttrNumCoalesced{"numCoalesced"};
 // markDirty() calls since the last batch that hit an already queued block.
 inline constinit protocols::ostrace::UintAttribute ostAttrNumRedundant{"numRedundant"};
 // Path components the caller asked to resolve, and how many of them were resolved.
@@ -189,7 +186,6 @@ inline protocols::ostrace::Vocabulary ostVocabulary{
 	ostEvtExt2AllocateBlocks,
 	ostEvtExt2FreeBlocks,
 	ostEvtExt2AllocateInode,
-	ostEvtExt2BgdtWriteback,
 	ostEvtVirtioBlkReadSectors,
 	ostEvtVirtioBlkWriteSectors,
 	ostEvtVirtioBlkRequest,
@@ -204,7 +200,6 @@ inline protocols::ostrace::Vocabulary ostVocabulary{
 	ostAttrNumBlocks,
 	ostAttrNumGroups,
 	ostAttrNumBlockGroups,
-	ostAttrNumCoalesced,
 	ostAttrNumRedundant,
 	ostAttrNumComponents,
 	ostAttrNumResolved,
