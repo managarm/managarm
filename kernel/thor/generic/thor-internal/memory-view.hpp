@@ -263,7 +263,7 @@ private:
 	async::post_ack_agent<RangeToEvict> agent_;
 };
 
-struct EvictionQueue {
+struct EvictionQueue final : frg::intrusive_rc {
 	void addObserver(MemoryObserver *observer) {
 		auto irqLock = frg::guard(&irqMutex());
 		auto lock = frg::guard(&mutex_);
@@ -297,6 +297,8 @@ struct EvictionQueue {
 		return mechanism_.post(RangeToEvict{EvictMode::fenceDirty, 0, 0});
 	}
 
+	frg::default_list_hook<EvictionQueue> attachHook;
+
 private:
 	frg::ticket_spinlock mutex_;
 
@@ -327,21 +329,25 @@ enum class DiscardMode : uint8_t {
 // View on some pages of memory. This is the "frontend" part of a memory object.
 struct MemoryView {
 protected:
-	MemoryView(EvictionQueue *associatedEvictionQueue = nullptr)
-	: associatedEvictionQueue_{associatedEvictionQueue} { }
+	MemoryView(frg::intrusive_shared_ptr<EvictionQueue, Allocator> evictionQueue = {})
+	: evictionQueue_{std::move(evictionQueue)} { }
 
 	~MemoryView() = default;
+
+	EvictionQueue *evictionQueue() {
+		return evictionQueue_.get();
+	}
 
 public:
 	// Add/remove memory observers. These will be notified of page evictions.
 	void addObserver(MemoryObserver *observer) {
-		if(associatedEvictionQueue_)
-			associatedEvictionQueue_->addObserver(observer);
+		if(evictionQueue_)
+			evictionQueue_->addObserver(observer);
 	}
 
 	void removeObserver(MemoryObserver *observer) {
-		if(associatedEvictionQueue_)
-			associatedEvictionQueue_->removeObserver(observer);
+		if(evictionQueue_)
+			evictionQueue_->removeObserver(observer);
 	}
 
 	// Returns the current size of the memory object.
@@ -407,7 +413,7 @@ public:
 	// ----------------------------------------------------------------------------------
 
 	bool canEvictMemory() {
-		return associatedEvictionQueue_;
+		return static_cast<bool>(evictionQueue_);
 	}
 
 	auto pollEviction(MemoryObserver *observer, async::cancellation_token ct) {
@@ -419,7 +425,7 @@ public:
 	}
 
 private:
-	EvictionQueue *associatedEvictionQueue_;
+	frg::intrusive_shared_ptr<EvictionQueue, Allocator> evictionQueue_;
 };
 
 struct SliceRange {
@@ -891,9 +897,20 @@ struct ManagedSpace : CacheBundle {
 	// Unblocks the drain coroutine after the swap budget has grown.
 	void _wakeDrain();
 
+	// Registers/deregisters the queue of an attached view, the space's fences are posted
+	// on all registered queues. The managed space takes a reference to the queue and releases
+	// it on detach.
+	void attachQueue(EvictionQueue *queue);
+	void detachQueue(EvictionQueue *queue);
+
 	coroutine<void> _runReclaimLoop();
 	coroutine<void> _runDrainLoop();
 	coroutine<void> _runInvalidationLoop();
+
+	// Post the given fence on every attached queue and await all acknowledgements.
+	coroutine<void> _fenceEphemeral();
+	coroutine<void> _fenceDirty();
+	coroutine<void> _fenceAll(EvictMode mode);
 
 	Error lockPages(uintptr_t offset, size_t size);
 	void unlockPages(uintptr_t offset, size_t size);
@@ -944,7 +961,19 @@ struct ManagedSpace : CacheBundle {
 	// Delay before dirty pages enter writeback. Longer delays allow for more coalescing.
 	uint64_t writebackDelayNanos = 200'000'000;
 
-	EvictionQueue _evictQueue;
+	// Queue that BackingMemory/FrontalMemory mappings observe.
+	frg::intrusive_shared_ptr<EvictionQueue, Allocator> _evictQueue;
+
+	// Queues of all views whose mappings must observe this space's fences (always
+	// including _evictQueue). Protected by mutex.
+	frg::intrusive_list<
+		EvictionQueue,
+		frg::locate_member<
+			EvictionQueue,
+			frg::default_list_hook<EvictionQueue>,
+			&EvictionQueue::attachHook
+		>
+	> _attachedQueues;
 
 	CachePagesList _dirtyList;
 
@@ -1039,7 +1068,7 @@ public:
 			smarter::shared_ptr<ManagedSpace> managed);
 
 	BackingMemory(CtorToken, smarter::shared_ptr<ManagedSpace> managed)
-	: MemoryView{&managed->_evictQueue}, _managed{std::move(managed)} { }
+	: MemoryView{managed->_evictQueue}, _managed{std::move(managed)} { }
 
 	BackingMemory(const BackingMemory &) = delete;
 
@@ -1071,7 +1100,7 @@ public:
 			smarter::shared_ptr<ManagedSpace> managed);
 
 	FrontalMemory(CtorToken, smarter::shared_ptr<ManagedSpace> managed)
-	: MemoryView{&managed->_evictQueue}, _managed{std::move(managed)} { }
+	: MemoryView{managed->_evictQueue}, _managed{std::move(managed)} { }
 
 	FrontalMemory(const FrontalMemory &) = delete;
 
@@ -1255,7 +1284,6 @@ private:
 	frg::rcu_radixtree<smarter::shared_ptr<CowPage>, KernelAlloc, RcuPolicy> _ownedPages;
 	frg::rcu_radixtree<smarter::shared_ptr<CowPage>, KernelAlloc, RcuPolicy> _sharedPages;
 	async::recurring_event _copyEvent;
-	EvictionQueue _evictQueue;
 };
 
 FutexRealm *getGlobalFutexRealm();

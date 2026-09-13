@@ -1008,10 +1008,64 @@ std::expected<smarter::shared_ptr<ManagedSpace>, Error> ManagedSpace::create(
 
 ManagedSpace::ManagedSpace(smarter::shared_ptr<Hierarchy> hierarchy, size_t length, bool readahead)
 : hierarchy{std::move(hierarchy)}, pages{*kernelAlloc},
-		numPages{length >> kPageShift}, readahead{readahead} {
+		numPages{length >> kPageShift}, readahead{readahead},
+		_evictQueue{frg::allocate_intrusive_shared<EvictionQueue>(Allocator{})} {
 	assert(!(length & (kPageSize - 1)));
 
+	attachQueue(_evictQueue.get());
 	globalReclaimer->registerBundle(this);
+}
+
+void ManagedSpace::attachQueue(EvictionQueue *queue) {
+	auto irqLock = frg::guard(&irqMutex());
+	auto lock = frg::guard(&mutex);
+
+	ref_rc(queue);
+	_attachedQueues.push_back(queue);
+}
+
+void ManagedSpace::detachQueue(EvictionQueue *queue) {
+	{
+		auto irqLock = frg::guard(&irqMutex());
+		auto lock = frg::guard(&mutex);
+
+		_attachedQueues.erase(_attachedQueues.iterator_to(queue));
+	}
+	// Drop the space's reference outside the mutex, this may destroy the queue.
+	frg::intrusive_shared_ptr<EvictionQueue, Allocator> drop{frg::adopt_rc, queue};
+}
+
+coroutine<void> ManagedSpace::_fenceEphemeral() {
+	return _fenceAll(EvictMode::fenceEphemeral);
+}
+
+coroutine<void> ManagedSpace::_fenceDirty() {
+	return _fenceAll(EvictMode::fenceDirty);
+}
+
+coroutine<void> ManagedSpace::_fenceAll(EvictMode mode) {
+	assert(mode == EvictMode::fenceEphemeral || mode == EvictMode::fenceDirty);
+
+	// Snapshot the list under the mutex, the references keep the queues alive
+	// even if their views detach concurrently.
+	frg::vector<frg::intrusive_shared_ptr<EvictionQueue, Allocator>, KernelAlloc>
+			snapshot{*kernelAlloc};
+	{
+		auto irqLock = frg::guard(&irqMutex());
+		auto lock = frg::guard(&mutex);
+
+		for(auto queue : _attachedQueues) {
+			ref_rc(queue);
+			snapshot.emplace_back(frg::adopt_rc, queue);
+		}
+	}
+
+	for(auto &queue : snapshot) {
+		if(mode == EvictMode::fenceEphemeral)
+			co_await queue->fenceEphemeral();
+		else
+			co_await queue->fenceDirty();
+	}
 }
 
 coroutine<void> ManagedSpace::_runReclaimLoop() {
@@ -1066,7 +1120,7 @@ coroutine<void> ManagedSpace::_runReclaimLoop() {
 		if(batch.empty() && discardBatch.empty())
 			continue;
 
-		co_await _evictQueue.fenceEphemeral();
+		co_await _fenceEphemeral();
 
 		bool anyDirty = false;
 		bool anyExpedite = false;
@@ -1274,7 +1328,7 @@ coroutine<void> ManagedSpace::_runDrainLoop() {
 		if (pending.empty())
 			continue;
 
-		co_await _evictQueue.fenceDirty();
+		co_await _fenceDirty();
 
 		ManageList mgmtPending;
 		MonitorPendingList pendingMonitors;
@@ -1343,7 +1397,7 @@ coroutine<void> ManagedSpace::_runInvalidationLoop() {
 				processed.push_back(batch.pop_front());
 				count++;
 			}
-			co_await _evictQueue.breakRange(index << kPageShift, count << kPageShift);
+			co_await _evictQueue->breakRange(index << kPageShift, count << kPageShift);
 		}
 
 		bool raiseDiscard = false;
@@ -2509,11 +2563,17 @@ std::expected<smarter::shared_ptr<SwappableMemory>, Error> SwappableMemory::crea
 }
 
 SwappableMemory::SwappableMemory(CtorToken, smarter::shared_ptr<SwapSpace> space, size_t length)
-: MemoryView{&space->_evictQueue}, _space{std::move(space)}, _length{length}, _table{*kernelAlloc} {
+: MemoryView{frg::allocate_intrusive_shared<EvictionQueue>(Allocator{})},
+		_space{std::move(space)}, _length{length}, _table{*kernelAlloc} {
 	assert(!(length & (kPageSize - 1)));
+
+	_space->attachQueue(evictionQueue());
 }
 
 SwappableMemory::~SwappableMemory() {
+	// No mappings (which hold view references) observe our queue anymore.
+	_space->detachQueue(evictionQueue());
+
 	for(auto it = _table.begin(); it != _table.end(); ++it)
 		_space->discardPageAndRaise(*it, DiscardMode::dropDirty);
 }
@@ -2862,7 +2922,8 @@ std::expected<smarter::shared_ptr<CopyOnWriteMemory>, Error> CopyOnWriteMemory::
 CopyOnWriteMemory::CopyOnWriteMemory(CtorToken, smarter::shared_ptr<Hierarchy> hierarchy,
 		smarter::shared_ptr<MemoryView> view,
 		uintptr_t offset, size_t length)
-: MemoryView{&_evictQueue}, _hierarchy{std::move(hierarchy)}, _view{std::move(view)},
+: MemoryView{frg::allocate_intrusive_shared<EvictionQueue>(Allocator{})},
+		_hierarchy{std::move(hierarchy)}, _view{std::move(view)},
 		_viewOffset{offset}, _length{length},
 		_ownedPages{*kernelAlloc}, _sharedPages{*kernelAlloc} {
 	assert(length);
@@ -2968,7 +3029,7 @@ coroutine<frg::expected<Error, smarter::shared_ptr<MemoryView>>> CopyOnWriteMemo
 		forked->chargePages_(numSharedPages + lockedCopies.size());
 	}
 
-	co_await _evictQueue.breakRange(0, _length);
+	co_await evictionQueue()->breakRange(0, _length);
 	co_return smarter::shared_ptr<MemoryView>{std::move(forked)};
 }
 
@@ -3194,7 +3255,7 @@ CopyOnWriteMemory::_materializePage(uintptr_t offset,
 	}
 
 	// To make CoW unobservable, we first need to evict the page here.
-	co_await _evictQueue.breakRange(alignedOffset, kPageSize);
+	co_await evictionQueue()->breakRange(alignedOffset, kPageSize);
 
 	{
 		auto irqLock = frg::guard(&irqMutex());
