@@ -3883,20 +3883,38 @@ HelError doSubmitAwaitEvent(HelHandle handle, smarter::shared_ptr<IpcQueue> queu
 	auto this_thread = getCurrentThread();
 	auto this_universe = this_thread->getUniverse();
 
-	AnyDescriptor descriptor;
-	auto wrapper = this_universe->getDescriptor(handle);
-	if(!wrapper)
-		return kHelErrNoDescriptor;
-	descriptor = std::move(*wrapper);
+	smarter::shared_ptr<IrqObject> irq;
+	smarter::shared_ptr<OneshotEvent> oneshotEvent;
+	smarter::shared_ptr<BitsetEvent> bitsetEvent;
+	auto outcome = this_universe->inspectDescriptor(handle,
+			[&](const DescriptorView &desc) -> std::expected<void, Error> {
+		if(desc.is<DescriptorType::irq>()) {
+			auto irqOutcome = desc.resolveObject<DescriptorType::irq>(kHelRightWait);
+			if(!irqOutcome)
+				return std::unexpected{irqOutcome.error()};
+			irq = std::move(*irqOutcome);
+		}else if(desc.is<DescriptorType::oneshotEvent>()) {
+			auto eventOutcome = desc.resolveObject<DescriptorType::oneshotEvent>(kHelRightWait);
+			if(!eventOutcome)
+				return std::unexpected{eventOutcome.error()};
+			oneshotEvent = std::move(*eventOutcome);
+		}else if(desc.is<DescriptorType::bitsetEvent>()) {
+			auto eventOutcome = desc.resolveObject<DescriptorType::bitsetEvent>(kHelRightWait);
+			if(!eventOutcome)
+				return std::unexpected{eventOutcome.error()};
+			bitsetEvent = std::move(*eventOutcome);
+		}else{
+			return std::unexpected{Error::badDescriptor};
+		}
+		return {};
+	});
+	if(!outcome)
+		return translateError(outcome.error());
 
 	if(!queue->validSize(ipcSourceSize(sizeof(HelEventResult))))
 		return kHelErrQueueTooSmall;
 
-	if(descriptor.is<DescriptorType::irq>()) {
-		auto irqOutcome = descriptor.resolveObject<DescriptorType::irq>(kHelRightWait);
-		if(!irqOutcome)
-			return translateError(irqOutcome.error());
-
+	if(irq) {
 		[](smarter::shared_ptr<IrqObject> irq, uint64_t sequence,
 				smarter::shared_ptr<IpcQueue> queue, uintptr_t context,
 				CancelGuard cg,
@@ -3917,13 +3935,9 @@ HelError doSubmitAwaitEvent(HelHandle handle, smarter::shared_ptr<IpcQueue> queu
 			}
 			QueueSource ipcSource{&helResult, sizeof(HelEventResult), nullptr};
 			co_await queue->submit(&ipcSource, context);
-		}(std::move(*irqOutcome), sequence, std::move(queue), context, std::move(cg),
+		}(std::move(irq), sequence, std::move(queue), context, std::move(cg),
 			enable_detached_coroutine{this_thread->mainWorkQueue().lock()});
-	}else if(descriptor.is<DescriptorType::oneshotEvent>()) {
-		auto eventOutcome = descriptor.resolveObject<DescriptorType::oneshotEvent>(kHelRightWait);
-		if(!eventOutcome)
-			return translateError(eventOutcome.error());
-
+	}else if(oneshotEvent) {
 		[](smarter::shared_ptr<OneshotEvent> event, uint64_t sequence,
 				smarter::shared_ptr<IpcQueue> queue, uintptr_t context,
 				CancelGuard cg,
@@ -3939,13 +3953,10 @@ HelError doSubmitAwaitEvent(HelHandle handle, smarter::shared_ptr<IpcQueue> queu
 			};
 			QueueSource ipcSource{&helResult, sizeof(HelEventResult), nullptr};
 			co_await queue->submit(&ipcSource, context);
-		}(std::move(*eventOutcome), sequence, std::move(queue), context, std::move(cg),
+		}(std::move(oneshotEvent), sequence, std::move(queue), context, std::move(cg),
 				enable_detached_coroutine{this_thread->mainWorkQueue().lock()});
-	}else if(descriptor.is<DescriptorType::bitsetEvent>()) {
-		auto eventOutcome = descriptor.resolveObject<DescriptorType::bitsetEvent>(kHelRightWait);
-		if(!eventOutcome)
-			return translateError(eventOutcome.error());
-
+	}else{
+		assert(bitsetEvent);
 		[](smarter::shared_ptr<BitsetEvent> event, uint64_t sequence,
 				smarter::shared_ptr<IpcQueue> queue, uintptr_t context,
 				CancelGuard cg,
@@ -3961,10 +3972,8 @@ HelError doSubmitAwaitEvent(HelHandle handle, smarter::shared_ptr<IpcQueue> queu
 			};
 			QueueSource ipcSource{&helResult, sizeof(HelEventResult), nullptr};
 			co_await queue->submit(&ipcSource, context);
-		}(std::move(*eventOutcome), sequence, std::move(queue), context, std::move(cg),
+		}(std::move(bitsetEvent), sequence, std::move(queue), context, std::move(cg),
 				enable_detached_coroutine{this_thread->mainWorkQueue().lock()});
-	}else{
-		return kHelErrBadDescriptor;
 	}
 
 	return kHelErrNone;
