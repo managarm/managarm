@@ -1111,6 +1111,65 @@ protocols::fs::FsStats FileSystem::getFsStats() {
 	return stats;
 }
 
+async::result<void> FileSystem::synchronizeFileData(Inode *inode) {
+	co_await inode->readyEvent.wait();
+
+	co_await inode->inodeMutex.async_lock_shared();
+	frg::shared_lock inodeLock{frg::adopt_lock, inode->inodeMutex};
+
+	auto size = inode->fileSize();
+	if(!size)
+		co_return;
+
+	// Fast symlinks keep their contents in the inode instead of the page cache.
+	// In particular, a newly-created fast symlink still has a zero-sized
+	// managed memory object even though its logical size is non-zero.
+	if(inode->fileType == kTypeSymlink
+			&& size <= sizeof(inode->diskInode()->data.embedded))
+		co_return;
+
+	// Collect dirty shared mappings and wait for the managed-memory servicer
+	// to finish writing both mapped stores and prior filesystem writes.
+	auto writeback = co_await helix_ng::writebackFence(
+			helix::BorrowedDescriptor{inode->backingMemory},
+			0, (size + 0xFFF) & ~size_t{0xFFF});
+	HEL_CHECK(writeback.error());
+}
+
+async::result<void> FileSystem::synchronizeMetadata() {
+	// File data writeback can dirty allocation and inode metadata, including
+	// the BGDT. Drain and fence the metadata caches after data writeback completes.
+	for(auto &cache : metadataCaches)
+		co_await cache->synchronize();
+}
+
+async::result<protocols::fs::Error>
+FileSystem::synchronize(std::shared_ptr<Inode> inode,
+		protocols::fs::SynchronizeFlags) {
+	co_await synchronizeFileData(inode.get());
+	co_await synchronizeMetadata();
+	co_await device->flush();
+	co_return protocols::fs::Error::none;
+}
+
+async::result<protocols::fs::Error>
+FileSystem::synchronize(protocols::fs::SynchronizeFlags) {
+	std::vector<std::shared_ptr<Inode>> inodes;
+	{
+		std::lock_guard activeInodesLock{activeInodesMutex};
+		inodes.reserve(activeInodes.size());
+		for(auto &[_, weakInode] : activeInodes)
+			if(auto inode = weakInode.lock())
+				inodes.push_back(std::move(inode));
+	}
+
+	for(auto &inode : inodes)
+		co_await synchronizeFileData(inode.get());
+	co_await synchronizeMetadata();
+	co_await device->flush();
+	co_return protocols::fs::Error::none;
+}
+
 async::result<std::shared_ptr<BaseInode>> FileSystem::createRegular(int uid, int gid, uint32_t parentIno) {
 	auto ino = co_await allocateInode(parentIno);
 	assert(ino);
@@ -2733,4 +2792,3 @@ OpenFile::readEntries() {
 }
 
 } } // namespace blockfs::ext2fs
-

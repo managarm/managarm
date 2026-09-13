@@ -66,6 +66,30 @@ BlockDevice::BlockDevice(size_t sector_size, int64_t parent_id, arch::contiguous
 
 struct HandlePartition {
 	async::result<std::expected<void, DispatchError>>
+	operator()(managarm::fs::SynchronizeRequest &&req,
+			helix::BorrowedDescriptor conversation, bragi::preamble,
+			gpt::Partition *, raw::RawFs *, std::unique_ptr<BaseFileSystem> *fsPtr) {
+		managarm::fs::SynchronizeResponse resp;
+		if(req.flags() & ~managarm::fs::SynchronizeFlags::DATA_ONLY) {
+			resp.set_error(managarm::fs::Errors::ILLEGAL_ARGUMENT);
+		} else if(!*fsPtr) {
+			resp.set_error(managarm::fs::Errors::NO_BACKING_DEVICE);
+		} else {
+			auto flags = req.flags() & managarm::fs::SynchronizeFlags::DATA_ONLY
+				? protocols::fs::SynchronizeFlags::dataOnly
+				: protocols::fs::SynchronizeFlags::none;
+			resp.set_error((co_await (*fsPtr)->synchronize(flags)) | protocols::fs::toFsError);
+		}
+
+		auto [sendResp] = co_await helix_ng::exchangeMsgs(
+			conversation,
+			helix_ng::sendBragiHeadOnly(resp, frg::stl_allocator{})
+		);
+		HEL_CHECK(sendResp.error());
+		co_return {};
+	}
+
+	async::result<std::expected<void, DispatchError>>
 	operator()(managarm::fs::CntRequest &&req, helix::BorrowedDescriptor conversation, bragi::preamble,
 			gpt::Partition *, raw::RawFs *rawFs, std::unique_ptr<BaseFileSystem> *fsPtr) {
 		if(req.req_type() == managarm::fs::CntReqType::SB_CREATE_REGULAR) {
@@ -595,6 +619,7 @@ async::detached servePartition(helix::UniqueLane lane, gpt::Partition *partition
 
 	while(true) {
 		auto res = co_await dispatchRequest<
+			managarm::fs::SynchronizeRequest,
 			managarm::fs::CntRequest,
 			managarm::fs::MountRequest,
 			managarm::fs::RenameRequest,

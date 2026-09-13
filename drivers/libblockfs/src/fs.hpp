@@ -92,6 +92,10 @@ struct BaseFileSystem {
 	virtual std::shared_ptr<BaseInode> accessInode(uint32_t inode) = 0;
 	virtual async::result<std::shared_ptr<BaseInode>> createRegular(int uid, int gid, uint32_t parentIno) = 0;
 	virtual protocols::fs::FsStats getFsStats() = 0;
+	virtual async::result<protocols::fs::Error>
+	synchronize(protocols::fs::SynchronizeFlags) {
+		co_return protocols::fs::Error::notSupported;
+	}
 
 	BaseFileSystem() = default;
 

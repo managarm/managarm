@@ -532,6 +532,10 @@ struct FileSystem final : BaseFileSystem {
 	std::shared_ptr<BaseInode> accessInode(uint32_t number) override;
 	async::result<std::shared_ptr<BaseInode>> createRegular(int uid, int gid, uint32_t parentIno) override;
 	protocols::fs::FsStats getFsStats() override;
+	async::result<protocols::fs::Error>
+	synchronize(protocols::fs::SynchronizeFlags flags) override;
+	async::result<protocols::fs::Error> synchronize(std::shared_ptr<Inode> inode,
+			protocols::fs::SynchronizeFlags flags);
 
 	async::result<std::shared_ptr<Inode>> createDirectory();
 	async::result<std::shared_ptr<Inode>> createSymlink();
@@ -578,6 +582,8 @@ struct FileSystem final : BaseFileSystem {
 	// Callers must hold inode->blockMapMutex.
 	async::result<void> writeDataBlocks(const std::vector<BlockRange> &ranges,
 			arch::dma_buffer_view buf);
+	async::result<void> synchronizeFileData(Inode *inode);
+	async::result<void> synchronizeMetadata();
 
 
 	// Callers must hold inode->blockMapMutex (shared or exclusive).
@@ -685,4 +691,3 @@ static_assert(blockfs::File<OpenFile>);
 static_assert(blockfs::FileSystem<FileSystem>);
 
 } } // namespace blockfs::ext2fs
-
