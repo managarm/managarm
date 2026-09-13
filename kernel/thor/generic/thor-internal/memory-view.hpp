@@ -1016,13 +1016,27 @@ struct ManagedSpace : CacheBundle {
 	void submitManagement(ManageNode *node);
 	void _progressManagement(ManageList &pending);
 
+	// Returns the page with the given identity, or null.
+	// Must be called under mutex.
+	ManagedPage *findPage(uint64_t index);
+	// Returns the page with the given identity, creating a fresh one if there is none.
+	// Must be called under mutex.
+	ManagedPage *findOrInsertPage(uint64_t index);
+
+	// Erases the page's entry and frees the page.
+	// The caller must ensure that lockCount == 0, useCount == 0, and that no RCU reader
+	// can still hold a frame it obtained from the page; see CachePage::useCount.
+	// Must be called under mutex.
+	void _erasePage(ManagedPage *page);
+
 	smarter::borrowed_ptr<ManagedSpace> selfPtr;
 
 	smarter::shared_ptr<Hierarchy> hierarchy;
 
 	frg::ticket_spinlock mutex;
 
-	frg::rcu_radixtree<ManagedPage, KernelAlloc, RcuPolicy> pages;
+	// Heap-allocated page objects, indexed by identity.
+	frg::rcu_radixtree<ManagedPage *, KernelAlloc, RcuPolicy> pages;
 
 	size_t numPages;
 	bool readahead;

@@ -1320,7 +1320,7 @@ coroutine<void> ManagedSpace::_runReclaimLoop() {
 				if(physical != PhysicalAddr(-1))
 					globalPfnDb().erase(physical);
 				_pageDiscarded(page, anyDirty);
-				pages.erase(cachePage->identity);
+				_erasePage(page);
 			}
 
 			if(physical != PhysicalAddr(-1)) {
@@ -1612,9 +1612,8 @@ void ManagedSpace::discardPage(ManagedPage *pit, DiscardMode mode, bool &raiseDi
 		if(pit->physical == PhysicalAddr(-1)
 				&& !pit->lockCount
 				&& !pit->cachePage.useCount.load(std::memory_order_relaxed)) {
-			auto index = pit->cachePage.identity;
 			_pageDiscarded(pit, raiseDirty);
-			pages.erase(index);
+			_erasePage(pit);
 		} else {
 			_disposeDiscarded(pit, raiseDiscard);
 		}
@@ -1773,10 +1772,9 @@ ManagedSpace::ManagedPage *SwapSpace::allocatePage() {
 	auto offset = _allocateOffset();
 	if(!offset)
 		return nullptr;
-	auto [pit, wasInserted] = pages.find_or_insert(*offset, this, *offset);
-	assert(pit);
-	assert(wasInserted);
-	return pit;
+	auto page = frg::construct<ManagedPage>(*kernelAlloc, this, *offset);
+	pages.insert(*offset, page);
+	return page;
 }
 
 frg::optional<uint64_t> SwapSpace::_allocateOffset() {
@@ -1828,7 +1826,7 @@ coroutine<void> ManagedSpace::dispose() {
 			auto it = pages.lower_bound(nextIdentity);
 			if(it == pages.end())
 				break;
-			auto *pit = &(*it);
+			auto *pit = *it;
 			auto identity = pit->cachePage.identity;
 
 			assert(!pit->lockCount);
@@ -1842,7 +1840,7 @@ coroutine<void> ManagedSpace::dispose() {
 			physical = pit->physical;
 			if(physical != PhysicalAddr(-1))
 				globalPfnDb().erase(physical);
-			pages.erase(identity);
+			_erasePage(pit);
 			nextIdentity = identity + 1;
 		}
 		if(physical != PhysicalAddr(-1)) {
@@ -1858,6 +1856,25 @@ ManagedSpace::~ManagedSpace() {
 	// All cleanup has already been done by dispose().
 }
 
+ManagedSpace::ManagedPage *ManagedSpace::findPage(uint64_t index) {
+	auto it = pages.find(index);
+	if(!it)
+		return nullptr;
+	return *it;
+}
+
+ManagedSpace::ManagedPage *ManagedSpace::findOrInsertPage(uint64_t index) {
+	auto [it, wasInserted] = pages.find_or_insert(index, nullptr);
+	if(wasInserted)
+		*it = frg::construct<ManagedPage>(*kernelAlloc, this, index);
+	return *it;
+}
+
+void ManagedSpace::_erasePage(ManagedPage *page) {
+	pages.erase(page->cachePage.identity);
+	frg::destruct(*kernelAlloc, page);
+}
+
 // Note: Neither offset nor size are necessarily multiples of the page size.
 Error ManagedSpace::lockPages(uintptr_t offset, size_t size) {
 	auto irq_lock = frg::guard(&irqMutex());
@@ -1865,8 +1882,7 @@ Error ManagedSpace::lockPages(uintptr_t offset, size_t size) {
 
 	for(size_t pg = 0; pg < size; pg += kPageSize) {
 		size_t index = (offset + pg) / kPageSize;
-		auto [pit, wasInserted] = pages.find_or_insert(index, this, index);
-		assert(pit);
+		auto pit = findOrInsertPage(index);
 		lockPage(pit);
 	}
 	return Error::success;
@@ -1881,7 +1897,7 @@ void ManagedSpace::unlockPages(uintptr_t offset, size_t size) {
 
 		for(size_t pg = 0; pg < size; pg += kPageSize) {
 			size_t index = (offset + pg) / kPageSize;
-			auto pit = pages.find(index);
+			auto pit = findPage(index);
 			assert(pit);
 			unlockPage(pit, raiseDiscard);
 		}
@@ -2001,8 +2017,7 @@ ManagedSpace::initializePage(ManagedPage *page, FetchFlags flags, ManageList &pe
 		for(size_t i = 1; i < 4; ++i) {
 			if(!(index + i < numPages))
 				break;
-			auto [pit, wasInserted] = pages.find_or_insert(index + i, this, index + i);
-			assert(pit);
+			auto pit = findOrInsertPage(index + i);
 			if(pit->loadState == LoadState::missing
 					&& pit->transactionState == TxState::none) {
 				pit->transactionState = TxState::wantInitialization;
@@ -2257,7 +2272,7 @@ PhysicalRange BackingMemory::peekRange(uintptr_t offset, FetchFlags) {
 	auto irqLock = frg::guard(&irqMutex());
 	auto lock = frg::guard(&_managed->mutex);
 
-	auto pit = _managed->pages.find(index);
+	auto pit = _managed->findPage(index);
 	if(!pit)
 		return PhysicalRange{};
 
@@ -2289,7 +2304,7 @@ std::expected<size_t, Error> BackingMemory::accessRange(uintptr_t offset, size_t
 		auto irqLock = frg::guard(&irqMutex());
 		auto lock = frg::guard(&_managed->mutex);
 
-		pit = _managed->pages.find(index);
+		pit = _managed->findPage(index);
 		if(!pit || pit->physical == PhysicalAddr(-1))
 			return 0;
 		_managed->lockPage(pit);
@@ -2320,7 +2335,7 @@ BackingMemory::touchRange(uintptr_t offset, size_t, FetchFlags) {
 	auto irqLock = frg::guard(&irqMutex());
 	auto lock = frg::guard(&_managed->mutex);
 
-	auto [pit, wasInserted] = _managed->pages.find_or_insert(index, _managed.get(), index);
+	auto pit = _managed->findOrInsertPage(index);
 	assert(pit);
 
 	if(pit->transactionState == ManagedSpace::TxState::performReclaim) {
@@ -2381,7 +2396,7 @@ Error BackingMemory::updateRange(ManageRequest type, size_t offset, size_t lengt
 		}
 		for(size_t pg = 0; pg < length; pg += kPageSize) {
 			size_t index = (offset + pg) / kPageSize;
-			auto pit = _managed->pages.find(index);
+			auto pit = _managed->findPage(index);
 			if(!pit || pit->transactionState != expectedState)
 				return Error::illegalArgs;
 		}
@@ -2389,7 +2404,7 @@ Error BackingMemory::updateRange(ManageRequest type, size_t offset, size_t lengt
 		if(type == ManageRequest::initialize) {
 			for(size_t pg = 0; pg < length; pg += kPageSize) {
 				size_t index = (offset + pg) / kPageSize;
-				auto pit = _managed->pages.find(index);
+				auto pit = _managed->findPage(index);
 				pit->loadState = ManagedSpace::LoadState::present;
 				auto monitor = pit->detachMonitor(ManagedSpace::MonitorType::initialization);
 				if(monitor)
@@ -2408,7 +2423,7 @@ Error BackingMemory::updateRange(ManageRequest type, size_t offset, size_t lengt
 		}else{
 			for(size_t pg = 0; pg < length; pg += kPageSize) {
 				size_t index = (offset + pg) / kPageSize;
-				auto pit = _managed->pages.find(index);
+				auto pit = _managed->findPage(index);
 
 				if(pit->discarded) {
 					if(pit->discardMode == DiscardMode::dropDirty) {
@@ -2489,11 +2504,11 @@ Error BackingMemory::markDirtyRange(size_t offset, size_t length) {
 		// so that the spinlock is not held for an unbounded time.
 		auto it = _managed->pages.lower_bound(cursor);
 		for(size_t i = 0; i < markDirtyChunkSize; ++i) {
-			if(it == _managed->pages.end() || it->cachePage.identity >= limitPage) {
+			if(it == _managed->pages.end() || (*it)->cachePage.identity >= limitPage) {
 				exhausted = true;
 				break;
 			}
-			auto *pit = &*it;
+			auto *pit = *it;
 			++it;
 			cursor = pit->cachePage.identity + 1;
 			_managed->markDirtyPage(pit, needsEvent, needsExpedite);
@@ -2545,11 +2560,11 @@ coroutine<frg::expected<Error>> BackingMemory::writebackFence(uintptr_t offset, 
 			// so that the spinlock is not held for an unbounded time.
 			auto it = _managed->pages.lower_bound(cursor);
 			for(size_t i = 0; i < fenceChunkSize; ++i) {
-				if(it == _managed->pages.end() || it->cachePage.identity >= limitPage) {
+				if(it == _managed->pages.end() || (*it)->cachePage.identity >= limitPage) {
 					exhausted = true;
 					break;
 				}
-				auto *pit = &*it;
+				auto *pit = *it;
 				++it;
 				index = pit->cachePage.identity;
 				cursor = index + 1;
@@ -2584,7 +2599,7 @@ coroutine<frg::expected<Error>> BackingMemory::writebackFence(uintptr_t offset, 
 				auto irqLock = frg::guard(&irqMutex());
 				auto lock = frg::guard(&_managed->mutex);
 
-				auto pit = _managed->pages.find(index);
+				auto pit = _managed->findPage(index);
 				if(pit && (pit->transactionState == ManagedSpace::TxState::wantWriteback
 						|| pit->transactionState == ManagedSpace::TxState::writeback))
 					monitor = pit->requireMonitor(ManagedSpace::MonitorType::writeback);
@@ -2628,12 +2643,12 @@ coroutine<frg::expected<Error>> BackingMemory::invalidateRange(uintptr_t offset,
 
 			auto it = _managed->pages.lower_bound(markCursor);
 			for(size_t i = 0; i < discardChunkSize; ++i) {
-				if(it == _managed->pages.end() || it->cachePage.identity >= limitPage) {
+				if(it == _managed->pages.end() || (*it)->cachePage.identity >= limitPage) {
 					exhausted = true;
 					break;
 				}
 				// discardPage() can erase the entry, so advance first.
-				auto *page = &*it;
+				auto *page = *it;
 				markCursor = page->cachePage.identity + 1;
 				++it;
 				_managed->discardPage(page, mode, raiseDirty, raiseDiscard, raiseExpedite,
@@ -2664,15 +2679,15 @@ coroutine<frg::expected<Error>> BackingMemory::invalidateRange(uintptr_t offset,
 			auto lock = frg::guard(&_managed->mutex);
 
 			auto it = _managed->pages.lower_bound(waitCursor);
-			while(it != _managed->pages.end() && it->cachePage.identity < limitPage
-					&& !it->discarded)
+			while(it != _managed->pages.end() && (*it)->cachePage.identity < limitPage
+					&& !(*it)->discarded)
 				++it;
 
-			if(it == _managed->pages.end() || it->cachePage.identity >= limitPage) {
+			if(it == _managed->pages.end() || (*it)->cachePage.identity >= limitPage) {
 				done = true;
 			} else {
-				waitCursor = it->cachePage.identity;
-				monitor = it->requireMonitor(ManagedSpace::MonitorType::discard);
+				waitCursor = (*it)->cachePage.identity;
+				monitor = (*it)->requireMonitor(ManagedSpace::MonitorType::discard);
 			}
 		}
 		if(done)
@@ -2724,7 +2739,7 @@ PhysicalRange FrontalMemory::peekRange(uintptr_t offset, FetchFlags) {
 
 	if(index >= _managed->numPages)
 		return PhysicalRange{};
-	auto pit = _managed->pages.find(index);
+	auto pit = _managed->findPage(index);
 	if(!pit)
 		return PhysicalRange{};
 
@@ -2748,7 +2763,7 @@ std::expected<size_t, Error> FrontalMemory::accessRange(uintptr_t offset, size_t
 	return _managed->accessPage([&] () -> std::expected<ManagedSpace::ManagedPage *, Error> {
 		if(index >= _managed->numPages)
 			return std::unexpected{Error::fault};
-		return _managed->pages.find(index);
+		return _managed->findPage(index);
 	}, misalign, size, flags & fetchRequireMutable, fn);
 }
 
@@ -2769,7 +2784,7 @@ FrontalMemory::touchRange(uintptr_t offset, size_t, FetchFlags flags) {
 			co_return Error::fault;
 
 		// Try the fast-paths first.
-		auto [pit, wasInserted] = _managed->pages.find_or_insert(index, _managed.get(), index);
+		auto pit = _managed->findOrInsertPage(index);
 		assert(pit);
 		if(_managed->touchPresentPage(pit))
 			co_return kPageSize - misalign;
