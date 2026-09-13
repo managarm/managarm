@@ -708,7 +708,7 @@ HelError helSetSwapBudget(HelHandle swapSpaceHandle, size_t numPages) {
 	return kHelErrNone;
 }
 
-HelError helCopyOnWrite(HelHandle hierarchyHandle, HelHandle memoryHandle,
+HelError helCopyOnWrite(HelHandle hierarchyHandle, HelHandle swapSpaceHandle, HelHandle memoryHandle,
 		uintptr_t offset, size_t size, HelHandle *outHandle) {
 	auto thisThread = getCurrentThread();
 	auto thisUniverse = thisThread->getUniverse();
@@ -719,11 +719,20 @@ HelError helCopyOnWrite(HelHandle hierarchyHandle, HelHandle memoryHandle,
 	if(!hierarchyOutcome)
 		return translateError(hierarchyOutcome.error());
 
+	smarter::shared_ptr<SwapSpace> space;
+	if(swapSpaceHandle != kHelNullHandle) {
+		auto spaceOutcome = thisUniverse->resolveObject<DescriptorType::swapSpace>(
+				swapSpaceHandle, kHelRightAssign);
+		if(!spaceOutcome)
+			return translateError(spaceOutcome.error());
+		space = std::move(*spaceOutcome);
+	}
+
 	auto viewOutcome = thisUniverse->resolveObject<DescriptorType::memoryView>(memoryHandle, kHelRightRead | kHelRightAssign);
 	if(!viewOutcome)
 		return translateError(viewOutcome.error());
 
-	auto sliceOutcome = CopyOnWriteMemory::create(*hierarchyOutcome, nullptr, std::move(*viewOutcome),
+	auto sliceOutcome = CopyOnWriteMemory::create(*hierarchyOutcome, std::move(space), std::move(*viewOutcome),
 			offset, size);
 	if(!sliceOutcome)
 		return translateError(sliceOutcome.error());

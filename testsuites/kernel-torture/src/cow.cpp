@@ -11,7 +11,7 @@ DEFINE_TEST(cows, ([] {
 	HEL_CHECK(helObtainHandle(kHelObtainZeroMemory, &zeroHandle));
 
 	HelHandle handle;
-	HEL_CHECK(helCopyOnWrite(core::getProcessHierarchy(), zeroHandle, 0, 0x1000, &handle));
+	HEL_CHECK(helCopyOnWrite(core::getProcessHierarchy(), kHelNullHandle, zeroHandle, 0, 0x1000, &handle));
 
 	void *window;
 	HEL_CHECK(helMapMemory(handle, kHelNullHandle, nullptr, 0, 0x1000, kHelMapProtRead | kHelMapProtWrite, &window));
