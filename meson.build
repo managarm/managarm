@@ -224,7 +224,7 @@ if build_drivers or provide_deps
 		# sound
 		'sound/hda',
 	]
-	utils = [ 'ci-boot', 'runsvr', 'lsmbus', 'wait-for-devices' ]
+	utils = [ 'ci-boot', 'runsvr', 'lsmbus', 'lshierarchy', 'wait-for-devices' ]
 
 	# delay these dirs until last as they require other libs
 	# to already be built

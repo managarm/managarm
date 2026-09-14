@@ -78,3 +78,21 @@ head(128):
 	uint64 address;
 	uint64 size;
 }
+
+struct HierarchyNode {
+	uint64 id;
+	uint64 parent_id;
+	uint64 charged_bytes;
+	string tag;
+}
+
+message GetHierarchyRequest 12 {
+head(128):
+}
+
+message GetHierarchyResponse 13 {
+head(128):
+	Error error;
+tail:
+	HierarchyNode[] nodes;
+}
