@@ -71,7 +71,7 @@ async::result<std::vector<Node>> fetchHierarchy() {
 	std::vector<Node> nodes;
 	nodes.reserve(resp.nodes_size());
 	for(auto &node : resp.nodes())
-		nodes.push_back({node.id(), node.parent_id(), node.charged_bytes(),
+		nodes.push_back({node.id(), node.parent_id(), node.charged_memory(),
 				std::move(node.tag()), {}, 0});
 
 	co_return nodes;

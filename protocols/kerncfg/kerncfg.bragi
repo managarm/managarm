@@ -82,7 +82,8 @@ head(128):
 struct HierarchyNode {
 	uint64 id;
 	uint64 parent_id;
-	uint64 charged_bytes;
+	uint64 charged_memory;
+	uint64 charged_swap;
 	string tag;
 }
 
