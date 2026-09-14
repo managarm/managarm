@@ -80,16 +80,18 @@ async::result<std::vector<Node>> fetchHierarchy() {
 }
 
 std::string formatBytes(uint64_t bytes) {
+	if(!bytes)
+		return "-";
 	if(bytes < 1024)
-		return std::format("{} B", bytes);
-	const char *units[] = {"KiB", "MiB", "GiB", "TiB"};
+		return std::format("{}B", bytes);
+	const char *units[] = {"K", "M", "G", "T"};
 	double value = static_cast<double>(bytes) / 1024;
 	size_t i = 0;
 	while(value >= 1024 && i + 1 < std::size(units)) {
 		value /= 1024;
 		i++;
 	}
-	return std::format("{:.1f} {}", value, units[i]);
+	return std::format("{:.1f}{}", value, units[i]);
 }
 
 // Accumulates cumulativeMemory and cumulativeSwap bottom-up, sorts children by size
@@ -112,13 +114,10 @@ void printSubtree(std::map<uint64_t, Node> &byId, uint64_t id, std::string prefi
 		bool isRoot) {
 	auto &node = byId.at(id);
 
-	std::print("{}", prefix);
-	if(!isRoot)
-		std::print("{}", last ? "`- " : "|- ");
-	std::println("{} (#{}): {} charged, {} cumulative; {} swap, {} cumulative swap",
-			node.tag, node.id,
+	std::println("{:>7} {:>7} {:>7} {:>7}  {}{}{} #{}",
 			formatBytes(node.chargedMemory), formatBytes(node.cumulativeMemory),
-			formatBytes(node.chargedSwap), formatBytes(node.cumulativeSwap));
+			formatBytes(node.chargedSwap), formatBytes(node.cumulativeSwap),
+			prefix, isRoot ? "" : (last ? "`- " : "|- "), node.tag, node.id);
 
 	auto childPrefix = prefix;
 	if(!isRoot)
@@ -155,11 +154,12 @@ async::result<void> run() {
 		return byId.at(x).cumulativeMemory > byId.at(y).cumulativeMemory;
 	});
 
+	std::println("{:>7} {:>7} {:>7} {:>7}  {}", "MEM", "MEM-C", "SWAP", "SWAP-C", "HIERARCHY");
 	for(auto id : roots)
 		printSubtree(byId, id, "", true, true);
 
 	std::println("");
-	std::println("{} nodes, {} charged and {} swap in total", byId.size(), formatBytes(total),
+	std::println("{} nodes, {} memory, {} swap", byId.size(), formatBytes(total),
 			formatBytes(totalSwap));
 }
 
