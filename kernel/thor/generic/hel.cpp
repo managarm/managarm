@@ -640,7 +640,7 @@ HelError helCreateManagedMemory(HelHandle hierarchyHandle, size_t size, uint32_t
 	return kHelErrNone;
 }
 
-HelError helCreateSwapSpace(uint32_t flags,
+HelError helCreateSwapSpace(HelHandle hierarchyHandle, uint32_t flags,
 		HelHandle *backingHandle, HelHandle *swapHandle) {
 	if(flags)
 		return kHelErrIllegalArgs;
@@ -648,7 +648,13 @@ HelError helCreateSwapSpace(uint32_t flags,
 	auto thisThread = getCurrentThread();
 	auto thisUniverse = thisThread->getUniverse();
 
-	auto spaceOutcome = SwapSpace::create();
+	auto hierarchyOutcome = thisUniverse->resolveObject<DescriptorType::hierarchy>(
+		hierarchyHandle, kHelRightProvision
+	);
+	if(!hierarchyOutcome)
+		return translateError(hierarchyOutcome.error());
+
+	auto spaceOutcome = SwapSpace::create(std::move(*hierarchyOutcome));
 	if(!spaceOutcome)
 		return translateError(spaceOutcome.error());
 	auto space = std::move(*spaceOutcome);
@@ -672,8 +678,8 @@ HelError helCreateSwapSpace(uint32_t flags,
 	return kHelErrNone;
 }
 
-HelError helAllocateSwappableMemory(HelHandle swapSpaceHandle, size_t size,
-		uint32_t flags, HelHandle *handle) {
+HelError helAllocateSwappableMemory(HelHandle hierarchyHandle, HelHandle swapSpaceHandle,
+		size_t size, uint32_t flags, HelHandle *handle) {
 	if(flags)
 		return kHelErrIllegalArgs;
 	if(!size || (size & (kPageSize - 1)))
@@ -682,12 +688,19 @@ HelError helAllocateSwappableMemory(HelHandle swapSpaceHandle, size_t size,
 	auto thisThread = getCurrentThread();
 	auto thisUniverse = thisThread->getUniverse();
 
+	auto hierarchyOutcome = thisUniverse->resolveObject<DescriptorType::hierarchy>(
+		hierarchyHandle, kHelRightProvision
+	);
+	if(!hierarchyOutcome)
+		return translateError(hierarchyOutcome.error());
+
 	auto spaceOutcome = thisUniverse->resolveObject<DescriptorType::swapSpace>(
 			swapSpaceHandle, kHelRightAssign);
 	if(!spaceOutcome)
 		return translateError(spaceOutcome.error());
 
-	auto memoryOutcome = SwappableMemory::create(std::move(*spaceOutcome), size);
+	auto memoryOutcome = SwappableMemory::create(std::move(*hierarchyOutcome),
+			std::move(*spaceOutcome), size);
 	if(!memoryOutcome)
 		return translateError(memoryOutcome.error());
 

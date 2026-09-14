@@ -117,11 +117,11 @@ extern inline __attribute__ (( always_inline )) HelError helCreateManagedMemory(
 	return error;
 };
 
-extern inline __attribute__ (( always_inline )) HelError helCreateSwapSpace(uint32_t flags,
-		HelHandle *backing_handle, HelHandle *swap_handle) {
+extern inline __attribute__ (( always_inline )) HelError helCreateSwapSpace(HelHandle hierarchy,
+		uint32_t flags, HelHandle *backing_handle, HelHandle *swap_handle) {
 	HelWord back_handle;
 	HelWord space_handle;
-	HelError error = helSyscall1_2(kHelCallCreateSwapSpace, (HelWord)flags,
+	HelError error = helSyscall2_2(kHelCallCreateSwapSpace, (HelWord)hierarchy, (HelWord)flags,
 			&back_handle, &space_handle);
 	*backing_handle = (HelHandle)back_handle;
 	*swap_handle = (HelHandle)space_handle;
@@ -129,10 +129,10 @@ extern inline __attribute__ (( always_inline )) HelError helCreateSwapSpace(uint
 };
 
 extern inline __attribute__ (( always_inline )) HelError helAllocateSwappableMemory(
-		HelHandle swap_space, size_t size, uint32_t flags, HelHandle *handle) {
+		HelHandle hierarchy, HelHandle swap_space, size_t size, uint32_t flags, HelHandle *handle) {
 	HelWord hel_handle;
-	HelError error = helSyscall3_1(kHelCallAllocateSwappableMemory, (HelWord)swap_space,
-			(HelWord)size, (HelWord)flags, &hel_handle);
+	HelError error = helSyscall4_1(kHelCallAllocateSwappableMemory, (HelWord)hierarchy,
+			(HelWord)swap_space, (HelWord)size, (HelWord)flags, &hel_handle);
 	*handle = (HelHandle)hel_handle;
 	return error;
 };
