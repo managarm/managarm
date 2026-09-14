@@ -164,7 +164,7 @@ namespace thor::vmx {
 	public:
 		static std::expected<smarter::shared_ptr<Vmcs>, Error> create(
 				smarter::shared_ptr<EptSpace> ept) {
-			auto ptr = smarter::allocate_shared<Vmcs>(Allocator{}, CtorToken{}, std::move(ept));
+			auto ptr = allocate_rcu_shared<Vmcs>(Allocator{}, CtorToken{}, std::move(ept));
 			return ptr;
 		}
 

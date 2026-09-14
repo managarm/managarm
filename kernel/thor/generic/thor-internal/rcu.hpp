@@ -149,6 +149,11 @@ struct RcuPolicy {
 	};
 };
 
+template<typename T>
+concept HasFinalizeBeforeRcu = requires (T &object) {
+	object.finalizeBeforeRcu();
+};
+
 // shared_ptr integration with RCU.
 template<typename T, typename Deallocator>
 struct rcu_meta_object final
@@ -168,6 +173,8 @@ struct rcu_meta_object final
 private:
 	static void finalize_(smarter::meta_object_base *base) {
 		auto self = static_cast<rcu_meta_object *>(base);
+		if constexpr (HasFinalizeBeforeRcu<T>)
+			self->get()->finalizeBeforeRcu();
 		submitRcu(self, &rcu_callback_);
 	}
 
@@ -188,6 +195,7 @@ private:
 };
 
 // Like smarter::allocate_shared() but calls the destructor via submitRcu().
+// T::finalizeBeforeRcu() (if present) runs as soon as the refcount drops to zero, before submitRcu().
 template<typename T, typename Allocator, typename... Args>
 smarter::shared_ptr<T> allocate_rcu_shared(Allocator alloc, Args &&... args) {
 	using meta_type = rcu_meta_object<T, smarter::allocator_deallocator<Allocator>>;

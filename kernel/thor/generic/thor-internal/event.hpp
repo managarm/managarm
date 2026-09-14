@@ -6,6 +6,7 @@
 #include <frg/list.hpp>
 #include <smarter.hpp>
 #include <thor-internal/error.hpp>
+#include <thor-internal/rcu-base.hpp>
 #include <thor-internal/work-queue.hpp>
 
 namespace thor {
@@ -63,7 +64,7 @@ private:
 	frg::default_list_hook<AwaitEventNode> _queueNode;
 };
 
-struct OneshotEvent {
+struct OneshotEvent : RcuProtected {
 private:
 	struct CtorToken {};
 
@@ -156,7 +157,7 @@ private:
 	> _waitQueue;
 };
 
-struct BitsetEvent {
+struct BitsetEvent : RcuProtected {
 private:
 	struct CtorToken {};
 

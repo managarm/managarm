@@ -4,9 +4,10 @@
 
 #include <thor-internal/address-space.hpp>
 #include <thor-internal/error.hpp>
+#include <thor-internal/rcu-base.hpp>
 
 namespace thor {
-	struct VirtualizedCpu {
+	struct VirtualizedCpu : RcuProtected {
 		virtual frg::expected<Error, HelVmexitReason> run() = 0;
 
 		virtual void storeRegs(const HelVirtualizationRegs *regs) = 0;
@@ -18,7 +19,7 @@ namespace thor {
 		~VirtualizedCpu() = default;
 	};
 
-	struct VirtualizedPageSpace : VirtualSpace {
+	struct VirtualizedPageSpace : VirtualSpace, RcuProtected {
 		VirtualizedPageSpace(VirtualOperations *ops) : VirtualSpace{ops} {}
 
 	protected:

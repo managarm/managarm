@@ -11,6 +11,7 @@
 #include <thor-internal/error.hpp>
 #include <thor-internal/ipl.hpp>
 #include <thor-internal/mm-rc.hpp>
+#include <thor-internal/rcu-base.hpp>
 #include <thor-internal/virtualization.hpp>
 
 namespace thor {
@@ -260,6 +261,8 @@ using DescriptorPointer = smarter::shared_ptr<
 >;
 
 struct AnyDescriptor {
+	friend struct DescriptorView;
+
 	friend void swap(AnyDescriptor &x, AnyDescriptor &y) {
 		using std::swap;
 		swap(x.type_, y.type_);
@@ -274,6 +277,10 @@ struct AnyDescriptor {
 	static AnyDescriptor make(DescriptorPointer<K> ptr, uint32_t rights);
 
 	AnyDescriptor() = default;
+
+	AnyDescriptor(smarter::adopt_rc_t, DescriptorType type, uint8_t extra, uint32_t rights,
+			void *object, smarter::counter *ctr)
+	: type_{type}, extra_{extra}, rights_{rights}, object_{object}, ctr_{ctr} { }
 
 	AnyDescriptor(const AnyDescriptor &other)
 	: type_{other.type_}, extra_{other.extra_}, rights_{other.rights_}, object_{other.object_}, ctr_{other.ctr_} {
@@ -304,6 +311,18 @@ struct AnyDescriptor {
 		return rights_;
 	}
 
+	uint8_t raw_extra() const { return extra_; }
+	void *raw_object() const { return object_; }
+	smarter::counter *raw_ctr() const { return ctr_; }
+
+	void release() {
+		type_ = DescriptorType::none;
+		extra_ = 0;
+		rights_ = 0;
+		object_ = nullptr;
+		ctr_ = nullptr;
+	}
+
 	template<DescriptorType K>
 	bool is() const {
 		return type_ == K;
@@ -318,19 +337,8 @@ struct AnyDescriptor {
 			return std::unexpected{Error::badDescriptor};
 		if (!checkRights(rights_, requiredRights))
 			return std::unexpected{Error::badRights};
-		return resolve_<K>();
-	}
-
-	// Returns both the object (see resolveObject()) and rights.
-	template<DescriptorType K>
-	std::expected<std::tuple<DescriptorPointer<K>, uint32_t>, Error>
-	resolveCapability(uint32_t requiredRights) const {
-		if (!is<K>())
-			return std::unexpected{Error::badDescriptor};
-		if (!checkRights(rights_, requiredRights))
-			return std::unexpected{Error::badRights};
-		auto object = FRG_TRY(resolve_<K>());
-		return std::tuple{std::move(object), rights_};
+		ctr_->increment();
+		return adopt_<K>(object_, extra_, ctr_);
 	}
 
 	// Keep only the rights in the exposedRights mask.
@@ -340,7 +348,7 @@ struct AnyDescriptor {
 
 private:
 	template<DescriptorType K>
-	std::expected<DescriptorPointer<K>, Error> resolve_() const;
+	static DescriptorPointer<K> adopt_(void *object, uint8_t extra, smarter::counter *ctr);
 
 	void releaseOnZero_();
 
@@ -359,6 +367,9 @@ private:
 template<DescriptorType K>
 AnyDescriptor AnyDescriptor::make(DescriptorPointer<K> ptr, uint32_t rights) {
 	static_assert(std::same_as<typename DescriptorTraits<K>::Policy, smarter::default_rc_policy>);
+	// AnyDescriptor may be stored in RCU protected data structures (e.g., Universe).
+	// Hence, the objects that we store (and their refcount control blocks) must also be RCU protected.
+	static_assert(IsRcuProtected<typename DescriptorTraits<K>::Object>);
 	assert(ptr);
 
 	AnyDescriptor descriptor;
@@ -383,116 +394,255 @@ AnyDescriptor AnyDescriptor::make<DescriptorType::lane>(
 		smarter::shared_ptr<Stream, LanePolicy> ptr, uint32_t rights);
 
 template<DescriptorType K>
-std::expected<DescriptorPointer<K>, Error> AnyDescriptor::resolve_() const {
+DescriptorPointer<K> AnyDescriptor::adopt_(void *object, uint8_t, smarter::counter *ctr) {
 	static_assert(std::same_as<typename DescriptorTraits<K>::Policy, smarter::default_rc_policy>);
 	using ObjectType = typename DescriptorTraits<K>::Object;
 
-	assert(type_ == K);
-
-	ctr_->increment();
 	return smarter::shared_ptr<ObjectType>{
 		smarter::adopt_rc,
-		static_cast<ObjectType *>(object_),
-		smarter::default_rc_policy{smarter::meta_object_base::from_ctr(ctr_)}
+		static_cast<ObjectType *>(object),
+		smarter::default_rc_policy{smarter::meta_object_base::from_ctr(ctr)}
 	};
 }
 
 template<>
-inline std::expected<smarter::shared_ptr<Thread, ActiveHandle>, Error>
-AnyDescriptor::resolve_<DescriptorType::thread>() const {
-	assert(type_ == DescriptorType::thread);
-
-	auto thread = static_cast<Thread *>(object_);
-	ctr_->increment();
+inline smarter::shared_ptr<Thread, ActiveHandle>
+AnyDescriptor::adopt_<DescriptorType::thread>(void *object, uint8_t, smarter::counter *) {
+	auto thread = static_cast<Thread *>(object);
 	return smarter::shared_ptr<Thread, ActiveHandle>{
 		smarter::adopt_rc, thread, ActiveHandle{thread}
 	};
 }
 
 template<>
-inline std::expected<smarter::shared_ptr<AddressSpace, BindableHandle>, Error>
-AnyDescriptor::resolve_<DescriptorType::addressSpace>() const {
-	assert(type_ == DescriptorType::addressSpace);
-
-	auto space = static_cast<AddressSpace *>(object_);
-	ctr_->increment();
+inline smarter::shared_ptr<AddressSpace, BindableHandle>
+AnyDescriptor::adopt_<DescriptorType::addressSpace>(void *object, uint8_t, smarter::counter *) {
+	auto space = static_cast<AddressSpace *>(object);
 	return smarter::shared_ptr<AddressSpace, BindableHandle>{
 		smarter::adopt_rc, space, BindableHandle{space}
 	};
 }
 
 template<>
-std::expected<smarter::shared_ptr<Stream, LanePolicy>, Error>
-AnyDescriptor::resolve_<DescriptorType::lane>() const;
+smarter::shared_ptr<Stream, LanePolicy>
+AnyDescriptor::adopt_<DescriptorType::lane>(void *object, uint8_t extra, smarter::counter *ctr);
+
+// --------------------------------------------------------
+// DescriptorView
+// --------------------------------------------------------
+
+// Non-owning view of a descriptor that is attached to a Universe.
+// Only valid within the RCU critical section of Universe::inspectDescriptor().
+struct DescriptorView {
+	friend struct Universe;
+
+	DescriptorView(const DescriptorView &) = delete;
+
+	DescriptorView &operator= (const DescriptorView &) = delete;
+
+	DescriptorType type() const {
+		return type_;
+	}
+
+	uint32_t rights() const {
+		return rights_;
+	}
+
+	template<DescriptorType K>
+	bool is() const {
+		return type_ == K;
+	}
+
+	// Takes a new reference that remains valid outside of the RCU critical section.
+	// Fails with noDescriptor if the handle was detached concurrently and the object died.
+	std::expected<AnyDescriptor, Error> pin() const {
+		if(!ctr_->increment_if_nonzero())
+			return std::unexpected{Error::noDescriptor};
+		return AnyDescriptor{smarter::adopt_rc, type_, extra_, rights_, object_, ctr_};
+	}
+
+	// Like AnyDescriptor::resolveObject(). In addition, fails with noDescriptor like pin().
+	template<DescriptorType K>
+	std::expected<DescriptorPointer<K>, Error> resolveObject(uint32_t requiredRights) const {
+		if (!is<K>())
+			return std::unexpected{Error::badDescriptor};
+		if (!checkRights(rights_, requiredRights))
+			return std::unexpected{Error::badRights};
+		if (!ctr_->increment_if_nonzero())
+			return std::unexpected{Error::noDescriptor};
+		return AnyDescriptor::adopt_<K>(object_, extra_, ctr_);
+	}
+
+	// Returns both the object (see resolveObject()) and rights.
+	template<DescriptorType K>
+	std::expected<std::tuple<DescriptorPointer<K>, uint32_t>, Error>
+	resolveCapability(uint32_t requiredRights) const {
+		auto object = FRG_TRY(resolveObject<K>(requiredRights));
+		return std::tuple{std::move(object), rights_};
+	}
+
+private:
+	DescriptorView(DescriptorType type, uint8_t extra, uint32_t rights,
+			void *object, smarter::counter *ctr)
+	: type_{type}, extra_{extra}, rights_{rights}, object_{object}, ctr_{ctr} { }
+
+	DescriptorType type_;
+	uint8_t extra_;
+	uint32_t rights_;
+	void *object_;
+	smarter::counter *ctr_;
+};
 
 // --------------------------------------------------------
 // Universe.
 // --------------------------------------------------------
 
-struct Universe {
+// Maps handles to descriptors.
+// Lookups are lock-free via RCU, modifications take a lock.
+// Handles encode a slot index in their low bits and a per-slot generation in their high bits.
+// Slot reuse bumps the generation. Slots are only reused after an RCU grace period has passed since the previous detach.
+struct Universe : RcuProtected, private RcuCallable {
 private:
 	struct CtorToken {};
 
-public:
-	typedef frg::ticket_spinlock Lock;
-	typedef frg::unique_lock<frg::ticket_spinlock> Guard;
+	static constexpr unsigned int slotIndexBits = 20;
+	static constexpr unsigned int generationBits = 63 - slotIndexBits;
+	static constexpr uint64_t slotIndexMask = (uint64_t{1} << slotIndexBits) - 1;
+	// Set in a slot's handle field iff no descriptor is attached to the slot.
+	static constexpr uint64_t invalidMarker = uint64_t{1} << 63;
+	// Denotes the empty list in the free/pending/retiring head and tail members.
+	static constexpr uint32_t nilIndex = ~uint32_t{0};
 
+	static constexpr unsigned int chunkShift = 6;
+	static constexpr size_t chunkSize = size_t{1} << chunkShift;
+
+	struct Slot {
+		// Encodes the state of this slot.
+		// - Live slots: the invalidMarker bit is clear.
+		//   The value matches the handle of the slot.
+		// - Detached slots: the invalidMarker bit is set.
+		//   Generation bits store the next generation to use.
+		//   Index bits store the next slot in the free-list that the slot is part of.
+		std::atomic<uint64_t> state{invalidMarker | (uint64_t{1} << slotIndexBits)};
+		// The remainder of the fields are constant after attachDescriptor().
+		// They remain valid until reuse (i.e., until a RCU grace period has passed after detachDescriptor()).
+		void *object = nullptr;
+		smarter::counter *ctr = nullptr;
+		DescriptorType type = DescriptorType::none;
+		uint8_t extra = 0;
+		uint32_t rights = 0;
+	};
+	static_assert(sizeof(Slot) == 32);
+
+	struct Root : RcuCallable {
+		size_t numChunks;
+
+		std::atomic<Slot *> *chunks() {
+			return reinterpret_cast<std::atomic<Slot *> *>(this + 1);
+		}
+	};
+
+public:
 	static std::expected<smarter::shared_ptr<Universe>, Error> create();
 
 	Universe(CtorToken);
+
+	Universe(const Universe &) = delete;
+
+	Universe &operator= (const Universe &) = delete;
+
 	~Universe();
 
 	Handle attachDescriptor(AnyDescriptor descriptor);
 
 	std::optional<AnyDescriptor> getDescriptor(Handle handle);
 
+	// fn runs within an RCU read-side section and must not block.
+	// fn should also avoid dropping references (move them out instead) such that object teardown does not run within the RCU section.
 	template<typename Fn>
-	requires requires(Fn fn, AnyDescriptor &desc) {
+	requires requires(Fn fn, const DescriptorView &desc) {
 		{ fn(desc) };
 	}
 	auto inspectDescriptor(Handle handle, Fn &&fn)
-			-> std::invoke_result_t<Fn, AnyDescriptor &> {
-		using ResultType = std::invoke_result_t<Fn, AnyDescriptor &>;
+			-> std::invoke_result_t<Fn, const DescriptorView &> {
+		using ResultType = std::invoke_result_t<Fn, const DescriptorView &>;
 
-		auto irqLock = frg::guard(&irqMutex());
-		Guard guard(lock);
-
-		auto *desc = _descriptorMap.get(handle);
-		if(!desc)
+		if(handle <= 0)
 			return ResultType{std::unexpect, Error::noDescriptor};
-		return std::forward<Fn>(fn)(*desc);
+		auto h = static_cast<uint64_t>(handle);
+
+		IplGuard<ipl::noSchedule> rcuGuard;
+
+		auto slot = slotFor_(h);
+		if(!slot || slot->state.load(std::memory_order_acquire) != h)
+			return ResultType{std::unexpect, Error::noDescriptor};
+		DescriptorView desc{slot->type, slot->extra, slot->rights, slot->object, slot->ctr};
+		return std::forward<Fn>(fn)(desc);
 	}
 
-	// Convenience wrapper for getDescriptor() -> resolveObject().
+	// Convenience wrapper for inspectDescriptor() -> resolveObject().
 	template<DescriptorType K>
 	std::expected<DescriptorPointer<K>, Error> resolveObject(Handle handle, uint32_t rights) {
-		return inspectDescriptor(handle, [&](AnyDescriptor &desc) {
+		return inspectDescriptor(handle, [&](const DescriptorView &desc) {
 			return desc.resolveObject<K>(rights);
 		});
 	}
 
-	// Convenience wrapper for getDescriptor() -> resolveCapability().
+	// Convenience wrapper for inspectDescriptor() -> resolveCapability().
 	template<DescriptorType K>
 	std::expected<std::tuple<DescriptorPointer<K>, uint32_t>, Error>
 	resolveCapability(Handle handle, uint32_t rights) {
-		return inspectDescriptor(handle, [&](AnyDescriptor &desc) {
+		return inspectDescriptor(handle, [&](const DescriptorView &desc) {
 			return desc.resolveCapability<K>(rights);
 		});
 	}
 
 	frg::optional<AnyDescriptor> detachDescriptor(Handle handle);
 
-	Lock lock;
-
 private:
-	frg::hash_map<
-		Handle,
-		AnyDescriptor,
-		frg::hash<Handle>,
-		KernelAlloc
-	> _descriptorMap;
+	Slot *slotFor_(uint64_t handle) {
+		auto index = handle & slotIndexMask;
+		auto root = root_.load(std::memory_order_acquire);
+		auto chunkIndex = index >> chunkShift;
+		if(chunkIndex >= root->numChunks)
+			return nullptr;
+		auto chunk = root->chunks()[chunkIndex].load(std::memory_order_acquire);
+		if(!chunk)
+			return nullptr;
+		return &chunk[index & (chunkSize - 1)];
+	}
 
-	Handle _nextHandle;
+	Slot *slotAt_(uint32_t index);
+	void setLink_(Slot *slot, uint32_t next);
+	Slot *allocateSlot_();
+	void growRoot_(size_t numChunks);
+	static void recycleRcu_(RcuCallable *base);
+
+	frg::ticket_spinlock lock_;
+	std::atomic<Root *> root_{nullptr};
+	// Number of slots that have been opened so far (never decreases; slots are recycled).
+	size_t numSlots_ = 0;
+	// FIFO of slots that are ready for reuse.
+	uint32_t freeHead_ = nilIndex;
+	uint32_t freeTail_ = nilIndex;
+	// Open batch of slots that await recycling; closed once the retiring batch drains.
+	uint32_t pendingHead_ = nilIndex;
+	uint32_t pendingTail_ = nilIndex;
+	// Batch of slots covered by the in-flight RCU callback.
+	uint32_t retiringHead_ = nilIndex;
+	uint32_t retiringTail_ = nilIndex;
+	bool rcuInFlight_ = false;
+	// Used to keep the Universe alive while the RCU callback is in flight.
+	smarter::borrowed_ptr<Universe> selfPtr_;
 };
+
+inline std::optional<AnyDescriptor> Universe::getDescriptor(Handle handle) {
+	auto pinned = inspectDescriptor(handle, [](const DescriptorView &desc) {
+		return desc.pin();
+	});
+	if(!pinned)
+		return std::nullopt;
+	return std::move(*pinned);
+}
 
 } // namespace thor

@@ -12,6 +12,8 @@
 #include <thor-internal/error.hpp>
 #include <thor-internal/kernel-heap.hpp>
 #include <thor-internal/kernlet.hpp>
+#include <thor-internal/rcu.hpp>
+#include <thor-internal/rcu-base.hpp>
 #include <thor-internal/work-queue.hpp>
 
 namespace thor {
@@ -156,7 +158,7 @@ constexpr IrqStrategy endOfService = IrqStrategy{1} << 9;
 
 // Represents a (not necessarily physical) "pin" of an interrupt controller.
 // This class handles the IRQ configuration and acknowledgement.
-struct IrqPin {
+struct IrqPin : RcuProtected {
 private:
 	static constexpr int maskedForService = 1;
 	static constexpr int maskedWhileBuffered = 2;
@@ -285,7 +287,7 @@ protected:
 template<typename Pin, typename... Args>
 requires std::derived_from<Pin, IrqPin>
 smarter::shared_ptr<Pin> createIrqPin(Args &&... args) {
-	auto pin = smarter::allocate_shared<Pin>(*kernelAlloc, std::forward<Args>(args)...);
+	auto pin = allocate_rcu_shared<Pin>(*kernelAlloc, std::forward<Args>(args)...);
 	pin->selfPtr = pin;
 	return pin;
 }
@@ -293,8 +295,10 @@ smarter::shared_ptr<Pin> createIrqPin(Args &&... args) {
 // ----------------------------------------------------------------------------
 
 // This class implements the user-visible part of IRQ handling.
-struct IrqObject : IrqSink {
+struct IrqObject : IrqSink, RcuProtected {
 	friend AwaitIrqNode;
+
+	void finalizeBeforeRcu();
 
 	void automate(smarter::shared_ptr<BoundKernlet> kernlet);
 
@@ -372,6 +376,7 @@ protected:
 
 	~IrqObject() = default;
 };
+static_assert(HasFinalizeBeforeRcu<IrqObject>);
 
 struct GenericIrqObject final : IrqObject {
 private:

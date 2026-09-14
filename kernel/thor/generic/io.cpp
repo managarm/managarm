@@ -1,5 +1,6 @@
 
 #include <thor-internal/io.hpp>
+#include <thor-internal/rcu.hpp>
 
 namespace thor {
 
@@ -8,7 +9,7 @@ namespace thor {
 // --------------------------------------------------------
 
 std::expected<smarter::shared_ptr<IoSpace>, Error> IoSpace::create() {
-	auto ptr = smarter::allocate_shared<IoSpace>(*kernelAlloc, CtorToken{});
+	auto ptr = allocate_rcu_shared<IoSpace>(*kernelAlloc, CtorToken{});
 	return ptr;
 }
 

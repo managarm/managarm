@@ -13,7 +13,7 @@ namespace thor {
 
 std::expected<smarter::shared_ptr<IpcQueue>, Error>
 IpcQueue::create(unsigned int numChunks, size_t chunkSize, unsigned int numSqChunks) {
-	auto ptr = smarter::allocate_shared<IpcQueue>(*kernelAlloc, CtorToken{},
+	auto ptr = allocate_rcu_shared<IpcQueue>(*kernelAlloc, CtorToken{},
 			numChunks, chunkSize, numSqChunks);
 	ptr->selfPtr = ptr;
 

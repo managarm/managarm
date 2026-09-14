@@ -479,7 +479,7 @@ private:
 
 public:
 	static std::expected<smarter::shared_ptr<ZeroMemory>, Error> create() {
-		auto ptr = smarter::allocate_shared<ZeroMemory>(*kernelAlloc, CtorToken{});
+		auto ptr = allocate_rcu_shared<ZeroMemory>(*kernelAlloc, CtorToken{});
 		ptr->selfPtr = ptr;
 		return ptr;
 	}
@@ -566,7 +566,7 @@ smarter::shared_ptr<MemoryView> getZeroMemory() {
 
 std::expected<smarter::shared_ptr<ImmediateMemory>, Error>
 ImmediateMemory::create(size_t length) {
-	auto ptr = smarter::allocate_shared<ImmediateMemory>(*kernelAlloc, CtorToken{});
+	auto ptr = allocate_rcu_shared<ImmediateMemory>(*kernelAlloc, CtorToken{});
 	ptr->selfPtr = ptr;
 
 	auto numPages = (length + kPageSize - 1) >> kPageShift;
@@ -722,7 +722,7 @@ ImmediateWindow::~ImmediateWindow() {
 
 std::expected<smarter::shared_ptr<HardwareMemory>, Error> HardwareMemory::create(
 		PhysicalAddr base, size_t length, CachingMode cache_mode) {
-	auto ptr = smarter::allocate_shared<HardwareMemory>(*kernelAlloc, CtorToken{},
+	auto ptr = allocate_rcu_shared<HardwareMemory>(*kernelAlloc, CtorToken{},
 			base, length, cache_mode);
 	return ptr;
 }
@@ -795,7 +795,7 @@ size_t HardwareMemory::getLength() {
 std::expected<smarter::shared_ptr<AllocatedMemory>, Error> AllocatedMemory::create(
 	smarter::shared_ptr<Hierarchy> hierarchy, size_t length, int addressBits, size_t chunkSize, size_t chunkAlign
 ) {
-	auto ptr = smarter::allocate_shared<AllocatedMemory>(*kernelAlloc, CtorToken{},
+	auto ptr = allocate_rcu_shared<AllocatedMemory>(*kernelAlloc, CtorToken{},
 			std::move(hierarchy), length, addressBits, chunkSize, chunkAlign);
 	ptr->selfPtr = ptr;
 	return ptr;
@@ -1657,7 +1657,7 @@ void ManagedSpace::_wakeDrain() {
 // --------------------------------------------------------
 
 std::expected<smarter::shared_ptr<SwapSpace>, Error> SwapSpace::create() {
-	auto self = smarter::allocate_shared<SwapSpace>(*kernelAlloc);
+	auto self = allocate_rcu_shared<SwapSpace>(*kernelAlloc);
 	self->selfPtr = self;
 	spawnOnWorkQueue(*kernelAlloc, WorkQueue::generalQueue().lock(), self->_runReclaimLoop());
 	spawnOnWorkQueue(*kernelAlloc, WorkQueue::generalQueue().lock(), self->_runDrainLoop());
@@ -2061,7 +2061,7 @@ void ManagedSpace::markDirty(CachePage *cachePage) {
 
 std::expected<smarter::shared_ptr<BackingMemory>, Error> BackingMemory::create(
 		smarter::shared_ptr<ManagedSpace> managed) {
-	auto ptr = smarter::allocate_shared<BackingMemory>(*kernelAlloc, CtorToken{}, std::move(managed));
+	auto ptr = allocate_rcu_shared<BackingMemory>(*kernelAlloc, CtorToken{}, std::move(managed));
 	return ptr;
 }
 
@@ -2459,7 +2459,7 @@ coroutine<frg::expected<Error>> BackingMemory::invalidateRange(uintptr_t offset,
 
 std::expected<smarter::shared_ptr<FrontalMemory>, Error> FrontalMemory::create(
 		smarter::shared_ptr<ManagedSpace> managed) {
-	auto ptr = smarter::allocate_shared<FrontalMemory>(*kernelAlloc, CtorToken{}, std::move(managed));
+	auto ptr = allocate_rcu_shared<FrontalMemory>(*kernelAlloc, CtorToken{}, std::move(managed));
 	ptr->selfPtr = ptr;
 	return ptr;
 }
@@ -2556,7 +2556,7 @@ size_t FrontalMemory::getLength() {
 
 std::expected<smarter::shared_ptr<SwappableMemory>, Error> SwappableMemory::create(
 		smarter::shared_ptr<SwapSpace> space, size_t length) {
-	auto ptr = smarter::allocate_shared<SwappableMemory>(*kernelAlloc, CtorToken{},
+	auto ptr = allocate_rcu_shared<SwappableMemory>(*kernelAlloc, CtorToken{},
 			std::move(space), length);
 	ptr->selfPtr = ptr;
 	return ptr;
@@ -2762,7 +2762,7 @@ SwappableMemory::touchRange(uintptr_t offset, size_t, FetchFlags flags) {
 // --------------------------------------------------------
 
 std::expected<smarter::shared_ptr<IndirectMemory>, Error> IndirectMemory::create(size_t numSlots) {
-	auto ptr = smarter::allocate_shared<IndirectMemory>(*kernelAlloc, CtorToken{}, numSlots);
+	auto ptr = allocate_rcu_shared<IndirectMemory>(*kernelAlloc, CtorToken{}, numSlots);
 	return ptr;
 }
 
@@ -2919,7 +2919,7 @@ CowPage::~CowPage() {
 std::expected<smarter::shared_ptr<CopyOnWriteMemory>, Error> CopyOnWriteMemory::create(
 		smarter::shared_ptr<Hierarchy> hierarchy, smarter::shared_ptr<SwapSpace> space,
 		smarter::shared_ptr<MemoryView> view, uintptr_t offset, size_t length) {
-	auto ptr = smarter::allocate_shared<CopyOnWriteMemory>(*kernelAlloc, CtorToken{},
+	auto ptr = allocate_rcu_shared<CopyOnWriteMemory>(*kernelAlloc, CtorToken{},
 			std::move(hierarchy), std::move(space), std::move(view), offset, length);
 	ptr->selfPtr = ptr;
 	return ptr;
@@ -3099,7 +3099,7 @@ coroutine<frg::expected<Error, smarter::shared_ptr<MemoryView>>> CopyOnWriteMemo
 		auto lock = frg::guard(&_mutex);
 
 		// Create a new mapping in the forked space.
-		forked = smarter::allocate_shared<CopyOnWriteMemory>(*kernelAlloc, CtorToken{},
+		forked = allocate_rcu_shared<CopyOnWriteMemory>(*kernelAlloc, CtorToken{},
 				std::move(hierarchy), _space, _view, _viewOffset, _length);
 		forked->selfPtr = forked;
 
