@@ -14,12 +14,14 @@ namespace {
 struct Node {
 	uint64_t id;
 	uint64_t parentId;
-	uint64_t chargedBytes;
+	uint64_t chargedMemory;
+	uint64_t chargedSwap;
 	std::string tag;
 
 	std::vector<uint64_t> children;
-	// Sum of chargedBytes over this node and all of its descendants.
-	uint64_t cumulativeBytes = 0;
+	// Sums of chargedMemory and chargedSwap over this node and all of its descendants.
+	uint64_t cumulativeMemory = 0;
+	uint64_t cumulativeSwap = 0;
 };
 
 async::result<std::vector<Node>> fetchHierarchy() {
@@ -72,7 +74,7 @@ async::result<std::vector<Node>> fetchHierarchy() {
 	nodes.reserve(resp.nodes_size());
 	for(auto &node : resp.nodes())
 		nodes.push_back({node.id(), node.parent_id(), node.charged_memory(),
-				std::move(node.tag()), {}, 0});
+				node.charged_swap(), std::move(node.tag()), {}, 0, 0});
 
 	co_return nodes;
 }
@@ -90,16 +92,20 @@ std::string formatBytes(uint64_t bytes) {
 	return std::format("{:.1f} {}", value, units[i]);
 }
 
-// Accumulates cumulativeBytes bottom-up, sorts children by size and adds this subtree's total to outBytes.
-void accumulate(std::map<uint64_t, Node> &byId, uint64_t id, uint64_t &outBytes) {
+// Accumulates cumulativeMemory and cumulativeSwap bottom-up, sorts children by size
+// and adds this subtree's totals to outBytes and outSwapBytes.
+void accumulate(std::map<uint64_t, Node> &byId, uint64_t id, uint64_t &outBytes,
+		uint64_t &outSwapBytes) {
 	auto &node = byId.at(id);
-	node.cumulativeBytes = node.chargedBytes;
+	node.cumulativeMemory = node.chargedMemory;
+	node.cumulativeSwap = node.chargedSwap;
 	for(auto child : node.children)
-		accumulate(byId, child, node.cumulativeBytes);
+		accumulate(byId, child, node.cumulativeMemory, node.cumulativeSwap);
 	std::ranges::sort(node.children, [&] (uint64_t x, uint64_t y) {
-		return byId.at(x).cumulativeBytes > byId.at(y).cumulativeBytes;
+		return byId.at(x).cumulativeMemory > byId.at(y).cumulativeMemory;
 	});
-	outBytes += node.cumulativeBytes;
+	outBytes += node.cumulativeMemory;
+	outSwapBytes += node.cumulativeSwap;
 }
 
 void printSubtree(std::map<uint64_t, Node> &byId, uint64_t id, std::string prefix, bool last,
@@ -109,9 +115,10 @@ void printSubtree(std::map<uint64_t, Node> &byId, uint64_t id, std::string prefi
 	std::print("{}", prefix);
 	if(!isRoot)
 		std::print("{}", last ? "`- " : "|- ");
-	std::println("{} (#{}): {} charged, {} cumulative",
+	std::println("{} (#{}): {} charged, {} cumulative; {} swap, {} cumulative swap",
 			node.tag, node.id,
-			formatBytes(node.chargedBytes), formatBytes(node.cumulativeBytes));
+			formatBytes(node.chargedMemory), formatBytes(node.cumulativeMemory),
+			formatBytes(node.chargedSwap), formatBytes(node.cumulativeSwap));
 
 	auto childPrefix = prefix;
 	if(!isRoot)
@@ -140,18 +147,20 @@ async::result<void> run() {
 	}
 
 	uint64_t total = 0;
+	uint64_t totalSwap = 0;
 	for(auto id : roots)
-		accumulate(byId, id, total);
+		accumulate(byId, id, total, totalSwap);
 
 	std::ranges::sort(roots, [&] (uint64_t x, uint64_t y) {
-		return byId.at(x).cumulativeBytes > byId.at(y).cumulativeBytes;
+		return byId.at(x).cumulativeMemory > byId.at(y).cumulativeMemory;
 	});
 
 	for(auto id : roots)
 		printSubtree(byId, id, "", true, true);
 
 	std::println("");
-	std::println("{} nodes, {} charged in total", byId.size(), formatBytes(total));
+	std::println("{} nodes, {} charged and {} swap in total", byId.size(), formatBytes(total),
+			formatBytes(totalSwap));
 }
 
 } // anonymous namespace
