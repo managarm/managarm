@@ -102,6 +102,7 @@ struct HierarchySnapshot {
 	uint64_t parentId;
 	frg::string<KernelAlloc> tag;
 	size_t chargedMemory;
+	size_t chargedSwap;
 };
 
 // Debugging aid: lists all live hierarchy nodes, parents before children.

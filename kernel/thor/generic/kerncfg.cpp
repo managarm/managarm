@@ -164,6 +164,7 @@ private:
 				item.set_id(node.id);
 				item.set_parent_id(node.parentId);
 				item.set_charged_memory(node.chargedMemory);
+				item.set_charged_swap(node.chargedSwap);
 				item.set_tag(std::move(node.tag));
 				resp.add_nodes(std::move(item));
 			}
