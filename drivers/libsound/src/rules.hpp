@@ -4,6 +4,7 @@
 #include <cstdint>
 #include <array>
 #include <functional>
+#include <optional>
 #include <bit>
 
 #include <linux/types.h>
@@ -258,6 +259,40 @@ constexpr snd_interval intervalPow2(snd_interval interval) {
 		interval.empty = 1;
 
 	return interval;
+}
+
+constexpr std::optional<uint32_t> intervalFixedValue(const snd_interval &interval) {
+	if (interval.empty)
+		return std::nullopt;
+
+	bool isFixed = interval.min == interval.max
+			|| (interval.min + 1 == interval.max && (interval.openmin || interval.openmax));
+
+	if (isFixed) {
+		if (interval.openmin && !interval.openmax)
+			return interval.max;
+		return interval.min;
+	}
+
+	return std::nullopt;
+}
+
+constexpr std::optional<uint32_t> maskFixedValue(const snd_mask &mask) {
+	std::optional<uint32_t> bitPos;
+
+	for (uint32_t i = 0; i < sizeof(mask.bits) / sizeof(mask.bits[0]); i++) {
+		uint32_t bits = mask.bits[i];
+
+		uint32_t count = std::popcount(bits);
+		if (count == 0)
+			continue;
+		else if (count > 1 || bitPos.has_value())
+			return std::nullopt;
+
+		bitPos = i * 32 + std::countr_zero(bits);
+	}
+
+	return bitPos;
 }
 
 } // namespace utils

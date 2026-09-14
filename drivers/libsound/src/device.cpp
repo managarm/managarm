@@ -26,7 +26,62 @@ namespace {
 constexpr bool logRequests = true;
 constexpr bool logWrites = false;
 
+void fillHwParamsInfo(alsa::Params &params) {
+	constexpr uint32_t infoFlags = SNDRV_PCM_INFO_MMAP
+			| SNDRV_PCM_INFO_MMAP_VALID
+			| SNDRV_PCM_INFO_INTERLEAVED
+			| SNDRV_PCM_INFO_BLOCK_TRANSFER;
+
+	if (params.values.info == 0)
+		params.values.info = infoFlags;
+
+	params.values.fifo_size = 0;
+
+	if (params.values.msbits == 0) {
+		auto &sampleBits = params.interval(SNDRV_PCM_HW_PARAM_SAMPLE_BITS);
+		auto &formats = params.mask(SNDRV_PCM_HW_PARAM_FORMAT);
+
+		if (auto value = alsa::utils::intervalFixedValue(sampleBits))
+			params.values.msbits = value.value();
+
+		if (auto value = alsa::utils::maskFixedValue(formats)) {
+			uint32_t width = 0;
+
+			switch (value.value()) {
+			case SNDRV_PCM_FORMAT_S8:
+				width = 8;
+				break;
+			case SNDRV_PCM_FORMAT_S16_LE:
+				width = 16;
+				break;
+			case SNDRV_PCM_FORMAT_S20_LE:
+				width = 20;
+				break;
+			case SNDRV_PCM_FORMAT_S24_LE:
+				width = 24;
+				break;
+			case SNDRV_PCM_FORMAT_S32_LE:
+				width = 32;
+				break;
+			default:
+				break;
+			}
+
+			if (width != 0)
+				params.values.msbits = width;
+		}
+	}
+
+	if (params.values.rate_den == 0) {
+		auto &rate = params.interval(SNDRV_PCM_HW_PARAM_RATE);
+		if (auto value = alsa::utils::intervalFixedValue(rate)) {
+			params.values.rate_num = value.value();
+			params.values.rate_den = 1;
+		}
+	}
 }
+
+} // namespace
 
 namespace alsa {
 
@@ -214,9 +269,51 @@ struct DeviceFile {
 			return bufferSizeFrames - getAvailableFrames();
 	}
 
+	timespec getTstamp() const {
+		timespec ts{};
+
+		switch (swParams.tstamp_type) {
+		case SNDRV_PCM_TSTAMP_TYPE_GETTIMEOFDAY: {
+			timeval tv{};
+			gettimeofday(&tv, nullptr);
+			TIMEVAL_TO_TIMESPEC(&tv, &ts);
+			break;
+		}
+		case SNDRV_PCM_TSTAMP_TYPE_MONOTONIC:
+			clock_gettime(CLOCK_MONOTONIC, &ts);
+			break;
+		case SNDRV_PCM_TSTAMP_TYPE_MONOTONIC_RAW:
+			clock_gettime(CLOCK_MONOTONIC_RAW, &ts);
+			break;
+		default:
+			break;
+		}
+
+		return ts;
+	}
+
+	timespec framesToTstamp(snd_pcm_uframes_t frames) const {
+		if (!sampleRate)
+			return {};
+
+		return {
+			.tv_sec = static_cast<time_t>(frames / sampleRate),
+			.tv_nsec = static_cast<long>((frames % sampleRate) * UINT64_C(1'000'000'000) / sampleRate)
+		};
+	}
+
 	ApplyRulesResult applyRules(Params &params, uint32_t rmask);
 
 	void updatePosition();
+
+	void updatePositionifRunning() {
+		if (!device->attachedStream)
+			return;
+
+		auto state = status->state;
+		if (state == SNDRV_PCM_STATE_RUNNING || state == SNDRV_PCM_STATE_DRAINING)
+			updatePosition();
+	}
 
 	void periodCallback();
 
@@ -239,8 +336,13 @@ struct DeviceFile {
 	async::recurring_event eventBell;
 
 	uint32_t bufferSizeFrames{};
+	uint32_t periodSizeFrames{};
 	uint32_t frameSize{};
+	uint32_t sampleRate{};
+
+	timespec startTstamp{};
 	size_t lastPeriodPosition{};
+	snd_pcm_uframes_t availMax{};
 
 	std::vector<Rule> dynamicRules;
 };
@@ -307,24 +409,10 @@ void DeviceFile::updatePosition() {
 
 	status->hw_ptr = hwPtr;
 
-	if (swParams.tstamp_mode == SNDRV_PCM_TSTAMP_ENABLE) {
-		switch (swParams.tstamp_type) {
-		case SNDRV_PCM_TSTAMP_TYPE_GETTIMEOFDAY: {
-			timeval tv{};
-			gettimeofday(&tv, nullptr);
-			TIMEVAL_TO_TIMESPEC(&tv, &status->tstamp);
-			break;
-		}
-		case SNDRV_PCM_TSTAMP_TYPE_MONOTONIC:
-			clock_gettime(CLOCK_MONOTONIC, &status->tstamp);
-			break;
-		case SNDRV_PCM_TSTAMP_TYPE_MONOTONIC_RAW:
-			clock_gettime(CLOCK_MONOTONIC_RAW, &status->tstamp);
-			break;
-		default:
-			break;
-		}
-	}
+	availMax = std::max(availMax, getAvailableFrames());
+
+	if (swParams.tstamp_mode == SNDRV_PCM_TSTAMP_ENABLE)
+		status->tstamp = getTstamp();
 
 	auto result = async::run(pollStatus(this), helix::currentDispatcher);
 	assert(result);
@@ -376,8 +464,12 @@ async::result<frg::expected<protocols::fs::Error, size_t>> DeviceFile::writeFram
 		auto stream = device->attachedStream;
 		if (stream->isPaused && bufferSizeFrames - available >= swParams.start_threshold) {
 			std::println(std::cout, "libsound: starting stream (trip threshold {})", swParams.start_threshold);
+
 			auto streamStatus = stream->play();
 			assert(streamStatus);
+
+			startTstamp = getTstamp();
+
 			status->state = SNDRV_PCM_STATE_RUNNING;
 			stream->isPaused = false;
 		}
@@ -574,6 +666,8 @@ async::result<void> DeviceFile::ioctl(void *object, uint32_t id, helix_ng::RecvI
 		params.values.cmask = cmask;
 		params.values.rmask = cmask;
 
+		fillHwParamsInfo(params);
+
 		managarm::fs::GenericIoctlReply resp;
 
 		if (invalid) {
@@ -596,19 +690,23 @@ async::result<void> DeviceFile::ioctl(void *object, uint32_t id, helix_ng::RecvI
 			std::println(std::cout, "libsound: set pcm hw params");
 		}
 
-		snd_pcm_hw_params params;
+		Params params{};
 
 		auto [recv_buffer] = co_await helix_ng::exchangeMsgs(
 			conversation,
-			helix_ng::recvBuffer(&params, sizeof(params))
+			helix_ng::recvBuffer(&params.values, sizeof(params.values))
 		);
 		HEL_CHECK(recv_buffer.error());
 
 		// TODO: verify parameters
 
-		self->hwParams = params;
+		fillHwParamsInfo(params);
+
+		self->hwParams = params.values;
 		self->bufferSizeFrames = self->hwParams.intervals[SNDRV_PCM_HW_PARAM_BUFFER_SIZE - SNDRV_PCM_HW_PARAM_FIRST_INTERVAL].min;
+		self->periodSizeFrames = self->hwParams.intervals[SNDRV_PCM_HW_PARAM_PERIOD_SIZE - SNDRV_PCM_HW_PARAM_FIRST_INTERVAL].min;
 		self->frameSize = self->hwParams.intervals[SNDRV_PCM_HW_PARAM_FRAME_BITS - SNDRV_PCM_HW_PARAM_FIRST_INTERVAL].min / 8;
+		self->sampleRate = self->hwParams.intervals[SNDRV_PCM_HW_PARAM_RATE - SNDRV_PCM_HW_PARAM_FIRST_INTERVAL].min;
 
 		managarm::fs::GenericIoctlReply resp;
 
@@ -618,7 +716,7 @@ async::result<void> DeviceFile::ioctl(void *object, uint32_t id, helix_ng::RecvI
 		auto [send_resp, send_data] = co_await helix_ng::exchangeMsgs(
 			conversation,
 			helix_ng::sendBragiHeadOnly(resp, frg::stl_allocator{}),
-			helix_ng::sendBuffer(&params, sizeof(params))
+			helix_ng::sendBuffer(&params.values, sizeof(params.values))
 		);
 		HEL_CHECK(send_resp.error());
 		HEL_CHECK(send_data.error());
@@ -728,18 +826,31 @@ async::result<void> DeviceFile::ioctl(void *object, uint32_t id, helix_ng::RecvI
 		);
 		HEL_CHECK(recv_buffer.error());
 
+		self->updatePositionifRunning();
+
 		status.state = self->status->state;
-		status.tstamp = self->status->tstamp;
+		status.trigger_tstamp = self->startTstamp;
+		status.tstamp = self->getTstamp();
 		status.appl_ptr = self->control->appl_ptr;
 		status.hw_ptr = self->status->hw_ptr;
+		status.overrange = 0;
+		status.suspended_state = SNDRV_PCM_STATE_OPEN;
+		status.audio_tstamp = self->framesToTstamp(self->status->hw_ptr);
+		status.audio_tstamp_accuracy = 0;
+		status.driver_tstamp = status.tstamp;
 
-		if (self->status->state == SNDRV_PCM_STATE_RUNNING && self->device->attachedStream) {
+		if (self->device->attachedStream
+				&& self->status->state != SNDRV_PCM_STATE_OPEN
+				&& self->status->state != SNDRV_PCM_STATE_SETUP) {
 			status.avail = self->getAvailableFrames();
 			status.delay = self->getHwDelayFrames();
 		} else {
 			status.avail = 0;
 			status.delay = 0;
 		}
+
+		status.avail_max = self->availMax;
+		self->availMax = 0;
 
 		managarm::fs::GenericIoctlReply resp;
 
@@ -789,7 +900,9 @@ async::result<void> DeviceFile::ioctl(void *object, uint32_t id, helix_ng::RecvI
 			std::println(std::cout, "libsound: pcm prepare");
 		}
 
-		if (self->status->state == SNDRV_PCM_STATE_OPEN || self->status->state == SNDRV_PCM_STATE_XRUN) {
+		if (self->status->state == SNDRV_PCM_STATE_OPEN
+				|| self->status->state == SNDRV_PCM_STATE_SETUP
+				|| self->status->state == SNDRV_PCM_STATE_XRUN) {
 			auto &fmtBits = self->hwParams.masks[SNDRV_PCM_HW_PARAM_FORMAT].bits;
 
 			auto checkFmt = [&](snd_pcm_format_t fmt) {
@@ -842,8 +955,18 @@ async::result<void> DeviceFile::ioctl(void *object, uint32_t id, helix_ng::RecvI
 				std::println(std::cout, "libsound: sample rate {}, channels {}", streamParams.sampleRate, streamParams.channels);
 			}
 
-			sound::Stream *stream;
-			if (self->device->type == sound::DeviceType::playback) {
+			sound::Stream *stream = self->device->attachedStream;
+			bool attached = stream != nullptr;
+
+			if (attached) {
+				auto status = stream->pause();
+				assert(status);
+				stream->isPaused = true;
+
+				status = stream->stop();
+				assert(status);
+				stream->isReady = false;
+			} else if (self->device->type == sound::DeviceType::playback) {
 				stream = self->device->card->findFreePlaybackStream();
 				assert(stream);
 			} else {
@@ -854,14 +977,19 @@ async::result<void> DeviceFile::ioctl(void *object, uint32_t id, helix_ng::RecvI
 			auto status = stream->setup(std::move(streamParams));
 			assert(status);
 
-			status = self->device->attachToStream(stream);
-			assert(status);
-			status = self->device->setVolume(100);
-			assert(status);
+			if (!attached) {
+				status = self->device->attachToStream(stream);
+				assert(status);
+				status = self->device->setVolume(100);
+				assert(status);
+			}
+
+			stream->isPaused = true;
 
 			self->status->hw_ptr = 0;
 			self->control->appl_ptr = 0;
 			self->lastPeriodPosition = 0;
+			self->availMax = 0;
 		}
 
 		managarm::fs::GenericIoctlReply resp;
@@ -888,6 +1016,7 @@ async::result<void> DeviceFile::ioctl(void *object, uint32_t id, helix_ng::RecvI
 		if (stream) {
 			auto streamStatus = stream->play();
 			assert(streamStatus);
+			self->startTstamp = self->getTstamp();
 			self->status->state = SNDRV_PCM_STATE_RUNNING;
 			stream->isPaused = false;
 
@@ -917,11 +1046,7 @@ async::result<void> DeviceFile::ioctl(void *object, uint32_t id, helix_ng::RecvI
 			assert(status);
 			stream->isPaused = true;
 
-			status = stream->stop();
-			assert(status);
-			stream->isReady = false;
-			self->device->attachedStream = nullptr;
-
+			self->startTstamp = self->getTstamp();
 			self->status->state = SNDRV_PCM_STATE_XRUN;
 
 			resp.set_error(managarm::fs::Errors::SUCCESS);
@@ -990,7 +1115,11 @@ async::result<void> DeviceFile::ioctl(void *object, uint32_t id, helix_ng::RecvI
 				auto stream = self->device->attachedStream;
 				auto status = stream->pause();
 				assert(status);
+				stream->isPaused = true;
 			}
+
+			self->startTstamp = self->getTstamp();
+			self->status->state = SNDRV_PCM_STATE_SETUP;
 
 			resp.set_error(managarm::fs::Errors::SUCCESS);
 		} else {
@@ -1062,9 +1191,12 @@ async::result<frg::expected<protocols::fs::Error, protocols::fs::PollStatusResul
 DeviceFile::pollStatus(void *object) {
 	auto self = static_cast<DeviceFile *>(object);
 
+	auto stream = self->device->attachedStream;
+	if (!stream)
+		co_return protocols::fs::PollStatusResult{self->eventSequence, EPOLLERR};
+
 	auto available = self->getAvailableFrames();
 
-	auto stream = self->device->attachedStream;
 	int pollSuccess = stream->isCapture() ? (EPOLLIN | EPOLLRDNORM) : (EPOLLOUT | EPOLLWRNORM);
 
 	int s = 0;
