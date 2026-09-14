@@ -163,7 +163,7 @@ private:
 				managarm::kerncfg::HierarchyNode<KernelAlloc> item(*kernelAlloc);
 				item.set_id(node.id);
 				item.set_parent_id(node.parentId);
-				item.set_charged_bytes(node.chargedBytes);
+				item.set_charged_bytes(node.chargedMemory);
 				item.set_tag(std::move(node.tag));
 				resp.add_nodes(std::move(item));
 			}

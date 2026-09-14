@@ -46,20 +46,33 @@ public:
 
 	// Tracks the physical memory (in bytes) currently charged to this node.
 	void chargeMemory(size_t bytes) {
-		chargedBytes_.fetch_add(bytes, std::memory_order_relaxed);
+		chargedMemory_.fetch_add(bytes, std::memory_order_relaxed);
 	}
 	void unchargeMemory(size_t bytes) {
-		chargedBytes_.fetch_sub(bytes, std::memory_order_relaxed);
+		chargedMemory_.fetch_sub(bytes, std::memory_order_relaxed);
 	}
-	size_t chargedBytes() const {
-		return chargedBytes_.load(std::memory_order_relaxed);
+	size_t chargedMemory() const {
+		return chargedMemory_.load(std::memory_order_relaxed);
+	}
+
+	// Tracks the swap slots (in bytes) currently held by this node's memory views.
+	// Their resident frames are charged (as physical memory) to the swap space's hierarchy.
+	void chargeSwap(size_t bytes) {
+		chargedSwap_.fetch_add(bytes, std::memory_order_relaxed);
+	}
+	void unchargeSwap(size_t bytes) {
+		chargedSwap_.fetch_sub(bytes, std::memory_order_relaxed);
+	}
+	size_t chargedSwap() const {
+		return chargedSwap_.load(std::memory_order_relaxed);
 	}
 
 private:
 	uint64_t id_;
 	smarter::shared_ptr<Hierarchy> parent_;
 	frg::string<KernelAlloc> tag_;
-	std::atomic<size_t> chargedBytes_{0};
+	std::atomic<size_t> chargedMemory_{0};
+	std::atomic<size_t> chargedSwap_{0};
 
 	// Can be used to pin the node under RCU.
 	smarter::weak_ptr<Hierarchy> selfPtr_;
@@ -88,7 +101,7 @@ struct HierarchySnapshot {
 	uint64_t id;
 	uint64_t parentId;
 	frg::string<KernelAlloc> tag;
-	size_t chargedBytes;
+	size_t chargedMemory;
 };
 
 // Debugging aid: lists all live hierarchy nodes, parents before children.

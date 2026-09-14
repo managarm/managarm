@@ -3453,13 +3453,22 @@ CopyOnWriteMemory::_materializePage(uintptr_t offset,
 
 void CopyOnWriteMemory::chargePages_(size_t n) {
 	_chargedPages += n;
-	_hierarchy->chargeMemory(n << kPageShift);
+	// Swappable copies hold swap slots; their frames are charged by the swap space.
+	if(_space) {
+		_hierarchy->chargeSwap(n << kPageShift);
+	}else{
+		_hierarchy->chargeMemory(n << kPageShift);
+	}
 }
 
 void CopyOnWriteMemory::unchargePages_(size_t n) {
 	assert(_chargedPages >= n);
 	_chargedPages -= n;
-	_hierarchy->unchargeMemory(n << kPageShift);
+	if(_space) {
+		_hierarchy->unchargeSwap(n << kPageShift);
+	}else{
+		_hierarchy->unchargeMemory(n << kPageShift);
+	}
 }
 
 // --------------------------------------------------------------------------------------
