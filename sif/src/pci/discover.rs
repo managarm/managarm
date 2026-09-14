@@ -465,12 +465,12 @@ fn check_pci_function(
         );
     }
 
-    // Disable interrupts and bus mastering until a driver configures the device.
+    // Disable interrupts until a driver configures the device.
     //
-    // We don't disable I/O and memory decoding so any devices in use by the kernel
-    // remain functional (e.g. framebuffers or UARTs).
+    // We don't disable bus mastering since that breaks devices such as integrated GPUs.
+    // Linux does not disable bus mastering either and we can rely on IOMMUs for DMA protection.
+    // I/O and memory decoding is only disabled while we size BARs.
     let mut command = bus.command(slot, function);
-    command &= !0x4; // Disable bus mastering.
     command |= 0x400; // Mask IRQs.
     bus.set_command(slot, function, command);
 

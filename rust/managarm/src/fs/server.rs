@@ -194,10 +194,7 @@ fn flatten<T>(result: hel::Result<hel::Result<T>>) -> hel::Result<T> {
     result.and_then(|inner| inner)
 }
 
-async fn send_response<M: Message>(
-    conversation: &hel::Handle,
-    resp: &M,
-) -> Result<(), ServeError> {
+async fn send_response<M: Message>(conversation: &hel::Handle, resp: &M) -> Result<(), ServeError> {
     let head = bragi::head_to_bytes(resp)?;
     flatten(hel::submit_async(conversation, hel::SendBuffer::new(&head)).await)?;
     Ok(())
@@ -218,10 +215,7 @@ async fn send_response_with_tail<M: Message>(
 }
 
 /// Receives the tail of a head/tail message on the conversation lane.
-async fn receive_tail(
-    conversation: &hel::Handle,
-    tail_size: usize,
-) -> Result<Vec<u8>, ServeError> {
+async fn receive_tail(conversation: &hel::Handle, tail_size: usize) -> Result<Vec<u8>, ServeError> {
     let mut tail = vec![0u8; tail_size];
     flatten(hel::submit_async(conversation, hel::ReceiveBuffer::new(&mut tail)).await)?;
     Ok(tail)
@@ -417,9 +411,13 @@ async fn handle_read_entries(
             entry.offset,
             entry.name,
         ),
-        Ok(None) => {
-            bindings::ReadEntriesResponse::new(Error::EndOfFile, FileType::REGULAR, 0, 0, String::new())
-        }
+        Ok(None) => bindings::ReadEntriesResponse::new(
+            Error::EndOfFile,
+            FileType::REGULAR,
+            0,
+            0,
+            String::new(),
+        ),
         Err(e) => bindings::ReadEntriesResponse::new(e, FileType::REGULAR, 0, 0, String::new()),
     };
     send_response_with_tail(&conversation, &resp).await
@@ -684,7 +682,10 @@ async fn handle_node_cnt_request(
                         &conversation,
                         (
                             hel::SendBuffer::new(&head),
-                            hel::PushDescriptor::new(&remote, hel_sys::kHelRightInvoke | hel_sys::kHelRightManage),
+                            hel::PushDescriptor::new(
+                                &remote,
+                                hel_sys::kHelRightInvoke | hel_sys::kHelRightManage,
+                            ),
                         ),
                     )
                     .await?;
@@ -722,14 +723,23 @@ async fn handle_get_link(
                 &conversation,
                 (
                     hel::SendBuffer::new(&head),
-                    hel::PushDescriptor::new(&remote, hel_sys::kHelRightInvoke | hel_sys::kHelRightManage),
+                    hel::PushDescriptor::new(
+                        &remote,
+                        hel_sys::kHelRightInvoke | hel_sys::kHelRightManage,
+                    ),
                 ),
             )
             .await?;
             send_resp.and(push_node)?;
             Ok(())
         }
-        Ok(None) => send_response(&conversation, &bindings::SvrResponse::new(Error::FileNotFound)).await,
+        Ok(None) => {
+            send_response(
+                &conversation,
+                &bindings::SvrResponse::new(Error::FileNotFound),
+            )
+            .await
+        }
         Err(e) => send_response(&conversation, &bindings::SvrResponse::new(e)).await,
     }
 }
@@ -781,7 +791,10 @@ async fn handle_traverse_links(
         (
             hel::SendBuffer::new(&resp_head),
             hel::SendBuffer::new(&resp_tail),
-            hel::PushDescriptor::new(&push_remote, hel_sys::kHelRightInvoke | hel_sys::kHelRightManage),
+            hel::PushDescriptor::new(
+                &push_remote,
+                hel_sys::kHelRightInvoke | hel_sys::kHelRightManage,
+            ),
         ),
     )
     .await?;
@@ -789,7 +802,16 @@ async fn handle_traverse_links(
 
     for (child, _) in result.nodes {
         let remote = serve_new_node_lane(child)?;
-        flatten(hel::submit_async(&push_local, hel::PushDescriptor::new(&remote, hel_sys::kHelRightInvoke | hel_sys::kHelRightManage)).await)?;
+        flatten(
+            hel::submit_async(
+                &push_local,
+                hel::PushDescriptor::new(
+                    &remote,
+                    hel_sys::kHelRightInvoke | hel_sys::kHelRightManage,
+                ),
+            )
+            .await,
+        )?;
     }
     Ok(())
 }
@@ -799,7 +821,10 @@ async fn handle_node_open(
     node: Arc<dyn Node>,
     req: bindings::NodeOpenRequest,
 ) -> Result<(), ServeError> {
-    match node.open(req.read() != 0, req.write() != 0, req.append() != 0).await {
+    match node
+        .open(req.read() != 0, req.write() != 0, req.append() != 0)
+        .await
+    {
         Ok(file) => {
             let (control_local, control_remote) = hel::create_stream()?;
             let (pt_local, pt_remote) = hel::create_stream()?;
@@ -812,8 +837,14 @@ async fn handle_node_open(
                 &conversation,
                 (
                     hel::SendBuffer::new(&head),
-                    hel::PushDescriptor::new(&control_remote, hel_sys::kHelRightInvoke | hel_sys::kHelRightManage),
-                    hel::PushDescriptor::new(&pt_remote, hel_sys::kHelRightInvoke | hel_sys::kHelRightManage),
+                    hel::PushDescriptor::new(
+                        &control_remote,
+                        hel_sys::kHelRightInvoke | hel_sys::kHelRightManage,
+                    ),
+                    hel::PushDescriptor::new(
+                        &pt_remote,
+                        hel_sys::kHelRightInvoke | hel_sys::kHelRightManage,
+                    ),
                 ),
             )
             .await?;
@@ -834,7 +865,10 @@ async fn handle_mkdir(
     let req: bindings::MkdirRequest =
         bragi::head_tail_from_bytes(&head, &tail).map_err(ServeError::Malformed)?;
 
-    match node.mkdir(req.path(), req.uid(), req.gid(), req.mode()).await {
+    match node
+        .mkdir(req.path(), req.uid(), req.gid(), req.mode())
+        .await
+    {
         Ok(child) => {
             let remote = serve_new_node_lane(child.node)?;
             let mut resp = bindings::SvrResponse::new(Error::Success);
@@ -844,7 +878,10 @@ async fn handle_mkdir(
                 &conversation,
                 (
                     hel::SendBuffer::new(&head),
-                    hel::PushDescriptor::new(&remote, hel_sys::kHelRightInvoke | hel_sys::kHelRightManage),
+                    hel::PushDescriptor::new(
+                        &remote,
+                        hel_sys::kHelRightInvoke | hel_sys::kHelRightManage,
+                    ),
                 ),
             )
             .await?;
@@ -914,7 +951,11 @@ async fn handle_link(
     let tail = receive_tail(&conversation, tail_size).await?;
     let _req: bindings::LinkRequest =
         bragi::head_tail_from_bytes(&head, &tail).map_err(ServeError::Malformed)?;
-    send_response(&conversation, &bindings::SvrResponse::new(Error::IllegalOperationTarget)).await
+    send_response(
+        &conversation,
+        &bindings::SvrResponse::new(Error::IllegalOperationTarget),
+    )
+    .await
 }
 
 async fn handle_get_link_or_create(
@@ -939,7 +980,11 @@ async fn handle_utimensat(
     conversation: hel::Handle,
     _req: bindings::UtimensatRequest,
 ) -> Result<(), ServeError> {
-    send_response(&conversation, &bindings::SvrResponse::new(Error::IllegalOperationTarget)).await
+    send_response(
+        &conversation,
+        &bindings::SvrResponse::new(Error::IllegalOperationTarget),
+    )
+    .await
 }
 
 async fn handle_chown(
@@ -953,12 +998,8 @@ async fn handle_chown(
     .await
 }
 
-fn spawn_tailed<F, Fut>(
-    head: &[u8],
-    tail_size: usize,
-    conversation: hel::Handle,
-    handler: F,
-) where
+fn spawn_tailed<F, Fut>(head: &[u8], tail_size: usize, conversation: hel::Handle, handler: F)
+where
     F: FnOnce(hel::Handle, Vec<u8>, usize) -> Fut,
     Fut: Future<Output = Result<(), ServeError>> + 'static,
 {
@@ -967,10 +1008,7 @@ fn spawn_tailed<F, Fut>(
 
 /// Accepts a single conversation on a node lane, receives the request head and
 /// dispatches it to a detached handler task.
-async fn dispatch_node_request(
-    lane: &hel::Handle,
-    node: &Arc<dyn Node>,
-) -> Result<(), ServeError> {
+async fn dispatch_node_request(lane: &hel::Handle, node: &Arc<dyn Node>) -> Result<(), ServeError> {
     let (accept, (head,)) =
         hel::submit_async(lane, hel::Accept::new((hel::ReceiveInline,))).await?;
 
@@ -994,15 +1032,25 @@ async fn dispatch_node_request(
         }
         bindings::GetLinkRequest::MESSAGE_ID => {
             let node = node.clone();
-            spawn_tailed(&head, tail_size, conversation, move |conversation, head, tail_size| {
-                handle_get_link(conversation, node, head, tail_size)
-            });
+            spawn_tailed(
+                &head,
+                tail_size,
+                conversation,
+                move |conversation, head, tail_size| {
+                    handle_get_link(conversation, node, head, tail_size)
+                },
+            );
         }
         bindings::NodeTraverseLinksRequest::MESSAGE_ID => {
             let node = node.clone();
-            spawn_tailed(&head, tail_size, conversation, move |conversation, head, tail_size| {
-                handle_traverse_links(conversation, node, head, tail_size)
-            });
+            spawn_tailed(
+                &head,
+                tail_size,
+                conversation,
+                move |conversation, head, tail_size| {
+                    handle_traverse_links(conversation, node, head, tail_size)
+                },
+            );
         }
         bindings::NodeOpenRequest::MESSAGE_ID => {
             let node = node.clone();
@@ -1012,27 +1060,47 @@ async fn dispatch_node_request(
         }
         bindings::MkdirRequest::MESSAGE_ID => {
             let node = node.clone();
-            spawn_tailed(&head, tail_size, conversation, move |conversation, head, tail_size| {
-                handle_mkdir(conversation, node, head, tail_size)
-            });
+            spawn_tailed(
+                &head,
+                tail_size,
+                conversation,
+                move |conversation, head, tail_size| {
+                    handle_mkdir(conversation, node, head, tail_size)
+                },
+            );
         }
         bindings::UnlinkRequest::MESSAGE_ID => {
             let node = node.clone();
-            spawn_tailed(&head, tail_size, conversation, move |conversation, head, tail_size| {
-                handle_unlink(conversation, node, head, tail_size)
-            });
+            spawn_tailed(
+                &head,
+                tail_size,
+                conversation,
+                move |conversation, head, tail_size| {
+                    handle_unlink(conversation, node, head, tail_size)
+                },
+            );
         }
         bindings::RmdirRequest::MESSAGE_ID => {
             let node = node.clone();
-            spawn_tailed(&head, tail_size, conversation, move |conversation, head, tail_size| {
-                handle_rmdir(conversation, node, head, tail_size)
-            });
+            spawn_tailed(
+                &head,
+                tail_size,
+                conversation,
+                move |conversation, head, tail_size| {
+                    handle_rmdir(conversation, node, head, tail_size)
+                },
+            );
         }
         bindings::ObstructLinkRequest::MESSAGE_ID => {
             let node = node.clone();
-            spawn_tailed(&head, tail_size, conversation, move |conversation, head, tail_size| {
-                handle_obstruct_link(conversation, node, head, tail_size)
-            });
+            spawn_tailed(
+                &head,
+                tail_size,
+                conversation,
+                move |conversation, head, tail_size| {
+                    handle_obstruct_link(conversation, node, head, tail_size)
+                },
+            );
         }
         bindings::LinkRequest::MESSAGE_ID => {
             spawn_tailed(&head, tail_size, conversation, handle_link);
