@@ -485,22 +485,22 @@ struct IntelIommuOperations final : PageSpace, VirtualOperations {
 
 	frg::expected<Error, PagesAffected> mapPresentPages(VirtualAddr va, MemoryView *view,
 			uintptr_t offset, size_t size, PageFlags flags, CachingMode mode,
-			bool trackDirty) override;
+			RevokeBatch &batch) override;
 
 	frg::expected<Error, PagesAffected> restrictPages(VirtualAddr va,
-			size_t size, PageFlags flags, bool trackDirty) override;
+			size_t size, PageFlags flags, RevokeBatch &batch) override;
 
 	frg::expected<Error, PagesAffected> faultPage(VirtualAddr va, MemoryView *view,
 			uintptr_t offset, FetchFlags fetchFlags, PageFlags flags, CachingMode mode,
-			bool trackDirty) override;
+			RevokeBatch &batch) override;
 
 	frg::expected<Error, PagesAffected> cleanPages(VirtualAddr va, size_t size,
-			bool trackDirty) override;
+			RevokeBatch &batch) override;
 
 	frg::expected<Error, PagesAffected> unmapPages(VirtualAddr va, size_t size,
-			bool trackDirty) override;
+			RevokeBatch &batch) override;
 
-	frg::expected<Error, PagesAffected> agePages(VirtualAddr, size_t, bool, bool) override {
+	frg::expected<Error, PagesAffected> agePages(VirtualAddr, size_t, bool, RevokeBatch &) override {
 		return PagesAffected{};
 	}
 
@@ -1837,36 +1837,36 @@ bool handleRmrr(frg::span<uint8_t> remappingStructureTypes,
 }
 
 frg::expected<Error, PagesAffected> IntelIommuOperations::mapPresentPages(VirtualAddr va, MemoryView *view,
-		uintptr_t offset, size_t size, PageFlags flags, CachingMode mode, bool trackDirty) {
+		uintptr_t offset, size_t size, PageFlags flags, CachingMode mode, RevokeBatch &batch) {
 	IntelIommuCursorPolicy policy{iommu_->sagaw(), iommu_->pageWalkingCoherent()};
 	return mapPresentPagesByCursor<IntelIommuCursor>(this, va, view, offset, size, flags, mode,
-			trackDirty, policy);
+			batch, policy);
 }
 
 frg::expected<Error, PagesAffected> IntelIommuOperations::restrictPages(VirtualAddr va,
-		size_t size, PageFlags flags, bool trackDirty) {
+		size_t size, PageFlags flags, RevokeBatch &batch) {
 	IntelIommuCursorPolicy policy{iommu_->sagaw(), iommu_->pageWalkingCoherent()};
-	return restrictPagesByCursor<IntelIommuCursor>(this, va, size, flags, trackDirty, policy);
+	return restrictPagesByCursor<IntelIommuCursor>(this, va, size, flags, batch, policy);
 }
 
 frg::expected<Error, PagesAffected> IntelIommuOperations::faultPage(VirtualAddr va, MemoryView *view,
 		uintptr_t offset, FetchFlags fetchFlags, PageFlags flags, CachingMode mode,
-		bool trackDirty) {
+		RevokeBatch &batch) {
 	IntelIommuCursorPolicy policy{iommu_->sagaw(), iommu_->pageWalkingCoherent()};
 	return faultPageByCursor<IntelIommuCursor>(this, va, view, offset, fetchFlags, flags, mode,
-			trackDirty, policy);
+			batch, policy);
 }
 
 frg::expected<Error, PagesAffected> IntelIommuOperations::cleanPages(VirtualAddr va, size_t size,
-		bool trackDirty) {
+		RevokeBatch &batch) {
 	IntelIommuCursorPolicy policy{iommu_->sagaw(), iommu_->pageWalkingCoherent()};
-	return cleanPagesByCursor<IntelIommuCursor>(this, va, size, trackDirty, policy);
+	return cleanPagesByCursor<IntelIommuCursor>(this, va, size, batch, policy);
 }
 
 frg::expected<Error, PagesAffected> IntelIommuOperations::unmapPages(VirtualAddr va, size_t size,
-		bool trackDirty) {
+		RevokeBatch &batch) {
 	IntelIommuCursorPolicy policy{iommu_->sagaw(), iommu_->pageWalkingCoherent()};
-	return unmapPagesByCursor<IntelIommuCursor>(this, va, size, trackDirty, policy);
+	return unmapPagesByCursor<IntelIommuCursor>(this, va, size, batch, policy);
 }
 
 

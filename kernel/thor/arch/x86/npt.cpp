@@ -119,32 +119,35 @@ bool NptOperations::submitShootdown(ShootNode *node) {
 }
 
 frg::expected<Error, PagesAffected> NptOperations::mapPresentPages(VirtualAddr va, MemoryView *view,
-		uintptr_t offset, size_t size, PageFlags flags, CachingMode mode, bool trackDirty) {
+		uintptr_t offset, size_t size, PageFlags flags, CachingMode mode, RevokeBatch &batch) {
 	return mapPresentPagesByCursor<NptCursor>(pageSpace_,
-			va, view, offset, size, flags, mode, trackDirty);
+			va, view, offset, size, flags, mode, batch);
 }
 
 frg::expected<Error, PagesAffected> NptOperations::restrictPages(VirtualAddr va,
-		size_t size, PageFlags flags, bool trackDirty) {
-	return restrictPagesByCursor<NptCursor>(pageSpace_, va, size, flags, trackDirty);
+		size_t size, PageFlags flags, RevokeBatch &batch) {
+	return restrictPagesByCursor<NptCursor>(pageSpace_, va, size, flags, batch);
 }
 
 frg::expected<Error, PagesAffected> NptOperations::faultPage(VirtualAddr va, MemoryView *view,
 		uintptr_t offset, FetchFlags fetchFlags, PageFlags flags, CachingMode mode,
-		bool trackDirty) {
+		RevokeBatch &batch) {
 	return faultPageByCursor<NptCursor>(pageSpace_,
-			va, view, offset, fetchFlags, flags, mode, trackDirty);
+			va, view, offset, fetchFlags, flags, mode, batch);
 }
 
-frg::expected<Error, PagesAffected> NptOperations::cleanPages(VirtualAddr va, size_t size, bool trackDirty) {
-	return cleanPagesByCursor<NptCursor>(pageSpace_, va, size, trackDirty);
+frg::expected<Error, PagesAffected> NptOperations::cleanPages(VirtualAddr va, size_t size,
+		RevokeBatch &batch) {
+	return cleanPagesByCursor<NptCursor>(pageSpace_, va, size, batch);
 }
 
-frg::expected<Error, PagesAffected> NptOperations::unmapPages(VirtualAddr va, size_t size, bool trackDirty) {
-	return unmapPagesByCursor<NptCursor>(pageSpace_, va, size, trackDirty);
+frg::expected<Error, PagesAffected> NptOperations::unmapPages(VirtualAddr va, size_t size,
+		RevokeBatch &batch) {
+	return unmapPagesByCursor<NptCursor>(pageSpace_, va, size, batch);
 }
 
-frg::expected<Error, PagesAffected> NptOperations::agePages(VirtualAddr, size_t, bool, bool) {
+frg::expected<Error, PagesAffected> NptOperations::agePages(VirtualAddr, size_t, bool,
+		RevokeBatch &) {
 	return PagesAffected{};
 }
 
