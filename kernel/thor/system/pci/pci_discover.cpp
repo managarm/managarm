@@ -1374,11 +1374,11 @@ void checkPciFunction(PciBus *bus, uint32_t slot, uint32_t function,
 	log << frg::endlog;
 
 	auto command = io->readConfigHalf(bus, slot, function, kPciCommand);
-	// Disable interrupts and bus mastering until a driver configures the device.
+	// Disable interrupts until a driver configures the device.
 	//
-	// We don't disable I/O and memory decoding so any devices in use by the kernel
-	// remain functional (e.g. framebuffers or UARTs).
-	command &= ~0x4; // Disable bus mastering
+	// We don't disable bus mastering since that breaks devices such as integrated GPUs.
+	// Linux does not disable bus mastering either and we can rely on IOMMUs for DMA protection.
+	// I/O and memory decoding is only disabled while we size BARs.
 	command |= 0x400; // Mask IRQs
 	io->writeConfigHalf(bus, slot, function, kPciCommand, command);
 
