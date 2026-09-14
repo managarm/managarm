@@ -347,4 +347,10 @@ async::result<void> MetadataCache::flushDirty_() {
 	}
 }
 
+async::result<void> MetadataCache::synchronize() {
+	auto writeback = co_await helix_ng::writebackFence(
+			backing_, 0, numBlocks_ << blockPagesShift_);
+	HEL_CHECK(writeback.error());
+}
+
 } // namespace blockfs

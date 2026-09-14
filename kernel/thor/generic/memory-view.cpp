@@ -2295,6 +2295,14 @@ coroutine<frg::expected<Error>> BackingMemory::writebackFence(uintptr_t offset, 
 	if (offset > backingMemoryLength || size > backingMemoryLength - offset)
 		co_return Error::bufferTooSmall;
 
+	if(!size)
+		co_return {};
+
+	// Mapped stores may only have dirtied PTEs, without marking the managed
+	// pages dirty yet. Collect them before waiting for the resulting writeback
+	// transactions.
+	co_await _managed->_evictQueue->cleanRange(offset, size);
+
 	// Note that writebackFence() expedites writeback
 	// (otherwise, callers would need to wait for the full writebackDelayNanos).
 

@@ -1031,3 +1031,17 @@ head(128):
 	int64 rel_offset;
 	uint64 size;
 }
+
+@format(bitfield) consts SynchronizeFlags uint32 {
+	DATA_ONLY = 1
+}
+
+message SynchronizeRequest 66 {
+head(128):
+	SynchronizeFlags flags;
+}
+
+message SynchronizeResponse 67 {
+head(128):
+	Errors error;
+}

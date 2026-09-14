@@ -13,6 +13,9 @@
 namespace protocols {
 namespace fs {
 
+async::result<Error> synchronize(helix::BorrowedDescriptor lane,
+		SynchronizeFlags flags = SynchronizeFlags::none);
+
 namespace _detail {
 
 struct File {

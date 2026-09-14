@@ -10,6 +10,7 @@ src = [
 	'src/signal.cpp',
 	'src/signalfd.cpp',
 	'src/stat.cpp',
+	'src/sync.cpp',
 	'src/unixnames.cpp',
 	'src/sigaltstack.cpp',
 	'src/mmap.cpp',

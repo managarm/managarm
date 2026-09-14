@@ -139,14 +139,15 @@ coroutine<void> Mapping::runEvictionLoop() {
 		auto eviction = co_await view->pollEviction(&observer, cancelEviction);
 		if(!eviction)
 			break;
-		if (eviction.mode() == EvictMode::breakRange) {
+		if (eviction.mode() == EvictMode::breakRange
+				|| eviction.mode() == EvictMode::cleanRange) {
 			if(eviction.offset() + eviction.size() <= viewOffset
 					|| eviction.offset() >= viewOffset + length) {
 				eviction.done();
 				continue;
 			}
 
-			// Begin and end offsets of the region that we need to unmap.
+			// Begin and end offsets of the region that we need to unmap or clean.
 			auto shootBegin = frg::max(eviction.offset(), viewOffset);
 			auto shootEnd = frg::min(eviction.offset() + eviction.size(),
 					viewOffset + length);
@@ -164,11 +165,16 @@ coroutine<void> Mapping::runEvictionLoop() {
 			{
 				LocalRcuEngine::Guard revokeGuard{revokeRcu};
 
-				// Unmap the memory range.
-				auto unmapOutcome = owner->_ops->unmapPages(address + shootOffset, shootSize);
-				assert(unmapOutcome);
-				owner->notifyRss_(unmapOutcome.value());
-				anyRevoked = unmapOutcome.value().anyRevoked;
+				if(eviction.mode() == EvictMode::cleanRange) {
+					auto cleanOutcome = owner->_ops->cleanPages(address + shootOffset, shootSize);
+					assert(cleanOutcome);
+					anyRevoked = cleanOutcome.value().anyRevoked;
+				} else {
+					auto unmapOutcome = owner->_ops->unmapPages(address + shootOffset, shootSize);
+					assert(unmapOutcome);
+					owner->notifyRss_(unmapOutcome.value());
+					anyRevoked = unmapOutcome.value().anyRevoked;
+				}
 
 				if(anyRevoked)
 					co_await owner->_ops->shootdown(address + shootOffset, shootSize);

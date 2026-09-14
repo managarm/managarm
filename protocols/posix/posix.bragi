@@ -1320,3 +1320,25 @@ head(128):
 	int64 egid;
 	int64 sgid;
 }
+
+enum SynchronizeScope {
+	FILE = 1,
+	FILESYSTEM = 2,
+	ALL = 3
+}
+
+@format(bitfield) consts SynchronizeFlags uint32 {
+	DATA_ONLY = 1
+}
+
+message SynchronizeRequest 245 {
+head(128):
+	int32 fd;
+	SynchronizeScope scope;
+	SynchronizeFlags flags;
+}
+
+message SynchronizeResponse 246 {
+head(128):
+    Errors error;
+}

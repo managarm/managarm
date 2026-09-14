@@ -142,6 +142,10 @@ public:
 	// Precondition: no BlockWindow of the block is alive.
 	async::result<void> forget(uint64_t block);
 
+	// Synchronise the cache with the underlying block device.
+	// Also waits for the actual writeback to complete.
+	async::result<void> synchronize();
+
 private:
 	async::result<void> run_();
 	async::result<void> manage_();

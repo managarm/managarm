@@ -1042,71 +1042,25 @@ async::result<void> FileSystem::init() {
 		);
 	}
 
-	blockGroupDescriptorBuffer = arch::dma_buffer{
-	    pool,
-	    (numBlockGroups * blockGroupDescriptorSize + device->sectorSize - 1)
-	        & ~(device->sectorSize - 1)
-	};
-	bgdt.init(blockGroupDescriptorBuffer.byte_data(), blockGroupDescriptorSize);
-
-	auto bgdt_offset = (2048 + blockSize - 1) & ~size_t(blockSize - 1);
+	auto bgdtSize = size_t{numBlockGroups} * blockGroupDescriptorSize;
+	auto bgdtBlock = (2048 + blockSize - 1) >> blockShift;
 	protocols::ostrace::Timer bgdtTimer;
-	co_await device->readSectors((bgdt_offset >> blockShift) * sectorsPerBlock,
-			blockGroupDescriptorBuffer);
+	std::vector<MetadataCache::BlockWindow> bgdtBlocks;
+	for(size_t offset = 0; offset < bgdtSize; offset += blockSize)
+		bgdtBlocks.push_back(co_await accessMetadata(bgdtBlock + (offset >> blockShift), true));
+	bgdt.init(std::move(bgdtBlocks), blockShift, blockGroupDescriptorSize);
 	uint64_t bgdtTime = bgdtTimer.elapsed();
-
-	handleBgdtWriteback();
 
 	ostContext.emit(
 		ostEvtExt2Mount,
 		ostAttrTime(timer.elapsed()),
-		ostAttrNumBytes(blockGroupDescriptorBuffer.size()),
+		ostAttrNumBytes(bgdtSize),
 		ostAttrNumBlockGroups(numBlockGroups),
 		ostAttrTimeSuperblock(superblockDone),
 		ostAttrTimeBgdt(bgdtTime)
 	);
 
 	co_return;
-}
-
-async::detached FileSystem::handleBgdtWriteback() {
-	// Snapshot of blockGroupDescriptorBuffer that we write out.
-	arch::dma_buffer writebackBuffer{pool, blockGroupDescriptorBuffer.size()};
-
-	uint64_t seenSeq = 0;
-	while(true) {
-		co_await bgdtWriteback.async_wait(seenSeq);
-
-		protocols::ostrace::Timer timer;
-		uint64_t numCoalesced;
-		uint64_t lockDone;
-		{
-			co_await allocationMutex.async_lock();
-			frg::unique_lock allocationLock{frg::adopt_lock, allocationMutex};
-			lockDone = timer.elapsed();
-
-			// Take the sequence together with the snapshot, so that no request is missed.
-			// TODO: Use async::sequenced_event::current_sequence() once it exists.
-			numCoalesced = bgdtWriteback.next_sequence() - 1 - seenSeq;
-			seenSeq = bgdtWriteback.next_sequence() - 1;
-			assert(writebackBuffer.size() == blockGroupDescriptorBuffer.size());
-			memcpy(writebackBuffer.data(), blockGroupDescriptorBuffer.data(),
-					blockGroupDescriptorBuffer.size());
-		}
-
-		// The device write happens outside of allocationMutex.
-		auto bgdt_offset = (2048 + blockSize - 1) & ~size_t(blockSize - 1);
-		co_await device->writeSectors((bgdt_offset >> blockShift) * sectorsPerBlock,
-				writebackBuffer);
-
-		ostContext.emit(
-			ostEvtExt2BgdtWriteback,
-			ostAttrTime(timer.elapsed()),
-			ostAttrNumBytes(writebackBuffer.size()),
-			ostAttrNumCoalesced(numCoalesced),
-			ostAttrTimeLock(lockDone)
-		);
-	}
 }
 
 auto FileSystem::accessRoot() -> std::shared_ptr<BaseInode> {
@@ -1155,6 +1109,65 @@ protocols::fs::FsStats FileSystem::getFsStats() {
 	stats.inodesFreeUser = stats.inodesFree;
 
 	return stats;
+}
+
+async::result<void> FileSystem::synchronizeFileData(Inode *inode) {
+	co_await inode->readyEvent.wait();
+
+	co_await inode->inodeMutex.async_lock_shared();
+	frg::shared_lock inodeLock{frg::adopt_lock, inode->inodeMutex};
+
+	auto size = inode->fileSize();
+	if(!size)
+		co_return;
+
+	// Fast symlinks keep their contents in the inode instead of the page cache.
+	// In particular, a newly-created fast symlink still has a zero-sized
+	// managed memory object even though its logical size is non-zero.
+	if(inode->fileType == kTypeSymlink
+			&& size <= sizeof(inode->diskInode()->data.embedded))
+		co_return;
+
+	// Collect dirty shared mappings and wait for the managed-memory servicer
+	// to finish writing both mapped stores and prior filesystem writes.
+	auto writeback = co_await helix_ng::writebackFence(
+			helix::BorrowedDescriptor{inode->backingMemory},
+			0, (size + 0xFFF) & ~size_t{0xFFF});
+	HEL_CHECK(writeback.error());
+}
+
+async::result<void> FileSystem::synchronizeMetadata() {
+	// File data writeback can dirty allocation and inode metadata, including
+	// the BGDT. Drain and fence the metadata caches after data writeback completes.
+	for(auto &cache : metadataCaches)
+		co_await cache->synchronize();
+}
+
+async::result<protocols::fs::Error>
+FileSystem::synchronize(std::shared_ptr<Inode> inode,
+		protocols::fs::SynchronizeFlags) {
+	co_await synchronizeFileData(inode.get());
+	co_await synchronizeMetadata();
+	co_await device->flush();
+	co_return protocols::fs::Error::none;
+}
+
+async::result<protocols::fs::Error>
+FileSystem::synchronize(protocols::fs::SynchronizeFlags) {
+	std::vector<std::shared_ptr<Inode>> inodes;
+	{
+		std::lock_guard activeInodesLock{activeInodesMutex};
+		inodes.reserve(activeInodes.size());
+		for(auto &[_, weakInode] : activeInodes)
+			if(auto inode = weakInode.lock())
+				inodes.push_back(std::move(inode));
+	}
+
+	for(auto &inode : inodes)
+		co_await synchronizeFileData(inode.get());
+	co_await synchronizeMetadata();
+	co_await device->flush();
+	co_return protocols::fs::Error::none;
 }
 
 async::result<std::shared_ptr<BaseInode>> FileSystem::createRegular(int uid, int gid, uint32_t parentIno) {
@@ -1518,6 +1531,7 @@ async::result<std::vector<uint32_t>> FileSystem::allocateBlocks(size_t num, std:
 					if(result.size() == num) {
 						updateBlockBitmapChecksum(*this, &bgdt[preferred_bg], words, blockSize);
 						updateBlockGroupChecksum(*this, &bgdt[preferred_bg], preferred_bg);
+						bgdt.markDirty(preferred_bg);
 
 						ostContext.emit(
 							ostEvtExt2AllocateBlocks,
@@ -1535,6 +1549,7 @@ async::result<std::vector<uint32_t>> FileSystem::allocateBlocks(size_t num, std:
 			if(!result.empty()) {
 				updateBlockBitmapChecksum(*this, &bgdt[preferred_bg], words, blockSize);
 				updateBlockGroupChecksum(*this, &bgdt[preferred_bg], preferred_bg);
+				bgdt.markDirty(preferred_bg);
 			}
 		}
 	}
@@ -1571,6 +1586,7 @@ async::result<std::vector<uint32_t>> FileSystem::allocateBlocks(size_t num, std:
 				if(result.size() == num) {
 					updateBlockBitmapChecksum(*this, &bgdt[bg_idx], words, blockSize);
 					updateBlockGroupChecksum(*this, &bgdt[bg_idx], bg_idx);
+					bgdt.markDirty(bg_idx);
 
 					ostContext.emit(
 						ostEvtExt2AllocateBlocks,
@@ -1587,6 +1603,7 @@ async::result<std::vector<uint32_t>> FileSystem::allocateBlocks(size_t num, std:
 
 		updateBlockBitmapChecksum(*this, &bgdt[bg_idx], words, blockSize);
 		updateBlockGroupChecksum(*this, &bgdt[bg_idx], bg_idx);
+		bgdt.markDirty(bg_idx);
 	}
 
 	assert(!"Failed to find zero-bit");
@@ -1633,6 +1650,7 @@ async::result<void> FileSystem::freeBlocks(std::vector<uint32_t> blocks) {
 
 		updateBlockBitmapChecksum(*this, &bgdt[bg], words, blockSize);
 		updateBlockGroupChecksum(*this, &bgdt[bg], bg);
+		bgdt.markDirty(bg);
 	}
 
 	ostContext.emit(
@@ -1683,8 +1701,7 @@ async::result<uint32_t> FileSystem::allocateInode(uint32_t parentIno, bool direc
 
 				updateInodeBitmapChecksum(*this, &bgdt[bg], words, blockSize);
 				updateBlockGroupChecksum(*this, &bgdt[bg], bg);
-
-				bgdtWriteback.raise();
+				bgdt.markDirty(bg);
 
 				ostContext.emit(
 					ostEvtExt2AllocateInode,
@@ -2061,7 +2078,6 @@ async::result<void> FileSystem::assignDataBlocksUsingExtents(Inode *inode,
 
 	updateInodeChecksum(*this, diskInode, inode->number);
 
-	bgdtWriteback.raise();
 	inode->diskInodeWindow.markDirty();
 
 	ostContext.emit(
@@ -2402,7 +2418,6 @@ async::result<void> FileSystem::assignDataBlocks(Inode *inode,
 
 	updateInodeChecksum(*this, inode->diskInode(), inode->number);
 
-	bgdtWriteback.raise();
 	inode->diskInodeWindow.markDirty();
 
 	ostContext.emit(
@@ -2506,7 +2521,6 @@ async::result<void> FileSystem::freeDataBlocksUsingExtents(Inode *inode, uint64_
 
 	updateInodeChecksum(*this, diskInode, inode->number);
 
-	bgdtWriteback.raise();
 	inode->diskInodeWindow.markDirty();
 
 	ostContext.emit(
@@ -2625,7 +2639,6 @@ async::result<void> FileSystem::freeDataBlocks(Inode *inode, uint64_t firstBlock
 
 	updateInodeChecksum(*this, disk_inode, inode->number);
 
-	bgdtWriteback.raise();
 	inode->diskInodeWindow.markDirty();
 
 	ostContext.emit(
@@ -2779,4 +2792,3 @@ OpenFile::readEntries() {
 }
 
 } } // namespace blockfs::ext2fs
-

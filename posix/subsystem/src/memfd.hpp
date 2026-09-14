@@ -110,6 +110,10 @@ private:
 			file_ = std::move(file);
 		}
 
+		async::result<Error> synchronize(protocols::fs::SynchronizeFlags) override {
+			co_return Error::success;
+		}
+
 		VfsType getType() override {
 			return VfsType::regular;
 		}

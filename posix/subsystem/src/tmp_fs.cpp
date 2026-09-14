@@ -46,6 +46,10 @@ protected:
 	}
 
 public:
+	async::result<Error> synchronize(protocols::fs::SynchronizeFlags) override {
+		co_return Error::success;
+	}
+
 	async::result<frg::expected<Error, FileStats>> getStats() override {
 		FileStats stats{};
 		stats.inodeNumber = _inodeNumber;

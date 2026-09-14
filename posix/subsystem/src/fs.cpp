@@ -72,6 +72,14 @@ std::optional<std::string> FsLink::getProcFsDescription() {
 // FsNode implementation.
 // --------------------------------------------------------
 
+async::result<Error> FsSuperblock::synchronize(protocols::fs::SynchronizeFlags) {
+	co_return Error::success;
+}
+
+async::result<Error> FsNode::synchronize(protocols::fs::SynchronizeFlags) {
+	co_return Error::illegalOperationTarget;
+}
+
 async::result<frg::expected<Error, FileStats>> FsNode::getStats() {
 	std::cout << "posix: getStats() is not implemented for this FsNode" << std::endl;
 	co_return Error::illegalOperationTarget;
@@ -204,4 +212,3 @@ void FsNode::notifyObservers(uint32_t events, const std::string &name, uint32_t 
 		(void)observer;
 	}
 }
-

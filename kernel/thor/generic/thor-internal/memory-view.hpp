@@ -218,6 +218,8 @@ enum class EvictMode {
 	none,
 	// Evicts all pages in a range.
 	breakRange,
+	// Collects PTE dirty bits in all mappings of a range and completes their shootdowns.
+	cleanRange,
 	// Waits until all temporary references to pages disappear. No range is specified.
 	// CachePages with a useCount of zero can be reclaimed after this fence.
 	fenceEphemeral,
@@ -290,6 +292,9 @@ struct EvictionQueue final : frg::intrusive_rc {
 
 	auto breakRange(uintptr_t offset, size_t size) {
 		return mechanism_.post(RangeToEvict{EvictMode::breakRange, offset, size});
+	}
+	auto cleanRange(uintptr_t offset, size_t size) {
+		return mechanism_.post(RangeToEvict{EvictMode::cleanRange, offset, size});
 	}
 	auto fenceEphemeral() {
 		return mechanism_.post(RangeToEvict{EvictMode::fenceEphemeral, 0, 0});
