@@ -558,6 +558,7 @@ public:
 	std::optional<AnyDescriptor> getDescriptor(Handle handle);
 
 	// fn runs within an RCU read-side section and must not block.
+	// fn should also avoid dropping references (move them out instead) such that object teardown does not run within the RCU section.
 	template<typename Fn>
 	requires requires(Fn fn, const DescriptorView &desc) {
 		{ fn(desc) };
