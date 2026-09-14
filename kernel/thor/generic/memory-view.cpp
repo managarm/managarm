@@ -2006,54 +2006,57 @@ void ManagedSpace::markDirty(CachePage *cachePage) {
 		auto lock = frg::guard(&mutex);
 
 		auto page = frg::container_of(cachePage, &ManagedPage::cachePage);
-
-		if(page->loadState == LoadState::missing)
-			return;
-
-		// Data discarded without writeback must not re-enter the writeback machinery.
-		if(page->discarded) {
-			if(page->discardMode == DiscardMode::dropDirty)
-				return;
-			assert(page->discardMode == DiscardMode::keepDirty);
-		}
-
-		// The in-memory contents now diverge from the backing store's copy.
-		page->swapCopyValid = false;
-
-		if(page->loadState == LoadState::present
-				&& (page->transactionState == TxState::none
-					|| page->transactionState == TxState::inReclaimer)) {
-			if(page->transactionState == TxState::inReclaimer)
-				globalReclaimer->removePage(cachePage);
-			_enqueueDirty(page, needsExpedite);
-			// When the drain coroutine is blocked on swap budget, only pages that
-			// already claimed swap budget can enter writeback.
-			if(!_drainBlocked || page->swapBudgetClaimed) {
-				_drainBlocked = false;
-				needsEvent = true;
-			}
-		} else if(page->transactionState == TxState::performReclaim
-				|| page->transactionState == TxState::avertReclaim) {
-			page->transactionState = TxState::avertReclaim;
-			page->stillDirty = true;
-		} else if(page->transactionState == TxState::writeback) {
-			page->stillDirty = true;
-		} else if(page->transactionState == TxState::invalidation
-				|| page->transactionState == TxState::avertDiscard) {
-			// Only reachable on DiscardMode::keepDirty pages.
-			// The discard machinery re-routes them to the writeback pipeline.
-			page->stillDirty = true;
-		} else {
-			assert(page->transactionState == TxState::dirty
-					|| page->transactionState == TxState::pendingWriteback
-					|| page->transactionState == TxState::wantWriteback);
-		}
+		markDirtyPage(page, needsEvent, needsExpedite);
 	}
 
 	if(needsEvent)
 		_dirtyEvent.raise();
 	if(needsExpedite)
 		_expediteEvent.raise();
+}
+
+void ManagedSpace::markDirtyPage(ManagedPage *page, bool &needsEvent, bool &needsExpedite) {
+	if(page->loadState == LoadState::missing)
+		return;
+
+	// Data discarded without writeback must not re-enter the writeback machinery.
+	if(page->discarded) {
+		if(page->discardMode == DiscardMode::dropDirty)
+			return;
+		assert(page->discardMode == DiscardMode::keepDirty);
+	}
+
+	// The in-memory contents now diverge from the backing store's copy.
+	page->swapCopyValid = false;
+
+	if(page->loadState == LoadState::present
+			&& (page->transactionState == TxState::none
+				|| page->transactionState == TxState::inReclaimer)) {
+		if(page->transactionState == TxState::inReclaimer)
+			globalReclaimer->removePage(&page->cachePage);
+		_enqueueDirty(page, needsExpedite);
+		// When the drain coroutine is blocked on swap budget, only pages that
+		// already claimed swap budget can enter writeback.
+		if(!_drainBlocked || page->swapBudgetClaimed) {
+			_drainBlocked = false;
+			needsEvent = true;
+		}
+	} else if(page->transactionState == TxState::performReclaim
+			|| page->transactionState == TxState::avertReclaim) {
+		page->transactionState = TxState::avertReclaim;
+		page->stillDirty = true;
+	} else if(page->transactionState == TxState::writeback) {
+		page->stillDirty = true;
+	} else if(page->transactionState == TxState::invalidation
+			|| page->transactionState == TxState::avertDiscard) {
+		// Only reachable on DiscardMode::keepDirty pages.
+		// The discard machinery re-routes them to the writeback pipeline.
+		page->stillDirty = true;
+	} else {
+		assert(page->transactionState == TxState::dirty
+				|| page->transactionState == TxState::pendingWriteback
+				|| page->transactionState == TxState::wantWriteback);
+	}
 }
 
 // --------------------------------------------------------

@@ -928,6 +928,11 @@ struct ManagedSpace : CacheBundle {
 	// Must be called under mutex.
 	void unlockPage(ManagedPage *page, bool &raiseDiscard);
 
+	// Per-page counterpart of markDirty().
+	// Sets needsEvent/needsExpedite if _dirtyEvent/_expediteEvent need to be raised.
+	// Must be called under mutex.
+	void markDirtyPage(ManagedPage *page, bool &needsEvent, bool &needsExpedite);
+
 	// Returns the frame of a present page (averting an in-flight reclamation or discard),
 	// or PhysicalAddr(-1) if the page is missing.
 	// Must be called under mutex.
