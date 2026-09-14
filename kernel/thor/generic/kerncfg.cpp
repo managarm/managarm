@@ -4,6 +4,7 @@
 #include <thor-internal/coroutine.hpp>
 #include <thor-internal/fiber.hpp>
 #include <thor-internal/kerncfg.hpp>
+#include <thor-internal/hierarchy.hpp>
 #include <thor-internal/ostrace.hpp>
 #include <thor-internal/kernel-log.hpp>
 #include <thor-internal/profile.hpp>
@@ -149,6 +150,34 @@ private:
 			auto respError = co_await sendBuffer(lane, std::move(respBuffer));
 			if(respError != Error::success)
 				co_return respError;
+		}else if(preamble.id() == bragi::message_id<managarm::kerncfg::GetHierarchyRequest>) {
+			auto req = bragi::parse_head_only<managarm::kerncfg::GetHierarchyRequest>(reqBuffer, *kernelAlloc);
+
+			if (!req)
+				co_return Error::protocolViolation;
+
+			managarm::kerncfg::GetHierarchyResponse<KernelAlloc> resp(*kernelAlloc);
+			resp.set_error(managarm::kerncfg::Error::SUCCESS);
+
+			for(auto &node : snapshotHierarchies()) {
+				managarm::kerncfg::HierarchyNode<KernelAlloc> item(*kernelAlloc);
+				item.set_id(node.id);
+				item.set_parent_id(node.parentId);
+				item.set_charged_bytes(node.chargedBytes);
+				item.set_tag(std::move(node.tag));
+				resp.add_nodes(std::move(item));
+			}
+
+			frg::unique_memory<KernelAlloc> respHeadBuffer{*kernelAlloc, resp.head_size};
+			frg::unique_memory<KernelAlloc> respTailBuffer{*kernelAlloc, resp.size_of_tail()};
+			bragi::write_head_tail(resp, respHeadBuffer, respTailBuffer);
+
+			auto respHeadError = co_await sendBuffer(lane, std::move(respHeadBuffer));
+			if(respHeadError != Error::success)
+				co_return respHeadError;
+			auto respTailError = co_await sendBuffer(lane, std::move(respTailBuffer));
+			if(respTailError != Error::success)
+				co_return respTailError;
 		}else{
 			managarm::kerncfg::SvrResponse<KernelAlloc> resp(*kernelAlloc);
 			resp.set_error(managarm::kerncfg::Error::ILLEGAL_REQUEST);
