@@ -45,13 +45,13 @@ protocols::ostrace::Context ostContext{ostVocabulary};
 }
 
 async::detached drm_core::File::pageFlipEvent(std::unique_ptr<drm_core::Configuration> config,
-		drm_core::File *self, uint64_t cookie, uint32_t crtc_id) {
+		smarter::shared_ptr<drm_core::File> self, uint64_t cookie, uint32_t crtc_id) {
 	co_await config->waitForCompletion();
 	self->_retirePageFlip(cookie, crtc_id);
 }
 
 async::detached drm_core::File::pageFlipEvent(std::unique_ptr<drm_core::Configuration> config,
-		drm_core::File *self, uint64_t cookie, std::unordered_set<uint32_t> crtc_ids) {
+		smarter::shared_ptr<drm_core::File> self, uint64_t cookie, std::unordered_set<uint32_t> crtc_ids) {
 	co_await config->waitForCompletion();
 	for(auto id : crtc_ids)
 		self->_retirePageFlip(cookie, id);
@@ -669,8 +669,11 @@ struct drm_core::File::HandleIoctl {
 			assert(valid);
 			config->commit(std::move(state));
 
-			if(req.drm_flags() & DRM_MODE_PAGE_FLIP_EVENT)
-				self->pageFlipEvent(std::move(config), self, req.drm_cookie(), crtc->id());
+			if(req.drm_flags() & DRM_MODE_PAGE_FLIP_EVENT) {
+				auto file = self->_self.lock();
+				assert(file);
+				File::pageFlipEvent(std::move(config), std::move(file), req.drm_cookie(), crtc->id());
+			}
 
 			resp.set_error(managarm::fs::Errors::SUCCESS);
 
@@ -1214,7 +1217,9 @@ struct drm_core::File::HandleIoctl {
 			}
 
 			if(req.drm_flags() & DRM_MODE_PAGE_FLIP_EVENT) {
-				self->pageFlipEvent(std::move(config), self, req.drm_cookie(), std::move(crtc_ids));
+				auto file = self->_self.lock();
+				assert(file);
+				File::pageFlipEvent(std::move(config), std::move(file), req.drm_cookie(), std::move(crtc_ids));
 			}
 
 			resp.set_error(managarm::fs::Errors::SUCCESS);
