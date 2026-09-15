@@ -149,6 +149,10 @@ struct Superblock final : FsSuperblock, LinkReclaimer {
 		return _mountCaps & managarm::fs::MountCaps::MC_CLIENT_EXCLUSIVE_NAMESPACE;
 	}
 
+	bool traverseLinksSupported() {
+		return _mountCaps & managarm::fs::MountCaps::MC_TRAVERSE_LINKS;
+	}
+
 	// Reclaimer that keeps unreferenced links of this mount alive, or null without a name cache.
 	LinkReclaimer *linkReclaimer() {
 		return nameCacheEnabled() ? this : nullptr;
@@ -597,6 +601,9 @@ private:
 
 async::result<frg::expected<Error>> Link::obstruct() {
 	assert(_owner);
+	// Obstructions only stop server-side traversals, which posix does not use without the cap.
+	if(!_sb->traverseLinksSupported())
+		co_return Error::illegalOperationTarget;
 	managarm::fs::ObstructLinkRequest req;
 	req.set_link_name(_name);
 
@@ -639,7 +646,7 @@ private:
 
 
 	bool hasTraverseLinks() override {
-		return true;
+		return _sb->traverseLinksSupported();
 	}
 
 	async::result<std::expected<smarter::shared_ptr<FsLink, LinkRc>, Error>>
