@@ -128,6 +128,11 @@ pub trait File {
         Err(Error::IllegalOperationTarget)
     }
 
+    /// Returns the memory object that backs the file for mmap().
+    async fn access_memory(&self) -> Result<hel::Handle, Error> {
+        Err(Error::IllegalOperationTarget)
+    }
+
     /// Returns the next directory entry, or `None` at the end of the directory.
     async fn read_entries(&self) -> Result<Option<DirEntry>, Error> {
         Err(Error::IllegalOperationTarget)
@@ -260,10 +265,39 @@ async fn handle_cnt_request(
         bindings::CntReqType::SeekAbs
         | bindings::CntReqType::SeekRel
         | bindings::CntReqType::SeekEof => handle_seek(conversation, file, req).await,
+        bindings::CntReqType::Mmap => handle_mmap(conversation, file).await,
         req_type => {
             eprintln!("managarm/fs: dismissing unexpected request type {req_type:?}");
             dismiss(conversation).await
         }
+    }
+}
+
+async fn handle_mmap(conversation: hel::Handle, file: Arc<dyn File>) -> Result<(), ServeError> {
+    match file.access_memory().await {
+        Ok(memory) => {
+            let head = bragi::head_to_bytes(&bindings::SvrResponse::new(Error::Success))?;
+            let (send_head, push_memory) = hel::submit_async(
+                &conversation,
+                (
+                    hel::SendBuffer::new(&head),
+                    hel::PushDescriptor::new(
+                        &memory,
+                        hel_sys::kHelRightRead
+                            | hel_sys::kHelRightWrite
+                            | hel_sys::kHelRightExecute
+                            | hel_sys::kHelRightAssign
+                            | hel_sys::kHelRightProvision
+                            | hel_sys::kHelRightPin
+                            | hel_sys::kHelRightFence,
+                    ),
+                ),
+            )
+            .await?;
+            send_head.and(push_memory)?;
+            Ok(())
+        }
+        Err(e) => send_response(&conversation, &bindings::SvrResponse::new(e)).await,
     }
 }
 
