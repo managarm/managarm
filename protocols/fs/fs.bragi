@@ -74,7 +74,10 @@ consts MountCaps uint64 {
 	// The server never modifies directory entries on its own:
 	// all directory entry mutations originate from requests sent by the client.
 	// Allows the client to cache the directory hierarchy.
-	MC_CLIENT_EXCLUSIVE_NAMESPACE = 1
+	MC_CLIENT_EXCLUSIVE_NAMESPACE = 1,
+	// The server implements NodeTraverseLinksRequest and ObstructLinkRequest.
+	// Without it, the client resolves paths component by component.
+	MC_TRAVERSE_LINKS = 2
 }
 
 enum CntReqType {
