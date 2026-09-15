@@ -182,7 +182,8 @@ struct HandlePartition {
 
 		managarm::fs::MountResponse resp;
 		resp.set_error(managarm::fs::Errors::SUCCESS);
-		resp.set_caps(managarm::fs::MountCaps::MC_CLIENT_EXCLUSIVE_NAMESPACE);
+		resp.set_caps(managarm::fs::MountCaps::MC_CLIENT_EXCLUSIVE_NAMESPACE
+				| managarm::fs::MountCaps::MC_TRAVERSE_LINKS);
 
 		auto ser = resp.SerializeAsString();
 		auto [send_resp, push_node] = co_await helix_ng::exchangeMsgs(
