@@ -1656,8 +1656,9 @@ void ManagedSpace::_wakeDrain() {
 // SwapSpace
 // --------------------------------------------------------
 
-std::expected<smarter::shared_ptr<SwapSpace>, Error> SwapSpace::create() {
-	auto self = allocate_rcu_shared<SwapSpace>(*kernelAlloc);
+std::expected<smarter::shared_ptr<SwapSpace>, Error> SwapSpace::create(
+		smarter::shared_ptr<Hierarchy> hierarchy) {
+	auto self = allocate_rcu_shared<SwapSpace>(*kernelAlloc, std::move(hierarchy));
 	self->selfPtr = self;
 	spawnOnWorkQueue(*kernelAlloc, WorkQueue::generalQueue().lock(), self->_runReclaimLoop());
 	spawnOnWorkQueue(*kernelAlloc, WorkQueue::generalQueue().lock(), self->_runDrainLoop());
@@ -1666,8 +1667,8 @@ std::expected<smarter::shared_ptr<SwapSpace>, Error> SwapSpace::create() {
 	return self;
 }
 
-SwapSpace::SwapSpace()
-: ManagedSpace{rootHierarchy(), UINT64_C(1) << 32, false}, _buddyMetadata{*kernelAlloc} {
+SwapSpace::SwapSpace(smarter::shared_ptr<Hierarchy> hierarchy)
+: ManagedSpace{std::move(hierarchy), UINT64_C(1) << 32, false}, _buddyMetadata{*kernelAlloc} {
 	isSwapSpace = true;
 
 	assert(numPages);
@@ -2563,16 +2564,19 @@ size_t FrontalMemory::getLength() {
 // --------------------------------------------------------
 
 std::expected<smarter::shared_ptr<SwappableMemory>, Error> SwappableMemory::create(
-		smarter::shared_ptr<SwapSpace> space, size_t length) {
+		smarter::shared_ptr<Hierarchy> hierarchy, smarter::shared_ptr<SwapSpace> space,
+		size_t length) {
 	auto ptr = allocate_rcu_shared<SwappableMemory>(*kernelAlloc, CtorToken{},
-			std::move(space), length);
+			std::move(hierarchy), std::move(space), length);
 	ptr->selfPtr = ptr;
 	return ptr;
 }
 
-SwappableMemory::SwappableMemory(CtorToken, smarter::shared_ptr<SwapSpace> space, size_t length)
+SwappableMemory::SwappableMemory(CtorToken, smarter::shared_ptr<Hierarchy> hierarchy,
+		smarter::shared_ptr<SwapSpace> space, size_t length)
 : MemoryView{frg::allocate_intrusive_shared<EvictionQueue>(Allocator{})},
-		_space{std::move(space)}, _length{length}, _table{*kernelAlloc} {
+		_hierarchy{std::move(hierarchy)}, _space{std::move(space)}, _length{length},
+		_table{*kernelAlloc} {
 	assert(!(length & (kPageSize - 1)));
 
 	_space->attachQueue(evictionQueue());
@@ -2582,8 +2586,10 @@ SwappableMemory::~SwappableMemory() {
 	// No mappings (which hold view references) observe our queue anymore.
 	_space->detachQueue(evictionQueue());
 
-	for(auto it = _table.begin(); it != _table.end(); ++it)
+	for(auto it = _table.begin(); it != _table.end(); ++it) {
 		_space->discardPageAndRaise(*it, DiscardMode::dropDirty);
+		_hierarchy->unchargeSwap(kPageSize);
+	}
 }
 
 ManagedSpace::ManagedPage *SwappableMemory::_translate(uint64_t index) {
@@ -2595,6 +2601,7 @@ ManagedSpace::ManagedPage *SwappableMemory::_translate(uint64_t index) {
 	if(!pit)
 		return nullptr;
 	_table.insert(index, pit);
+	_hierarchy->chargeSwap(kPageSize);
 	return pit;
 }
 
@@ -3453,13 +3460,22 @@ CopyOnWriteMemory::_materializePage(uintptr_t offset,
 
 void CopyOnWriteMemory::chargePages_(size_t n) {
 	_chargedPages += n;
-	_hierarchy->chargeMemory(n << kPageShift);
+	// Swappable copies hold swap slots; their frames are charged by the swap space.
+	if(_space) {
+		_hierarchy->chargeSwap(n << kPageShift);
+	}else{
+		_hierarchy->chargeMemory(n << kPageShift);
+	}
 }
 
 void CopyOnWriteMemory::unchargePages_(size_t n) {
 	assert(_chargedPages >= n);
 	_chargedPages -= n;
-	_hierarchy->unchargeMemory(n << kPageShift);
+	if(_space) {
+		_hierarchy->unchargeSwap(n << kPageShift);
+	}else{
+		_hierarchy->unchargeMemory(n << kPageShift);
+	}
 }
 
 // --------------------------------------------------------------------------------------

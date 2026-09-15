@@ -68,7 +68,8 @@ frg::vector<HierarchySnapshot, KernelAlloc> snapshotHierarchies() {
 			node->id(),
 			node->parent() ? node->parent()->id() : 0,
 			frg::string<KernelAlloc>{*kernelAlloc, node->tag()},
-			node->chargedBytes()
+			node->chargedMemory(),
+			node->chargedSwap()
 		});
 
 		smarter::shared_ptr<Hierarchy> next;

@@ -1025,9 +1025,10 @@ struct ManagedSpace : CacheBundle {
 // Backing store for swappable anonymous memory].
 // Pages are keyed by swap offset, the kernel allocates offsets lazily on behalf of the attached views.
 struct SwapSpace final : ManagedSpace, RcuProtected {
-	static std::expected<smarter::shared_ptr<SwapSpace>, Error> create();
+	static std::expected<smarter::shared_ptr<SwapSpace>, Error> create(
+			smarter::shared_ptr<Hierarchy> hierarchy);
 
-	SwapSpace();
+	SwapSpace(smarter::shared_ptr<Hierarchy> hierarchy);
 
 	bool claimSwapBudget(ManagedPage *page) override;
 	void _pageDiscarded(ManagedPage *page, bool &raiseDirty) override;
@@ -1129,15 +1130,18 @@ private:
 // Anonymous memory backed by a SwapSpace.
 // The view translates its own page indices to lazily allocated swap offsets.
 // Frames and per-page state are owned by the SwapSpace.
+// The view's hierarchy is charged for the swap slots, the SwapSpace's hierarchy for the frames.
 struct SwappableMemory final : MemoryView {
 private:
 	struct CtorToken {};
 
 public:
 	static std::expected<smarter::shared_ptr<SwappableMemory>, Error> create(
-			smarter::shared_ptr<SwapSpace> space, size_t length);
+			smarter::shared_ptr<Hierarchy> hierarchy, smarter::shared_ptr<SwapSpace> space,
+			size_t length);
 
-	SwappableMemory(CtorToken, smarter::shared_ptr<SwapSpace> space, size_t length);
+	SwappableMemory(CtorToken, smarter::shared_ptr<Hierarchy> hierarchy,
+			smarter::shared_ptr<SwapSpace> space, size_t length);
 	~SwappableMemory();
 
 	SwappableMemory(const SwappableMemory &) = delete;
@@ -1165,6 +1169,7 @@ private:
 	// Must be called under the SwapSpace mutex.
 	void _unlockPagesLocked(uintptr_t offset, size_t size, bool &raiseDiscard);
 
+	smarter::shared_ptr<Hierarchy> _hierarchy;
 	smarter::shared_ptr<SwapSpace> _space;
 	size_t _length;
 
