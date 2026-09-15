@@ -115,6 +115,16 @@ impl Drop for QueueElement<'_> {
     }
 }
 
+/// Outcome of waiting for progress on the queue.
+enum Progress {
+    /// The current chunk contains a new element.
+    Element,
+    /// The current chunk is done, retrieval continues in the next chunk.
+    ChunkDone,
+    /// The caller-supplied check returned true.
+    Checked,
+}
+
 /// A wrapper around a Hel IPC queue.
 /// This queue is used to receive completions for asynchronous
 /// submissions.
@@ -232,19 +242,26 @@ impl Queue {
     }
 
     /// Waits for a completion on the queue.
-    /// This function blocks until a completion is available.
-    pub fn wait(&mut self) -> Result<QueueElement<'_>> {
+    /// This function blocks until a completion is available or until `check`
+    /// returns true, in which case `None` is returned. `check` is evaluated
+    /// before each block in the kernel, in particular after every alert
+    /// (see `helAlertQueue()`).
+    pub fn wait(&mut self, mut check: impl FnMut() -> bool) -> Result<Option<QueueElement<'_>>> {
         loop {
-            if self.wait_progress_futex()? {
-                // Chunk is done, move to the next one.
-                let cn = self.retrieve_chunk;
-                let next = self.get_chunk(cn).next().load(Ordering::Acquire);
-                self.surrender(cn)?;
+            match self.wait_progress_futex(&mut check)? {
+                Progress::Element => {}
+                Progress::ChunkDone => {
+                    // Chunk is done, move to the next one.
+                    let cn = self.retrieve_chunk;
+                    let next = self.get_chunk(cn).next().load(Ordering::Acquire);
+                    self.surrender(cn)?;
 
-                self.last_progress = 0;
-                self.retrieve_chunk = (next & !hel_sys::kHelNextPresent) as usize;
+                    self.last_progress = 0;
+                    self.retrieve_chunk = (next & !hel_sys::kHelNextPresent) as usize;
 
-                continue;
+                    continue;
+                }
+                Progress::Checked => break Ok(None),
             }
 
             // Dequeue the next element.
@@ -274,7 +291,7 @@ impl Queue {
             // bytes which are not initialized, so we use
             // [`MaybeUninit`] to avoid creating a reference
             // to uninitialized memory.
-            break Ok(QueueElement::new(
+            break Ok(Some(QueueElement::new(
                 self,
                 unsafe {
                     core::slice::from_raw_parts(
@@ -287,7 +304,7 @@ impl Queue {
                 },
                 element.context as usize,
                 chunk_num,
-            ));
+            )));
         }
     }
 
@@ -346,9 +363,10 @@ impl Queue {
         Ok(())
     }
 
-    fn wait_progress_futex(&mut self) -> Result<bool> {
+    fn wait_progress_futex(&mut self, check: &mut impl FnMut() -> bool) -> Result<Progress> {
         // userNotify bits checked by this function (these MUST be checked in the loop below!).
-        let relevant_notify = hel_sys::kHelUserNotifyCqProgress;
+        // Alerts carry no state of their own: clearing them and evaluating check() handles them.
+        let relevant_notify = hel_sys::kHelUserNotifyCqProgress | hel_sys::kHelUserNotifyAlert;
         // userNotify bits ignored by this function.
         let masked_notify = hel_sys::kHelUserNotifySupplySqChunks;
 
@@ -376,10 +394,10 @@ impl Queue {
                     assert!(self.retrieve_chunk != self.tail_chunk);
                 }
                 if self.last_progress as i32 != (progress & hel_sys::kHelProgressMask) {
-                    return Ok(false);
+                    return Ok(Progress::Element);
                 } else if progress & hel_sys::kHelProgressDone != 0 {
                     assert!(progress & hel_sys::kHelProgressFull != 0);
-                    return Ok(true);
+                    return Ok(Progress::ChunkDone);
                 }
             }
 
@@ -390,6 +408,10 @@ impl Queue {
             if notify_to_clear == 0 {
                 // The only remaining bits must be masked ones (otherwise we are missing checks above).
                 assert!(self.pending_notify & !masked_notify == 0);
+
+                if check() {
+                    return Ok(Progress::Checked);
+                }
 
                 let res = hel_check(unsafe {
                     hel_sys::helDriveQueue(

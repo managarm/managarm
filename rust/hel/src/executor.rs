@@ -133,7 +133,9 @@ impl Executor {
     pub fn wait(&self) -> Result<()> {
         // No tasks in the run queue, wait for a submission to wake us up
         let mut queue = self.inner.queue.borrow_mut();
-        let element = queue.wait()?;
+        let Some(element) = queue.wait(|| false)? else {
+            return Ok(());
+        };
 
         // SAFETY: We only ever enqueue operation state objects onto the
         // queue, and we leak a reference in the process so that we can
