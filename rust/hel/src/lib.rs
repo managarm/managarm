@@ -2,7 +2,6 @@
 #![no_std]
 #![allow(incomplete_features)]
 #![feature(generic_const_exprs)]
-#![feature(local_waker)]
 
 extern crate alloc;
 #[cfg(feature = "std")]

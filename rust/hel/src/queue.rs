@@ -1,4 +1,5 @@
-use alloc::{boxed::Box, vec};
+use alloc::{boxed::Box, rc::Rc, vec, vec::Vec};
+use core::cell::RefCell;
 use core::ffi::c_uint;
 use core::marker::PhantomData;
 use core::mem::{MaybeUninit, offset_of};
@@ -60,9 +61,16 @@ impl<'a> Chunk<'a> {
     }
 }
 
+/// Chunks of dropped elements that the queue still has to surrender. `Executor::wait()`
+/// stashes elements past the borrow they came from, so they must not reference the queue.
+#[derive(Default)]
+struct ReleasedChunks {
+    chunks: RefCell<Vec<usize>>,
+}
+
 /// A queue element that can be used to retrieve data from the queue.
 pub struct QueueElement<'a> {
-    queue: &'a mut Queue,
+    released: Rc<ReleasedChunks>,
     data: &'a [MaybeUninit<u8>],
     context: usize,
     chunk_num: usize,
@@ -72,7 +80,7 @@ pub struct QueueElement<'a> {
 impl<'a> QueueElement<'a> {
     /// Creates a new queue element.
     fn new(
-        queue: &'a mut Queue,
+        queue: &mut Queue,
         data: &'a [MaybeUninit<u8>],
         context: usize,
         chunk_num: usize,
@@ -80,7 +88,7 @@ impl<'a> QueueElement<'a> {
         queue.retain_chunk(chunk_num);
 
         Self {
-            queue,
+            released: queue.released.clone(),
             data,
             context,
             chunk_num,
@@ -109,10 +117,18 @@ impl<'a> QueueElement<'a> {
 
 impl Drop for QueueElement<'_> {
     fn drop(&mut self) {
-        self.queue
-            .release_chunk(self.chunk_num)
-            .expect("Failed to release chunk");
+        self.released.chunks.borrow_mut().push(self.chunk_num);
     }
+}
+
+/// Outcome of waiting for progress on the queue.
+enum Progress {
+    /// The current chunk contains a new element.
+    Element,
+    /// The current chunk is done, retrieval continues in the next chunk.
+    ChunkDone,
+    /// The caller-supplied check returned true.
+    Checked,
 }
 
 /// A wrapper around a Hel IPC queue.
@@ -134,6 +150,8 @@ pub struct Queue {
     last_progress: usize,
     /// Per-chunk reference counts.
     ref_counts: Box<[usize]>,
+    /// Chunks of dropped elements, surrendered on the next call to wait().
+    released: Rc<ReleasedChunks>,
     // SQ state.
     /// Current SQ chunk index.
     sq_current_chunk: usize,
@@ -189,6 +207,7 @@ impl Queue {
             tail_chunk: 0,
             last_progress: 0,
             ref_counts: vec![0; num_chunks].into_boxed_slice(),
+            released: Rc::default(),
             sq_current_chunk: 0,
             sq_progress: 0,
             pending_notify: 0,
@@ -232,19 +251,28 @@ impl Queue {
     }
 
     /// Waits for a completion on the queue.
-    /// This function blocks until a completion is available.
-    pub fn wait(&mut self) -> Result<QueueElement<'_>> {
+    /// This function blocks until a completion is available or until `check`
+    /// returns true, in which case `None` is returned. `check` is evaluated
+    /// before each block in the kernel, in particular after every alert
+    /// (see `helAlertQueue()`).
+    pub fn wait(&mut self, mut check: impl FnMut() -> bool) -> Result<Option<QueueElement<'_>>> {
+        self.surrender_released()?;
+
         loop {
-            if self.wait_progress_futex()? {
-                // Chunk is done, move to the next one.
-                let cn = self.retrieve_chunk;
-                let next = self.get_chunk(cn).next().load(Ordering::Acquire);
-                self.surrender(cn)?;
+            match self.wait_progress_futex(&mut check)? {
+                Progress::Element => {}
+                Progress::ChunkDone => {
+                    // Chunk is done, move to the next one.
+                    let cn = self.retrieve_chunk;
+                    let next = self.get_chunk(cn).next().load(Ordering::Acquire);
+                    self.surrender(cn)?;
 
-                self.last_progress = 0;
-                self.retrieve_chunk = (next & !hel_sys::kHelNextPresent) as usize;
+                    self.last_progress = 0;
+                    self.retrieve_chunk = (next & !hel_sys::kHelNextPresent) as usize;
 
-                continue;
+                    continue;
+                }
+                Progress::Checked => break Ok(None),
             }
 
             // Dequeue the next element.
@@ -274,7 +302,7 @@ impl Queue {
             // bytes which are not initialized, so we use
             // [`MaybeUninit`] to avoid creating a reference
             // to uninitialized memory.
-            break Ok(QueueElement::new(
+            break Ok(Some(QueueElement::new(
                 self,
                 unsafe {
                     core::slice::from_raw_parts(
@@ -287,7 +315,7 @@ impl Queue {
                 },
                 element.context as usize,
                 chunk_num,
-            ));
+            )));
         }
     }
 
@@ -327,10 +355,16 @@ impl Queue {
         self.ref_counts[chunk_num] += 1;
     }
 
-    /// Drops the reference count of the given chunk, and if it
-    /// reaches zero it resets the chunk and marks it as available for use.
-    fn release_chunk(&mut self, chunk_num: usize) -> Result<()> {
-        self.surrender(chunk_num)
+    /// Surrenders the chunks of all elements that have been dropped so far.
+    fn surrender_released(&mut self) -> Result<()> {
+        loop {
+            let released = self.released.chunks.borrow_mut().pop();
+            let Some(chunk_num) = released else {
+                break Ok(());
+            };
+
+            self.surrender(chunk_num)?;
+        }
     }
 
     /// Wakes up the kernel if needed.
@@ -346,9 +380,10 @@ impl Queue {
         Ok(())
     }
 
-    fn wait_progress_futex(&mut self) -> Result<bool> {
+    fn wait_progress_futex(&mut self, check: &mut impl FnMut() -> bool) -> Result<Progress> {
         // userNotify bits checked by this function (these MUST be checked in the loop below!).
-        let relevant_notify = hel_sys::kHelUserNotifyCqProgress;
+        // Alerts carry no state of their own: clearing them and evaluating check() handles them.
+        let relevant_notify = hel_sys::kHelUserNotifyCqProgress | hel_sys::kHelUserNotifyAlert;
         // userNotify bits ignored by this function.
         let masked_notify = hel_sys::kHelUserNotifySupplySqChunks;
 
@@ -376,10 +411,10 @@ impl Queue {
                     assert!(self.retrieve_chunk != self.tail_chunk);
                 }
                 if self.last_progress as i32 != (progress & hel_sys::kHelProgressMask) {
-                    return Ok(false);
+                    return Ok(Progress::Element);
                 } else if progress & hel_sys::kHelProgressDone != 0 {
                     assert!(progress & hel_sys::kHelProgressFull != 0);
-                    return Ok(true);
+                    return Ok(Progress::ChunkDone);
                 }
             }
 
@@ -390,6 +425,10 @@ impl Queue {
             if notify_to_clear == 0 {
                 // The only remaining bits must be masked ones (otherwise we are missing checks above).
                 assert!(self.pending_notify & !masked_notify == 0);
+
+                if check() {
+                    return Ok(Progress::Checked);
+                }
 
                 let res = hel_check(unsafe {
                     hel_sys::helDriveQueue(

@@ -8,5 +8,6 @@ default = ["std"]
 std = []
 
 [dependencies]
+async-task = { version = "4.7", default-features = false }
 bitflags = "2.9.0"
 hel-sys.workspace = true
