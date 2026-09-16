@@ -95,6 +95,7 @@ std::unordered_set<std::string_view> intel_device_ids = {
 	"100e", /* QEMU's e1000 device */
 	"10d3", /* QEMU's e1000e device */
 	"15d8", /* i219-V (4) */
+	"57b4", /* i219-V (25) */
 };
 
 std::unordered_set<std::string_view> igc_device_ids = {
