@@ -98,6 +98,8 @@ fn new_async_operation<
 
                     return Poll::Ready(Err(err));
                 }
+
+                state.is_submitted.set(true);
             }
 
             // Set the waker for this operation, keeping the stored one if it

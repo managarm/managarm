@@ -1,4 +1,5 @@
-use alloc::{boxed::Box, vec};
+use alloc::{boxed::Box, rc::Rc, vec, vec::Vec};
+use core::cell::RefCell;
 use core::ffi::c_uint;
 use core::marker::PhantomData;
 use core::mem::{MaybeUninit, offset_of};
@@ -60,9 +61,16 @@ impl<'a> Chunk<'a> {
     }
 }
 
+/// Chunks of dropped elements that the queue still has to surrender. `Executor::wait()`
+/// stashes elements past the borrow they came from, so they must not reference the queue.
+#[derive(Default)]
+struct ReleasedChunks {
+    chunks: RefCell<Vec<usize>>,
+}
+
 /// A queue element that can be used to retrieve data from the queue.
 pub struct QueueElement<'a> {
-    queue: &'a mut Queue,
+    released: Rc<ReleasedChunks>,
     data: &'a [MaybeUninit<u8>],
     context: usize,
     chunk_num: usize,
@@ -72,7 +80,7 @@ pub struct QueueElement<'a> {
 impl<'a> QueueElement<'a> {
     /// Creates a new queue element.
     fn new(
-        queue: &'a mut Queue,
+        queue: &mut Queue,
         data: &'a [MaybeUninit<u8>],
         context: usize,
         chunk_num: usize,
@@ -80,7 +88,7 @@ impl<'a> QueueElement<'a> {
         queue.retain_chunk(chunk_num);
 
         Self {
-            queue,
+            released: queue.released.clone(),
             data,
             context,
             chunk_num,
@@ -109,9 +117,7 @@ impl<'a> QueueElement<'a> {
 
 impl Drop for QueueElement<'_> {
     fn drop(&mut self) {
-        self.queue
-            .release_chunk(self.chunk_num)
-            .expect("Failed to release chunk");
+        self.released.chunks.borrow_mut().push(self.chunk_num);
     }
 }
 
@@ -144,6 +150,8 @@ pub struct Queue {
     last_progress: usize,
     /// Per-chunk reference counts.
     ref_counts: Box<[usize]>,
+    /// Chunks of dropped elements, surrendered on the next call to wait().
+    released: Rc<ReleasedChunks>,
     // SQ state.
     /// Current SQ chunk index.
     sq_current_chunk: usize,
@@ -199,6 +207,7 @@ impl Queue {
             tail_chunk: 0,
             last_progress: 0,
             ref_counts: vec![0; num_chunks].into_boxed_slice(),
+            released: Rc::default(),
             sq_current_chunk: 0,
             sq_progress: 0,
             pending_notify: 0,
@@ -247,6 +256,8 @@ impl Queue {
     /// before each block in the kernel, in particular after every alert
     /// (see `helAlertQueue()`).
     pub fn wait(&mut self, mut check: impl FnMut() -> bool) -> Result<Option<QueueElement<'_>>> {
+        self.surrender_released()?;
+
         loop {
             match self.wait_progress_futex(&mut check)? {
                 Progress::Element => {}
@@ -344,10 +355,16 @@ impl Queue {
         self.ref_counts[chunk_num] += 1;
     }
 
-    /// Drops the reference count of the given chunk, and if it
-    /// reaches zero it resets the chunk and marks it as available for use.
-    fn release_chunk(&mut self, chunk_num: usize) -> Result<()> {
-        self.surrender(chunk_num)
+    /// Surrenders the chunks of all elements that have been dropped so far.
+    fn surrender_released(&mut self) -> Result<()> {
+        loop {
+            let released = self.released.chunks.borrow_mut().pop();
+            let Some(chunk_num) = released else {
+                break Ok(());
+            };
+
+            self.surrender(chunk_num)?;
+        }
     }
 
     /// Wakes up the kernel if needed.
