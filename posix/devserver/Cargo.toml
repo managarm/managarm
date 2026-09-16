@@ -1,0 +1,18 @@
+[package]
+name = "posix-devserver"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+anyhow = "1.0"
+async-lock = "3"
+async-trait = "0.1"
+bragi = "0.3"
+event-listener = "5.3"
+hel.workspace = true
+hel-sys.workspace = true
+managarm.workspace = true
+thiserror = "2.0"
+
+[build-dependencies]
+bragi-build = "0.1"
