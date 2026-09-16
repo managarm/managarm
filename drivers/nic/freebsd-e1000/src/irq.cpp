@@ -16,7 +16,8 @@ async::detached E1000Nic::processIrqs() {
 		HEL_CHECK(helAcknowledgeIrq(_irq.getHandle(), kHelAckAcknowledge, sequence));
 
 		if(status & E1000_ICR_LSC) {
-			printf("e1000: link up\n");
+			bool linkUp = E1000_READ_REG(&_hw, E1000_STATUS) & E1000_STATUS_LU;
+			printf("e1000: link %s\n", linkUp ? "up" : "down");
 			status &= ~E1000_ICR_LSC;
 		}
 
@@ -25,14 +26,15 @@ async::detached E1000Nic::processIrqs() {
 			status &= ~(E1000_ICR_TXQE | E1000_ICR_TXDW);
 
 		if(status & E1000_ICR_RXT0) {
-			printf("e1000: handling packet RX irq\n");
+			if(e1000_log_trace)
+				printf("e1000: handling packet RX irq\n");
 			while(eth_rx_pop());
 			status &= ~E1000_ICR_RXT0;
 		}
 
 		status &= ~E1000_ICR_INT_ASSERTED;
 
-		if(status)
+		if(status && e1000_log_debug)
 			printf("e1000: unhandled IRQ status 0x%08x\n", status);
 	}
 

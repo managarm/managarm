@@ -32,11 +32,18 @@
  */
 
 #include <async/basic.hpp>
+#include <core/cmdline.hpp>
+#include <frg/cmdline.hpp>
 #include <helix/ipc.hpp>
 #include <memory>
 #include <net/ethernet.h>
 #include <nic/freebsd-e1000/common.hpp>
 #include <unistd.h>
+
+// PCI config space register that reports a pending descriptor ring hang on I219.
+// See PCICFG_DESC_RING_STATUS / FLUSH_DESC_REQUIRED in FreeBSD's if_em.h.
+constexpr uint32_t kPcicfgDescRingStatus = 0xE4;
+constexpr uint16_t kFlushDescRequired = 0x100;
 
 E1000Nic::E1000Nic(protocols::hw::Device device, helix::UniqueDescriptor dmaSpace, bool iommuActive)
 : nic::Link(1500, &_dmaPool),
@@ -138,7 +145,16 @@ async::result<void> E1000Nic::init() {
 	_hw.mac.report_tx_early = 1;
 
 	if(e1000_check_reset_block(&_hw)) {
-		DEBUGOUT("PHY reset is blocked due to SOL/IDER session.");
+		printf("e1000: PHY reset is blocked due to SOL/IDER session\n");
+	}
+
+	// I219 wedges if it is reset with descriptors still pending; FreeBSD works around
+	// this in em_flush_desc_rings(), which we do not implement yet.
+	if(_hw.mac.type >= e1000_pch_spt && _hw.mac.type < igb_mac_min) {
+		auto hangState = co_await _device.loadPciSpace(kPcicfgDescRingStatus, 2);
+		if((hangState & kFlushDescRequired) && E1000_READ_REG(&_hw, E1000_TDLEN(0)))
+			printf("e1000: unimplemented: descriptor ring flush required before reset,"
+				" the device is likely to hang until it is power cycled\n");
 	}
 
 	/*
@@ -151,6 +167,8 @@ async::result<void> E1000Nic::init() {
 
 	if(e1000_validate_nvm_checksum(&_hw) < 0) {
 		if(e1000_validate_nvm_checksum(&_hw) < 0) {
+			// I219 shares the NVM with the platform firmware; a bad checksum is common there
+			// and the MAC could still be recovered from RAR0, which we do not implement.
 			std::cout << "e1000: EEPROM checksum not valid\n";
 			goto fail;
 		}
@@ -163,6 +181,18 @@ async::result<void> E1000Nic::init() {
 
 	for(size_t i = 0; i < ETHER_ADDR_LEN; i++) {
 		mac_[i] = _hw.mac.addr[i];
+	}
+
+	{
+		bool allZero = true;
+		for(size_t i = 0; i < ETHER_ADDR_LEN; i++)
+			allZero &= !mac_[i];
+
+		printf("e1000: MAC address %02x:%02x:%02x:%02x:%02x:%02x\n",
+			mac_[0], mac_[1], mac_[2], mac_[3], mac_[4], mac_[5]);
+		// Both cases indicate that the NVM read returned garbage rather than a real address.
+		if(allZero || (mac_[0] & 1))
+			printf("e1000: MAC address is not a valid unicast address\n");
 	}
 
 	e1000_disable_ulp_lpt_lp(&_hw, true);
@@ -257,7 +287,8 @@ async::result<void> E1000Nic::identifyHardware() {
 	auto ret = e1000_set_mac_type(&_hw);
 	assert(ret == E1000_SUCCESS);
 
-	printf("e1000: using PCI device %04x:%04x\n", _hw.vendor_id, _hw.device_id);
+	printf("e1000: using PCI device %04x:%04x, MAC type %d\n", _hw.vendor_id, _hw.device_id,
+		_hw.mac.type);
 }
 
 void E1000Nic::pciRead(u32 reg, u32 *value) {
@@ -290,6 +321,18 @@ void E1000Nic::pciRead(u32 reg, u8 *value) {
 namespace nic::e1000 {
 
 async::result<std::shared_ptr<nic::Link>> makeShared(protocols::hw::Device device) {
+	static bool cmdlineParsed = false;
+	if(!cmdlineParsed) {
+		Cmdline cmdlineHelper{};
+		auto cmdline = co_await cmdlineHelper.get();
+		frg::array args = {
+			frg::option{"e1000.debug", frg::store_const<int, 1>(e1000_log_debug)},
+			frg::option{"e1000.trace", frg::store_const<int, 1>(e1000_log_trace)},
+		};
+		frg::parse_arguments({cmdline.data(), cmdline.size()}, args);
+		cmdlineParsed = true;
+	}
+
 	co_await device.enableBusmaster();
 
 	co_await device.enableDma(false);

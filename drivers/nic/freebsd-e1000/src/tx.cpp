@@ -117,7 +117,8 @@ async::result<void> E1000Nic::txInit() {
 
 	/* This write will effectively turn on the transmit unit. */
 	E1000_WRITE_REG(&_hw, E1000_TCTL, tctl);
-	printf("e1000: TCTL enabled\n");
+	if(e1000_log_debug)
+		printf("e1000: TCTL enabled\n");
 
 	/* SPT and KBL errata workarounds */
 	if (_hw.mac.type == e1000_pch_spt) {
