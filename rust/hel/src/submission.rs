@@ -5,7 +5,7 @@ use alloc::rc::Rc;
 use core::{
     cell::Cell,
     mem::{MaybeUninit, size_of},
-    task::{LocalWaker, Poll},
+    task::{Poll, Waker},
     time::Duration,
 };
 
@@ -26,7 +26,7 @@ use crate::{
 /// status alond with any other data that is needed to submit and complete work.
 pub struct OperationState<'a> {
     is_submitted: Cell<bool>,
-    waker: Cell<Option<LocalWaker>>,
+    waker: Cell<Option<Waker>>,
     element: Cell<Option<QueueElement<'a>>>,
     executor: Rc<ExecutorInner>,
 }
@@ -100,8 +100,13 @@ fn new_async_operation<
                 }
             }
 
-            // Set the waker for this operation
-            state.waker.set(Some(cx.local_waker().clone()));
+            // Set the waker for this operation, keeping the stored one if it
+            // still wakes the same task (this avoids a reference count update)
+            let waker = match state.waker.take() {
+                Some(waker) if waker.will_wake(cx.waker()) => waker,
+                _ => cx.waker().clone(),
+            };
+            state.waker.set(Some(waker));
 
             // Now we can wait for it to finish
             Poll::Pending
