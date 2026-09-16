@@ -16,7 +16,8 @@ async::detached E1000Nic::processIrqs() {
 		HEL_CHECK(helAcknowledgeIrq(_irq.getHandle(), kHelAckAcknowledge, sequence));
 
 		if(status & E1000_ICR_LSC) {
-			printf("e1000: link up\n");
+			bool linkUp = E1000_READ_REG(&_hw, E1000_STATUS) & E1000_STATUS_LU;
+			printf("e1000: link %s\n", linkUp ? "up" : "down");
 			status &= ~E1000_ICR_LSC;
 		}
 
