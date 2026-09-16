@@ -1358,17 +1358,24 @@ HEL_C_LINKAGE HelError helCreateManagedMemory(HelHandle hierarchy, size_t size, 
 //! these offsets from disk") and writeback ("write them out") requests
 //! through helSubmitManageMemory()/helUpdateMemory(). The kernel only issues
 //! writeback once a swap budget is set through helSetSwapBudget().
+//! @param[in] hierarchy
+//!    	Handle to the hierarchy that owns the swap space.
+//!    	The resident frames of all memory backed by the swap space are accounted to this hierarchy node.
 //! @param[out] backingHandle
 //!    	Handle to the swap space's memory object (for the swap daemon).
 //! @param[out] swapHandle
 //!    	Handle identifying the swap space (for helAllocateSwappableMemory()
 //!    	and helSetSwapLimit()).
-HEL_C_LINKAGE HelError helCreateSwapSpace(uint32_t flags, HelHandle *backingHandle,
-		HelHandle *swapHandle);
+HEL_C_LINKAGE HelError helCreateSwapSpace(HelHandle hierarchy, uint32_t flags,
+		HelHandle *backingHandle, HelHandle *swapHandle);
 
 //! Allocates memory that behaves like helAllocateMemory() but is backed by a
 //! swap space: under memory pressure, dirty pages are written out through the
 //! swap space's manage protocol and their frames are reclaimed.
+//! @param[in] hierarchy
+//!    	Handle to the hierarchy that owns the new memory object.
+//!    	The swap slots held by the memory object are accounted to this hierarchy node as swap
+//!    	(their resident frames are accounted to the swap space's hierarchy).
 //! @param[in] swapSpace
 //!    	Handle to the swap space (from helCreateSwapSpace()).
 //! @param[in] size
@@ -1376,7 +1383,7 @@ HEL_C_LINKAGE HelError helCreateSwapSpace(uint32_t flags, HelHandle *backingHand
 //!    	Must be aligned to the system's page size.
 //! @param[out] handle
 //!    	Handle to the new memory object.
-HEL_C_LINKAGE HelError helAllocateSwappableMemory(HelHandle swapSpace,
+HEL_C_LINKAGE HelError helAllocateSwappableMemory(HelHandle hierarchy, HelHandle swapSpace,
 		size_t size, uint32_t flags, HelHandle *handle);
 
 //! Sets a swap space's budget, which is the number of pages that may be swapped out.
@@ -1389,7 +1396,8 @@ HEL_C_LINKAGE HelError helSetSwapBudget(HelHandle swapSpace, size_t numPages);
 //! Creates memory object that obtains its memory by copy-on-write from another memory object.
 //! @param[in] hierarchy
 //!    	Handle to the hierarchy that owns the new memory object.
-//!    	The copied physical pages are accounted to this hierarchy node.
+//!    	The private copies are accounted to this hierarchy node, as swap if @p swapSpace is given
+//!    	(their resident frames are then accounted to the swap space's hierarchy).
 //! @param[in] swapSpace
 //!    	Handle to a swap space (from helCreateSwapSpace()) that backs the private copies.
 //!    	Forked copies (helForkMemory()) inherit the swap space.

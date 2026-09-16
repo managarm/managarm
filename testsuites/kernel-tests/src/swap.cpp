@@ -9,6 +9,7 @@
 
 #include <async/algorithm.hpp>
 #include <async/result.hpp>
+#include <core/process-data.hpp>
 #include <helix/ipc.hpp>
 
 #include "testsuite.hpp"
@@ -80,14 +81,14 @@ bool checkPattern(const void *p, size_t page, uint32_t salt) {
 
 async::result<void> testSwapRoundtrip() {
 	HelHandle backingHandle, swapHandle;
-	HEL_CHECK(helCreateSwapSpace(0, &backingHandle, &swapHandle));
+	HEL_CHECK(helCreateSwapSpace(core::getProcessHierarchy(), 0, &backingHandle, &swapHandle));
 	helix::UniqueDescriptor backing{backingHandle};
 	helix::UniqueDescriptor swapSpace{swapHandle};
 
 	HEL_CHECK(helSetSwapBudget(swapSpace.getHandle(), swapPages));
 
 	HelHandle memoryHandle;
-	HEL_CHECK(helAllocateSwappableMemory(swapSpace.getHandle(),
+	HEL_CHECK(helAllocateSwappableMemory(core::getProcessHierarchy(), swapSpace.getHandle(),
 			viewPages * pageSize, 0, &memoryHandle));
 	helix::UniqueDescriptor memory{memoryHandle};
 
@@ -150,14 +151,14 @@ async::result<void> testSwapRoundtrip() {
 // faulting on a real mapping.
 void testSwapFaultIn() {
 HelHandle backingHandle, swapHandle;
-	HEL_CHECK(helCreateSwapSpace(0, &backingHandle, &swapHandle));
+	HEL_CHECK(helCreateSwapSpace(core::getProcessHierarchy(), 0, &backingHandle, &swapHandle));
 	helix::UniqueDescriptor backing{backingHandle};
 	helix::UniqueDescriptor swapSpace{swapHandle};
 
 	HEL_CHECK(helSetSwapBudget(swapSpace.getHandle(), swapPages));
 
 	HelHandle memoryHandle;
-	HEL_CHECK(helAllocateSwappableMemory(swapSpace.getHandle(),
+	HEL_CHECK(helAllocateSwappableMemory(core::getProcessHierarchy(), swapSpace.getHandle(),
 			viewPages * pageSize, 0, &memoryHandle));
 	helix::UniqueDescriptor memory{memoryHandle};
 
