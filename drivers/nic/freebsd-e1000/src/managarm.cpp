@@ -32,6 +32,8 @@
  */
 
 #include <async/basic.hpp>
+#include <core/cmdline.hpp>
+#include <frg/cmdline.hpp>
 #include <helix/ipc.hpp>
 #include <memory>
 #include <net/ethernet.h>
@@ -319,6 +321,18 @@ void E1000Nic::pciRead(u32 reg, u8 *value) {
 namespace nic::e1000 {
 
 async::result<std::shared_ptr<nic::Link>> makeShared(protocols::hw::Device device) {
+	static bool cmdlineParsed = false;
+	if(!cmdlineParsed) {
+		Cmdline cmdlineHelper{};
+		auto cmdline = co_await cmdlineHelper.get();
+		frg::array args = {
+			frg::option{"e1000.debug", frg::store_const<int, 1>(e1000_log_debug)},
+			frg::option{"e1000.trace", frg::store_const<int, 1>(e1000_log_trace)},
+		};
+		frg::parse_arguments({cmdline.data(), cmdline.size()}, args);
+		cmdlineParsed = true;
+	}
+
 	co_await device.enableBusmaster();
 
 	co_await device.enableDma(false);

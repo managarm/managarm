@@ -3,6 +3,9 @@
 #include <protocols/hw/client.hpp>
 #include <nic/freebsd-e1000/common.hpp>
 
+int e1000_log_debug = 0;
+int e1000_log_trace = 0;
+
 struct e1000_pci {
 	protocols::hw::Device &pci;
 };

@@ -52,7 +52,15 @@
 #define msec_delay(x) usleep(x * 1000)
 #define msec_delay_irq(x) usleep(x * 1000)
 
-#define DEBUGOUT(format, ...) printf("driver/freebsd-e1000: %s %d: " format, __FUNCTION__, __LINE__, ##__VA_ARGS__)
+/* Set by e1000.debug and e1000.trace on the kernel command line. */
+extern int e1000_log_debug;
+extern int e1000_log_trace;
+
+#define DEBUGOUT(format, ...) do { \
+		if(e1000_log_debug) \
+			printf("driver/freebsd-e1000: %s %d: " format, __FUNCTION__, __LINE__, \
+					##__VA_ARGS__); \
+	} while(0)
 #define DEBUGOUT1(...) DEBUGOUT(__VA_ARGS__)
 #define DEBUGOUT2(...) DEBUGOUT(__VA_ARGS__)
 #define DEBUGOUT3(...) DEBUGOUT(__VA_ARGS__)

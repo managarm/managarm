@@ -26,14 +26,15 @@ async::detached E1000Nic::processIrqs() {
 			status &= ~(E1000_ICR_TXQE | E1000_ICR_TXDW);
 
 		if(status & E1000_ICR_RXT0) {
-			printf("e1000: handling packet RX irq\n");
+			if(e1000_log_trace)
+				printf("e1000: handling packet RX irq\n");
 			while(eth_rx_pop());
 			status &= ~E1000_ICR_RXT0;
 		}
 
 		status &= ~E1000_ICR_INT_ASSERTED;
 
-		if(status)
+		if(status && e1000_log_debug)
 			printf("e1000: unhandled IRQ status 0x%08x\n", status);
 	}
 

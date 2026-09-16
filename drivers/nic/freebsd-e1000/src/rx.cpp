@@ -54,7 +54,8 @@ void E1000Nic::em_rxd_setup() {
 
 bool E1000Nic::eth_rx_pop() {
 	if(_requests.empty()) {
-		printf("e1000: no requests queued\n");
+		if(e1000_log_trace)
+			printf("e1000: no requests queued\n");
 		return false;
 	}
 
