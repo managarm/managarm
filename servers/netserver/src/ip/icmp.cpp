@@ -37,6 +37,15 @@ bool IcmpPacket::parse(smarter::shared_ptr<const Ip4Packet> packet) {
 		return false;
 	}
 
+	Checksum csum;
+	csum.update(packet->payload());
+	auto sum = csum.finalize();
+	if (sum != 0 && sum != 0xFFFF) {
+		if (logDiscards)
+			std::println("netserver: Discarding ICMP packet with invalid checksum");
+		return false;
+	}
+
 	auto now = clk::getRealtime();
 	TIMESPEC_TO_TIMEVAL(&recvTimestamp, &now);
 
