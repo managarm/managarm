@@ -102,7 +102,7 @@ async::result<std::unique_ptr<drm_core::Configuration>> GfxDevice::initialize() 
 		assignments.push_back(drm_core::Assignment::withInt(crtc, activeProperty(), 0));
 
 		assignments.push_back(drm_core::Assignment::withInt(plane, planeTypeProperty(), 1));
-		assignments.push_back(drm_core::Assignment::withModeObj(plane, crtcIdProperty(), crtc));
+		assignments.push_back(drm_core::Assignment::withModeObj(plane, crtcIdProperty(), nullptr));
 		assignments.push_back(drm_core::Assignment::withInt(plane, srcHProperty(), 0));
 		assignments.push_back(drm_core::Assignment::withInt(plane, srcWProperty(), 0));
 		assignments.push_back(drm_core::Assignment::withInt(plane, crtcHProperty(), 0));
@@ -134,7 +134,7 @@ async::result<std::unique_ptr<drm_core::Configuration>> GfxDevice::initialize() 
 			registerObject(con.get());
 
 			assignments.push_back(drm_core::Assignment::withInt(con, dpmsProperty(), 3));
-			assignments.push_back(drm_core::Assignment::withModeObj(con, crtcIdProperty(), crtc));
+			assignments.push_back(drm_core::Assignment::withModeObj(con, crtcIdProperty(), nullptr));
 
 			encoder->setCurrentCrtc(crtc.get());
 			encoder->setupPossibleCrtcs({crtc.get()});

@@ -125,7 +125,7 @@ async::result<std::unique_ptr<drm_core::Configuration>> GfxDevice::initialize() 
 	}
 
 	assignments.push_back(drm_core::Assignment::withModeObj(_connector, crtcIdProperty(), nullptr));
-	assignments.push_back(drm_core::Assignment::withModeObj(_primaryPlane, crtcIdProperty(), _crtc));
+	assignments.push_back(drm_core::Assignment::withModeObj(_primaryPlane, crtcIdProperty(), nullptr));
 	assignments.push_back(drm_core::Assignment::withInt(_primaryPlane, crtcWProperty(), 0));
 	assignments.push_back(drm_core::Assignment::withInt(_primaryPlane, crtcHProperty(), 0));
 	assignments.push_back(drm_core::Assignment::withInt(_primaryPlane, srcWProperty(), 0));
@@ -147,7 +147,7 @@ async::result<std::unique_ptr<drm_core::Configuration>> GfxDevice::initialize() 
 	if (hasCapability(caps::cursor)) {
 		_cursorPlane->setupPossibleCrtcs({_crtc.get()});
 
-		assignments.push_back(drm_core::Assignment::withModeObj(_cursorPlane, crtcIdProperty(), _crtc));
+		assignments.push_back(drm_core::Assignment::withModeObj(_cursorPlane, crtcIdProperty(), nullptr));
 		assignments.push_back(drm_core::Assignment::withModeObj(_cursorPlane, fbIdProperty(), nullptr));
 	}
 

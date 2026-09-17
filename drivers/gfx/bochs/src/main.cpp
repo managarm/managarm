@@ -79,7 +79,7 @@ async::result<std::unique_ptr<drm_core::Configuration>> GfxDevice::initialize() 
 	assignments.push_back(drm_core::Assignment::withBlob(_theCrtc, modeIdProperty(), nullptr));
 
 	assignments.push_back(drm_core::Assignment::withInt(_primaryPlane, planeTypeProperty(), 1));
-	assignments.push_back(drm_core::Assignment::withModeObj(_primaryPlane, crtcIdProperty(), _theCrtc));
+	assignments.push_back(drm_core::Assignment::withModeObj(_primaryPlane, crtcIdProperty(), nullptr));
 	assignments.push_back(drm_core::Assignment::withInt(_primaryPlane, srcHProperty(), 0));
 	assignments.push_back(drm_core::Assignment::withInt(_primaryPlane, srcWProperty(), 0));
 	assignments.push_back(drm_core::Assignment::withInt(_primaryPlane, crtcHProperty(), 0));
@@ -91,7 +91,7 @@ async::result<std::unique_ptr<drm_core::Configuration>> GfxDevice::initialize() 
 	assignments.push_back(drm_core::Assignment::withModeObj(_primaryPlane, fbIdProperty(), nullptr));
 
 	assignments.push_back(drm_core::Assignment::withInt(_theConnector, dpmsProperty(), 3));
-	assignments.push_back(drm_core::Assignment::withModeObj(_theConnector, crtcIdProperty(), _theCrtc));
+	assignments.push_back(drm_core::Assignment::withModeObj(_theConnector, crtcIdProperty(), nullptr));
 
 	_theEncoder->setCurrentCrtc(_theCrtc.get());
 	_theConnector->setupPossibleEncoders({_theEncoder.get()});

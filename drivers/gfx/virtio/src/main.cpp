@@ -112,7 +112,7 @@ async::result<std::unique_ptr<drm_core::Configuration>> GfxDevice::initialize() 
 		assignments.push_back(drm_core::Assignment::withInt(crtc, activeProperty(), 0));
 
 		assignments.push_back(drm_core::Assignment::withInt(plane, planeTypeProperty(), 1));
-		assignments.push_back(drm_core::Assignment::withModeObj(plane, crtcIdProperty(), crtc));
+		assignments.push_back(drm_core::Assignment::withModeObj(plane, crtcIdProperty(), nullptr));
 		assignments.push_back(drm_core::Assignment::withInt(plane, srcHProperty(), 0));
 		assignments.push_back(drm_core::Assignment::withInt(plane, srcWProperty(), 0));
 		assignments.push_back(drm_core::Assignment::withInt(plane, crtcHProperty(), 0));
@@ -157,7 +157,7 @@ async::result<std::unique_ptr<drm_core::Configuration>> GfxDevice::initialize() 
 			assignments.push_back(drm_core::Assignment::withInt(crtc->primaryPlane()->sharedModeObject(), crtcHProperty(), info->modes[i].rect.height));
 
 			assignments.push_back(drm_core::Assignment::withInt(connector, dpmsProperty(), 3));
-			assignments.push_back(drm_core::Assignment::withModeObj(connector, crtcIdProperty(), crtc));
+			assignments.push_back(drm_core::Assignment::withModeObj(connector, crtcIdProperty(), nullptr));
 
 			std::vector<drm_mode_modeinfo> supported_modes;
 			drm_core::addDmtModes(supported_modes, info->modes[i].rect.width,
