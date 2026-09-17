@@ -133,8 +133,7 @@ bool Ip4Packet::parse(arch::dma_buffer owner, arch::dma_buffer_view frame, bool 
 		return false;
 	}
 
-	// if this is a normal non-fragmented packet (fragmented packets may exceed header.length)
-	// ensure we only access the correct parts of the buffer.
+	// Drop link-layer padding; reassembled datagrams are already built to their exact length.
 	if (resizeData)
 		data = data.subview(0, header.length);
 
@@ -462,6 +461,17 @@ void Ip4::feedPacket(nic::MacAddress, nic::MacAddress,
 	uint16_t fragmentOffset = hdr.header.flags_offset & 0x1fff;
 
 	if (fragmentOffset != 0 || (flags & ip4FlagMoreFragments)) {
+		uint32_t fragmentOffsetBytes = static_cast<uint32_t>(fragmentOffset) * 8;
+		uint32_t fragmentSize = hdr.payload().size();
+		size_t end = fragmentOffsetBytes + fragmentSize;
+
+		// The reassembled datagram plus its header has to fit into the total length field.
+		if (end > UINT16_MAX - sizeof(Ip4Packet::Header)) {
+			if (logDiscards)
+				std::println("netserver: Discarding IPv4 fragment beyond the maximum datagram size");
+			return;
+		}
+
 		FragmentRouteIdentification routeIdentification{
 			.sourceIp = hdr.header.source,
 			.destIp = hdr.header.destination,
@@ -479,9 +489,6 @@ void Ip4::feedPacket(nic::MacAddress, nic::MacAddress,
 		// If this is the first packet set the timer tick.
 		if (fragmentPacketInsertResult.second)
 			fragmentedPacket->packetReceivedTimerTick = fragmentTimerTick;
-
-		uint32_t fragmentOffsetBytes = static_cast<uint32_t>(fragmentOffset) * 8;
-		uint32_t fragmentSize = hdr.payload().size();
 
 		if (fragmentSize != 0) {
 			auto it = std::find_if(fragmentedPacket->fragments.begin(), fragmentedPacket->fragments.end(),
@@ -501,7 +508,6 @@ void Ip4::feedPacket(nic::MacAddress, nic::MacAddress,
 			assert(result.second);
 		}
 
-		size_t end = fragmentOffsetBytes + fragmentSize;
 		if (end > fragmentedPacket->data.size()) {
 			if (fragmentedPacket->lastReceived) {
 				if (logDiscards)
@@ -543,7 +549,7 @@ void Ip4::feedPacket(nic::MacAddress, nic::MacAddress,
 			newHdr.ihl = 0x45;
 			newHdr.flags_offset = 0;
 			newHdr.checksum = 0;
-			newHdr.length = std::min<size_t>(fragmentedPacket->data.size() + sizeof(Ip4Packet::Header), UINT16_MAX);
+			newHdr.length = fragmentedPacket->data.size() + sizeof(Ip4Packet::Header);
 			newHdr.ensureEndian();
 
 			Checksum chk;
