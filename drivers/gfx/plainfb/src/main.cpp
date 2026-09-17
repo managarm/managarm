@@ -60,16 +60,14 @@ async::result<std::unique_ptr<drm_core::Configuration>> GfxDevice::initialize() 
 	std::vector<drm_core::Assignment> assignments;
 
 	assignments.push_back(drm_core::Assignment::withInt(_theCrtc, activeProperty(), 0));
+	assignments.push_back(drm_core::Assignment::withBlob(_theCrtc, modeIdProperty(), nullptr));
 	assignments.push_back(drm_core::Assignment::withInt(_plane, planeTypeProperty(), 1));
 
 	registerObject(_plane.get());
 	registerObject(_theCrtc.get());
 	registerObject(_theEncoder.get());
 
-	auto [dumb_fb, dumb_pitch] = createDumb(_screenWidth, _screenHeight, 32);
-	auto fb = createFrameBuffer(dumb_fb, _screenWidth, _screenHeight, 0, dumb_pitch, DRM_FORMAT_MOD_LINEAR);
-
-	assignments.push_back(drm_core::Assignment::withModeObj(_plane, crtcIdProperty(), _theCrtc));
+	assignments.push_back(drm_core::Assignment::withModeObj(_plane, crtcIdProperty(), nullptr));
 	assignments.push_back(drm_core::Assignment::withInt(_plane, srcHProperty(), 0));
 	assignments.push_back(drm_core::Assignment::withInt(_plane, srcWProperty(), 0));
 	assignments.push_back(drm_core::Assignment::withInt(_plane, crtcHProperty(), 0));
@@ -78,7 +76,7 @@ async::result<std::unique_ptr<drm_core::Configuration>> GfxDevice::initialize() 
 	assignments.push_back(drm_core::Assignment::withInt(_plane, srcYProperty(), 0));
 	assignments.push_back(drm_core::Assignment::withInt(_plane, crtcXProperty(), 0));
 	assignments.push_back(drm_core::Assignment::withInt(_plane, crtcYProperty(), 0));
-	assignments.push_back(drm_core::Assignment::withModeObj(_plane, fbIdProperty(), fb));
+	assignments.push_back(drm_core::Assignment::withModeObj(_plane, fbIdProperty(), nullptr));
 
 	setupCrtc(_theCrtc.get());
 	setupEncoder(_theEncoder.get());
@@ -99,7 +97,7 @@ async::result<std::unique_ptr<drm_core::Configuration>> GfxDevice::initialize() 
 	setupMaxDimensions(_screenWidth, _screenHeight);
 
 	assignments.push_back(drm_core::Assignment::withInt(_theConnector, dpmsProperty(), 3));
-	assignments.push_back(drm_core::Assignment::withModeObj(_theConnector, crtcIdProperty(), _theCrtc));
+	assignments.push_back(drm_core::Assignment::withModeObj(_theConnector, crtcIdProperty(), nullptr));
 
 	// We cannot change the resolution, so expose only the firmware's mode with dummy 60 Hz timings.
 	auto modeName = std::to_string(_screenWidth) + "x" + std::to_string(_screenHeight);
@@ -109,12 +107,6 @@ async::result<std::unique_ptr<drm_core::Configuration>> GfxDevice::initialize() 
 			_screenWidth, _screenWidth, _screenWidth, _screenWidth, 0,
 			_screenHeight, _screenHeight, _screenHeight, _screenHeight, 0, 0);
 	_theConnector->setModeList({fixedMode});
-
-	auto info_ptr = reinterpret_cast<const char *>(&_theConnector->modeList().front());
-	std::vector<char> modeData(info_ptr, info_ptr + sizeof(drm_mode_modeinfo));
-	auto modeBlob = registerBlob(std::move(modeData));
-
-	assignments.push_back(drm_core::Assignment::withBlob(_theCrtc, modeIdProperty(), modeBlob));
 
 	auto config = createConfiguration();
 	auto state = atomicState();
