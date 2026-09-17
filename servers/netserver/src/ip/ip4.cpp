@@ -114,14 +114,29 @@ bool Ip4Packet::parse(arch::dma_buffer owner, arch::dma_buffer_view frame, bool 
 
 	header.ihl = header.ihl & 0x0f;
 
+	// The IHL counts 32-bit words and has to cover at least the fixed part of the header.
+	if (header.ihl < 5) {
+		if (logDiscards)
+			std::println("netserver: Discarding IPv4 packet with an IHL below 5");
+		return false;
+	}
+
+	if (header.length < header.ihl * 4) {
+		if (logDiscards)
+			std::println("netserver: Discarding IPv4 packet with a total length below its IHL");
+		return false;
+	}
+
+	if (data.size() < header.length) {
+		if (logDiscards)
+			std::println("netserver: Discarding IPv4 packet smaller than its total length");
+		return false;
+	}
+
 	// if this is a normal non-fragmented packet (fragmented packets may exceed header.length)
 	// ensure we only access the correct parts of the buffer.
 	if (resizeData)
 		data = data.subview(0, header.length);
-
-	if (data.size() < header.ihl * 4) {
-		return false;
-	}
 
 	Checksum csum;
 	csum.update(header_view());
