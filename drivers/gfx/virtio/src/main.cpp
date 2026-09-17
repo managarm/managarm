@@ -271,17 +271,21 @@ void GfxDevice::Configuration::commit(std::unique_ptr<drm_core::AtomicState> sta
 }
 
 async::detached GfxDevice::Configuration::_dispatch(std::unique_ptr<drm_core::AtomicState> state) {
-	if(!_device->_claimedDevice) {
-		co_await _device->_transport->hwDevice().claimDevice();
-		_device->_claimedDevice = true;
-	}
-
 	auto crtc_states = state->crtc_states();
 
 	for(auto pair : crtc_states) {
 		auto cs = pair.second;
 		auto crtc = cs->crtc().lock();
 		auto pps = state->plane(crtc->primaryPlane()->id());
+
+		// The kernel keeps rendering to the firmware framebuffer until the first modeset.
+		if(cs->mode == nullptr && !_device->_claimedDevice)
+			continue;
+
+		if(!_device->_claimedDevice) {
+			co_await _device->_transport->hwDevice().claimDevice();
+			_device->_claimedDevice = true;
+		}
 
 		if(cs->mode == nullptr) {
 			std::cout << "gfx/virtio: Disable scanout" << std::endl;
