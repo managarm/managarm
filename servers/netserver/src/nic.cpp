@@ -187,7 +187,7 @@ async::detached runDevice(std::shared_ptr<nic::Link> dev) {
 				break;
 			}
 		} else {
-			dma_buffer_view capsule = frameBuffer;
+			auto capsule = frameBuffer.subview(0, len);
 			ip4().feedPacket({}, {}, std::move(frameBuffer), capsule, dev);
 		}
 	}
