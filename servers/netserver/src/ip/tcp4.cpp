@@ -451,9 +451,6 @@ struct Tcp4Socket {
 		auto self = static_cast<Tcp4Socket *>(object);
 		auto p = reinterpret_cast<char *>(data);
 
-		if(self->remoteClosed_)
-			co_return protocols::fs::RecvData{{}, 0, sizeof(struct sockaddr_in), 0};
-
 		if(flags & ~MSG_PEEK)
 			std::cout << "\e[31m" "netserver/tcp: Encountered unexpected recvMsg() flags: "
 					<< flags << "\e[39m" << std::endl;
