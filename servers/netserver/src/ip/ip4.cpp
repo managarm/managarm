@@ -6,6 +6,7 @@
 #include "udp4.hpp"
 #include <async/recurring-event.hpp>
 #include <linux/rtnetlink.h>
+#include <net/if.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <algorithm>
@@ -329,6 +330,31 @@ bool Ip4::hasIp(uint32_t addr) {
 		});
 }
 
+auto Ip4::classifyAddress(uint32_t addr) -> AddressType {
+	if (addr == ipv4Broadcast)
+		return AddressType::broadcast;
+	if (isIpv4Multicast(addr))
+		return AddressType::multicast;
+
+	// Like Linux, we accept every local address on every link (i.e. the weak host model).
+	for (auto &entry : ips) {
+		if (entry.second.expired())
+			continue;
+
+		if (entry.first.ip == addr)
+			return AddressType::unicast;
+		// The entire loopback network is local to a host that carries a loopback address.
+		if (isIpv4Loopback(entry.first.ip) && isIpv4Loopback(addr))
+			return AddressType::unicast;
+		// Directed broadcast, e.g. 192.168.1.255 within 192.168.1.0/24 (RFC 3021: none on /31).
+		if (entry.first.prefix < 31 && entry.first.sameNet(addr)
+				&& (addr | entry.first.mask()) == ipv4Broadcast)
+			return AddressType::broadcast;
+	}
+
+	return AddressType::foreign;
+}
+
 async::result<protocols::fs::Error> Ip4::sendFrame(Ip4TargetInfo ti,
 		void *data, size_t len, uint16_t proto) {
 	using arch::convert_endian;
@@ -448,6 +474,48 @@ void Ip4::feedPacket(nic::MacAddress, nic::MacAddress,
 	if (!hdr.parse(std::move(owner), frame, true)) {
 		return;
 	}
+
+	auto linkPtr = link.lock();
+	if (!linkPtr)
+		return;
+
+	auto source = hdr.header.source;
+	auto destination = hdr.header.destination;
+	bool onLoopback = linkPtr->iff_flags() & IFF_LOOPBACK;
+
+	if (source == ipv4Broadcast || isIpv4Multicast(source)) {
+		if (logDiscards)
+			std::println("netserver: Discarding IPv4 packet with a group source address");
+		return;
+	}
+
+	// Limited broadcasts (e.g. DHCP) are the only packets that may come from 0.0.0.0.
+	if (isIpv4Zeronet(source) && destination != ipv4Broadcast) {
+		if (logDiscards)
+			std::println("netserver: Discarding IPv4 packet with a zero source address");
+		return;
+	}
+
+	// Loopback addresses never appear on a link that does not carry loopback traffic.
+	if (!onLoopback && (isIpv4Loopback(source) || isIpv4Loopback(destination))) {
+		if (logDiscards)
+			std::println("netserver: Discarding IPv4 packet with a loopback address");
+		return;
+	}
+
+	// Loopback legitimately carries packets that originate from one of our own addresses.
+	if (!onLoopback && classifyAddress(source) != AddressType::foreign) {
+		if (logDiscards)
+			std::println("netserver: Discarding IPv4 packet with a local or directed broadcast source address");
+		return;
+	}
+
+	if (classifyAddress(destination) == AddressType::foreign) {
+		if (logDiscards)
+			std::println("netserver: Discarding IPv4 packet with a foreign destination address");
+		return;
+	}
+
 	auto proto = hdr.header.protocol;
 
 	auto begin = sockets.lower_bound(proto);
