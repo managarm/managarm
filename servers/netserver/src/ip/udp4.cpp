@@ -12,6 +12,7 @@
 #include <protocols/fs/server.hpp>
 #include <cstring>
 #include <iomanip>
+#include <print>
 #include <queue>
 #include <random>
 #include <sys/epoll.h>
@@ -23,6 +24,7 @@ namespace {
 
 constexpr bool logSockets = false;
 constexpr bool dumpHeader = false;
+constexpr bool logDiscards = false;
 
 struct stl_allocator {
 	void *allocate(size_t size) {
@@ -80,11 +82,15 @@ struct Udp {
 		Checksum chk;
 		auto payload = packet->payload();
 		if (payload.size() < sizeof(header)) {
+			if (logDiscards)
+				std::println("netserver: Discarding UDP packet smaller than the header");
 			return false;
 		}
 		std::memcpy(&header, payload.data(), sizeof(header));
 		header.ensureEndian();
 		if (payload.size() < header.len) {
+			if (logDiscards)
+				std::println("netserver: Discarding UDP packet smaller than its length field");
 			return false;
 		}
 		if (header.chk != 0) {
@@ -99,6 +105,8 @@ struct Udp {
 			chk.update(payload);
 			auto fin = chk.finalize();
 			if (fin != 0 && ~fin != 0) {
+				if (logDiscards)
+					std::println("netserver: Discarding UDP packet with invalid checksum");
 				return false;
 			}
 		}
@@ -715,7 +723,6 @@ private:
 void Udp4::feedDatagram(smarter::shared_ptr<const Ip4Packet> packet, std::weak_ptr<nic::Link> link) {
 	Udp udp{ .link = link };
 	if (!udp.parse(std::move(packet))) {
-		std::cout << "netserver: broken udp received" << std::endl;
 		return;
 	}
 

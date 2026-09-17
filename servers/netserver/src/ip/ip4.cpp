@@ -12,6 +12,7 @@
 #include <cstring>
 #include <iostream>
 #include <iomanip>
+#include <print>
 #include <protocols/fs/server.hpp>
 #include <helix/timer.hpp>
 #include <queue>
@@ -21,6 +22,8 @@ using namespace protocols::fs;
 using Route = Ip4Router::Route;
 
 namespace {
+
+constexpr bool logDiscards = false;
 
 constexpr uint64_t fragmentExpiryTimeoutNs = uint64_t{30} * 1'000'000'000;
 constexpr uint64_t fragmentRouteExpiryTimeoutTicks = 4;
@@ -95,11 +98,15 @@ bool Ip4Packet::parse(arch::dma_buffer owner, arch::dma_buffer_view frame, bool 
 	buffer_ = std::move(owner);
 	data = frame;
 	if (data.size() < sizeof(header)) {
+		if (logDiscards)
+			std::println("netserver: Discarding IPv4 packet smaller than the header");
 		return false;
 	}
 	std::memcpy(&header, data.byte_data(), sizeof(header));
 	// 0x40: top four bits are version (4)
 	if ((header.ihl & 0xf0) != 0x40) {
+		if (logDiscards)
+			std::println("netserver: Discarding IP packet with a version other than 4");
 		return false;
 	}
 
@@ -120,7 +127,8 @@ bool Ip4Packet::parse(arch::dma_buffer owner, arch::dma_buffer_view frame, bool 
 	csum.update(header_view());
 	auto sum = csum.finalize();
 	if (sum != 0 && sum != 0xFFFF) {
-		std::cout << "netserver: wrong sum: " << sum << std::endl;
+		if (logDiscards)
+			std::println("netserver: Discarding IPv4 packet with invalid checksum");
 		return false;
 	}
 
@@ -424,8 +432,6 @@ void Ip4::feedPacket(nic::MacAddress, nic::MacAddress,
 	hdr.link = link;
 
 	if (!hdr.parse(std::move(owner), frame, true)) {
-		std::cout << "netserver: runt, or otherwise invalid, ip4 frame received"
-			<< std::endl;
 		return;
 	}
 	auto proto = hdr.header.protocol;
@@ -471,8 +477,8 @@ void Ip4::feedPacket(nic::MacAddress, nic::MacAddress,
 			});
 
 			if (it != fragmentedPacket->fragments.end()) {
-				std::cout << "netserver: received multiple overlapping fragments"
-					<< std::endl;
+				if (logDiscards)
+					std::println("netserver: Discarding overlapping IPv4 fragment");
 				return;
 			}
 
@@ -483,8 +489,8 @@ void Ip4::feedPacket(nic::MacAddress, nic::MacAddress,
 		size_t end = fragmentOffsetBytes + fragmentSize;
 		if (end > fragmentedPacket->data.size()) {
 			if (fragmentedPacket->lastReceived) {
-				std::cout << "netserver: received invalid packet fragment exceeding final packet size"
-					<< std::endl;
+				if (logDiscards)
+					std::println("netserver: Discarding IPv4 fragment beyond the final packet size");
 				return;
 			}
 
@@ -495,8 +501,8 @@ void Ip4::feedPacket(nic::MacAddress, nic::MacAddress,
 
 		if (!(flags & ip4FlagMoreFragments)) {
 			if (fragmentedPacket->lastReceived) {
-				std::cout << "netserver: received multiple fragmented end packets"
-					<< std::endl;
+				if (logDiscards)
+					std::println("netserver: Discarding duplicate final IPv4 fragment");
 				return;
 			}
 

@@ -8,6 +8,7 @@
 #include <cstring>
 #include <format>
 #include <iomanip>
+#include <print>
 #include <random>
 #include <fcntl.h>
 #include <sys/epoll.h>
@@ -26,6 +27,7 @@
 namespace {
 
 constexpr bool debugTcp = false;
+constexpr bool logDiscards = false;
 
 struct stl_allocator {
 	void *allocate(size_t size) {
@@ -135,15 +137,24 @@ struct TcpPacket {
 
 	bool parse(smarter::shared_ptr<const Ip4Packet> packet) {
 		auto ipPayload = packet->payload();
-		if (ipPayload.size() < sizeof(TcpHeader))
+		if (ipPayload.size() < sizeof(TcpHeader)) {
+			if (logDiscards)
+				std::println("netserver: Discarding TCP packet smaller than the header");
 			return false;
+		}
 
 		std::memcpy(&header, ipPayload.data(), sizeof(TcpHeader));
 		auto words = header.flags.load() & TcpHeader::headerWords;
-		if (words * 4 < sizeof(TcpHeader))
+		if (words * 4 < sizeof(TcpHeader)) {
+			if (logDiscards)
+				std::println("netserver: Discarding TCP packet with a data offset below 5");
 			return false;
-		if (ipPayload.size() < words * 4)
+		}
+		if (ipPayload.size() < words * 4) {
+			if (logDiscards)
+				std::println("netserver: Discarding TCP packet smaller than its data offset");
 			return false;
+		}
 
 		if (header.checksum.load()) {
 			PseudoHeader pseudo {
@@ -156,8 +167,11 @@ struct TcpPacket {
 			csum.update(&pseudo, sizeof(pseudo));
 			csum.update(ipPayload);
 			auto result = csum.finalize();
-			if (result && ~result)
+			if (result && ~result) {
+				if (logDiscards)
+					std::println("netserver: Discarding TCP packet with invalid checksum");
 				return false;
+			}
 		}
 
 		this->packet = std::move(packet);
@@ -1149,7 +1163,6 @@ void Tcp4Socket::handleInPacket_(TcpPacket packet) {
 void Tcp4::feedDatagram(smarter::shared_ptr<const Ip4Packet> packet) {
 	TcpPacket tcp;
 	if (!tcp.parse(std::move(packet))) {
-		std::cout << "netserver: Received broken TCP packet" << std::endl;
 		return;
 	}
 
