@@ -149,7 +149,7 @@ private:
 	arch::io_space _operational;
 	helix::Mapping _fbMapping;
 
-	bool _isClaimed;
+	bool _isEnabled;
 	uint32_t _deviceVersion;
 	uint32_t _deviceCaps;
 };

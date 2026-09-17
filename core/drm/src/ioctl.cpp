@@ -565,7 +565,8 @@ struct drm_core::File::HandleIoctl {
 					resp.set_drm_y(crtc->primaryPlane()->drmState()->src_y);
 					/* TODO: wire up gamma once we support that */
 					resp.set_drm_gamma_size(0);
-					resp.set_drm_fb_id(crtc->primaryPlane()->drmState()->fb->id());
+					auto fb = crtc->primaryPlane()->drmState()->fb;
+					resp.set_drm_fb_id(fb ? fb->id() : 0);
 				}else{
 					memset(&mode_info, 0, sizeof(drm_mode_modeinfo));
 					resp.set_drm_mode_valid(0);

@@ -112,7 +112,7 @@ async::result<std::unique_ptr<drm_core::Configuration>> GfxDevice::initialize() 
 		assignments.push_back(drm_core::Assignment::withInt(crtc, activeProperty(), 0));
 
 		assignments.push_back(drm_core::Assignment::withInt(plane, planeTypeProperty(), 1));
-		assignments.push_back(drm_core::Assignment::withModeObj(plane, crtcIdProperty(), crtc));
+		assignments.push_back(drm_core::Assignment::withModeObj(plane, crtcIdProperty(), nullptr));
 		assignments.push_back(drm_core::Assignment::withInt(plane, srcHProperty(), 0));
 		assignments.push_back(drm_core::Assignment::withInt(plane, srcWProperty(), 0));
 		assignments.push_back(drm_core::Assignment::withInt(plane, crtcHProperty(), 0));
@@ -157,7 +157,7 @@ async::result<std::unique_ptr<drm_core::Configuration>> GfxDevice::initialize() 
 			assignments.push_back(drm_core::Assignment::withInt(crtc->primaryPlane()->sharedModeObject(), crtcHProperty(), info->modes[i].rect.height));
 
 			assignments.push_back(drm_core::Assignment::withInt(connector, dpmsProperty(), 3));
-			assignments.push_back(drm_core::Assignment::withModeObj(connector, crtcIdProperty(), crtc));
+			assignments.push_back(drm_core::Assignment::withModeObj(connector, crtcIdProperty(), nullptr));
 
 			std::vector<drm_mode_modeinfo> supported_modes;
 			drm_core::addDmtModes(supported_modes, info->modes[i].rect.width,
@@ -271,17 +271,21 @@ void GfxDevice::Configuration::commit(std::unique_ptr<drm_core::AtomicState> sta
 }
 
 async::detached GfxDevice::Configuration::_dispatch(std::unique_ptr<drm_core::AtomicState> state) {
-	if(!_device->_claimedDevice) {
-		co_await _device->_transport->hwDevice().claimDevice();
-		_device->_claimedDevice = true;
-	}
-
 	auto crtc_states = state->crtc_states();
 
 	for(auto pair : crtc_states) {
 		auto cs = pair.second;
 		auto crtc = cs->crtc().lock();
 		auto pps = state->plane(crtc->primaryPlane()->id());
+
+		// The kernel keeps rendering to the firmware framebuffer until the first modeset.
+		if(cs->mode == nullptr && !_device->_claimedDevice)
+			continue;
+
+		if(!_device->_claimedDevice) {
+			co_await _device->_transport->hwDevice().claimDevice();
+			_device->_claimedDevice = true;
+		}
 
 		if(cs->mode == nullptr) {
 			std::cout << "gfx/virtio: Disable scanout" << std::endl;

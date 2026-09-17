@@ -48,7 +48,7 @@ GfxDevice::GfxDevice(protocols::hw::Device hw_dev,
 			helix::Mapping fb_mapping,
 			helix::Mapping fifo_mapping,
 			helix::UniqueDescriptor io_bar, uint16_t io_base)
-		: _hwDev(std::move(hw_dev)), _fifo{this, std::move(fifo_mapping)},_fbMapping{std::move(fb_mapping)}, _isClaimed{false}, _deviceVersion{0} {
+		: _hwDev(std::move(hw_dev)), _fifo{this, std::move(fifo_mapping)},_fbMapping{std::move(fb_mapping)}, _isEnabled{false}, _deviceVersion{0} {
 	HEL_CHECK(helEnableIo(io_bar.getHandle()));
 	_operational = arch::io_space{io_base};
 }
@@ -71,6 +71,10 @@ async::result<std::unique_ptr<drm_core::Configuration>> GfxDevice::initialize() 
 	assert(_deviceVersion >= versions::id_0 && "failed to negotiate version with device");
 
 	_deviceCaps = _deviceVersion >= versions::id_1 ? readRegister(register_index::capabilities) : 0;
+
+	// Claim the device before CONFIG_DONE: that register stops the host from tracking writes
+	// to the VGA framebuffer, so the kernel can no longer render to it.
+	co_await _hwDev.claimDevice();
 
 	// configure fifo
 	_fifo.initialize();
@@ -125,7 +129,7 @@ async::result<std::unique_ptr<drm_core::Configuration>> GfxDevice::initialize() 
 	}
 
 	assignments.push_back(drm_core::Assignment::withModeObj(_connector, crtcIdProperty(), nullptr));
-	assignments.push_back(drm_core::Assignment::withModeObj(_primaryPlane, crtcIdProperty(), _crtc));
+	assignments.push_back(drm_core::Assignment::withModeObj(_primaryPlane, crtcIdProperty(), nullptr));
 	assignments.push_back(drm_core::Assignment::withInt(_primaryPlane, crtcWProperty(), 0));
 	assignments.push_back(drm_core::Assignment::withInt(_primaryPlane, crtcHProperty(), 0));
 	assignments.push_back(drm_core::Assignment::withInt(_primaryPlane, srcWProperty(), 0));
@@ -147,7 +151,7 @@ async::result<std::unique_ptr<drm_core::Configuration>> GfxDevice::initialize() 
 	if (hasCapability(caps::cursor)) {
 		_cursorPlane->setupPossibleCrtcs({_crtc.get()});
 
-		assignments.push_back(drm_core::Assignment::withModeObj(_cursorPlane, crtcIdProperty(), _crtc));
+		assignments.push_back(drm_core::Assignment::withModeObj(_cursorPlane, crtcIdProperty(), nullptr));
 		assignments.push_back(drm_core::Assignment::withModeObj(_cursorPlane, fbIdProperty(), nullptr));
 	}
 
@@ -556,9 +560,8 @@ async::detached GfxDevice::Configuration::commitConfiguration(std::unique_ptr<dr
 	auto crtc_state = state->crtc(_device->_crtc->id());
 
 	if(crtc_state->mode != nullptr) {
-		if (!_device->_isClaimed) {
-			co_await _device->_hwDev.claimDevice();
-			_device->_isClaimed = true;
+		if (!_device->_isEnabled) {
+			_device->_isEnabled = true;
 			_device->writeRegister(register_index::enable, 1); // lazy init
 		}
 

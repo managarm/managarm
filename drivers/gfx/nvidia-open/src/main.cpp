@@ -424,6 +424,10 @@ async::result<void> GfxDevice::initialize() {
 	subclassCode_ = (class_code >> 16) & 0xFF;
 	progIf_ = (class_code >> 8) & 0xFF;
 
+	// Claim the device before we start reprogramming it
+	// (otherwise thor will continue writing to the boot framebuffer).
+	co_await hwDevice_.claimDevice();
+
 	if (!rm_wait_for_bar_firewall(nullptr, segment_, bus_, slot_, function_, device_)) {
 		fprintf(stderr, "NVRM: failed to wait for bar firewall to lower\n");
 		co_return;
