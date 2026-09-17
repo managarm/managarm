@@ -612,7 +612,7 @@ struct HandlePartition {
 	}
 };
 
-async::detached servePartition(helix::UniqueLane lane, gpt::Partition *partition, std::unique_ptr<raw::RawFs> rawFs) {
+async::detached servePartition(helix::UniqueLane lane, gpt::Partition *partition, raw::RawFs *rawFs) {
 	std::cout << "unix device: Connection" << std::endl;
 
 	// TODO(qookie): Generic file system type
@@ -626,7 +626,7 @@ async::detached servePartition(helix::UniqueLane lane, gpt::Partition *partition
 			managarm::fs::RenameRequest,
 			managarm::fs::GetFsStatsRequest,
 			managarm::fs::GenericIoctlRequest
-		>(lane, HandlePartition{}, partition, rawFs.get(), &fs);
+		>(lane, HandlePartition{}, partition, rawFs, &fs);
 		if(!res) {
 			if(res.error() == DispatchError::shutdown)
 				co_return;
@@ -710,7 +710,7 @@ struct HandleDevice {
 	}
 };
 
-async::detached serveDevice(helix::UniqueLane lane, std::unique_ptr<raw::RawFs> rawFs) {
+async::detached serveDevice(helix::UniqueLane lane, raw::RawFs *rawFs) {
 	std::cout << "unix device: Connection" << std::endl;
 
 	while(true) {
@@ -718,7 +718,7 @@ async::detached serveDevice(helix::UniqueLane lane, std::unique_ptr<raw::RawFs> 
 			managarm::fs::CntRequest,
 			managarm::fs::MountRequest,
 			managarm::fs::GenericIoctlRequest
-		>(lane, HandleDevice{}, rawFs.get());
+		>(lane, HandleDevice{}, rawFs);
 		if(!res) {
 			if(res.error() == DispatchError::shutdown)
 				co_return;
@@ -772,7 +772,7 @@ async::detached runDevice(BlockDevice *device) {
 				// If this fails, too bad!
 				(void)(co_await entity.serveRemoteLane(std::move(remoteLane)));
 
-				serveDevice(std::move(localLane), std::move(rawFs));
+				serveDevice(std::move(localLane), rawFs.get());
 			}
 		}(std::move(entity), std::move(rawFs));
 	}
@@ -813,7 +813,7 @@ async::detached runDevice(BlockDevice *device) {
 				// If this fails, too bad!
 				(void)(co_await entity.serveRemoteLane(std::move(remoteLane)));
 
-				servePartition(std::move(localLane), partition, std::move(rawFs));
+				servePartition(std::move(localLane), partition, rawFs.get());
 			}
 		}(std::move(entity), paritition, std::move(rawFs));
 	}

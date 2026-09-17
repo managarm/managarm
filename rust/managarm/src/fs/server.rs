@@ -128,6 +128,11 @@ pub trait File {
         Err(Error::IllegalOperationTarget)
     }
 
+    /// Returns the memory object that backs the file for mmap().
+    async fn access_memory(&self) -> Result<hel::Handle, Error> {
+        Err(Error::IllegalOperationTarget)
+    }
+
     /// Returns the next directory entry, or `None` at the end of the directory.
     async fn read_entries(&self) -> Result<Option<DirEntry>, Error> {
         Err(Error::IllegalOperationTarget)
@@ -145,6 +150,19 @@ pub trait Node {
 
     /// Resolves a single link in this directory; `None` if the name does not exist.
     async fn get_link(&self, name: &str) -> Result<Option<Child>, Error> {
+        Err(Error::IllegalOperationTarget)
+    }
+
+    /// Resolves a single link in this directory, creating a regular file if the name
+    /// does not exist. `exclusive` demands that the file does not exist yet.
+    async fn get_link_or_create(
+        &self,
+        name: &str,
+        mode: i32,
+        exclusive: bool,
+        uid: i64,
+        gid: i64,
+    ) -> Result<Child, Error> {
         Err(Error::IllegalOperationTarget)
     }
 
@@ -260,10 +278,39 @@ async fn handle_cnt_request(
         bindings::CntReqType::SeekAbs
         | bindings::CntReqType::SeekRel
         | bindings::CntReqType::SeekEof => handle_seek(conversation, file, req).await,
+        bindings::CntReqType::Mmap => handle_mmap(conversation, file).await,
         req_type => {
             eprintln!("managarm/fs: dismissing unexpected request type {req_type:?}");
             dismiss(conversation).await
         }
+    }
+}
+
+async fn handle_mmap(conversation: hel::Handle, file: Arc<dyn File>) -> Result<(), ServeError> {
+    match file.access_memory().await {
+        Ok(memory) => {
+            let head = bragi::head_to_bytes(&bindings::SvrResponse::new(Error::Success))?;
+            let (send_head, push_memory) = hel::submit_async(
+                &conversation,
+                (
+                    hel::SendBuffer::new(&head),
+                    hel::PushDescriptor::new(
+                        &memory,
+                        hel_sys::kHelRightRead
+                            | hel_sys::kHelRightWrite
+                            | hel_sys::kHelRightExecute
+                            | hel_sys::kHelRightAssign
+                            | hel_sys::kHelRightProvision
+                            | hel_sys::kHelRightPin
+                            | hel_sys::kHelRightFence,
+                    ),
+                ),
+            )
+            .await?;
+            send_head.and(push_memory)?;
+            Ok(())
+        }
+        Err(e) => send_response(&conversation, &bindings::SvrResponse::new(e)).await,
     }
 }
 
@@ -960,20 +1007,53 @@ async fn handle_link(
 
 async fn handle_get_link_or_create(
     conversation: hel::Handle,
+    node: Arc<dyn Node>,
     head: Vec<u8>,
     tail_size: usize,
 ) -> Result<(), ServeError> {
     let tail = receive_tail(&conversation, tail_size).await?;
-    let _req: bindings::GetLinkOrCreateRequest =
+    let req: bindings::GetLinkOrCreateRequest =
         bragi::head_tail_from_bytes(&head, &tail).map_err(ServeError::Malformed)?;
 
-    let resp = bindings::GetLinkOrCreateResponse::new(
-        Error::IllegalOperationTarget,
-        FileType::REGULAR,
-        0,
-        0,
-    );
-    send_response(&conversation, &resp).await
+    match node
+        .get_link_or_create(
+            req.name(),
+            req.mode(),
+            req.exclusive() != 0,
+            req.uid(),
+            req.gid(),
+        )
+        .await
+    {
+        Ok(child) => {
+            let remote = serve_new_node_lane(child.node)?;
+            let resp = bindings::GetLinkOrCreateResponse::new(
+                Error::Success,
+                child.file_type,
+                child.id,
+                0,
+            );
+            let head = bragi::head_to_bytes(&resp)?;
+            let (send_resp, push_node) = hel::submit_async(
+                &conversation,
+                (
+                    hel::SendBuffer::new(&head),
+                    hel::PushDescriptor::new(
+                        &remote,
+                        hel_sys::kHelRightInvoke | hel_sys::kHelRightManage,
+                    ),
+                ),
+            )
+            .await?;
+            send_resp.and(push_node)?;
+            Ok(())
+        }
+        // The client only pulls a lane on success.
+        Err(e) => {
+            let resp = bindings::GetLinkOrCreateResponse::new(e, FileType::REGULAR, 0, 0);
+            send_response(&conversation, &resp).await
+        }
+    }
 }
 
 async fn handle_utimensat(
@@ -1106,7 +1186,15 @@ async fn dispatch_node_request(lane: &hel::Handle, node: &Arc<dyn Node>) -> Resu
             spawn_tailed(&head, tail_size, conversation, handle_link);
         }
         bindings::GetLinkOrCreateRequest::MESSAGE_ID => {
-            spawn_tailed(&head, tail_size, conversation, handle_get_link_or_create);
+            let node = node.clone();
+            spawn_tailed(
+                &head,
+                tail_size,
+                conversation,
+                move |conversation, head, tail_size| {
+                    handle_get_link_or_create(conversation, node, head, tail_size)
+                },
+            );
         }
         bindings::UtimensatRequest::MESSAGE_ID => {
             parse_and_spawn(&head, conversation, handle_utimensat)?;

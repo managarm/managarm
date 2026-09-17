@@ -4,7 +4,7 @@ pub mod pci;
 pub mod result;
 pub mod server;
 
-pub use device::Device;
+pub use device::{BatteryState, Device, DtProperty};
 pub use error::Error;
 pub use result::Result;
 
