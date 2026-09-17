@@ -156,22 +156,21 @@ struct TcpPacket {
 			return false;
 		}
 
-		if (header.checksum.load()) {
-			PseudoHeader pseudo {
-				.src = packet->header.source,
-				.dst = packet->header.destination,
-				.proto = packet->header.protocol,
-				.len = ipPayload.size()
-			};
-			Checksum csum;
-			csum.update(&pseudo, sizeof(pseudo));
-			csum.update(ipPayload);
-			auto result = csum.finalize();
-			if (result && ~result) {
-				if (logDiscards)
-					std::println("netserver: Discarding TCP packet with invalid checksum");
-				return false;
-			}
+		// Unlike UDP, TCP always carries a checksum.
+		PseudoHeader pseudo {
+			.src = packet->header.source,
+			.dst = packet->header.destination,
+			.proto = packet->header.protocol,
+			.len = ipPayload.size()
+		};
+		Checksum csum;
+		csum.update(&pseudo, sizeof(pseudo));
+		csum.update(ipPayload);
+		auto result = csum.finalize();
+		if (result && ~result) {
+			if (logDiscards)
+				std::println("netserver: Discarding TCP packet with invalid checksum");
+			return false;
 		}
 
 		this->packet = std::move(packet);
