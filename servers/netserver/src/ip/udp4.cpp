@@ -75,7 +75,7 @@ struct Udp {
 	static_assert(sizeof(header) == 8, "udp header size wrong");
 
 	arch::dma_buffer_view payload() const {
-		return packet->payload().subview(sizeof(header));
+		return packet->payload().subview(sizeof(header), header.len - sizeof(header));
 	}
 
 	bool parse(smarter::shared_ptr<const Ip4Packet> packet) {
@@ -88,11 +88,19 @@ struct Udp {
 		}
 		std::memcpy(&header, payload.data(), sizeof(header));
 		header.ensureEndian();
+		// The length field covers the UDP header and its payload.
+		if (header.len < sizeof(header)) {
+			if (logDiscards)
+				std::println("netserver: Discarding UDP packet with a length field below the header size");
+			return false;
+		}
 		if (payload.size() < header.len) {
 			if (logDiscards)
 				std::println("netserver: Discarding UDP packet smaller than its length field");
 			return false;
 		}
+		// Bytes behind the datagram (e.g. Ethernet padding) are not covered by the checksum.
+		payload = payload.subview(0, header.len);
 		if (header.chk != 0) {
 			PseudoHeader phdr;
 			phdr.src = packet->header.source;
