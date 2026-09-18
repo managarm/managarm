@@ -15,12 +15,18 @@ struct join_test_data {
 static void *thread_A_func(void *arg) {
 	auto data = static_cast<join_test_data *>(arg);
 
+	// *data dies as soon as we release the main thread: pthread_exit() unwinds the frame
+	// that holds it and the libc exit path then reuses that stack.
+	auto mainThread = data->mainThread;
+	int efd = data->efd;
+
 	uint64_t val = 1;
-	ssize_t bytes_written = write(data->efd, &val, sizeof(uint64_t));
+	ssize_t bytes_written = write(efd, &val, sizeof(uint64_t));
 	assert(bytes_written == sizeof(uint64_t));
 
 	void *code;
-	pthread_join(data->mainThread, &code);
+	int ret = pthread_join(mainThread, &code);
+	assert(ret == 0);
 	fprintf(stderr, "main thread exited with 0x%lx\n", (uintptr_t) code);
 	assert((uintptr_t) code == 0xDEAD);
 
