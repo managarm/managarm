@@ -17,12 +17,4 @@ thorRtEntry:
 	call thorMain
 	ud2
 
-.text
-.global enableIntsAndHaltForever
-enableIntsAndHaltForever:
-	sti
-halt_loop:
-	hlt
-	jmp halt_loop
-
 	.section .note.GNU-stack,"",%progbits

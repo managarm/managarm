@@ -283,13 +283,6 @@ forkExecutorRegisters:
 	blr x1
 	udf 0
 
-.global enableIntsAndHaltForever
-enableIntsAndHaltForever:
-	msr daifclr, #15
-1:
-	wfi
-	b 1b
-
 .global saveFpSimdRegisters
 saveFpSimdRegisters:
 	stp q0, q1, [x0, #0]

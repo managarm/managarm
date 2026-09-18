@@ -33,6 +33,6 @@ inline void halt() {
 	asm volatile ("hlt");
 }
 
-void suspendSelf();
+void haltUntilInterrupt();
 
 } // namespace thor

@@ -6,11 +6,13 @@
 
 namespace thor {
 
-extern "C" void enableIntsAndHaltForever();
-
-void suspendSelf() {
+void haltUntilInterrupt() {
 	assert(!intsAreEnabled());
-	enableIntsAndHaltForever();
+	// Wait for an interrupt with interrupts masked.
+	asm volatile ("wfi" ::: "memory");
+	// Flush the pending interrupt.
+	enableInts();
+	disableInts();
 }
 
 void sendPingIpi(CpuData *dstData) {
