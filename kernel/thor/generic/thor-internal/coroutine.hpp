@@ -585,41 +585,61 @@ template<async::Sender S>
 struct OnExceptionalWqSender {
 	using value_type = S::value_type;
 
-	template<typename E>
-	struct Env {
-		WorkQueue *get_work_queue() {
-			auto ec = workQueueFromEnv(base)->executorContext();
-			auto exceptionalWq = ec->exceptionalWq;
-			assert(exceptionalWq);
-			return exceptionalWq;
-		}
-
-		E base;
-	};
-
 	template<typename R>
-	struct IntermediateReceiver {
-		template<typename... Args>
-		void set_value(Args &&... args) {
-			return async::execution::set_value(std::move(dr), std::forward<Args>(args)...);
-		}
-
-		auto get_env() {
-			auto base = async::execution::get_env(dr);
-			return Env{.base = base};
-		}
-
-		R dr;
-	};
-
-	template<typename R>
-	auto connect(R dr) {
-		return async::execution::connect(
-			std::move(sender),
-			IntermediateReceiver{
-				.dr = std::move(dr),
+	struct Operation {
+		struct Env {
+			WorkQueue *get_work_queue() {
+				return op->wq_;
 			}
-		);
+
+			Operation *op;
+		};
+
+		struct IntermediateReceiver {
+			template<typename... Args>
+			void set_value(Args &&... args) {
+				auto dr = std::move(op->dr_);
+				return async::execution::set_value(std::move(dr), std::forward<Args>(args)...);
+			}
+
+			auto get_env() {
+				return Env{.op = op};
+			}
+
+			Operation *op;
+		};
+
+		Operation(S sender, R dr)
+		: dr_{std::move(dr)},
+			op_{async::execution::connect(std::move(sender), IntermediateReceiver{.op = this})} { }
+
+		Operation(const Operation &) = delete;
+
+		Operation &operator= (const Operation &) = delete;
+
+		void start() {
+			auto ec = workQueueFromEnv(async::execution::get_env(dr_))->executorContext();
+			wq_ = ec->exceptionalWq;
+			assert(wq_);
+			if (wq_->immediatelyDispatchable())
+				return op_.start();
+			worklet_.setup([] (Worklet *base) {
+				auto op = frg::container_of(base, &Operation::worklet_);
+				op->op_.start();
+			});
+			wq_->post(&worklet_);
+		}
+
+	private:
+		R dr_;
+		WorkQueue *wq_{nullptr};
+		Worklet worklet_;
+		async::execution::operation_t<S, IntermediateReceiver> op_;
+	};
+
+	template<typename R>
+	Operation<R> connect(R dr) {
+		return {std::move(sender), std::move(dr)};
 	}
 
 	S sender;
