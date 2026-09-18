@@ -558,12 +558,20 @@ struct WqSpawnCtrlBlock {
 		op_{async::execution::connect(std::move(sender), Receiver{.cb = this})} { }
 
 	void spawn() {
-		op_.start();
+		assert(wq_);
+		if (wq_->immediatelyDispatchable())
+			return op_.start();
+		worklet_.setup([] (Worklet *base) {
+			auto cb = frg::container_of(base, &WqSpawnCtrlBlock::worklet_);
+			cb->op_.start();
+		});
+		wq_->post(&worklet_);
 	}
 
 private:
 	A allocator_;
 	smarter::shared_ptr<WorkQueue> wq_;
+	Worklet worklet_;
 	async::execution::operation_t<S, Receiver> op_;
 };
 
