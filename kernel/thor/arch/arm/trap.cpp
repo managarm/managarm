@@ -9,6 +9,7 @@
 #include <thor-internal/arch/trap.hpp>
 #include <thor-internal/debug.hpp>
 #include <thor-internal/main.hpp>
+#include <thor-internal/rcu.hpp>
 #include <thor-internal/thread.hpp>
 #include <thor-internal/traps.hpp>
 
@@ -210,6 +211,7 @@ extern "C" void onPlatformSyncFault(FaultImageAccessor image) {
 }
 
 extern "C" void onPlatformAsyncFault(FaultImageAccessor image) {
+	rcuClearQuiescent();
 	iplSave(*image.iplState());
 	iplEnterContext(ipl::maximal, *image.iplState());
 
@@ -277,6 +279,7 @@ extern "C" void onPlatformAsyncFault(FaultImageAccessor image) {
 }
 
 extern "C" void onPlatformIrq(IrqImageAccessor image) {
+	rcuClearQuiescent();
 	iplSave(*image.iplState());
 	iplEnterContext(ipl::interrupt, *image.iplState());
 

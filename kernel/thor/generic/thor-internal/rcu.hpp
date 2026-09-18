@@ -130,6 +130,20 @@ private:
 
 void setRcuOnline(CpuData *cpu);
 
+inline void rcuSetQuiescent() {
+	getCpuData()->rcuQuiescent.store(true, std::memory_order_seq_cst);
+}
+
+inline void rcuClearQuiescent() {
+	auto cpuData = getCpuData();
+	if (!cpuData->rcuQuiescent.load(std::memory_order_relaxed))
+		return;
+	cpuData->rcuQuiescent.store(false, std::memory_order_relaxed);
+	// Pairs with the fence in RcuEngine::barrier():
+	// either barrier() observes that we are not quiescent, or we observe all stores that precede barrier().
+	std::atomic_thread_fence(std::memory_order_seq_cst);
+}
+
 void submitRcu(RcuCallable *callable, void (*call)(RcuCallable *));
 
 // Policy class for frigg::rcu_radixtree.

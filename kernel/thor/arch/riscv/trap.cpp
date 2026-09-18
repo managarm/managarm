@@ -3,6 +3,7 @@
 #include <thor-internal/arch/fp-state.hpp>
 #include <thor-internal/arch/trap.hpp>
 #include <thor-internal/int-call.hpp>
+#include <thor-internal/rcu.hpp>
 #include <thor-internal/thread.hpp>
 #include <thor-internal/traps.hpp>
 
@@ -180,6 +181,7 @@ void handleRiscvPageFault(Frame *frame, uint64_t code, uint64_t address) {
 }
 
 void handleRiscvInterrupt(Frame *frame, uint64_t code) {
+	rcuClearQuiescent();
 	iplSave(frame->iplState);
 	iplEnterContext(ipl::interrupt, frame->iplState);
 

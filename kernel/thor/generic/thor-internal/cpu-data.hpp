@@ -110,6 +110,10 @@ struct CpuData : public PlatformCpuData {
 	std::atomic<SelfIntCallBase *> selfIntCallPtr{nullptr};
 	smarter::shared_ptr<WorkQueue> generalWorkQueue;
 	std::atomic<uint64_t> heartbeat;
+	// Set to true to indicate that the CPU is in an explicit quiescent state.
+	// If set, the RCU engine does not schedule a memory barrier on this CPU's WQ.
+	// This is set while the CPU is halted in the idle loop, see rcuSetQuiescent() and rcuClearQuiescent().
+	std::atomic<bool> rcuQuiescent{false};
 
 	IseqContext regularIseq;
 
