@@ -85,6 +85,23 @@ impl FromQueueElement for LengthResult {
     }
 }
 
+pub struct EventResult;
+
+impl FromQueueElement for EventResult {
+    type Output = Result<u64>;
+
+    fn from_queue_element(element: &mut QueueElement) -> Self::Output {
+        let data = element.data();
+
+        assert!(data.len() >= size_of::<hel_sys::HelEventResult>());
+        let result = unsafe { data.as_ptr().cast::<hel_sys::HelEventResult>().read() };
+
+        element.advance(size_of::<hel_sys::HelEventResult>());
+
+        hel_check(result.error).map(|_| result.sequence)
+    }
+}
+
 pub struct HandleResult;
 
 impl FromQueueElement for HandleResult {
