@@ -1111,7 +1111,9 @@ void Tcp4Socket::handleInPacket_(TcpPacket packet) {
 				gotUpdate = true;
 			}
 
-			if(packet.header.flags.load() & TcpHeader::finFlag) {
+			// The FIN only applies once we accepted the segment in its entirety.
+			if(chunk == payload.size()
+					&& (packet.header.flags.load() & TcpHeader::finFlag)) {
 				++remoteKnownSn_; // FIN counts as one byte.
 				remoteClosed_ = true;
 
