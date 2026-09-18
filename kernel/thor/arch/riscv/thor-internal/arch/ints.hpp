@@ -20,7 +20,7 @@ inline void disableInts() {
 
 inline void halt() { asm volatile("wfi"); }
 
-void suspendSelf();
+void haltUntilInterrupt();
 void sendHypervisorIpi(CpuData *dstData);
 
 } // namespace thor
