@@ -1,5 +1,6 @@
 #include <async/algorithm.hpp>
 #include <thor-internal/cpu-data.hpp>
+#include <thor-internal/cpu-state.hpp>
 #include <thor-internal/rcu.hpp>
 #include <thor-internal/work-queue.hpp>
 
@@ -58,9 +59,31 @@ coroutine<void> RcuEngine::barrier() {
 		);
 	}
 	if (initiate) {
-		transitionWg_.add(getCpuCount());
+		// Pairs with the fence in setCpuState(), see there.
+		std::atomic_thread_fence(std::memory_order_seq_cst);
+
+		transitionWg_.add(1); // Hold a count of 1 until the loop below finishes.
 		for (size_t c = 0; c < getCpuCount(); ++c) {
 			auto cpu = &cpuData.getFor(c);
+
+			auto state = cpu->cpuState.load(std::memory_order_seq_cst);
+			if (state != CpuState::online) [[unlikely]] {
+				// Offline CPUs are quiescent (i.e., they cannot observe any RCU protected state).
+				if (state == CpuState::offline)
+					continue;
+				// Scheduling is only enabled once a CPU comes online,
+				// i.e., a booting CPU is inside an RCU critical section for the entirety of its bring-up.
+				// We cannot force a quiescent state on it, so we wait for it to come online.
+				while (state == CpuState::booting) {
+					co_await cpuStateEvent().async_wait_if([&] {
+						state = cpu->cpuState.load(std::memory_order_seq_cst);
+						return state == CpuState::booting;
+					});
+				}
+				assert(state == CpuState::online);
+			}
+
+			transitionWg_.add(1);
 			// TODO: We can do this without allocation by putting the operations into a member vector.
 			spawnOnWorkQueue(
 				Allocator{},
@@ -75,6 +98,7 @@ coroutine<void> RcuEngine::barrier() {
 				})
 			);
 		}
+		transitionWg_.done();
 		co_await transitionWg_.wait();
 
 		state_.store(s + 1, std::memory_order_relaxed);
