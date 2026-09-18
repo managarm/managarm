@@ -126,7 +126,9 @@ pub fn create_dma_space(iommu: Option<&Handle>, regions: &[DmaReservedRegion]) -
         })
         .collect();
 
-    let iommu = iommu.map_or(hel_sys::kHelNullHandle as hel_sys::HelHandle, |i| i.handle());
+    let iommu = iommu.map_or(hel_sys::kHelNullHandle as hel_sys::HelHandle, |i| {
+        i.handle()
+    });
     let mut handle = hel_sys::kHelNullHandle as hel_sys::HelHandle;
     result::hel_check(unsafe {
         hel_sys::helCreateDmaSpace(iommu, regions.as_ptr(), regions.len(), 0, &mut handle)
