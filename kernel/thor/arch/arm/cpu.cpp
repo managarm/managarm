@@ -1,6 +1,7 @@
 #include <thor-internal/arch/system.hpp>
 #include <thor-internal/arch-generic/cpu.hpp>
 #include <thor-internal/cpu-data.hpp>
+#include <thor-internal/cpu-state.hpp>
 #include <thor-internal/ipl.hpp>
 #include <frg/manual_box.hpp>
 #include <thor-internal/main.hpp>
@@ -240,6 +241,8 @@ initgraph::Edge bootProcessorReadyEdge{
 void initializeThisProcessor() {
 	auto cpu_data = getCpuData();
 
+	setCpuState(cpu_data, CpuState::booting);
+
 	// Enable FPU
 	asm volatile ("msr cpacr_el1, %0" :: "r"(uint64_t(0b11 << 20)));
 
@@ -274,7 +277,7 @@ void initializeThisProcessor() {
 	cpu_data->generalWorkQueue = cpu_data->wqFiber->associatedWorkQueue().lock();
 	assert(cpu_data->generalWorkQueue);
 
-	cpu_data->cpuInitialized.store(true, std::memory_order_release);
+	setCpuState(cpu_data, CpuState::online);
 }
 
 } // namespace thor

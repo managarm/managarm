@@ -22,7 +22,7 @@ void doSendIpi(CpuData *dstData) {
 } // namespace
 
 void sendPingIpi(CpuData *dstData) {
-	if (!dstData->cpuInitialized.load(std::memory_order_acquire))
+	if (dstData->cpuState.load(std::memory_order_acquire) != CpuState::online)
 		return;
 
 	if (raiseIpiBit(dstData, PlatformCpuData::ipiPing))
@@ -37,7 +37,7 @@ void sendShootdownIpi() {
 	for (size_t i = 0; i < getCpuCount(); ++i) {
 		auto *dstData = getCpuData(i);
 
-		if (!dstData->cpuInitialized.load(std::memory_order_acquire))
+		if (dstData->cpuState.load(std::memory_order_acquire) != CpuState::online)
 			continue;
 
 		if (raiseIpiBit(dstData, PlatformCpuData::ipiShootdown))
@@ -52,7 +52,7 @@ void sendSelfCallIpi() {
 }
 
 void sendHypervisorIpi(CpuData *dstData) {
-	if (!dstData->cpuInitialized.load(std::memory_order_acquire))
+	if (dstData->cpuState.load(std::memory_order_acquire) != CpuState::online)
 		return;
 
 	if (raiseIpiBit(dstData, PlatformCpuData::ipiHypervisor))

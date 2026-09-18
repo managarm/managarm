@@ -511,7 +511,7 @@ namespace {
 		std::optional<MsiSlot> best;
 		for(size_t cpu = 0; cpu < getCpuCount(); cpu++) {
 			auto target = getCpuData(cpu);
-			if(!target->cpuInitialized.load(std::memory_order_acquire)
+			if(target->cpuState.load(std::memory_order_acquire) != CpuState::online
 					|| target->localApicId >= 0xFF)
 				continue;
 			auto &table = irqSlots.getFor(cpu);
