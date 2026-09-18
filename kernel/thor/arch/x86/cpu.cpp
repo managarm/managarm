@@ -12,6 +12,7 @@
 #include <thor-internal/cpu-state.hpp>
 #include <thor-internal/ipl.hpp>
 #include <thor-internal/arch/pic.hpp>
+#include <frg/cmdline.hpp>
 #include <x86/machine.hpp>
 
 namespace thor {
@@ -463,6 +464,30 @@ static initgraph::Task enumerateCpuFeaturesTask{&globalInitEngine, "x86.enumerat
 					<< frg::endlog;
 		}
 
+		bool noHwp = false;
+		frg::array args = {
+			frg::option{"thor.no-hwp", frg::store_true(noHwp)},
+		};
+		frg::parse_arguments(getKernelCmdline(), args);
+
+		auto thermalPowerLeaf = common::x86::cpuid(0x6)[0];
+		if(thermalPowerLeaf & (1 << 7)) {
+			// IA32_PM_ENABLE sticks until reset, so firmware may already have turned HWP on.
+			if(common::x86::rdmsr(common::x86::kMsrIa32PmEnable) & 1)
+				infoLogger() << "thor: HWP was already enabled by firmware" << frg::endlog;
+
+			if(noHwp) {
+				infoLogger() << "thor: CPUs support HWP but it is disabled on the command line"
+						<< frg::endlog;
+			}else{
+				debugLogger() << "thor: CPUs support HWP" << frg::endlog;
+				globalCpuFeatures.haveHwp = true;
+				globalCpuFeatures.haveHwpEpp = thermalPowerLeaf & (1 << 10);
+			}
+		}else{
+			debugLogger() << "thor: CPUs do not support HWP!" << frg::endlog;
+		}
+
 		auto intelPmLeaf = common::x86::cpuid(0xA)[0];
 		if(intelPmLeaf & 0xFF) {
 			debugLogger() << "thor: CPUs support Intel performance counters"
@@ -775,6 +800,38 @@ void initializeThisProcessor() {
 				" will not use PCIDs!" << frg::endlog;
 	}else{
 		debugLogger() << "thor: CPU does not support PCIDs!" << frg::endlog;
+	}
+
+	// Enable hardware P-states.
+	// Until this is done, the core runs at whatever fixed ratio firmware left in IA32_PERF_CTL,
+	// i.e. without turbo or frequency scaling.
+	if(getGlobalCpuFeatures()->haveHwp) {
+		// IA32_PM_ENABLE is package scoped. Writing 1 again on a sibling is harmless.
+		common::x86::wrmsr(common::x86::kMsrIa32PmEnable, 1);
+
+		// IA32_HWP_CAPABILITIES is only readable once HWP is enabled.
+		auto caps = common::x86::rdmsr(common::x86::kMsrIa32HwpCapabilities);
+		cpuData->hwpHighestPerf = caps & 0xFF;
+		cpuData->hwpGuaranteedPerf = (caps >> 8) & 0xFF;
+		cpuData->hwpMostEfficientPerf = (caps >> 16) & 0xFF;
+		cpuData->hwpLowestPerf = (caps >> 24) & 0xFF;
+
+		infoLogger() << "thor: CPU #" << cpuData->cpuIndex << " HWP performance levels:"
+				<< " highest " << (int)cpuData->hwpHighestPerf
+				<< ", guaranteed " << (int)cpuData->hwpGuaranteedPerf
+				<< ", most efficient " << (int)cpuData->hwpMostEfficientPerf
+				<< ", lowest " << (int)cpuData->hwpLowestPerf << frg::endlog;
+
+		// Allow the hardware to use the full range of performance levels.
+		uint64_t request = uint64_t{cpuData->hwpLowestPerf}
+				| (uint64_t{cpuData->hwpHighestPerf} << 8);
+		// EPP selects the efficiency/performance preference on a scale
+		// from 0 (prefer performance) to 255 (prefer energy efficiency).
+		// Linux uses: 0 (performance), 0x80 (balanced performance), 0xC0 (balanced power), 0xFF (power).
+		// TODO: We hard-code 0x80 here for now, let userspace override it in the future.
+		if(getGlobalCpuFeatures()->haveHwpEpp)
+			request |= uint64_t{0x80} << 24;
+		common::x86::wrmsr(common::x86::kMsrIa32HwpRequest, request);
 	}
 
 	// Enable SVM or VMX if it is supported.

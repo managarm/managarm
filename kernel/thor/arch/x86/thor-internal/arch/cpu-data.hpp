@@ -36,6 +36,12 @@ struct PlatformCpuData : public AssemblyCpuData {
 	bool havePcids = false;
 	bool haveSmap = false;
 	bool haveVirtualization = false;
+
+	// Performance levels from IA32_HWP_CAPABILITIES of this CPU.
+	uint8_t hwpHighestPerf = 0;
+	uint8_t hwpGuaranteedPerf = 0;
+	uint8_t hwpMostEfficientPerf = 0;
+	uint8_t hwpLowestPerf = 0;
 };
 
 // Get a pointer to this CPU's PlatformCpuData instance.
