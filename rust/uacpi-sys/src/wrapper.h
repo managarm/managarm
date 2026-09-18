@@ -2,8 +2,12 @@
 
 #include <uacpi/acpi.h>
 #include <uacpi/context.h>
+#include <uacpi/event.h>
+#include <uacpi/io.h>
 #include <uacpi/kernel_api.h>
 #include <uacpi/log.h>
+#include <uacpi/notify.h>
+#include <uacpi/opregion.h>
 #include <uacpi/osi.h>
 #include <uacpi/resources.h>
 #include <uacpi/status.h>

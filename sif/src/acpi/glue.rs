@@ -1,8 +1,10 @@
 use arch::{PioAccess, PioSpace};
+use async_channel::{Receiver, Sender};
 use managarm::svrctl::hardware_access_handle;
-use std::collections::{BTreeMap, VecDeque};
+use std::collections::BTreeMap;
 use std::ffi::{CStr, c_void};
-use std::sync::atomic::Ordering;
+use std::sync::OnceLock;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
 use lock_api::{RawMutex as _, RawMutexTimed as _};
@@ -38,16 +40,33 @@ struct WorkItem {
     ctx: usize,
 }
 
-static WORK_QUEUE: Mutex<VecDeque<WorkItem>> = Mutex::new(VecDeque::new());
+static WORK_QUEUE: OnceLock<(Sender<WorkItem>, Receiver<WorkItem>)> = OnceLock::new();
+
+fn work_queue() -> &'static (Sender<WorkItem>, Receiver<WorkItem>) {
+    WORK_QUEUE.get_or_init(async_channel::unbounded)
+}
+
+static WORK_WORKER_SPAWNED: AtomicBool = AtomicBool::new(false);
 
 fn drain_work() {
-    loop {
-        let item = WORK_QUEUE.lock().pop_front();
-        let Some(item) = item else {
-            break;
-        };
+    let (_, receiver) = work_queue();
+    while let Ok(item) = receiver.try_recv() {
         unsafe { (item.handler)(item.ctx as uacpi_handle) };
     }
+}
+
+async fn work_worker() {
+    let (_, receiver) = work_queue();
+    while let Ok(item) = receiver.recv().await {
+        unsafe { (item.handler)(item.ctx as uacpi_handle) };
+    }
+}
+
+fn spawn_work_worker() {
+    if WORK_WORKER_SPAWNED.swap(true, Ordering::AcqRel) {
+        return;
+    }
+    hel::spawn(work_worker());
 }
 
 #[unsafe(no_mangle)]
@@ -584,11 +603,17 @@ pub unsafe extern "C" fn uacpi_kernel_schedule_work(
     ctx: uacpi_handle,
 ) -> uacpi_status {
     if let Some(handler) = handler {
-        WORK_QUEUE.lock().push_back(WorkItem {
+        let (sender, _) = work_queue();
+        if let Err(err) = sender.try_send(WorkItem {
             handler,
             ctx: ctx as usize,
-        });
+        }) {
+            println!("sif: uacpi: failed to queue work: {err}");
+        }
     }
+
+    spawn_work_worker();
+
     uacpi_sys::UACPI_STATUS_OK
 }
 
@@ -598,15 +623,93 @@ pub unsafe extern "C" fn uacpi_kernel_wait_for_work_completion() -> uacpi_status
     uacpi_sys::UACPI_STATUS_OK
 }
 
+struct InterruptHandler;
+
+fn resolve_irq(irq: uacpi_u32) -> Option<&'static crate::irq::IrqPin> {
+    #[cfg(target_arch = "x86_64")]
+    {
+        let line = crate::isa::resolve_isa_irq(irq);
+        crate::irq::system_irq(line.gsi, line.trigger, line.polarity)
+    }
+    #[cfg(not(target_arch = "x86_64"))]
+    {
+        crate::irq::system_irq(irq, hel::IrqTrigger::Level, hel::IrqPolarity::High)
+    }
+}
+
+async fn run_interrupt_handler(
+    irq: hel::Handle,
+    handler: uacpi_interrupt_handler,
+    ctx: uacpi_handle,
+) {
+    if let Err(err) = hel::acknowledge_irq(&irq, hel_sys::kHelAckKick, 0) {
+        println!("sif: acpi: failed to kick an IRQ: {err}");
+    }
+
+    let mut sequence = 0;
+    loop {
+        match hel::await_event(&irq, sequence).await {
+            Ok(next) => sequence = next,
+            Err(err) => {
+                println!("sif: acpi: failed to await an IRQ: {err}");
+                return;
+            }
+        }
+
+        let handled = match handler {
+            Some(handler) => (unsafe { handler(ctx) }) != uacpi_sys::UACPI_INTERRUPT_NOT_HANDLED,
+            None => false,
+        };
+
+        println!(
+            "sif: acpi: IRQ was {}",
+            if handled { "handled" } else { "not handled" }
+        );
+
+        let flags = if handled {
+            hel_sys::kHelAckAcknowledge
+        } else {
+            hel_sys::kHelAckNack
+        };
+        if let Err(err) = hel::acknowledge_irq(&irq, flags, sequence) {
+            println!("sif: acpi: failed to acknowledge an IRQ: {err}");
+            return;
+        }
+    }
+}
+
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn uacpi_kernel_install_interrupt_handler(
-    _irq: uacpi_u32,
-    _handler: uacpi_interrupt_handler,
-    _ctx: uacpi_handle,
+    irq: uacpi_u32,
+    handler: uacpi_interrupt_handler,
+    ctx: uacpi_handle,
     out: *mut uacpi_handle,
 ) -> uacpi_status {
-    unsafe { *out = std::ptr::null_mut() };
-    // TODO
+    let Some(pin) = resolve_irq(irq) else {
+        println!("sif: acpi: cannot claim IRQ {irq}");
+        unsafe { *out = std::ptr::null_mut() };
+        return uacpi_sys::UACPI_STATUS_OK;
+    };
+
+    let object = match hel::handle_irq(pin.handle()) {
+        Ok(object) => object,
+        Err(err) => {
+            println!("sif: acpi: cannot handle IRQ {irq}: {err}");
+            unsafe { *out = std::ptr::null_mut() };
+            return uacpi_sys::UACPI_STATUS_OK;
+        }
+    };
+
+    let state = crate::leak(InterruptHandler);
+    unsafe { *out = state as *const InterruptHandler as uacpi_handle };
+
+    println!(
+        "sif: acpi: installed an interrupt handler for IRQ {irq} ({})",
+        pin.name()
+    );
+
+    hel::spawn(run_interrupt_handler(object, handler, ctx));
+
     uacpi_sys::UACPI_STATUS_OK
 }
 
@@ -616,7 +719,7 @@ pub unsafe extern "C" fn uacpi_kernel_uninstall_interrupt_handler(
     _irq_handle: uacpi_handle,
 ) -> uacpi_status {
     // TODO
-    uacpi_sys::UACPI_STATUS_OK
+    uacpi_sys::UACPI_STATUS_UNIMPLEMENTED
 }
 
 #[unsafe(no_mangle)]

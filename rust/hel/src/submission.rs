@@ -10,7 +10,7 @@ use core::{
 };
 
 use action::Action;
-use result::{FromQueueElement, SimpleResult};
+use result::{EventResult, FromQueueElement, SimpleResult};
 
 #[cfg(feature = "std")]
 use crate::executor::current_executor;
@@ -194,6 +194,42 @@ pub fn sleep_for(duration: Duration) -> impl Future<Output = Result<()>> {
     sleep_for_with_executor(current_executor(), duration)
 }
 
+pub fn await_event_with_executor(
+    executor: Executor,
+    event: &Handle,
+    sequence: u64,
+) -> impl Future<Output = Result<u64>> {
+    let handle = event.handle();
+
+    new_async_operation(
+        executor.clone_inner(),
+        move |executor, context| {
+            let header = hel_sys::HelSqAwaitEvent {
+                handle,
+                sequence,
+                cancellationTag: 0,
+            };
+            let header_bytes: &[u8] = unsafe {
+                core::slice::from_raw_parts(
+                    &header as *const _ as *const u8,
+                    size_of::<hel_sys::HelSqAwaitEvent>(),
+                )
+            };
+            executor.push_sq(
+                hel_sys::kHelSubmitAwaitEvent,
+                context as usize,
+                &[header_bytes],
+            )
+        },
+        EventResult::from_queue_element,
+    )
+}
+
+#[cfg(feature = "std")]
+pub fn await_event(event: &Handle, sequence: u64) -> impl Future<Output = Result<u64>> {
+    await_event_with_executor(current_executor(), event, sequence)
+}
+
 pub fn submit_async_with_executor<T: Action>(
     executor: Executor,
     lane: &Handle,
@@ -284,8 +320,9 @@ pub fn bind_dma_device_with_executor(
         hel_sys::kHelSubmitBindDmaDevice,
         hel_sys::HelSqBindDmaDevice {
             iommuHandle: iommu.handle(),
-            dmaSpaceHandle: space
-                .map_or(hel_sys::kHelNullHandle as hel_sys::HelHandle, |s| s.handle()),
+            dmaSpaceHandle: space.map_or(hel_sys::kHelNullHandle as hel_sys::HelHandle, |s| {
+                s.handle()
+            }),
             id: id.to_raw(),
         },
     )
