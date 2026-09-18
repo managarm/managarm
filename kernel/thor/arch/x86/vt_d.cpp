@@ -1,6 +1,7 @@
 #include <arch/bits.hpp>
 #include <arch/variable.hpp>
 #include <async/recurring-event.hpp>
+#include <frg/algorithm.hpp>
 #include <frg/cmdline.hpp>
 #include <frg/scope_exit.hpp>
 #include <frg/small_vector.hpp>
@@ -10,6 +11,7 @@
 #include <thor-internal/arch/cache.hpp>
 #include <thor-internal/arch/pic.hpp>
 #include <thor-internal/coroutine.hpp>
+#include <thor-internal/debug.hpp>
 #include <thor-internal/fiber.hpp>
 #include <thor-internal/main.hpp>
 #include <thor-internal/pci/pci.hpp>
@@ -105,44 +107,44 @@ namespace contextTable {
 	static_assert(sizeof(Entry) == 16);
 }
 
-namespace sourceIDMasks {
+namespace requesterIdMasks {
 	constexpr arch::field<uint16_t, uint8_t> function{0, 3};
 	constexpr arch::field<uint16_t, uint8_t> device{3, 5};
 	constexpr arch::field<uint16_t, uint8_t> bus{8, 8};
 }
 
-struct SourceID {
+struct RequesterId {
 	operator uint16_t() {
 		return uint16_t{data_.load()};
 	}
 
 	uint8_t bus() {
-		return data_.load() & sourceIDMasks::bus;
+		return data_.load() & requesterIdMasks::bus;
 	}
 
 	uint8_t device() {
-		return data_.load() & sourceIDMasks::device;
+		return data_.load() & requesterIdMasks::device;
 	}
 
 	uint8_t function() {
-		return data_.load() & sourceIDMasks::function;
+		return data_.load() & requesterIdMasks::function;
 	}
 
 	uint8_t devfn() {
 		return (device() << 3) | function();
 	}
 
-	SourceID(uint8_t bus, uint8_t slot, uint8_t function) :
-	data_{sourceIDMasks::function(function) | sourceIDMasks::device(slot) | sourceIDMasks::bus(bus)} {
+	RequesterId(uint8_t bus, uint8_t slot, uint8_t function) :
+	data_{requesterIdMasks::function(function) | requesterIdMasks::device(slot) | requesterIdMasks::bus(bus)} {
 	}
 
-	explicit SourceID(uint16_t val) :
+	explicit RequesterId(uint16_t val) :
 	data_{arch::bit_value{val}} { }
 
 private:
 	arch::bit_variable<uint16_t> data_;
 };
-static_assert(sizeof(SourceID) == 2);
+static_assert(sizeof(RequesterId) == 2);
 
 namespace qi {
 	[[maybe_unused]] constexpr arch::field<uint64_t, uint8_t> type{0, 4};
@@ -156,7 +158,7 @@ namespace qi {
 		};
 
 		[[maybe_unused]] constexpr arch::field<uint64_t, uint16_t> domainId{16, 16};
-		[[maybe_unused]] constexpr arch::field<uint64_t, SourceID> sourceId{32, 16};
+		[[maybe_unused]] constexpr arch::field<uint64_t, RequesterId> sourceId{32, 16};
 		[[maybe_unused]] constexpr arch::field<uint64_t, InvalidationGranularity> invalidationGranularity{4, 2};
 	} // namespace context_cache_invalidate
 
@@ -227,6 +229,7 @@ namespace version {
 } // namespace version
 
 namespace capability {
+	constexpr arch::field<uint64_t, uint8_t> nd{0, 3};
 	constexpr arch::field<uint64_t, bool> rwbf{4, 1};
 	constexpr arch::field<uint64_t, bool> plmr{5, 1};
 	constexpr arch::field<uint64_t, bool> phmr{6, 1};
@@ -265,7 +268,7 @@ namespace contextCommand {
 	};
 
 	[[maybe_unused]] constexpr arch::field<uint64_t, uint16_t> domainId{0, 16};
-	[[maybe_unused]] constexpr arch::field<uint64_t, SourceID> sourceId{16, 16};
+	[[maybe_unused]] constexpr arch::field<uint64_t, RequesterId> sourceId{16, 16};
 	[[maybe_unused]] constexpr arch::field<uint64_t, InvalidationGranularity> invalidationGranularity{61, 2};
 	[[maybe_unused]] constexpr arch::field<uint64_t, bool> invalidateContextCache{63, 1};
 } // namespace contextCommand
@@ -331,7 +334,7 @@ namespace iotlbInvalidate {
 } // namespace iotlbInvalidate
 
 namespace faultRecording {
-	constexpr arch::field<uint64_t, SourceID> sourceIdentifier{0, 16};
+	constexpr arch::field<uint64_t, RequesterId> sourceIdentifier{0, 16};
 	constexpr arch::field<uint64_t, uint8_t> faultReason{32, 8};
 	[[maybe_unused]]
 	constexpr arch::field<uint64_t, uint8_t> addressType{60, 2};
@@ -515,43 +518,26 @@ private:
 	struct CtorToken {};
 
 public:
+	// Addresses that the space translates. The first page is never handed out.
+	static constexpr uint64_t addressSpaceBase = 0x1000;
+	static constexpr uint64_t addressSpaceLimit = 1UL << 39;
+
 	IntelIommuDmaSpace(CtorToken, PhysicalAddr root, IntelIommu *iommu, uint16_t domainId)
 	: DmaSpace(&iommuOps_), iommuOps_{root, iommu, domainId} {}
 
-	static std::expected<smarter::shared_ptr<IntelIommuDmaSpace>, Error> create(
-			IntelIommu *iommu, uint16_t domainId) {
-		PhysicalAddr root = physicalAllocator->allocate(kPageSize);
-		if(root == static_cast<PhysicalAddr>(-1))
-			return std::unexpected{Error::noMemory};
-		PageAccessor accessor{root};
-		memset(accessor.get(), 0, kPageSize);
+	// The reserved regions are identity-mapped and cut out of the addresses that the space
+	// hands out, hence they have to be known before the space exists.
+	static std::expected<smarter::shared_ptr<IntelIommuDmaSpace>, Error>
+	create(IntelIommu *iommu, uint16_t domainId, frg::span<const DmaReservedRegion> regions);
 
-		auto ptr = allocate_rcu_shared<IntelIommuDmaSpace>(
-				*kernelAlloc, CtorToken{}, root, iommu, domainId);
-		ptr->selfPtr = ptr;
-		ptr->setupInitialHole(0x1000, (1UL << 39) - 0x1000);
-		return ptr;
-	}
+	Iommu *iommu() override;
 
 	IntelIommuOperations *intelIommuOps() {
 		return &iommuOps_;
 	}
 
-	frg::vector<smarter::shared_ptr<HardwareMemory>, KernelAlloc> reservedRegions_{*kernelAlloc};
-
 private:
 	IntelIommuOperations iommuOps_;
-};
-
-struct IntelIommuDomain : IommuDomain {
-	IntelIommuDomain(uint16_t id, smarter::shared_ptr<IntelIommuDmaSpace> space)
-	: IommuDomain(std::move(space)),
-	  hwDid_{id} {}
-
-	uint16_t hwDomainId() const { return hwDid_; }
-
-private:
-	uint16_t hwDid_;
 };
 
 struct IntelIommu final : Iommu, IrqSink {
@@ -559,8 +545,12 @@ struct IntelIommu final : Iommu, IrqSink {
 
 	static constexpr size_t invalidationQueueSize = 256;
 
+	// Domain that all passthrough devices are attached to. Domain id 0 is not usable since
+	// VT-d reserves it when Caching Mode is set.
+	static constexpr uint16_t passthroughDomainId = 1;
+
 	IntelIommu(uint64_t register_base, uint16_t segment)
-	: Iommu(nextIommuId++),
+	: Iommu(IommuKind::intelVtd, register_base, nextIommuId++),
 	IrqSink(frg::string(*kernelAlloc, "iommu") +
 		frg::to_allocated_string(*kernelAlloc, id())),
 	qi_{this},
@@ -731,7 +721,7 @@ struct IntelIommu final : Iommu, IrqSink {
 				range
 			} type;
 
-			using Data = std::variant<std::monostate, SourceID, ShootNode *>;
+			using Data = std::variant<std::monostate, RequesterId, ShootNode *>;
 
 			uint16_t domain;
 			Data data;
@@ -796,7 +786,7 @@ struct IntelIommu final : Iommu, IrqSink {
 			);
 		}
 
-		coroutine<void> invalidateDeviceContext(uint16_t domain, SourceID device) {
+		coroutine<void> invalidateDeviceContext(uint16_t domain, RequesterId device) {
 			return submitSyncInvalidation(
 			    InvalidationRequest::Type::deviceContext, [&](auto &entry) {
 				    entry.high = arch::bit_value<uint64_t>{0};
@@ -1050,7 +1040,7 @@ struct IntelIommu final : Iommu, IrqSink {
 								);
 								entry.low |= qi::context_cache_invalidate::domainId(req->domain);
 								entry.low |= qi::context_cache_invalidate::sourceId(
-								    std::get<SourceID>(req->data)
+								    std::get<RequesterId>(req->data)
 								);
 							} else if (req->type == InvalidationRequest::Type::globalIotlb) {
 								entry.low = qi::type(2);
@@ -1132,6 +1122,7 @@ struct IntelIommu final : Iommu, IrqSink {
 
 		if (auto res = qi_.init(); !res)
 			co_return res;
+		qiReady_ = true;
 
 		// needs to be done before enabling translation
 		writeBufferFlush();
@@ -1154,10 +1145,19 @@ struct IntelIommu final : Iommu, IrqSink {
 			while(regs_.load(regs::protectedMemoryEnable) & protectedMemoryEnable::prs);
 		}
 
+		co_return {};
+	}
+
+	// Until this is called, the unit is transparent and every requester DMAs untranslated.
+	// Succeeds if translation is already enabled.
+	coroutine<void> enableTranslation() override {
+		co_await lock_.async_lock();
+		frg::unique_lock guard{frg::adopt_lock, lock_};
+
 		setGlobalBit(globalStatus::translationEnable(true));
 
-		initialized_ = true;
-		co_return {};
+		// The unit only blocks unbound requesters once it reports the bit back.
+		while(!(regs_.load(regs::globalStatus) & globalStatus::translationEnable));
 	}
 
 	IrqStatus raise() override {
@@ -1175,11 +1175,11 @@ struct IntelIommu final : Iommu, IrqSink {
 					break;
 
 				auto reason = flags & faultRecording::faultReason;
-				auto sourceId = SourceID{flags & faultRecording::sourceIdentifier};
+				auto requesterId = RequesterId{flags & faultRecording::sourceIdentifier};
 
 				warningLogger() << frg::fmt("thor: IOMMU fault {}, {} request from {:02x}:{:02x}:{:x} to 0x{:x}: {} (0x{:x})",
 					i, (flags & faultRecording::read) ? "Read" : "Write",
-					sourceId.bus(), sourceId.device(), sourceId.function(),
+					requesterId.bus(), requesterId.device(), requesterId.function(),
 					subspace.load(regs::faultRecordInfo),
 					decodeFaultReason(reason), reason) << frg::endlog;
 
@@ -1211,18 +1211,35 @@ struct IntelIommu final : Iommu, IrqSink {
 		return ecap_ & extendedCapability::queuedInvalidation;
 	}
 
-	coroutine<void> enableDevice(pci::PciEntity *dev, bool passthrough) override {
+	std::expected<smarter::shared_ptr<DmaSpace>, Error>
+	createDmaSpace(frg::span<const DmaReservedRegion> regions) override {
+		auto domainId = allocateHardwareDomainId();
+		if(!domainId)
+			return std::unexpected{Error::noMemory};
+
+		auto spaceOutcome = IntelIommuDmaSpace::create(this, *domainId, regions);
+		if(!spaceOutcome)
+			return std::unexpected{spaceOutcome.error()};
+		return std::move(*spaceOutcome);
+	}
+
+	coroutine<std::expected<void, Error>> attachDevice(SourceId source, DmaSpace *space) override {
+		if(source.segment != segment_)
+			co_return std::unexpected{Error::illegalArgs};
+		if(space && space->iommu() != this)
+			co_return std::unexpected{Error::illegalArgs};
+
 		co_await lock_.async_lock();
 		frg::unique_lock logGuard{frg::adopt_lock, lock_};
 
-		auto rootEntry = &rootTable_[static_cast<uint8_t>(dev->bus)];
+		auto rootEntry = &rootTable_[source.bus];
 		PageAccessor context;
 		frg::span<contextTable::Entry> contextTable{};
 
 		if(!(rootEntry->entry.load() & rootTable::present)) {
 			auto contextPhys = physicalAllocator->allocate(0x1000);
 			if (contextPhys == static_cast<PhysicalAddr>(-1))
-				panicLogger() << "thor: failed to allocate physical memory for IOMMU context table" << frg::endlog;
+				co_return std::unexpected{Error::noMemory};
 			context = {contextPhys};
 
 			memset(context.get(), 0, 0x1000);
@@ -1236,21 +1253,17 @@ struct IntelIommu final : Iommu, IrqSink {
 			contextTable = {reinterpret_cast<contextTable::Entry *>(context.get()), 256};
 		}
 
-		auto sourceId = SourceID{
-			static_cast<uint8_t>(dev->bus),
-			static_cast<uint8_t>(dev->slot),
-			static_cast<uint8_t>(dev->function),
-		};
+		auto requesterId = RequesterId{source.bus, source.slot, source.function};
 
-		auto contextEntry = &contextTable[sourceId.devfn()];
+		auto contextEntry = &contextTable[requesterId.devfn()];
 		bool oldPresent = contextEntry->low.load() & contextTable::present;
 		uint16_t oldDomainId = oldPresent ? (contextEntry->high.load() & contextTable::domainId) : 0;
 
-		int domainId = 1;
+		uint16_t domainId = passthroughDomainId;
 
-		if (passthrough) {
+		if (!space) {
 			contextEntry->high.store(
-			    contextTable::addressWidth(sagaw_ - 2) | contextTable::domainId(1)
+			    contextTable::addressWidth(sagaw_ - 2) | contextTable::domainId(passthroughDomainId)
 			);
 
 			contextEntry->low.store(
@@ -1258,38 +1271,89 @@ struct IntelIommu final : Iommu, IrqSink {
 			    | contextTable::translationType(contextTable::TranslationType::Passthrough)
 			);
 		} else {
-			domainId = static_cast<IntelIommuDomain *>(dev->iommuDomain)->hwDomainId();
+			auto intelSpace = static_cast<IntelIommuDmaSpace *>(space);
+			domainId = intelSpace->intelIommuOps()->domainId();
 			contextEntry->high.store(
 			    contextTable::addressWidth(sagaw_ - 2) | contextTable::domainId(domainId)
 			);
 
-			auto space = smarter::static_pointer_cast<IntelIommuDmaSpace>(dev->iommuDomain->space_);
-
 			contextEntry->low.store(
 			    contextTable::present(true)
-			    | contextTable::ssptptr(space->intelIommuOps()->rootTable() >> 12)
+			    | contextTable::ssptptr(intelSpace->intelIommuOps()->rootTable() >> 12)
 			    | contextTable::translationType(contextTable::TranslationType::UntranslatedOnly)
 			);
 		}
 
 		flush(contextEntry);
 
-		bool do_invalidate = initialized_;
+		bool do_invalidate = qiReady_;
 		logGuard.unlock();
 
 		if(do_invalidate) {
 			uint16_t invalidationDomainId = oldPresent ? oldDomainId : domainId;
-			co_await qi_.invalidateDeviceContext(invalidationDomainId, sourceId);
+			co_await qi_.invalidateDeviceContext(invalidationDomainId, requesterId);
 			co_await qi_.invalidateDomainIotlb(domainId);
 		}
+
+		co_return {};
+	}
+
+	coroutine<std::expected<void, Error>> detachDevice(SourceId source) override {
+		if(source.segment != segment_)
+			co_return std::unexpected{Error::illegalArgs};
+
+		co_await lock_.async_lock();
+		frg::unique_lock logGuard{frg::adopt_lock, lock_};
+
+		auto rootEntry = &rootTable_[source.bus];
+		if(!(rootEntry->entry.load() & rootTable::present))
+			co_return {};
+
+		PageAccessor context{(rootEntry->entry.load() & rootTable::contextEntry) << 12};
+		frg::span<contextTable::Entry> contextTable{
+			reinterpret_cast<contextTable::Entry *>(context.get()), 256};
+
+		auto requesterId = RequesterId{source.bus, source.slot, source.function};
+
+		auto contextEntry = &contextTable[requesterId.devfn()];
+		if(!(contextEntry->low.load() & contextTable::present))
+			co_return {};
+		uint16_t domainId = contextEntry->high.load() & contextTable::domainId;
+
+		contextEntry->low.store(arch::bit_value<uint64_t>{0});
+		contextEntry->high.store(arch::bit_value<uint64_t>{0});
+
+		flush(contextEntry);
+
+		bool do_invalidate = qiReady_;
+		logGuard.unlock();
+
+		if(do_invalidate) {
+			co_await qi_.invalidateDeviceContext(domainId, requesterId);
+			co_await qi_.invalidateDomainIotlb(domainId);
+		}
+
+		co_return {};
 	}
 
 	uint8_t sagaw() const {
 		return sagaw_;
 	}
 
-	uint16_t allocateHardwareDomainId() {
-		return hwDidAlloc_++;
+	// Number of domain ids that the unit supports (VT-d specification rev 4.1, 11.4.2).
+	size_t numDomainIds() const {
+		return 1uz << (4 + 2 * (cap_ & capability::nd));
+	}
+
+	// Domain ids are handed out to userspace via helCreateDmaSpace(), hence this runs
+	// concurrently and cannot rely on the boot path's single-threadedness.
+	std::optional<uint16_t> allocateHardwareDomainId() {
+		auto did = hwDidAlloc_.load(std::memory_order_relaxed);
+		do {
+			if(did >= numDomainIds())
+				return std::nullopt;
+		} while(!hwDidAlloc_.compare_exchange_weak(did, did + 1, std::memory_order_relaxed));
+		return did;
 	}
 
 private:
@@ -1336,7 +1400,8 @@ private:
 		co_await qi_.invalidateGlobalIotlb();
 	}
 
-	bool initialized_ = false;
+	// Whether the invalidation queue is up, i.e., whether invalidations can be submitted.
+	bool qiReady_ = false;
 
 	async::mutex lock_;
 
@@ -1361,7 +1426,7 @@ private:
 	// value for the Context Entry Address Width (AW) field for the highest supported page table level
 	uint8_t sagaw_;
 
-	uint16_t hwDidAlloc_ = 1;
+	std::atomic<uint32_t> hwDidAlloc_ = passthroughDomainId + 1;
 };
 
 bool IntelIommuOperations::submitShootdown(ShootNode *node) {
@@ -1398,11 +1463,11 @@ IntelIommu *findIommu(pci::PciEntity *entity) {
 
 } // namespace
 
-IntelIommu *handleDrhd(frg::span<uint8_t> remappingStructureTypes) {
+smarter::shared_ptr<IntelIommu> handleDrhd(frg::span<uint8_t> remappingStructureTypes) {
 	DmarDrhd drhd;
 	memcpy(&drhd, remappingStructureTypes.data(), sizeof(drhd));
 
-	auto iommu = frg::construct<IntelIommu>(*kernelAlloc, drhd.register_base, drhd.segment);
+	auto iommu = allocate_rcu_shared<IntelIommu>(*kernelAlloc, drhd.register_base, drhd.segment);
 
 	if(!iommu->supportsPassthrough()) {
 		infoLogger() << "thor: IOMMU does not support passthrough, ignoring" << frg::endlog;
@@ -1414,6 +1479,10 @@ IntelIommu *handleDrhd(frg::span<uint8_t> remappingStructureTypes) {
 		return nullptr;
 	}
 
+	// Under sif, the device scopes are resolved against sif's PCI tree instead.
+	if(debugOptionsNote->useSif)
+		return iommu;
+
 	if(drhd.flags & dmarDrhdFlagsPciIncludeAll) {
 		// we need to allow matching multiple root buses, as the spec explicitly
 		// allows that to happen
@@ -1423,7 +1492,7 @@ IntelIommu *handleDrhd(frg::span<uint8_t> remappingStructureTypes) {
 
 			for(auto c : b->childDevices) {
 				if(!c->associatedIommu)
-					c->associatedIommu = iommu;
+					c->associatedIommu = iommu.get();
 			}
 
 			// we treat bridges on the root bus like 'PCI Sub-hierarchy' device scopes,
@@ -1431,7 +1500,7 @@ IntelIommu *handleDrhd(frg::span<uint8_t> remappingStructureTypes) {
 			// this allows us to avoid recursively set the associated IOMMU for the children
 			for(auto c : b->childBridges) {
 				if(!c->associatedIommu)
-					c->associatedIommu = iommu;
+					c->associatedIommu = iommu.get();
 			}
 
 			break;
@@ -1485,7 +1554,7 @@ IntelIommu *handleDrhd(frg::span<uint8_t> remappingStructureTypes) {
 					if(!pciDev)
 						return nullptr;
 
-					pciDev->associatedIommu = iommu;
+					pciDev->associatedIommu = iommu.get();
 					break;
 				}
 				case 2: {
@@ -1504,7 +1573,7 @@ IntelIommu *handleDrhd(frg::span<uint8_t> remappingStructureTypes) {
 							continue;
 
 						newbus = b->associatedBus;
-						b->associatedIommu = iommu;
+						b->associatedIommu = iommu.get();
 						break;
 					}
 
@@ -1530,14 +1599,104 @@ IntelIommu *handleDrhd(frg::span<uint8_t> remappingStructureTypes) {
 	return iommu;
 }
 
-bool handleRmrr(frg::span<uint8_t> remappingStructureTypes) {
+Iommu *IntelIommuDmaSpace::iommu() {
+	return iommuOps_.iommu();
+}
+
+std::expected<smarter::shared_ptr<IntelIommuDmaSpace>, Error> IntelIommuDmaSpace::create(
+		IntelIommu *iommu, uint16_t domainId, frg::span<const DmaReservedRegion> regions) {
+	frg::vector<DmaReservedRegion, KernelAlloc> sorted{*kernelAlloc};
+	for(const auto &region : regions) {
+		if((region.base & (kPageSize - 1)) || !region.size || (region.size & (kPageSize - 1)))
+			return std::unexpected{Error::illegalArgs};
+		if(region.base < addressSpaceBase || region.base >= addressSpaceLimit
+				|| region.size > addressSpaceLimit - region.base)
+			return std::unexpected{Error::illegalArgs};
+		sorted.push_back(region);
+	}
+	frg::insertion_sort(sorted.begin(), sorted.end(),
+			[] (const DmaReservedRegion &a, const DmaReservedRegion &b) { return a.base > b.base; });
+	for(size_t i = 1; i < sorted.size(); ++i)
+		if(sorted[i].base < sorted[i - 1].base + sorted[i - 1].size)
+			return std::unexpected{Error::illegalArgs};
+
+	PhysicalAddr root = physicalAllocator->allocate(kPageSize);
+	if(root == static_cast<PhysicalAddr>(-1))
+		return std::unexpected{Error::noMemory};
+	PageAccessor accessor{root};
+	memset(accessor.get(), 0, kPageSize);
+
+	auto ptr = allocate_rcu_shared<IntelIommuDmaSpace>(
+			*kernelAlloc, CtorToken{}, root, iommu, domainId);
+	ptr->selfPtr = ptr;
+
+	// The reserved regions are identity-mapped for good, hence the holes are cut around them
+	// and the space never hands their addresses out.
+	uint64_t holeBase = addressSpaceBase;
+	for(const auto &region : sorted) {
+		if(region.base > holeBase)
+			ptr->setupInitialHole(holeBase, region.base - holeBase);
+		holeBase = region.base + region.size;
+	}
+	if(holeBase < addressSpaceLimit)
+		ptr->setupInitialHole(holeBase, addressSpaceLimit - holeBase);
+
+	IntelIommuCursorPolicy policy{iommu->sagaw(), iommu->pageWalkingCoherent()};
+	for(const auto &region : sorted) {
+		PageFlags flags = 0;
+		if(region.readable)
+			flags |= page_access::read;
+		if(region.writable)
+			flags |= page_access::write;
+
+		IntelIommuCursor cursor{&ptr->iommuOps_, region.base, policy};
+		for(size_t progress = 0; progress < region.size; progress += kPageSize) {
+			cursor.map4k(region.base + progress, flags, CachingMode::null);
+			cursor.advance4k();
+		}
+	}
+
+	return ptr;
+}
+
+// A domain that has been cut but whose DMA space is not created yet: the reserved regions have
+// to be known before the space exists.
+struct PendingDomain {
+	IntelIommu *iommu;
+	frg::vector<pci::PciEntity *, KernelAlloc> members{*kernelAlloc};
+	frg::vector<DmaReservedRegion, KernelAlloc> regions{*kernelAlloc};
+};
+
+PendingDomain *domainOfEntity(frg::vector<PendingDomain, KernelAlloc> &domains,
+		pci::PciEntity *entity) {
+	for(auto &domain : domains)
+		if(std::ranges::find(domain.members, entity) != domain.members.end())
+			return &domain;
+	return nullptr;
+}
+
+// Adds the reserved region of an RMRR to a domain. An RMRR may legally refer to multiple
+// devices, and they may share the domain.
+void addRmrrRegion(PendingDomain *domain, uint64_t base, uint64_t size) {
+	if(std::ranges::any_of(domain->regions, [&] (const DmaReservedRegion &region) {
+				return region.base == base;
+			}))
+		return;
+	domain->regions.push_back(DmaReservedRegion{base, size, true, true});
+}
+
+bool handleRmrr(frg::span<uint8_t> remappingStructureTypes,
+		frg::vector<PendingDomain, KernelAlloc> &domains) {
 	DmarRmrr rmrr;
 	memcpy(&rmrr, remappingStructureTypes.data(), sizeof(rmrr));
 
 	auto device_scope = remappingStructureTypes.subspan(sizeof(rmrr), rmrr.hdr.length - sizeof(rmrr));
 
-	// List of DMA spaces we already registered this RMRR range with
-	frg::small_vector<IntelIommuDmaSpace *, 4, KernelAlloc> mappedSpaces{*kernelAlloc};
+	// Firmware is not required to report page-aligned ranges, but a mapping is.
+	if(rmrr.memory_limit < rmrr.memory_base)
+		return false;
+	auto reservedBase = rmrr.memory_base & ~(kPageSize - 1);
+	auto reservedSize = (rmrr.memory_limit + 1 - reservedBase + kPageSize - 1) & ~(kPageSize - 1);
 
 	while(device_scope.size()) {
 		if(sizeof(DeviceScope) > device_scope.size())
@@ -1601,49 +1760,22 @@ bool handleRmrr(frg::span<uint8_t> remappingStructureTypes) {
 						break;
 					}
 
-					if (pciDev->iommuDomain) {
-						auto space = smarter::static_pointer_cast<IntelIommuDmaSpace>(pciDev->iommuDomain->space_);
-						// Only map the RMRR into an IOMMU domain once; a RMRR may legally refer
-						// to multiple devices, and they may share the IOMMU domain.
-						if (std::ranges::find(mappedSpaces, space.get()) == mappedSpaces.end()) {
-							auto size = rmrr.memory_limit - rmrr.memory_base + 1;
-							infoLogger() << frg::fmt(
-							    "thor: punching through RMRR at 0x{:010x} (size 0x{:x}) for PCI "
-							    "device {:04x}:{:02x}:{:02x}.{}",
-							    rmrr.memory_base,
-							    size,
-							    rmrr.segment,
-							    dev.start_bus_number,
-							    slot,
-							    func
-							) << frg::endlog;
+					auto domain = domainOfEntity(domains, pciDev);
+					if (domain) {
+						infoLogger() << frg::fmt(
+						    "thor: punching through RMRR at 0x{:010x} (size 0x{:x}) for PCI "
+						    "device {:04x}:{:02x}:{:02x}.{}",
+						    reservedBase,
+						    reservedSize,
+						    rmrr.segment,
+						    dev.start_bus_number,
+						    slot,
+						    func
+						) << frg::endlog;
 
-							auto reservedMemoryOutcome = HardwareMemory::create(
-							    rmrr.memory_base, size, CachingMode::null
-							);
-							if(!reservedMemoryOutcome)
-								panicLogger() << "thor: Failed to create hardware memory" << frg::endlog;
-							space->reservedRegions_.push_back(std::move(*reservedMemoryOutcome));
-
-							auto sliceOutcome = MemorySlice::create(
-							    space->reservedRegions_.back(), 0, size
-							);
-							if(!sliceOutcome)
-								panicLogger() << "thor: Failed to create memory slice" << frg::endlog;
-							auto slice = std::move(*sliceOutcome);
-
-							auto res = KernelFiber::asyncBlockCurrent(space->map(
-							    std::move(slice),
-							    rmrr.memory_base,
-							    0,
-							    size,
-							    VirtualSpace::kMapFixed | VirtualSpace::kMapProtRead | VirtualSpace::kMapProtWrite | VirtualSpace::kMapPopulate
-							));
-							assert(res);
-							mappedSpaces.push_back(space.get());
-						}
+						addRmrrRegion(domain, reservedBase, reservedSize);
 					} else {
-						infoLogger() << frg::fmt("thor: PCI device {:04x}:{:02x}:{:02x}.{} has no IOMMU domain for RMRR",
+						infoLogger() << frg::fmt("thor: PCI device {:04x}:{:02x}:{:02x}.{} has no DMA space for RMRR",
 							rmrr.segment, dev.start_bus_number, slot, func) << frg::endlog;
 					}
 				} else if (dev.type == 2) {
@@ -1664,50 +1796,22 @@ bool handleRmrr(frg::span<uint8_t> remappingStructureTypes) {
 					while(bridge && bridge->parentBus && !bridge->associatedIommu)
 						bridge = bridge->parentBus->associatedBridge;
 
-					if (bridge && bridge->iommuDomain) {
-						auto space = smarter::static_pointer_cast<IntelIommuDmaSpace>(bridge->iommuDomain->space_);
-						// Only map the RMRR into an IOMMU domain once; a RMRR may legally refer
-						// to multiple devices, and they may share the IOMMU domain.
-						if (std::ranges::find(mappedSpaces, space.get()) == mappedSpaces.end()) {
-							auto size = rmrr.memory_limit - rmrr.memory_base + 1;
-							infoLogger() << frg::fmt(
-							    "thor: punching through RMRR at 0x{:010x} (size 0x{:x}) for PCI "
-							    "bridge {:04x}:{:02x}:{:02x}.{}",
-							    rmrr.memory_base,
-							    size,
-							    rmrr.segment,
-							    dev.start_bus_number,
-							    slot,
-							    func
-							) << frg::endlog;
+					auto domain = bridge ? domainOfEntity(domains, bridge) : nullptr;
+					if (domain) {
+						infoLogger() << frg::fmt(
+						    "thor: punching through RMRR at 0x{:010x} (size 0x{:x}) for PCI "
+						    "bridge {:04x}:{:02x}:{:02x}.{}",
+						    reservedBase,
+						    reservedSize,
+						    rmrr.segment,
+						    dev.start_bus_number,
+						    slot,
+						    func
+						) << frg::endlog;
 
-							auto reservedMemoryOutcome = HardwareMemory::create(
-							    rmrr.memory_base, size, CachingMode::null
-							);
-							if(!reservedMemoryOutcome)
-								panicLogger() << "thor: Failed to create hardware memory" << frg::endlog;
-							space->reservedRegions_.push_back(std::move(*reservedMemoryOutcome));
-
-							auto sliceOutcome = MemorySlice::create(
-							    space->reservedRegions_.back(), 0, size
-							);
-							if(!sliceOutcome)
-								panicLogger() << "thor: Failed to create memory slice" << frg::endlog;
-							auto slice = std::move(*sliceOutcome);
-
-							auto res = KernelFiber::asyncBlockCurrent(space->map(
-							    std::move(slice),
-							    rmrr.memory_base,
-							    0,
-							    size,
-							    VirtualSpace::kMapFixed | VirtualSpace::kMapProtRead | VirtualSpace::kMapProtWrite | VirtualSpace::kMapPopulate
-							));
-							assert(res);
-
-							mappedSpaces.push_back(space.get());
-						}
+						addRmrrRegion(domain, reservedBase, reservedSize);
 					} else {
-						infoLogger() << frg::fmt("thor: PCI bridge {:04x}:{:02x}:{:02x}.{} has no IOMMU domain/associated IOMMU for RMRR",
+						infoLogger() << frg::fmt("thor: PCI bridge {:04x}:{:02x}:{:02x}.{} has no DMA space/associated IOMMU for RMRR",
 							rmrr.segment, dev.start_bus_number, slot, func) << frg::endlog;
 					}
 				} else {
@@ -1756,21 +1860,6 @@ frg::expected<Error, PagesAffected> IntelIommuOperations::unmapPages(VirtualAddr
 	return unmapPagesByCursor<IntelIommuCursor>(this, va, size, policy);
 }
 
-namespace {
-
-IommuDomain *newDomain(IntelIommu *iommu) {
-	if (!iommu)
-		return nullptr;
-
-	auto domainId = iommu->allocateHardwareDomainId();
-
-	auto spaceOutcome = IntelIommuDmaSpace::create(iommu, domainId);
-	if(!spaceOutcome)
-		panicLogger() << "thor: Failed to create DMA space" << frg::endlog;
-	return frg::construct<IntelIommuDomain>(*kernelAlloc, domainId, std::move(*spaceOutcome));
-};
-
-}
 
 static initgraph::Task discoverConfigIoSpaces{&globalInitEngine, "x86.discover-intel-iommu",
 	initgraph::Requires{acpi::getTablesDiscoveredStage(), pci::getDevicesEnumeratedStage()},
@@ -1800,7 +1889,7 @@ static initgraph::Task discoverConfigIoSpaces{&globalInitEngine, "x86.discover-i
 		infoLogger() << frg::fmt("thor: DMAR host address width {}", hdr->host_address_width + 1) << frg::endlog;
 
 		frg::span<uint8_t> remappingStructureTypes{reinterpret_cast<uint8_t *>(dmarTbl.virt_addr + sizeof(DmarHeader)), dmarTbl.hdr->length - sizeof(DmarHeader)};
-		frg::vector<IntelIommu *, KernelAlloc> iommus{*kernelAlloc};
+		frg::vector<smarter::shared_ptr<IntelIommu>, KernelAlloc> iommus{*kernelAlloc};
 		frg::vector<frg::span<uint8_t>, KernelAlloc> rmrrSpans{*kernelAlloc};
 
 		while(remappingStructureTypes.size()) {
@@ -1814,7 +1903,7 @@ static initgraph::Task discoverConfigIoSpaces{&globalInitEngine, "x86.discover-i
 				case DmarRemappingStructureTypes::Drhd: {
 					auto iommu = handleDrhd(remappingStructureTypes);
 					if(iommu)
-						iommus.push_back(iommu);
+						iommus.push_back(std::move(iommu));
 					else
 						warningLogger() << frg::fmt("thor: skipping IOMMU due to invalid DRHD") << frg::endlog;
 					break;
@@ -1835,7 +1924,19 @@ static initgraph::Task discoverConfigIoSpaces{&globalInitEngine, "x86.discover-i
 			remappingStructureTypes = remappingStructureTypes.subspan(hdr.length);
 		}
 
-		auto walkBus = [](this const auto &walkChildBus, pci::PciBus *bus, bool isRootBus = false) -> void {
+		// The domains are only cut here; their DMA spaces are created once the RMRRs that
+		// apply to them are known.
+		frg::vector<PendingDomain, KernelAlloc> pendingDomains{*kernelAlloc};
+
+		auto newPendingDomain = [&] (IntelIommu *iommu) -> std::optional<size_t> {
+			if (!iommu)
+				return std::nullopt;
+
+			pendingDomains.push_back(PendingDomain{iommu});
+			return pendingDomains.size() - 1;
+		};
+
+		auto walkBus = [&](this const auto &walkChildBus, pci::PciBus *bus, bool isRootBus = false) -> void {
 			if (!bus)
 				return;
 			bool splitDeviceDomains = false;
@@ -1851,67 +1952,85 @@ static initgraph::Task discoverConfigIoSpaces{&globalInitEngine, "x86.discover-i
 				}
 			}
 
-			IommuDomain *commonDomain = nullptr;
+			std::optional<size_t> commonDomain;
 			if (!splitDeviceDomains && bus->associatedBridge)
-				commonDomain = newDomain(findIommu(bus->associatedBridge));
+				commonDomain = newPendingDomain(findIommu(bus->associatedBridge));
 
-			std::array<IommuDomain *, 32> multifunctionDomains{};
+			std::array<std::optional<size_t>, 32> multifunctionDomains{};
 
 			for (auto device : bus->childDevices) {
 				uint8_t header_type = bus->io->readConfigByte(bus, device->slot, 0, pci::kPciHeaderType);
 				bool multifunctionDevice = header_type & 0x80;
-				IommuDomain *domain = nullptr;
+				std::optional<size_t> domain;
 
 				if (multifunctionDevice) {
-					if (multifunctionDomains[device->slot] == nullptr)
-						multifunctionDomains[device->slot] = newDomain(findIommu(device));
+					if (!multifunctionDomains[device->slot])
+						multifunctionDomains[device->slot] = newPendingDomain(findIommu(device));
 
 					domain = multifunctionDomains[device->slot];
 				} else if (splitDeviceDomains) {
-					domain = newDomain(findIommu(device));
+					domain = newPendingDomain(findIommu(device));
 				} else {
 					domain = commonDomain;
 				}
 
 				if (domain)
-					domain->addMember(device);
+					pendingDomains[*domain].members.push_back(device);
 			}
 
 			for (auto bridge : bus->childBridges) {
 				uint8_t header_type = bus->io->readConfigByte(bus, bridge->slot, bridge->function, pci::kPciHeaderType);
 				bool multifunctionDevice = header_type & 0x80;
 
-				IommuDomain *domain = nullptr;
+				std::optional<size_t> domain;
 
 				if (multifunctionDevice) {
-					if (multifunctionDomains[bridge->slot] == nullptr)
-						multifunctionDomains[bridge->slot] = newDomain(findIommu(bridge));
+					if (!multifunctionDomains[bridge->slot])
+						multifunctionDomains[bridge->slot] = newPendingDomain(findIommu(bridge));
 
 					domain = multifunctionDomains[bridge->slot];
 				} else if (splitDeviceDomains) {
-					domain = newDomain(findIommu(bridge));
+					domain = newPendingDomain(findIommu(bridge));
 				} else {
 					domain = commonDomain;
 				}
 
 				if (domain)
-					domain->addMember(bridge);
+					pendingDomains[*domain].members.push_back(bridge);
 
 				if (bridge->associatedBus)
 					walkChildBus(bridge->associatedBus);
 			}
 		};
 
-		if (!iommus.empty()) {
+		// Under sif, the domain policy and the RMRRs are resolved against sif's PCI tree, and
+		// sif binds the requesters via the kHelSubmitBindDmaDevice SQ operation.
+		bool useSif = debugOptionsNote->useSif;
+
+		if (!iommus.empty() && !useSif) {
 			for (auto rootBus : std::ranges::subrange(pci::allRootBuses->begin(), pci::allRootBuses->end())) {
 				walkBus(rootBus, true);
 			}
-		}
 
-		for (auto rmrrSpan : rmrrSpans) {
-			if(!handleRmrr(rmrrSpan)) {
-				warningLogger() << frg::fmt("thor: skipping IOMMU setup due to invalid RMRR") << frg::endlog;
-				return;
+			for (auto rmrrSpan : rmrrSpans) {
+				if(!handleRmrr(rmrrSpan, pendingDomains)) {
+					warningLogger() << frg::fmt("thor: skipping IOMMU setup due to invalid RMRR") << frg::endlog;
+					return;
+				}
+			}
+
+			for (auto &pending : pendingDomains) {
+				auto domainId = pending.iommu->allocateHardwareDomainId();
+				if(!domainId)
+					panicLogger() << "thor: IOMMU ran out of domain ids" << frg::endlog;
+
+				auto spaceOutcome = IntelIommuDmaSpace::create(pending.iommu, *domainId,
+						{pending.regions.data(), pending.regions.size()});
+				if(!spaceOutcome)
+					panicLogger() << "thor: Failed to create DMA space" << frg::endlog;
+
+				for (auto member : pending.members)
+					member->dmaSpace = *spaceOutcome;
 			}
 		}
 
@@ -1920,29 +2039,49 @@ static initgraph::Task discoverConfigIoSpaces{&globalInitEngine, "x86.discover-i
 				return;
 			for (auto device : bus->childDevices) {
 				auto iommu = findIommu(device);
-				if (iommu && device->iommuDomain) {
-					KernelFiber::asyncBlockCurrent(iommu->enableDevice(device, false));
+				if (iommu && device->dmaSpace) {
+					auto res = KernelFiber::asyncBlockCurrent(
+					    iommu->attachDevice(device->sourceId(), device->dmaSpace.get())
+					);
+					if(!res)
+						warningLogger() << "thor: Failed to attach PCI device to its DMA space"
+								<< frg::endlog;
 				}
 			}
 			for (auto bridge : bus->childBridges) {
 				auto iommu = findIommu(bridge);
-				if (iommu && bridge->iommuDomain) {
-					KernelFiber::asyncBlockCurrent(iommu->enableDevice(bridge, false));
+				if (iommu && bridge->dmaSpace) {
+					auto res = KernelFiber::asyncBlockCurrent(
+					    iommu->attachDevice(bridge->sourceId(), bridge->dmaSpace.get())
+					);
+					if(!res)
+						warningLogger() << "thor: Failed to attach PCI bridge to its DMA space"
+								<< frg::endlog;
 				}
 				if (bridge->associatedBus)
 					self(bridge->associatedBus);
 			}
 		};
-		if (!iommus.empty()) {
+		if (!iommus.empty() && !useSif) {
 			for (auto rootBus : std::ranges::subrange(pci::allRootBuses->begin(), pci::allRootBuses->end())) {
 				walkSetupIommu(rootBus);
 			}
 		}
 
-		for(auto iommu : iommus) {
+		for(auto &iommu : iommus) {
 			auto res = KernelFiber::asyncBlockCurrent(iommu->init());
-			if (!res)
-				warningLogger() << frg::fmt("thor: VT-d IOMMU {} failed to init, ignoring it", iommu->id());
+			if (!res) {
+				warningLogger() << frg::fmt("thor: VT-d IOMMU {} failed to init, ignoring it", iommu->id())
+						<< frg::endlog;
+				continue;
+			}
+
+			// Until translation is enabled, the unit is transparent. Under sif, that only
+			// happens once sif has bound every requester that it enumerated.
+			if (!useSif)
+				KernelFiber::asyncBlockCurrent(iommu->enableTranslation());
+
+			registerIommu(std::move(iommu));
 		}
 	}
 };

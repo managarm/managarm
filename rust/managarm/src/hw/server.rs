@@ -69,8 +69,12 @@ pub trait PciDevice {
     fn enable_msi(&self) -> bool {
         false
     }
+    /// Attaches the device to its IOMMU domain, or to the passthrough domain.
+    async fn enable_dma(&self, _passthrough: bool) -> bool {
+        false
+    }
     fn get_dma_space(&self) -> hel::Result<(bool, Handle)> {
-        Ok((false, hel::create_dma_space()?))
+        Ok((false, hel::create_dma_space(None, &[])?))
     }
     fn claim_device(&self) {}
 }
@@ -313,6 +317,16 @@ async fn handle_one<D: PciDevice>(lane: &Handle, request: &[u8], device: &D) -> 
             } else {
                 send_response(lane, &error_response(Errors::IllegalArguments)).await?;
             }
+        }
+        bindings::EnableDmaRequest::MESSAGE_ID => {
+            let req: bindings::EnableDmaRequest =
+                bragi::head_from_bytes(request).map_err(|_| hel::Error::IllegalArgs)?;
+            let error = if device.enable_dma(req.passthrough() != 0).await {
+                Errors::Success
+            } else {
+                Errors::DeviceError
+            };
+            send_response(lane, &error_response(error)).await?;
         }
         bindings::GetDmaSpaceRequest::MESSAGE_ID => {
             let (iommu_active, space) = device.get_dma_space()?;

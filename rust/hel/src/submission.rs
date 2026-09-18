@@ -15,7 +15,7 @@ use result::{FromQueueElement, SimpleResult};
 #[cfg(feature = "std")]
 use crate::executor::current_executor;
 use crate::{
-    Time,
+    DmaDeviceId, Time,
     executor::{Executor, ExecutorInner},
     handle::Handle,
     queue::QueueElement,
@@ -249,4 +249,105 @@ where
     [(); T::ACTION_COUNT]: Sized,
 {
     submit_async_with_executor(current_executor(), lane, action)
+}
+
+/// Returns a future that submits an SQ element that consists of nothing but its header.
+fn new_header_operation<T>(
+    executor: Executor,
+    opcode: u32,
+    header: T,
+) -> impl Future<Output = Result<()>> {
+    new_async_operation(
+        executor.clone_inner(),
+        move |executor, context| {
+            let header_bytes: &[u8] = unsafe {
+                core::slice::from_raw_parts(&header as *const _ as *const u8, size_of::<T>())
+            };
+            executor.push_sq(opcode, context as usize, &[header_bytes])
+        },
+        SimpleResult::from_queue_element,
+    )
+}
+
+/// Returns a future that programs an IOMMU to translate the DMA requests of a device
+/// through the given DMA space. The submission is placed on the given executor's queue.
+///
+/// `None` binds the device in passthrough mode.
+pub fn bind_dma_device_with_executor(
+    executor: Executor,
+    iommu: &Handle,
+    space: Option<&Handle>,
+    id: DmaDeviceId,
+) -> impl Future<Output = Result<()>> {
+    new_header_operation(
+        executor,
+        hel_sys::kHelSubmitBindDmaDevice,
+        hel_sys::HelSqBindDmaDevice {
+            iommuHandle: iommu.handle(),
+            dmaSpaceHandle: space
+                .map_or(hel_sys::kHelNullHandle as hel_sys::HelHandle, |s| s.handle()),
+            id: id.to_raw(),
+        },
+    )
+}
+
+/// Returns a future that programs an IOMMU to translate the DMA requests of a device
+/// through the given DMA space.
+///
+/// `None` binds the device in passthrough mode.
+#[cfg(feature = "std")]
+pub fn bind_dma_device(
+    iommu: &Handle,
+    space: Option<&Handle>,
+    id: DmaDeviceId,
+) -> impl Future<Output = Result<()>> {
+    bind_dma_device_with_executor(current_executor(), iommu, space, id)
+}
+
+/// Returns a future that programs an IOMMU to block the DMA requests of a device.
+/// The submission is placed on the given executor's queue.
+pub fn unbind_dma_device_with_executor(
+    executor: Executor,
+    iommu: &Handle,
+    id: DmaDeviceId,
+) -> impl Future<Output = Result<()>> {
+    new_header_operation(
+        executor,
+        hel_sys::kHelSubmitUnbindDmaDevice,
+        hel_sys::HelSqUnbindDmaDevice {
+            iommuHandle: iommu.handle(),
+            id: id.to_raw(),
+        },
+    )
+}
+
+/// Returns a future that programs an IOMMU to block the DMA requests of a device.
+#[cfg(feature = "std")]
+pub fn unbind_dma_device(iommu: &Handle, id: DmaDeviceId) -> impl Future<Output = Result<()>> {
+    unbind_dma_device_with_executor(current_executor(), iommu, id)
+}
+
+/// Returns a future that activates translation on an IOMMU. The submission is placed on
+/// the given executor's queue.
+///
+/// Until this is done, the unit is transparent and every requester DMAs untranslated.
+pub fn activate_iommu_with_executor(
+    executor: Executor,
+    iommu: &Handle,
+) -> impl Future<Output = Result<()>> {
+    new_header_operation(
+        executor,
+        hel_sys::kHelSubmitActivateIommu,
+        hel_sys::HelSqActivateIommu {
+            iommuHandle: iommu.handle(),
+        },
+    )
+}
+
+/// Returns a future that activates translation on an IOMMU.
+///
+/// Until this is done, the unit is transparent and every requester DMAs untranslated.
+#[cfg(feature = "std")]
+pub fn activate_iommu(iommu: &Handle) -> impl Future<Output = Result<()>> {
+    activate_iommu_with_executor(current_executor(), iommu)
 }

@@ -38,7 +38,7 @@ impl Table {
     }
 
     /// Returns the bytes of the table, header included.
-    fn bytes(&self) -> &[u8] {
+    pub(crate) fn bytes(&self) -> &[u8] {
         // SAFETY: uACPI maps whole tables, hence at least the header is accessible.
         let header =
             unsafe { slice::from_raw_parts(self.hdr().cast::<u8>(), size_of::<acpi_sdt_hdr>()) };

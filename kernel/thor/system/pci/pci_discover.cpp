@@ -739,8 +739,22 @@ coroutine<frg::expected<Error>> PciEntity::handleRequest(smarter::shared_ptr<Str
 
 		PciDevice *dev = static_cast<PciDevice *>(this);
 
+		// A device that requests translation is attached to the DMA space that it was
+		// assigned during discovery. Without such a space there is nothing to translate
+		// through, hence the request fails instead of falling back to passthrough.
+		auto spaceOf = [&] (PciEntity *entity) {
+			return req->passthrough() ? nullptr : entity->dmaSpace.get();
+		};
+
 		if(dev->associatedIommu) {
-			co_await dev->associatedIommu->enableDevice(dev, req->passthrough());
+			auto space = spaceOf(dev);
+			if(!req->passthrough() && !space) {
+				resp.set_error(managarm::hw::Errors::DEVICE_ERROR);
+			} else {
+				auto res = co_await dev->associatedIommu->attachDevice(dev->sourceId(), space);
+				if(!res)
+					resp.set_error(managarm::hw::Errors::DEVICE_ERROR);
+			}
 		} else {
 			auto bridge = dev->parentBus->associatedBridge;
 
@@ -749,8 +763,18 @@ coroutine<frg::expected<Error>> PciEntity::handleRequest(smarter::shared_ptr<Str
 			}
 
 			if(bridge && bridge->associatedIommu) {
-				co_await bridge->associatedIommu->enableDevice(bridge, req->passthrough());
-				co_await bridge->associatedIommu->enableDevice(dev, req->passthrough());
+				auto bridgeSpace = spaceOf(bridge);
+				auto devSpace = spaceOf(dev);
+				if(!req->passthrough() && (!bridgeSpace || !devSpace)) {
+					resp.set_error(managarm::hw::Errors::DEVICE_ERROR);
+				} else {
+					auto bridgeRes = co_await bridge->associatedIommu->attachDevice(
+							bridge->sourceId(), bridgeSpace);
+					auto devRes = co_await bridge->associatedIommu->attachDevice(
+							dev->sourceId(), devSpace);
+					if(!bridgeRes || !devRes)
+						resp.set_error(managarm::hw::Errors::DEVICE_ERROR);
+				}
 			} else {
 				resp.set_error(managarm::hw::Errors::DEVICE_ERROR);
 			}
@@ -792,11 +816,11 @@ coroutine<frg::expected<Error>> PciEntity::handleRequest(smarter::shared_ptr<Str
 		}
 
 		auto descriptor = AnyDescriptor::make<DescriptorType::dmaSpace>(*noopDmaSpace, kHelRightGrant | kHelRightProvision);
-		if (iommuDomain)
-			descriptor = AnyDescriptor::make<DescriptorType::dmaSpace>(iommuDomain->space_, kHelRightGrant | kHelRightProvision);
+		if (dmaSpace)
+			descriptor = AnyDescriptor::make<DescriptorType::dmaSpace>(dmaSpace, kHelRightGrant | kHelRightProvision);
 
 		managarm::hw::GetDmaSpaceResponse<KernelAlloc> resp{*kernelAlloc};
-		resp.set_iommu_active(iommuDomain != nullptr);
+		resp.set_iommu_active(static_cast<bool>(dmaSpace));
 
 		FRG_CO_TRY(co_await sendResponseHead(conversation, std::move(resp)));
 		auto descError = co_await pushDescriptor(conversation, std::move(descriptor));

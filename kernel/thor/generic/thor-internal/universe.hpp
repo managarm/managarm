@@ -31,6 +31,7 @@ struct KernletObject;
 struct BoundKernlet;
 struct TokenObject;
 struct DmaSpace;
+struct Iommu;
 struct IrqPin;
 struct IrqObject;
 struct OneshotEvent;
@@ -104,6 +105,7 @@ enum class DescriptorType : uint8_t {
 	addressSpace,
 	virtualizedSpace,
 	dmaSpace,
+	iommu,
 	virtualizedCpu,
 	memoryViewLock,
 	thread,
@@ -172,6 +174,12 @@ struct DescriptorTraits<DescriptorType::virtualizedSpace> {
 template<>
 struct DescriptorTraits<DescriptorType::dmaSpace> {
 	using Object = DmaSpace;
+	using Policy = smarter::default_rc_policy;
+};
+
+template<>
+struct DescriptorTraits<DescriptorType::iommu> {
+	using Object = Iommu;
 	using Policy = smarter::default_rc_policy;
 };
 

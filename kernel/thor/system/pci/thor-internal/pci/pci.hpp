@@ -19,7 +19,7 @@ namespace thor {
 struct MemoryView;
 struct IoSpace;
 struct Iommu;
-struct IommuDomain;
+struct DmaSpace;
 
 struct BootScreen;
 
@@ -316,6 +316,11 @@ struct PciEntity : protected KernelBusObject {
 	uint32_t slot;
 	uint32_t function;
 
+	SourceId sourceId() const {
+		return SourceId{static_cast<uint16_t>(seg), static_cast<uint8_t>(bus),
+				static_cast<uint8_t>(slot), static_cast<uint8_t>(function)};
+	}
+
 	// mbus object ID of the device
 	int64_t mbusId;
 
@@ -356,7 +361,7 @@ struct PciEntity : protected KernelBusObject {
 	bool msiEnabled = false;
 	bool msiInstalled = false;
 
-	IommuDomain *iommuDomain = nullptr;
+	smarter::shared_ptr<DmaSpace> dmaSpace;
 
 private:
 	coroutine<frg::expected<Error>> handleRequest(smarter::shared_ptr<Stream, LanePolicy> lane) override;

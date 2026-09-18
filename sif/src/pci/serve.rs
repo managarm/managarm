@@ -10,7 +10,8 @@ use managarm::mbus::{EntityManager, Properties, create_entity};
 
 use super::discover::{all_devices, all_root_buses};
 use super::{
-    BarType, EXPECT_LOCK, PciBridge, PciBus, PciDevice, PciEntity, leak, msi_controller_available,
+    BarType, EXPECT_LOCK, PciBridge, PciBus, PciDevice, PciEntity, iommu, leak,
+    msi_controller_available,
 };
 
 use crate::acpi::{PAGE_MASK, PAGE_SIZE};
@@ -288,6 +289,28 @@ impl managarm::hw::server::PciDevice for ServedEntity {
         }
         device.enable_msi();
         true
+    }
+
+    async fn enable_dma(&self, passthrough: bool) -> bool {
+        let entity = self.entity();
+        let Some(unit) = iommu::find_iommu(entity) else {
+            return false;
+        };
+        // Without a domain there is nothing to translate through, hence the request fails
+        // instead of falling back to passthrough.
+        let domain = if passthrough {
+            None
+        } else {
+            let Some(&domain) = entity.dma_domain.get() else {
+                return false;
+            };
+            Some(domain)
+        };
+        iommu::bind_device(unit, domain, entity).await
+    }
+
+    fn get_dma_space(&self) -> hel::Result<(bool, hel::Handle)> {
+        iommu::dma_space(self.entity())
     }
 }
 
