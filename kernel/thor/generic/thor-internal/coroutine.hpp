@@ -53,8 +53,8 @@ struct WorkQueueAffineAwaiter : Worklet {
 	};
 
 	WorkQueueAffineAwaiter(S s, WorkQueue *wq)
-	: op_{async::execution::connect(std::move(s), Receiver{.aw = this})},
-		wq_{wq} { }
+	: wq_{wq},
+		op_{async::execution::connect(std::move(s), Receiver{.aw = this})} { }
 
 	bool await_ready() { return false; }
 
@@ -71,8 +71,9 @@ struct WorkQueueAffineAwaiter : Worklet {
 			return std::move(*value_);
 	}
 
-	async::execution::operation_t<S, Receiver> op_;
+	// wq_ needs to be declared before op_ such it is initialized before the sender is connected.
 	WorkQueue *wq_;
+	async::execution::operation_t<S, Receiver> op_;
 	std::coroutine_handle<void> h_;
 
 	struct empty { };
@@ -570,6 +571,7 @@ struct WqSpawnCtrlBlock {
 
 private:
 	A allocator_;
+	// wq_ needs to be declared before op_ such it is initialized before the sender is connected.
 	smarter::shared_ptr<WorkQueue> wq_;
 	Worklet worklet_;
 	async::execution::operation_t<S, Receiver> op_;
@@ -611,16 +613,16 @@ struct OnExceptionalWqSender {
 
 		Operation(S sender, R dr)
 		: dr_{std::move(dr)},
-			op_{async::execution::connect(std::move(sender), IntermediateReceiver{.op = this})} { }
+			wq_{workQueueFromEnv(async::execution::get_env(dr_))->executorContext()->exceptionalWq},
+			op_{async::execution::connect(std::move(sender), IntermediateReceiver{.op = this})} {
+			assert(wq_);
+		}
 
 		Operation(const Operation &) = delete;
 
 		Operation &operator= (const Operation &) = delete;
 
 		void start() {
-			auto ec = workQueueFromEnv(async::execution::get_env(dr_))->executorContext();
-			wq_ = ec->exceptionalWq;
-			assert(wq_);
 			if (wq_->immediatelyDispatchable())
 				return op_.start();
 			worklet_.setup([] (Worklet *base) {
@@ -632,7 +634,8 @@ struct OnExceptionalWqSender {
 
 	private:
 		R dr_;
-		WorkQueue *wq_{nullptr};
+		// wq_ needs to be declared before op_ such it is initialized before the sender is connected.
+		WorkQueue *wq_;
 		Worklet worklet_;
 		async::execution::operation_t<S, IntermediateReceiver> op_;
 	};
