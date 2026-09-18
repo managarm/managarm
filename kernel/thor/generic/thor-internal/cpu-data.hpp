@@ -30,9 +30,9 @@ enum class ProfileMechanism {
 enum class CpuState {
 	// The CPU has not reached its C++ entry point yet.
 	offline,
-	// The CPU is running initializeThisProcessor().
+	// The CPU is bringing itself up; its IRQ controller and work queue are not usable yet.
 	booting,
-	// The CPU finished initializeThisProcessor().
+	// The CPU is fully brought up: it can send and receive IPIs and it runs its work queue.
 	online
 };
 
@@ -113,7 +113,7 @@ struct CpuData : public PlatformCpuData {
 
 	IseqContext regularIseq;
 
-	// Advanced by setCpuState() around each architecture's initializeThisProcessor().
+	// Advanced by setCpuState() as the CPU brings itself up.
 	// This allows us to check whether various per-CPU data structures are initialized,
 	// for example the CPU's interrupt controller for sending IPIs.
 	std::atomic<CpuState> cpuState{CpuState::offline};

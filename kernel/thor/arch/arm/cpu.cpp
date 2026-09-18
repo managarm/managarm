@@ -276,8 +276,6 @@ void initializeThisProcessor() {
 	});
 	cpu_data->generalWorkQueue = cpu_data->wqFiber->associatedWorkQueue().lock();
 	assert(cpu_data->generalWorkQueue);
-
-	setCpuState(cpu_data, CpuState::online);
 }
 
 } // namespace thor

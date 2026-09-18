@@ -225,8 +225,6 @@ void initializeThisProcessor() {
 	});
 	cpuData->generalWorkQueue = cpuData->wqFiber->associatedWorkQueue().lock();
 	assert(cpuData->generalWorkQueue);
-
-	setCpuState(cpuData, CpuState::online);
 }
 
 void prepareCpuDataFor(CpuData *context, int cpu) {
