@@ -22,6 +22,7 @@ frg::eternal<RcuEngine> rcuEngine;
 //
 // Note that to force a quiescent state, it is enough to force scheduling to a work queue
 // of CPU C followed by an appropriate memory barrier.
+// CPUs with CpuData::rcuQuiescent set are in an explicit quiescent state and do not need to be forced.
 coroutine<void> RcuEngine::barrier() {
 	// We are using states that consist of a sequence number and a busy bit in this
 	// implementation. We guarantee correctness through the following properties,
@@ -59,7 +60,7 @@ coroutine<void> RcuEngine::barrier() {
 		);
 	}
 	if (initiate) {
-		// Pairs with the fence in setCpuState(), see there.
+		// Pairs with the fences in setCpuState() and rcuInterruptQuiescent(), see there.
 		std::atomic_thread_fence(std::memory_order_seq_cst);
 
 		transitionWg_.add(1); // Hold a count of 1 until the loop below finishes.
@@ -82,6 +83,9 @@ coroutine<void> RcuEngine::barrier() {
 				}
 				assert(state == CpuState::online);
 			}
+
+			if (cpu->rcuQuiescent.load(std::memory_order_seq_cst))
+				continue;
 
 			transitionWg_.add(1);
 			// TODO: We can do this without allocation by putting the operations into a member vector.
