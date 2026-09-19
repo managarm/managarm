@@ -37,8 +37,13 @@ void sendShootdownIpi() {
 	for (size_t i = 0; i < getCpuCount(); ++i) {
 		auto *dstData = getCpuData(i);
 
-		if (dstData->cpuState.load(std::memory_order_acquire) != CpuState::online)
-			continue;
+		// A stale non-online state would wrongly skip a CPU, hence re-check behind a fence.
+		// This pairs with the fence in setCpuState().
+		if (dstData->cpuState.load(std::memory_order_acquire) != CpuState::online) [[unlikely]] {
+			std::atomic_thread_fence(std::memory_order_seq_cst);
+			if (dstData->cpuState.load(std::memory_order_seq_cst) != CpuState::online)
+				continue;
+		}
 
 		if (raiseIpiBit(dstData, PlatformCpuData::ipiShootdown))
 			doSendIpi(dstData);
