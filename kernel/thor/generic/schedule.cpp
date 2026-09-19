@@ -4,6 +4,7 @@
 #include <thor-internal/arch-generic/ints.hpp>
 #include <thor-internal/cpu-data.hpp>
 #include <thor-internal/debug.hpp>
+#include <thor-internal/rcu.hpp>
 #include <thor-internal/schedule.hpp>
 #include <thor-internal/thread.hpp>
 #include <thor-internal/timer.hpp>
@@ -31,8 +32,10 @@ namespace {
 					infoLogger() << "System is idle" << frg::endlog;
 				// Restore IPL (as in restoreExecutor() for threads/fibers).
 				iplLeaveContext(IplState{.context = ipl::passive, .current = ipl::exceptional});
-				suspendSelf();
-				__builtin_trap();
+				while(true) {
+					rcuSetQuiescent();
+					haltUntilInterrupt();
+				}
 			}, getCpuData()->idleStack.base());
 			__builtin_trap();
 		}
