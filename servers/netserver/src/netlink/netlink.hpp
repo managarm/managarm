@@ -20,8 +20,10 @@ void initialize();
 
 void broadcast(core::netlink::Packet packet);
 
-core::netlink::Packet buildLinkPacket(std::shared_ptr<nic::Link> nic, uint16_t flags,
-		uint32_t seq, uint32_t pid);
+core::netlink::Packet buildLinkPacket(std::shared_ptr<nic::Link> nic, uint32_t group,
+		uint16_t flags, uint32_t seq, uint32_t pid);
+
+void broadcastNewLink(std::shared_ptr<nic::Link> nic);
 
 class NetlinkSocket final : core::netlink::NetlinkFile {
 public:

@@ -37,10 +37,11 @@ void NetlinkSocket::deliver(core::netlink::Packet packet) {
 	_statusBell.raise();
 }
 
-core::netlink::Packet buildLinkPacket(std::shared_ptr<nic::Link> nic, uint16_t flags,
-		uint32_t seq, uint32_t pid) {
+core::netlink::Packet buildLinkPacket(std::shared_ptr<nic::Link> nic, uint32_t group,
+		uint16_t flags, uint32_t seq, uint32_t pid) {
 	NetlinkBuilder b;
 
+	b.group(group);
 	b.header(RTM_NEWLINK, flags, seq, pid);
 
 	b.message<struct ifinfomsg>({
@@ -73,7 +74,12 @@ core::netlink::Packet buildLinkPacket(std::shared_ptr<nic::Link> nic, uint16_t f
 void NetlinkSocket::sendLinkPacket(std::shared_ptr<nic::Link> nic, void *h, uint16_t flags) {
 	struct nlmsghdr *hdr = reinterpret_cast<struct nlmsghdr *>(h);
 
-	deliver(buildLinkPacket(std::move(nic), flags, hdr->nlmsg_seq, hdr->nlmsg_pid));
+	deliver(buildLinkPacket(std::move(nic), 0, flags, hdr->nlmsg_seq, hdr->nlmsg_pid));
+}
+
+// Announce a newly bound link to clients that are already listening on RTNLGRP_LINK.
+void broadcastNewLink(std::shared_ptr<nic::Link> nic) {
+	broadcast(buildLinkPacket(std::move(nic), RTNLGRP_LINK, 0, 0, 0));
 }
 
 void NetlinkSocket::sendAddrPacket(const struct nlmsghdr *hdr, const struct ifaddrmsg *msg, std::shared_ptr<nic::Link> nic) {
