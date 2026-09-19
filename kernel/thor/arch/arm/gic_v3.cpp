@@ -2,6 +2,7 @@
 #include <thor-internal/arch/trap.hpp>
 #include <thor-internal/dtb/dtb.hpp>
 #include <thor-internal/cpu-data.hpp>
+#include <thor-internal/cpu-state.hpp>
 #include <thor-internal/arch/system.hpp>
 #include <thor-internal/arch-generic/paging.hpp>
 
@@ -468,13 +469,8 @@ void GicV3::sendIpiToOthers(uint8_t id) {
 	for (size_t i = 0; i < getCpuCount(); ++i) {
 		if (i == self)
 			continue;
-		// A stale non-online state would wrongly skip a CPU, hence re-check behind a fence.
-		// This pairs with the fence in setCpuState().
-		if (getCpuData(i)->cpuState.load(std::memory_order_acquire) != CpuState::online) [[unlikely]] {
-			std::atomic_thread_fence(std::memory_order_seq_cst);
-			if (getCpuData(i)->cpuState.load(std::memory_order_seq_cst) != CpuState::online)
-				continue;
-		}
+		if (suppressIpiToOfflineCpu(getCpuData(i)))
+			continue;
 		sendIpi(static_cast<int>(i), id);
 	}
 }
