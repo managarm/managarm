@@ -3,6 +3,7 @@
 #include <thor-internal/int-call.hpp>
 #include <thor-internal/ipl.hpp>
 #include <thor-internal/profile.hpp>
+#include <thor-internal/rcu.hpp>
 #include <thor-internal/thread.hpp>
 #include <thor-internal/traps.hpp>
 #include <thor-internal/arch-generic/cpu.hpp>
@@ -310,6 +311,7 @@ extern "C" void onPlatformFault(FaultImageAccessor image, int number) {
 }
 
 extern "C" void onPlatformIrq(IrqImageAccessor image, int number) {
+	rcuClearQuiescent();
 	iplSave(*image.iplState());
 	iplEnterContext(ipl::interrupt, *image.iplState());
 
@@ -348,6 +350,7 @@ extern "C" void onPlatformIrq(IrqImageAccessor image, int number) {
 }
 
 extern "C" void onPlatformLegacyIrq(IrqImageAccessor image, int number) {
+	rcuClearQuiescent();
 	iplSave(*image.iplState());
 	iplEnterContext(ipl::interrupt, *image.iplState());
 
@@ -374,6 +377,7 @@ extern "C" void onPlatformLegacyIrq(IrqImageAccessor image, int number) {
 }
 
 extern "C" void onPlatformPreemption(IrqImageAccessor image) {
+	rcuClearQuiescent();
 	iplSave(*image.iplState());
 	iplEnterContext(ipl::interrupt, *image.iplState());
 
@@ -421,6 +425,7 @@ extern "C" void onPlatformPreemption(IrqImageAccessor image) {
 }
 
 extern "C" void onPlatformSpurious(IrqImageAccessor image) {
+	rcuClearQuiescent();
 	iplSave(*image.iplState());
 	iplEnterContext(ipl::interrupt, *image.iplState());
 
@@ -478,6 +483,7 @@ extern "C" void onPlatformSyscall(SyscallImageAccessor image) {
 }
 
 extern "C" void onPlatformShootdown(IrqImageAccessor image) {
+	rcuClearQuiescent();
 	iplSave(*image.iplState());
 	iplEnterContext(ipl::interrupt, *image.iplState());
 
@@ -521,6 +527,7 @@ extern "C" void onPlatformShootdown(IrqImageAccessor image) {
 }
 
 extern "C" void onPlatformPing(IrqImageAccessor image) {
+	rcuClearQuiescent();
 	iplSave(*image.iplState());
 	iplEnterContext(ipl::interrupt, *image.iplState());
 
@@ -562,6 +569,7 @@ extern "C" void onPlatformPing(IrqImageAccessor image) {
 }
 
 extern "C" void onPlatformCall(IrqImageAccessor image) {
+	rcuClearQuiescent();
 	iplSave(*image.iplState());
 	iplEnterContext(ipl::interrupt, *image.iplState());
 
@@ -625,6 +633,7 @@ extern "C" void onPlatformNmi(NmiImageAccessor image, uint64_t expectedGs) {
 	auto gs = common::x86::rdmsr(common::x86::kMsrIndexGsBase);
 	common::x86::wrmsr(common::x86::kMsrIndexGsBase, expectedGs);
 
+	rcuClearQuiescent();
 	iplSave(*image.iplState());
 	iplEnterContext(ipl::maximal, *image.iplState());
 
@@ -784,11 +793,15 @@ extern "C" void onFredEvent(Frame* frame) {
 	panicLogger() << "FRED: unexpected event type" << frg::endlog;
 }
 
-extern "C" void enableIntsAndHaltForever();
-
-void suspendSelf() {
+void haltUntilInterrupt() {
 	assert(!intsAreEnabled());
-	enableIntsAndHaltForever();
+	// sti only takes effect after the next instruction, so no interrupt can be taken before hlt.
+	asm volatile (
+		"sti\n"
+		"\thlt\n"
+		"\tcli"
+		::: "memory"
+	);
 }
 
 } // namespace thor
