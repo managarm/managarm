@@ -147,6 +147,7 @@ void PageBinding::rebind(smarter::shared_ptr<PageSpace> space) {
 
 		targetSeq = space->shootSequence_;
 		space->numBindings_++;
+		space->boundCpus_.set(getCpuData()->cpuIndex);
 	}
 
 	boundSpace_ = space;
@@ -165,6 +166,7 @@ void PageBinding::rebind(smarter::shared_ptr<PageSpace> space) {
 			auto lock = frg::guard(&unboundSpace->mutex_);
 			upToSequence = unboundSpace->shootSequence_;
 			unboundSpace->numBindings_--;
+			unboundSpace->boundCpus_.reset(getCpuData()->cpuIndex);
 			if(!unboundSpace->numBindings_ && unboundSpace->retireNode_) {
 				retireNode = unboundSpace->retireNode_;
 				unboundSpace->retireNode_ = nullptr;
@@ -220,6 +222,7 @@ void PageBinding::unbind() {
 		auto lock = frg::guard(&boundSpace_->mutex_);
 		upToSequence = boundSpace_->shootSequence_;
 		boundSpace_->numBindings_--;
+		boundSpace_->boundCpus_.reset(getCpuData()->cpuIndex);
 		if(!boundSpace_->numBindings_ && boundSpace_->retireNode_) {
 			retireNode = boundSpace_->retireNode_;
 			boundSpace_->retireNode_ = nullptr;
@@ -274,47 +277,69 @@ void PageSpace::activate(smarter::shared_ptr<PageSpace> space) {
 
 
 PageSpace::PageSpace(PhysicalAddr rootTable)
+: rootTable_{rootTable}, numBindings_{0}, boundCpus_{getCpuCount(), *kernelAlloc},
+		shootSequence_{0} { }
+
+PageSpace::PageSpace(PhysicalAddr rootTable, KernelSpaceTag)
 : rootTable_{rootTable}, numBindings_{0}, shootSequence_{0} { }
 
 PageSpace::~PageSpace() {
 	assert(!numBindings_);
+	assert(boundCpus_.none());
 }
 
 
 void PageSpace::retire(RetireNode *node) {
-	// PageBinding::unbind() below requires IRQs to be disabled.
-	auto irqLock = frg::guard(&irqMutex());
+	// The kernel space is never retired and hence does not track boundCpus_.
+	assert(this != &KernelPageSpace::global());
+
+	frg::dyn_bitset<KernelAlloc> targets{getCpuCount(), *kernelAlloc};
 
 	bool anyBindings;
 	{
-		auto lock = frg::guard(&mutex_);
+		// PageBinding::unbind() below requires IRQs to be disabled.
+		auto irqLock = frg::guard(&irqMutex());
 
-		anyBindings = numBindings_;
-		if(anyBindings) {
-			retireNode_ = node;
-			wantToRetire_.store(true, std::memory_order_release);
+		{
+			auto lock = frg::guard(&mutex_);
+
+			anyBindings = numBindings_;
+			if(anyBindings) {
+				retireNode_ = node;
+				wantToRetire_.store(true, std::memory_order_release);
+			}
+			assert(boundCpus_.count() == numBindings_);
+			targets.assign(boundCpus_);
 		}
-	}
 
-	// Perform synchronous unbinding.
-	auto &bindings = asidData.get()->bindings;
-	for(size_t i = 0; i < bindings.size(); i++) {
-		if(bindings[i].boundSpace().get() != this)
-			continue;
+		// Perform synchronous unbinding.
+		auto &bindings = asidData.get()->bindings;
+		for(size_t i = 0; i < bindings.size(); i++) {
+			if(bindings[i].boundSpace().get() != this)
+				continue;
 
-		bindings[i].unbind();
+			bindings[i].unbind();
+			assert(targets.test(getCpuData()->cpuIndex));
+			targets.reset(getCpuData()->cpuIndex);
+		}
 	}
 
 	if(!anyBindings)
 		node->complete();
 
-	sendShootdownIpi();
+	assert(!targets.test(getCpuData()->cpuIndex));
+	sendShootdownIpi(targets);
 }
 
 
 bool PageSpace::submitShootdown(ShootNode *node) {
 	assert(!(node->address & (kPageSize - 1)));
 	assert(!(node->size & (kPageSize - 1)));
+
+	// The kernel space is held by every CPU, hence the broadcast IPI is the cheapest option.
+	// The zero-sized bitset is required to avoid recursive calls from shootdown to the allocator.
+	bool global = this == &KernelPageSpace::global();
+	frg::dyn_bitset<KernelAlloc> targets{global ? 0 : getCpuCount(), *kernelAlloc};
 
 	{
 		auto irqLock = frg::guard(&irqMutex());
@@ -325,11 +350,14 @@ bool PageSpace::submitShootdown(ShootNode *node) {
 		auto &bindings = asidData.get()->bindings;
 
 		// Perform synchronous shootdown.
-		if(this == &KernelPageSpace::global()) {
+		if(global) {
 			assert(unshotBindings);
 			invalidateNode(globalBindingId, node);
 			unshotBindings--;
 		} else {
+			assert(boundCpus_.count() == numBindings_);
+			targets.assign(boundCpus_);
+
 			for(size_t i = 0; i < bindings.size(); i++) {
 				if(bindings[i].boundSpace().get() != this)
 					continue;
@@ -337,6 +365,8 @@ bool PageSpace::submitShootdown(ShootNode *node) {
 				assert(unshotBindings);
 				invalidateNode(bindings[i].id(), node);
 				unshotBindings--;
+				assert(targets.test(getCpuData()->cpuIndex));
+				targets.reset(getCpuData()->cpuIndex);
 			}
 		}
 
@@ -349,7 +379,12 @@ bool PageSpace::submitShootdown(ShootNode *node) {
 		shootQueue_.push_back(node);
 	}
 
-	sendShootdownIpi();
+	if(global) {
+		sendShootdownIpi();
+	} else {
+		assert(!targets.test(getCpuData()->cpuIndex));
+		sendShootdownIpi(targets);
+	}
 	return false;
 }
 

@@ -71,7 +71,7 @@ void KernelPageSpace::initialize() {
 
 KernelPageSpace &KernelPageSpace::global() { return *kernelSpace; }
 
-KernelPageSpace::KernelPageSpace(PhysicalAddr satp) : PageSpace{satp} {}
+KernelPageSpace::KernelPageSpace(PhysicalAddr satp) : PageSpace{satp, KernelSpaceTag{}} {}
 
 void KernelPageSpace::mapSingle4k(
     VirtualAddr pointer, PhysicalAddr physical, uint32_t flags, CachingMode cachingMode

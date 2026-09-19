@@ -111,7 +111,7 @@ void initializeAsidContext(CpuData *cpuData) {
 
 
 KernelPageSpace::KernelPageSpace(PhysicalAddr ttbr1)
-: PageSpace{ttbr1} { }
+: PageSpace{ttbr1, KernelSpaceTag{}} { }
 
 void KernelPageSpace::mapSingle4k(VirtualAddr pointer, PhysicalAddr physical,
 		uint32_t flags, CachingMode cachingMode) {
