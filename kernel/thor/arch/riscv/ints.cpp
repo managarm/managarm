@@ -46,6 +46,35 @@ void sendShootdownIpi() {
 	}
 }
 
+void sendShootdownIpi(const frg::dyn_bitset<KernelAlloc> &targets) {
+	// One SBI call reaches up to 64 harts whose IDs fall into the same aligned window.
+	uint64_t base = 0;
+	uint64_t hartMask = 0;
+	auto flush = [&] {
+		if (!hartMask)
+			return;
+		if (sbi::Error e = sbi::ipi::sendIpi(hartMask, base); e)
+			panicLogger() << "Failed to send shootdown IPI to HARTs at " << base << " (error: " << e
+			              << ")" << frg::endlog;
+		hartMask = 0;
+	};
+	for (auto cpu : targets.set_bits()) {
+		auto *dstData = getCpuData(cpu);
+
+		if (suppressIpiToOfflineCpu(dstData))
+			continue;
+
+		if (!raiseIpiBit(dstData, PlatformCpuData::ipiShootdown))
+			continue;
+		auto hartId = dstData->hartId;
+		if (hartMask && (hartId & ~UINT64_C(63)) != base)
+			flush();
+		base = hartId & ~UINT64_C(63);
+		hartMask |= UINT64_C(1) << (hartId & 63);
+	}
+	flush();
+}
+
 void sendSelfCallIpi() {
 	auto *selfData = getCpuData();
 	if (raiseIpiBit(selfData, PlatformCpuData::ipiSelfCall))

@@ -18,6 +18,7 @@ struct GicDistributorV2 {
 	void init();
 	void initOnThisCpu();
 	void sendIpi(uint8_t ifaceNo, uint8_t id);
+	void sendIpiToTargets(uint8_t targetList, uint8_t id);
 	void sendIpiToOthers(uint8_t id);
 	void dumpPendingSgis();
 
@@ -88,6 +89,7 @@ private:
 
 struct GicV2 : public Gic {
 	void sendIpi(int cpuId, uint8_t id) override;
+	void sendIpi(const frg::dyn_bitset<KernelAlloc> &targets, uint8_t id) override;
 	void sendIpiToOthers(uint8_t id) override;
 
 	// Sends an IPI to a CPU that did not set up its CPU interface yet.

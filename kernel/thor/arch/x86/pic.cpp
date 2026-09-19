@@ -4,6 +4,7 @@
 #include <arch/register.hpp>
 #include <thor-internal/arch/pic.hpp>
 #include <thor-internal/arch/hpet.hpp>
+#include <thor-internal/cpu-state.hpp>
 #include <thor-internal/debug.hpp>
 #include <thor-internal/fiber.hpp>
 #include <initgraph.hpp>
@@ -414,6 +415,47 @@ void sendShootdownIpi() {
 				| apicIcrLowLevel(true) | apicIcrLowShorthand(2));
 		while(picBase.load(lApicIcrLow) & apicIcrLowDelivStatus) {
 			// Wait for IPI delivery.
+		}
+	}
+}
+
+void sendShootdownIpi(const frg::dyn_bitset<KernelAlloc> &targets) {
+	if(picBase.isUsingX2apic()) {
+		// In logical destination mode, one ICR write reaches up to 16 CPUs of one cluster.
+		uint32_t cluster = 0;
+		uint32_t members = 0;
+		auto flush = [&] {
+			if(!members)
+				return;
+			picBase.store(lX2ApicIcr, x2apicIcrLowVector(0xF0) | x2apicIcrLowDelivMode(0)
+					| x2apicIcrLowDestMode(true) | x2apicIcrLowLevel(true)
+					| x2apicIcrLowShorthand(0) | x2apicIcrHighDestField((cluster << 16) | members));
+			members = 0;
+		};
+		for(auto cpu : targets.set_bits()) {
+			auto *dstData = getCpuData(cpu);
+			if(suppressIpiToOfflineCpu(dstData))
+				continue;
+			auto apic = static_cast<uint32_t>(dstData->localApicId);
+			assert(apic < (UINT32_C(1) << 20));
+			if(members && (apic >> 4) != cluster)
+				flush();
+			cluster = apic >> 4;
+			members |= UINT32_C(1) << (apic & 0xF);
+		}
+		flush();
+	} else {
+		for(auto cpu : targets.set_bits()) {
+			auto *dstData = getCpuData(cpu);
+			if(suppressIpiToOfflineCpu(dstData))
+				continue;
+			auto apic = dstData->localApicId;
+			picBase.store(lApicIcrHigh, apicIcrHighDestField(apic));
+			picBase.store(lApicIcrLow, apicIcrLowVector(0xF0) | apicIcrLowDelivMode(0)
+					| apicIcrLowLevel(true) | apicIcrLowShorthand(0));
+			while(picBase.load(lApicIcrLow) & apicIcrLowDelivStatus) {
+				// Wait for IPI delivery.
+			}
 		}
 	}
 }

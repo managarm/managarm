@@ -122,7 +122,11 @@ void GicDistributorV2::initOnThisCpu() {
 }
 
 void GicDistributorV2::sendIpi(uint8_t ifaceNo, uint8_t id) {
-	space_.store_relaxed(dist_reg::sgi, dist_sgi::sgiNo(id) | dist_sgi::cpuTargetList(1 << ifaceNo) | dist_sgi::targetListFilter(0));
+	sendIpiToTargets(1 << ifaceNo, id);
+}
+
+void GicDistributorV2::sendIpiToTargets(uint8_t targetList, uint8_t id) {
+	space_.store_relaxed(dist_reg::sgi, dist_sgi::sgiNo(id) | dist_sgi::cpuTargetList(targetList) | dist_sgi::targetListFilter(0));
 }
 
 void GicDistributorV2::sendIpiToOthers(uint8_t id) {
@@ -443,6 +447,19 @@ void initGicOnThisCpuV2() {
 
 void GicV2::sendIpi(int cpuId, uint8_t id) {
 	dist->sendIpi(getCpuData(cpuId)->gicCpuInterfaceV2->interfaceNumber(), id);
+}
+
+void GicV2::sendIpi(const frg::dyn_bitset<KernelAlloc> &targets, uint8_t id) {
+	// The SGI register addresses up to eight CPU interfaces in one write.
+	uint8_t targetList = 0;
+	for (auto cpu : targets.set_bits()) {
+		auto *dstData = getCpuData(cpu);
+		if (suppressIpiToOfflineCpu(dstData))
+			continue;
+		targetList |= 1 << dstData->gicCpuInterfaceV2->interfaceNumber();
+	}
+	if (targetList)
+		dist->sendIpiToTargets(targetList, id);
 }
 
 void GicV2::sendIpiToInterface(uint8_t ifaceNo, uint8_t id) {
