@@ -53,8 +53,8 @@ struct WorkQueueAffineAwaiter : Worklet {
 	};
 
 	WorkQueueAffineAwaiter(S s, WorkQueue *wq)
-	: op_{async::execution::connect(std::move(s), Receiver{.aw = this})},
-		wq_{wq} { }
+	: wq_{wq},
+		op_{async::execution::connect(std::move(s), Receiver{.aw = this})} { }
 
 	bool await_ready() { return false; }
 
@@ -71,8 +71,9 @@ struct WorkQueueAffineAwaiter : Worklet {
 			return std::move(*value_);
 	}
 
-	async::execution::operation_t<S, Receiver> op_;
+	// wq_ needs to be declared before op_ such it is initialized before the sender is connected.
 	WorkQueue *wq_;
+	async::execution::operation_t<S, Receiver> op_;
 	std::coroutine_handle<void> h_;
 
 	struct empty { };
@@ -558,12 +559,21 @@ struct WqSpawnCtrlBlock {
 		op_{async::execution::connect(std::move(sender), Receiver{.cb = this})} { }
 
 	void spawn() {
-		op_.start();
+		assert(wq_);
+		if (wq_->immediatelyDispatchable())
+			return op_.start();
+		worklet_.setup([] (Worklet *base) {
+			auto cb = frg::container_of(base, &WqSpawnCtrlBlock::worklet_);
+			cb->op_.start();
+		});
+		wq_->post(&worklet_);
 	}
 
 private:
 	A allocator_;
+	// wq_ needs to be declared before op_ such it is initialized before the sender is connected.
 	smarter::shared_ptr<WorkQueue> wq_;
+	Worklet worklet_;
 	async::execution::operation_t<S, Receiver> op_;
 };
 
@@ -577,41 +587,62 @@ template<async::Sender S>
 struct OnExceptionalWqSender {
 	using value_type = S::value_type;
 
-	template<typename E>
-	struct Env {
-		WorkQueue *get_work_queue() {
-			auto ec = workQueueFromEnv(base)->executorContext();
-			auto exceptionalWq = ec->exceptionalWq;
-			assert(exceptionalWq);
-			return exceptionalWq;
-		}
-
-		E base;
-	};
-
 	template<typename R>
-	struct IntermediateReceiver {
-		template<typename... Args>
-		void set_value(Args &&... args) {
-			return async::execution::set_value(std::move(dr), std::forward<Args>(args)...);
-		}
-
-		auto get_env() {
-			auto base = async::execution::get_env(dr);
-			return Env{.base = base};
-		}
-
-		R dr;
-	};
-
-	template<typename R>
-	auto connect(R dr) {
-		return async::execution::connect(
-			std::move(sender),
-			IntermediateReceiver{
-				.dr = std::move(dr),
+	struct Operation {
+		struct Env {
+			WorkQueue *get_work_queue() {
+				return op->wq_;
 			}
-		);
+
+			Operation *op;
+		};
+
+		struct IntermediateReceiver {
+			template<typename... Args>
+			void set_value(Args &&... args) {
+				auto dr = std::move(op->dr_);
+				return async::execution::set_value(std::move(dr), std::forward<Args>(args)...);
+			}
+
+			auto get_env() {
+				return Env{.op = op};
+			}
+
+			Operation *op;
+		};
+
+		Operation(S sender, R dr)
+		: dr_{std::move(dr)},
+			wq_{workQueueFromEnv(async::execution::get_env(dr_))->executorContext()->exceptionalWq},
+			op_{async::execution::connect(std::move(sender), IntermediateReceiver{.op = this})} {
+			assert(wq_);
+		}
+
+		Operation(const Operation &) = delete;
+
+		Operation &operator= (const Operation &) = delete;
+
+		void start() {
+			if (wq_->immediatelyDispatchable())
+				return op_.start();
+			worklet_.setup([] (Worklet *base) {
+				auto op = frg::container_of(base, &Operation::worklet_);
+				op->op_.start();
+			});
+			wq_->post(&worklet_);
+		}
+
+	private:
+		R dr_;
+		// wq_ needs to be declared before op_ such it is initialized before the sender is connected.
+		WorkQueue *wq_;
+		Worklet worklet_;
+		async::execution::operation_t<S, IntermediateReceiver> op_;
+	};
+
+	template<typename R>
+	Operation<R> connect(R dr) {
+		return {std::move(sender), std::move(dr)};
 	}
 
 	S sender;

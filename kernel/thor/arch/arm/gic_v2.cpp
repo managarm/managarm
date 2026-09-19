@@ -453,8 +453,13 @@ void GicV2::sendIpiToOthers(uint8_t id) {
 	for (size_t i = 0; i < getCpuCount(); ++i) {
 		if (i == self)
 			continue;
-		if (!getCpuData(i)->cpuInitialized.load(std::memory_order_acquire))
-			continue;
+		// A stale non-online state would wrongly skip a CPU, hence re-check behind a fence.
+		// This pairs with the fence in setCpuState().
+		if (getCpuData(i)->cpuState.load(std::memory_order_acquire) != CpuState::online) [[unlikely]] {
+			std::atomic_thread_fence(std::memory_order_seq_cst);
+			if (getCpuData(i)->cpuState.load(std::memory_order_seq_cst) != CpuState::online)
+				continue;
+		}
 		sendIpi(static_cast<int>(i), id);
 	}
 }

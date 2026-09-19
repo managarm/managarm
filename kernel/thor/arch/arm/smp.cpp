@@ -14,6 +14,7 @@
 #include <thor-internal/main.hpp>
 #include <initgraph.hpp>
 #include <thor-internal/cpu-data.hpp>
+#include <thor-internal/cpu-state.hpp>
 #include <thor-internal/physical.hpp>
 #include <thor-internal/arch-generic/cpu.hpp>
 #include <thor-internal/arch-generic/paging.hpp>
@@ -176,6 +177,7 @@ namespace {
 
 		LoadBalancer::singleton().setOnline(cpuContext);
 		setRcuOnline(cpuContext);
+		setCpuState(cpuContext, CpuState::online);
 		auto *scheduler = &localScheduler.get();
 		scheduler->update();
 		scheduler->forceReschedule();

@@ -7,6 +7,7 @@
 #include <thor-internal/arch-generic/timer.hpp>
 #include <thor-internal/arch/paging.hpp>
 #include <thor-internal/arch/system.hpp>
+#include <thor-internal/cpu-state.hpp>
 #include <thor-internal/debug.hpp>
 #include <thor-internal/dtb/dtb.hpp>
 #include <thor-internal/elf-notes.hpp>
@@ -362,6 +363,7 @@ extern "C" void thorMain() {
 	infoLogger() << "thor: Entering initilization fiber." << frg::endlog;
 	LoadBalancer::singleton().setOnline(getCpuData());
 	setRcuOnline(getCpuData());
+	setCpuState(getCpuData(), CpuState::online);
 	auto *scheduler = &localScheduler.get();
 	scheduler->update();
 	scheduler->forceReschedule();

@@ -180,7 +180,7 @@ void postLogRecord(frg::string_view record, bool expedited) {
 
 	// We always wake up the logging thread.
 	auto useThreaded = drainOnline.load(std::memory_order_relaxed)
-			&& getCpuData()->cpuInitialized.load(std::memory_order_relaxed);
+			&& getCpuData()->cpuState.load(std::memory_order_relaxed) == CpuState::online;
 	if (useThreaded) {
 		bool alreadyPending = drainPending.exchange(true, std::memory_order_release);
 		if (!alreadyPending)

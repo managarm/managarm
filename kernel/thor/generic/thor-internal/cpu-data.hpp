@@ -25,6 +25,17 @@ enum class ProfileMechanism {
 	amdPmc
 };
 
+// How far a CPU has progressed through its own initialization.
+// This only ever advances, i.e., CPUs are never taken offline again.
+enum class CpuState {
+	// The CPU has not reached its C++ entry point yet.
+	offline,
+	// The CPU is bringing itself up; its IRQ controller and work queue are not usable yet.
+	booting,
+	// The CPU is fully brought up: it can send and receive IPIs and it runs its work queue.
+	online
+};
+
 // "Interrupt priority level". This is our version of the IRQL that the NT kernel uses.
 // Note that this is a software concept that does *not* correspond to hardware IRQ priorities.
 // Code running at IPL L can safely access thread-local data structures
@@ -102,10 +113,10 @@ struct CpuData : public PlatformCpuData {
 
 	IseqContext regularIseq;
 
-	// Set at the end of each architecture's initializeThisProcessor().
+	// Advanced by setCpuState() as the CPU brings itself up.
 	// This allows us to check whether various per-CPU data structures are initialized,
 	// for example the CPU's interrupt controller for sending IPIs.
-	std::atomic<bool> cpuInitialized{false};
+	std::atomic<CpuState> cpuState{CpuState::offline};
 
 	unsigned int irqEntropySeq = 0;
 	std::atomic<ProfileMechanism> profileMechanism{};

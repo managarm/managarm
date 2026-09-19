@@ -7,6 +7,7 @@
 #include <thor-internal/arch/system.hpp>
 #include <thor-internal/arch/trap.hpp>
 #include <thor-internal/arch/unimplemented.hpp>
+#include <thor-internal/cpu-state.hpp>
 #include <thor-internal/debug.hpp>
 #include <thor-internal/fiber.hpp>
 #include <thor-internal/ipl.hpp>
@@ -159,6 +160,8 @@ void saveCurrentSimdState(Executor *executor) {
 void initializeThisProcessor() {
 	auto cpuData = getCpuData();
 
+	setCpuState(cpuData, CpuState::booting);
+
 	// Initialize sstatus to a known state.
 	auto sstatus = riscv::readCsr<riscv::Csr::sstatus>();
 	// Disable floating point and vector extensions.
@@ -222,8 +225,6 @@ void initializeThisProcessor() {
 	});
 	cpuData->generalWorkQueue = cpuData->wqFiber->associatedWorkQueue().lock();
 	assert(cpuData->generalWorkQueue);
-
-	cpuData->cpuInitialized.store(true, std::memory_order_release);
 }
 
 void prepareCpuDataFor(CpuData *context, int cpu) {

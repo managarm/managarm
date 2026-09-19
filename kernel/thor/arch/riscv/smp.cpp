@@ -3,6 +3,7 @@
 #include <thor-internal/arch-generic/cpu.hpp>
 #include <thor-internal/arch-generic/paging.hpp>
 #include <thor-internal/cpu-data.hpp>
+#include <thor-internal/cpu-state.hpp>
 #include <thor-internal/debug.hpp>
 #include <thor-internal/dtb/dtb.hpp>
 #include <thor-internal/fiber.hpp>
@@ -89,6 +90,7 @@ void smpMain(StatusBlock *statusBlock) {
 		    auto cpuContext = getCpuData();
 		    LoadBalancer::singleton().setOnline(cpuContext);
 		    setRcuOnline(cpuContext);
+		    setCpuState(cpuContext, CpuState::online);
 		    auto *scheduler = &localScheduler.get();
 		    scheduler->update();
 		    scheduler->forceReschedule();
