@@ -341,7 +341,7 @@ helix_ng::CredentialsView, int layer, int number, std::vector<char> &optbuf) {
 	co_return {};
 }
 
-void NetlinkSocket::broadcast(core::netlink::Packet packet) {
+void broadcast(core::netlink::Packet packet) {
 	if(!packet.group)
 		return;
 

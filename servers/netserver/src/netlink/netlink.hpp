@@ -18,6 +18,11 @@ namespace nl {
 
 void initialize();
 
+void broadcast(core::netlink::Packet packet);
+
+core::netlink::Packet buildLinkPacket(std::shared_ptr<nic::Link> nic, uint16_t flags,
+		uint32_t seq, uint32_t pid);
+
 class NetlinkSocket final : core::netlink::NetlinkFile {
 public:
 	NetlinkSocket(int flags, int protocol);
@@ -70,8 +75,6 @@ public:
 
 	const int protocol;
 private:
-	void broadcast(core::netlink::Packet packet);
-
 	void getRoute(struct nlmsghdr *hdr);
 	void newRoute(struct nlmsghdr *hdr);
 
