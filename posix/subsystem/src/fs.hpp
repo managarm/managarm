@@ -10,6 +10,7 @@
 #include <core/id-allocator.hpp>
 #include <hel.h>
 #include <smarter.hpp>
+#include <sys/stat.h>
 #include <sys/types.h>
 
 #include <fcntl.h>
@@ -26,6 +27,19 @@ enum class VfsType {
 };
 
 struct FileStats {
+	FileStats() = default;
+
+	explicit FileStats(const struct stat &stats)
+	: inodeNumber{0}, numLinks{static_cast<int>(stats.st_nlink)},
+			fileSize{static_cast<uint64_t>(stats.st_size)}, mode{stats.st_mode},
+			uid{static_cast<int>(stats.st_uid)}, gid{static_cast<int>(stats.st_gid)},
+			atimeSecs{static_cast<uint64_t>(stats.st_atim.tv_sec)},
+			atimeNanos{static_cast<uint64_t>(stats.st_atim.tv_nsec)},
+			mtimeSecs{static_cast<uint64_t>(stats.st_mtim.tv_sec)},
+			mtimeNanos{static_cast<uint64_t>(stats.st_mtim.tv_nsec)},
+			ctimeSecs{static_cast<uint64_t>(stats.st_ctim.tv_sec)},
+			ctimeNanos{static_cast<uint64_t>(stats.st_ctim.tv_nsec)} { }
+
 	uint64_t inodeNumber;
 	int numLinks;
 	uint64_t fileSize;

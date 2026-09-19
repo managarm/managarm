@@ -1,6 +1,7 @@
 #include <fcntl.h>
 #include <linux/magic.h>
 #include <unistd.h>
+#include <cerrno>
 #include <set>
 
 #include <core/clock.hpp>
@@ -424,6 +425,28 @@ struct InheritedNode final : Node {
 private:
 	VfsType getType() override {
 		return VfsType::regular;
+	}
+
+	async::result<frg::expected<Error, FileStats>> getStats() override {
+		struct stat backingStats{};
+		if(::stat(_path.c_str(), &backingStats) == -1) {
+			switch(errno) {
+				case ENOENT:
+					co_return Error::noSuchFile;
+				case EACCES:
+					co_return Error::accessDenied;
+				case ENOTDIR:
+					co_return Error::notDirectory;
+				case ENAMETOOLONG:
+					co_return Error::nameTooLong;
+				default:
+					co_return Error::ioError;
+			}
+		}
+
+		FileStats stats{backingStats};
+		stats.inodeNumber = inodeNumber();
+		co_return stats;
 	}
 
 	async::result<frg::expected<Error, smarter::shared_ptr<File, FileHandle>>>

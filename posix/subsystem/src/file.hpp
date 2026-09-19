@@ -81,6 +81,9 @@ enum class Error {
 	// Binary is corrupted or does not match a known binary format.
 	badExecutable,
 
+	// The initial process stack cannot hold the argument and environment data.
+	argumentListTooLong,
+
 	// Indices that the given object does not support the operation
 	// (e.g. readSymlink() is called on a file that is not a link).
 	illegalOperationTarget,
@@ -152,6 +155,7 @@ inline protocols::fs::Error operator|(Error e, protocols::fs::ToFsProtoError) {
 		case Error::success: return protocols::fs::Error::none;
 		case Error::noSuchFile: return protocols::fs::Error::fileNotFound;
 		case Error::eof: return protocols::fs::Error::endOfFile;
+		case Error::argumentListTooLong: return protocols::fs::Error::internalError;
 		case Error::illegalArguments: return protocols::fs::Error::illegalArguments;
 		case Error::wouldBlock: return protocols::fs::Error::wouldBlock;
 		case Error::seekOnPipe: return protocols::fs::Error::seekOnPipe;
@@ -221,6 +225,7 @@ inline managarm::posix::Errors operator|(Error e, ToPosixProtoError) {
 		case Error::notSupported: return managarm::posix::Errors::NOT_SUPPORTED;
 		case Error::badProcessCredentials: return managarm::posix::Errors::INTERNAL_ERROR;
 		case Error::fileClosed:
+		case Error::argumentListTooLong:
 		case Error::badExecutable:
 		case Error::seekOnPipe:
 		case Error::notConnected:
