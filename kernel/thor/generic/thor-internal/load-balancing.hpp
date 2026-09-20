@@ -1,34 +1,45 @@
 #pragma once
 
+#include <string.h>
+
+#include <algorithm>
 #include <async/barrier.hpp>
+#include <frg/list.hpp>
 #include <frg/span.hpp>
+#include <frg/spinlock.hpp>
+#include <frg/vector.hpp>
+#include <smarter.hpp>
 #include <thor-internal/coroutine.hpp>
 #include <thor-internal/cpu-data.hpp>
-#include <thor-internal/thread.hpp>
+#include <thor-internal/ipl.hpp>
+#include <thor-internal/kernel-heap.hpp>
+#include <thor-internal/rcu-base.hpp>
 
 namespace thor {
 
+struct LbControlBlock;
 struct LbNode;
+struct Thread;
 
-// Per-thread control block that is allocated by the load balancer.
-struct LbControlBlock {
-	friend struct LbNode;
+// Per-thread load balancer state, embedded into Thread.
+// The load balancer only reaches it through a strong reference to the thread.
+struct LbThreadState {
 	friend struct LoadBalancer;
 
 	static size_t affinityMaskSize() {
 		return (getCpuCount() + 7) / 8;
 	}
 
-	LbControlBlock(Thread *thread, LbNode *node)
-	: thread_{thread->self.lock()}, node_{node}, affinityMask_{*kernelAlloc} {
+	LbThreadState()
+	: affinityMask_{*kernelAlloc} {
 		affinityMask_.resize(affinityMaskSize());
 		for (size_t i = 0; i < getCpuCount(); ++i)
 			affinityMask_[i / 8] |= (1 << (i % 8));
 	}
 
-	CpuData *getAssignedCpu() {
-		return _assignedCpu.load(std::memory_order_relaxed);
-	}
+	// CPU that the corresponding thread *should* run on.
+	// Not necessarily the CPU that the thread runs on currently.
+	CpuData *getAssignedCpu();
 
 	// Precondition: mask.size() == affinityMaskSize().
 	void getAffinityMask(frg::span<uint8_t> mask) {
@@ -50,52 +61,69 @@ struct LbControlBlock {
 		memcpy(affinityMask_.data(), mask.data(), affinityMaskSize());
 	}
 
-	bool inAffinityMask(size_t cpuIndex) {
-		auto irqLock = frg::guard(&irqMutex());
-		auto lock = frg::guard(&mutex_);
-
-		return affinityMask_[cpuIndex / 8] & (1 << (cpuIndex % 8));
-	}
-
 private:
-	// Immutable.
-	smarter::weak_ptr<Thread> thread_;
-
-	// CPU that the corresponding thread *should* run on.
-	// Not necessarily the CPU that the thread runs on currently.
-	std::atomic<CpuData *> _assignedCpu{nullptr};
-
-	// Protected by the LbNode that currently owns the node.
-	LbNode *node_{nullptr};
-
-	// Protected by the LbNode that currently owns the node.
-	frg::default_list_hook<LbControlBlock> hook_;
-
-	// Load of the thread associated with this control block.
-	// Protected by the LbNode that currently owns the node.
-	uint64_t load_{0};
-
-	// Protects members that can be written by public functions.
-	// Note that this mutex does not protect assigendCpu_, node_, hook_, load_ etc.
 	frg::ticket_spinlock mutex_;
 
-	// Protected by mutex_;
+	// Current control block.
+	// Protected against writes by mutex_, read under RCU.
+	std::atomic<LbControlBlock *> cb_{nullptr};
+
+	// Protected by mutex_.
 	frg::vector<uint8_t, KernelAlloc> affinityMask_;
+
+	// Callers must hold mutex_.
+	bool inAffinityMask_(size_t cpuIndex) {
+		return affinityMask_[cpuIndex / 8] & (1 << (cpuIndex % 8));
+	}
+};
+
+// Accounting record of one thread on one node. It is bound to its node for its whole
+// life: migrating the thread links a new control block into the destination node and retires
+// this one via RCU, so node task lists can be traversed without their mutex.
+struct LbControlBlock : RcuCallable {
+	friend struct LbNode;
+	friend struct LbThreadState;
+	friend struct LoadBalancer;
+
+	LbControlBlock(smarter::weak_ptr<Thread> thread)
+	: thread_{std::move(thread)} { }
+
+	LbControlBlock() = default;
+
+private:
+	static void retire_(RcuCallable *base);
+
+	// Set before the control block is linked into the node's list, immutable afterwards.
+	smarter::weak_ptr<Thread> thread_;
+
+	// Set before the control block is linked into the node's list, immutable afterwards.
+	LbNode *node_{nullptr};
+
+	// Protected against writes by LbNode::mutex, traversed under RCU.
+	frg::intrusive_rcu_list_hook<LbControlBlock> listHook_;
+
+	// Whether the LbNode has been unlinked. Set before its retired via RCU.
+	// Protected by LbNode::mutex.
+	bool unlinked_{false};
+
+	// Load of the thread as of the last accounting pass of node_.
+	std::atomic<uint64_t> load_{0};
 };
 
 // Per-CPU load balancing data structure.
 struct LbNode {
 	CpuData *cpu{nullptr};
 
+	// Serializes writers of tasks and protects currentLoad.
 	frg::ticket_spinlock mutex;
 
-	// Protected by mutex.
-	frg::intrusive_list<
+	// Protected against writes by mutex, traversed under RCU.
+	frg::intrusive_rcu_list<
 		LbControlBlock,
 		frg::locate_member<
 			LbControlBlock,
-			frg::default_list_hook<LbControlBlock>,
-			&LbControlBlock::hook_
+			frg::intrusive_rcu_list_hook<LbControlBlock>,
+			&LbControlBlock::listHook_
 		>
 	> tasks;
 
@@ -103,11 +131,16 @@ struct LbNode {
 	uint64_t totalLoad{0};
 
 	// Equal to totalLoad before load balancing but updated during load balancing.
-	// Protected by mutex during main phase of load balancing.
-	uint64_t currentLoad{0};
+	// Modified under mutex, read without it.
+	std::atomic<uint64_t> currentLoad{0};
 };
 
 extern PerCpu<LbNode> lbNode;
+
+inline CpuData *LbThreadState::getAssignedCpu() {
+	IplGuard<ipl::noSchedule> rcuGuard;
+	return cb_.load(std::memory_order_acquire)->node_->cpu;
+}
 
 struct LoadBalancer {
 	static LoadBalancer &singleton();
@@ -129,8 +162,11 @@ private:
 	coroutine<void> run_(CpuData *cpu);
 
 	// Move tasks from srcNode to dstNode to balance load.
-	// newLoad: newLoad at dstNode after balancing.
-	void balanceBetween_(LbNode *srcNode, LbNode *dstNode, uint64_t &newLoad, uint64_t idealLoad);
+	void balanceBetween_(LbNode *srcNode, LbNode *dstNode, uint64_t idealLoad);
+
+	// Replace the current control block of state by newCb, linked into dstNode.
+	// Precondition: state->mutex_ is held.
+	void doMigration_(LbThreadState *state, LbNode *dstNode, LbControlBlock *newCb);
 
 	async::barrier barrier_;
 };

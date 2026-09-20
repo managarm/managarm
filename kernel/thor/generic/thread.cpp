@@ -30,11 +30,11 @@ void Thread::migrateCurrent() {
 	assert(currentIpl() < ipl::noSchedule);
 
 	auto this_thread = getCurrentThread().get();
-	auto maskSize = LbControlBlock::affinityMaskSize();
+	auto maskSize = LbThreadState::affinityMaskSize();
 
 	frg::vector<uint8_t, KernelAlloc> mask{*kernelAlloc};
 	mask.resize(maskSize);
-	this_thread->_lbCb->getAffinityMask({mask.data(), maskSize});
+	this_thread->_lbState.getAffinityMask({mask.data(), maskSize});
 
 	StatelessIrqLock irq_lock;
 	auto lock = frg::guard(&this_thread->_mutex);
@@ -389,7 +389,7 @@ template<typename ImageAccessor>
 void Thread::migrateCurrentToAssignedCpu(ImageAccessor image) {
 	auto this_thread = getCurrentThread();
 
-	auto assignedCpu = this_thread->_lbCb->getAssignedCpu();
+	auto assignedCpu = this_thread->_lbState.getAssignedCpu();
 	if(assignedCpu == getCpuData())
 		return;
 

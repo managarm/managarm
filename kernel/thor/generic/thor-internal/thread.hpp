@@ -8,6 +8,7 @@
 #include <thor-internal/credentials.hpp>
 #include <thor-internal/cpu-data.hpp>
 #include <thor-internal/error.hpp>
+#include <thor-internal/load-balancing.hpp>
 #include <thor-internal/rcu.hpp>
 #include <thor-internal/schedule.hpp>
 #include <thor-internal/universe.hpp>
@@ -67,7 +68,7 @@ concept AnyTag = (std::same_as<T, AsyncBlockCurrentNormalTag> || std::same_as<T,
 constexpr int loadShift = 10;
 
 struct Thread;
-struct LbControlBlock;
+struct LbThreadState;
 
 smarter::borrowed_ptr<Thread> getCurrentThread();
 
@@ -527,7 +528,7 @@ public:
 		return _loadLevel.load(std::memory_order_relaxed);
 	}
 
-	LbControlBlock *_lbCb{nullptr};
+	LbThreadState _lbState;
 
 private:
 	smarter::shared_ptr<Universe> _universe;
