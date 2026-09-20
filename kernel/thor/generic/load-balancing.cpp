@@ -57,6 +57,47 @@ void LoadBalancer::connect(Thread *thread, CpuData *cpu) {
 	thread->_lbState.cb_.store(cb, std::memory_order_release);
 }
 
+void LoadBalancer::setAffinity(Thread *thread, frg::span<const uint8_t> mask) {
+	assert(mask.size() == LbThreadState::affinityMaskSize());
+	assert(LbThreadState::findFirstCpu(mask) != static_cast<size_t>(-1));
+
+	auto *state = &thread->_lbState;
+	// Whether the thread has to move is only known under the lock.
+	// Allocate the replacement control block up front instead of allocating there.
+	auto *newCb = frg::construct<LbControlBlock>(*kernelAlloc);
+	bool moved = false;
+	{
+		auto irqLock = frg::guard(&irqMutex());
+		auto lock = frg::guard(&state->mutex_);
+
+		state->setAffinityMask_(mask);
+		auto *cb = state->cb_.load(std::memory_order_relaxed);
+		if (!state->inAffinityMask_(cb->node_->cpu->cpuIndex)) {
+			// Pick the least-loaded allowed CPU (by the last accounting snapshot)
+			// so that shrinking a mask does not herd threads onto its first CPU.
+			size_t bestIndex = static_cast<size_t>(-1);
+			uint64_t bestLoad = 0;
+			for (size_t i = 0; i < getCpuCount(); ++i) {
+				if (!state->inAffinityMask_(i))
+					continue;
+				auto load = lbNode.getFor(i).totalLoad.load(std::memory_order_relaxed);
+				if (bestIndex == static_cast<size_t>(-1) || load < bestLoad) {
+					bestIndex = i;
+					bestLoad = load;
+				}
+			}
+			doMigration_(state, &lbNode.getFor(bestIndex), newCb);
+			moved = true;
+		}
+	}
+	if (!moved)
+		frg::destruct(*kernelAlloc, newCb);
+
+	// Also raise the condition if only the mask changed:
+	// the thread may still be on its way to the assigned CPU from an earlier migration.
+	Thread::migrateOther(thread->self);
+}
+
 void LoadBalancer::doMigration_(LbThreadState *state, LbNode *dstNode, LbControlBlock *newCb) {
 	auto *cb = state->cb_.load(std::memory_order_relaxed);
 	auto *srcNode = cb->node_;
@@ -157,7 +198,7 @@ coroutine<void> LoadBalancer::run_(CpuData *cpu) {
 			auto irqLock = frg::guard(&irqMutex());
 			auto lock = frg::guard(&thisNode->mutex);
 
-			thisNode->totalLoad = load;
+			thisNode->totalLoad.store(load, std::memory_order_relaxed);
 			thisNode->currentLoad.store(load, std::memory_order_relaxed);
 		}
 
@@ -172,7 +213,7 @@ coroutine<void> LoadBalancer::run_(CpuData *cpu) {
 		//       and might be preferable over synchronization overhead.
 		uint64_t systemLoad = 0;
 		for (size_t i = 0; i < getCpuCount(); ++i)
-			systemLoad += lbNode.getFor(i).totalLoad;
+			systemLoad += lbNode.getFor(i).totalLoad.load(std::memory_order_relaxed);
 		uint64_t idealLoad = systemLoad / getCpuCount();
 		if (debugLb && cpu == getCpuData(0))
 			infoLogger() << "Total system load is " << systemLoad

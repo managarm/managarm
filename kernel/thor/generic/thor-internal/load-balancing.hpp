@@ -2,7 +2,6 @@
 
 #include <string.h>
 
-#include <algorithm>
 #include <async/barrier.hpp>
 #include <frg/list.hpp>
 #include <frg/span.hpp>
@@ -30,6 +29,13 @@ struct LbThreadState {
 		return (getCpuCount() + 7) / 8;
 	}
 
+	static size_t findFirstCpu(frg::span<const uint8_t> mask) {
+		for(size_t i = 0; i < getCpuCount(); ++i)
+			if(mask[i / 8] & (1 << (i % 8)))
+				return i;
+		return static_cast<size_t>(-1);
+	}
+
 	LbThreadState()
 	: affinityMask_{*kernelAlloc} {
 		affinityMask_.resize(affinityMaskSize());
@@ -50,17 +56,6 @@ struct LbThreadState {
 		memcpy(mask.data(), affinityMask_.data(), affinityMaskSize());
 	}
 
-	// Precondition: mask.size() == affinityMaskSize().
-	// Precondition: at least one bit of mask is set.
-	void setAffinityMask(frg::span<const uint8_t> mask) {
-		auto irqLock = frg::guard(&irqMutex());
-		auto lock = frg::guard(&mutex_);
-
-		assert(affinityMask_.size() == mask.size());
-		assert(std::any_of(mask.begin(), mask.end(), [] (uint8_t x) -> bool { return x; }));
-		memcpy(affinityMask_.data(), mask.data(), affinityMaskSize());
-	}
-
 private:
 	frg::ticket_spinlock mutex_;
 
@@ -70,6 +65,15 @@ private:
 
 	// Protected by mutex_.
 	frg::vector<uint8_t, KernelAlloc> affinityMask_;
+
+	// Precondition: mask.size() == affinityMaskSize().
+	// Precondition: at least one bit of mask is set.
+	// Callers must hold mutex_.
+	void setAffinityMask_(frg::span<const uint8_t> mask) {
+		assert(affinityMask_.size() == mask.size());
+		assert(findFirstCpu(mask) != static_cast<size_t>(-1));
+		memcpy(affinityMask_.data(), mask.data(), affinityMaskSize());
+	}
 
 	// Callers must hold mutex_.
 	bool inAffinityMask_(size_t cpuIndex) {
@@ -127,8 +131,9 @@ struct LbNode {
 		>
 	> tasks;
 
-	// Constant during main phase of load balancing.
-	uint64_t totalLoad{0};
+	// Accounting snapshot used to derive the ideal load.
+	// Written under mutex, also read cross-CPU without the mutex (e.g., for placement decisions).
+	std::atomic<uint64_t> totalLoad{0};
 
 	// Equal to totalLoad before load balancing but updated during load balancing.
 	// Modified under mutex, read without it.
@@ -157,6 +162,12 @@ struct LoadBalancer {
 	// The load balancer keeps a weak reference to the thread.
 	// The thread is detached from the load balancer when the weak reference goes out of scope.
 	void connect(Thread *thread, CpuData *cpu);
+
+	// Synchronously commit the affinity mask and the assignment,
+	// then request an asynchronous migration of the thread.
+	// Precondition: mask.size() == affinityMaskSize().
+	// Precondition: at least one bit of mask is set.
+	void setAffinity(Thread *thread, frg::span<const uint8_t> mask);
 
 private:
 	coroutine<void> run_(CpuData *cpu);

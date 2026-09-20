@@ -272,7 +272,6 @@ public:
 
 	// If any conditions in checkedConditions is set, we do not block.
 	static void blockCurrent(Condition checkedConditions);
-	static void migrateCurrent();
 	static void deferCurrent();
 	static void deferCurrent(IrqImageAccessor image);
 	static void suspendCurrent(IrqImageAccessor image);
