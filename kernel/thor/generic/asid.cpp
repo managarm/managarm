@@ -282,9 +282,11 @@ PageSpace::~PageSpace() {
 
 
 void PageSpace::retire(RetireNode *node) {
+	// PageBinding::unbind() below requires IRQs to be disabled.
+	auto irqLock = frg::guard(&irqMutex());
+
 	bool anyBindings;
 	{
-		auto irqLock = frg::guard(&irqMutex());
 		auto lock = frg::guard(&mutex_);
 
 		anyBindings = numBindings_;
@@ -292,6 +294,15 @@ void PageSpace::retire(RetireNode *node) {
 			retireNode_ = node;
 			wantToRetire_.store(true, std::memory_order_release);
 		}
+	}
+
+	// Perform synchronous unbinding.
+	auto &bindings = asidData.get()->bindings;
+	for(size_t i = 0; i < bindings.size(); i++) {
+		if(bindings[i].boundSpace().get() != this)
+			continue;
+
+		bindings[i].unbind();
 	}
 
 	if(!anyBindings)
