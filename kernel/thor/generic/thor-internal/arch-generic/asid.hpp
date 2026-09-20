@@ -172,6 +172,9 @@ struct PageSpace {
 	// recently used binding to use for the switch.
 	static void activate(smarter::shared_ptr<PageSpace> space);
 
+	// Unbind all (non-global) page spaces from this CPU.
+	static void deactivateAll();
+
 	PageSpace(PhysicalAddr rootTable);
 
 	~PageSpace();

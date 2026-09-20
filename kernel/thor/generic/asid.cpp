@@ -275,6 +275,13 @@ void PageSpace::activate(smarter::shared_ptr<PageSpace> space) {
 	bindings[lruIdx].rebind(space);
 }
 
+void PageSpace::deactivateAll() {
+	assert(!intsAreEnabled());
+
+	for(auto &binding : asidData.get()->bindings)
+		binding.unbind();
+}
+
 
 PageSpace::PageSpace(PhysicalAddr rootTable)
 : rootTable_{rootTable}, numBindings_{0}, boundCpus_{getCpuCount(), *kernelAlloc},

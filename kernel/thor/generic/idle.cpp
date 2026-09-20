@@ -1,5 +1,6 @@
 #include <frg/cmdline.hpp>
 #include <initgraph.hpp>
+#include <thor-internal/arch-generic/asid.hpp>
 #include <thor-internal/arch-generic/idle.hpp>
 #include <thor-internal/arch-generic/ints.hpp>
 #include <thor-internal/cpu-data.hpp>
@@ -300,8 +301,11 @@ IdleMethod IdleGovernor::determineState() {
 		selected = selectFromBins(states.size(), timerState);
 	}
 
-	// As at the end of IRQ handlers: the code above may have woken up entities on this CPU.
-	// This does not return if we schedule away from the idle task.
+	// The TLB is lost anyway. Unbinding avoids wakeups due to shootdowns.
+	if(states[selected].losesTlb)
+		PageSpace::deactivateAll();
+
+	// PageSpace::deactivateAll() can wake up threads, so check for preemption.
 	localScheduler.get().checkPreemption();
 
 	// Only update now such that noteIdleWakeup() ends the stretch if checkPreemption() schedules away.
