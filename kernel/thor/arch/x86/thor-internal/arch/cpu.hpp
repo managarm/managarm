@@ -454,6 +454,9 @@ struct CpuFeatures {
 	bool haveTscDeadline;
 	bool haveVmx;
 	bool haveSvm;
+	// Hardware P-states.
+	bool haveHwp;
+	bool haveHwpEpp;
 	uint32_t profileFlags;
 	// Set of XSAVE components that we enable in XCR0.
 	uint64_t xcr0Mask;
