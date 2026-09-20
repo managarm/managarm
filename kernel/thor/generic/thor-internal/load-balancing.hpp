@@ -180,6 +180,7 @@ private:
 	void doMigration_(LbThreadState *state, LbNode *dstNode, LbControlBlock *newCb);
 
 	async::barrier barrier_;
+	uint64_t systemLoad_{0};
 };
 
 } // namespace thor

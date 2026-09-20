@@ -208,12 +208,15 @@ coroutine<void> LoadBalancer::run_(CpuData *cpu) {
 		// Global barrier to wait until all CPUs know their load level.
 		co_await barrier_.async_wait(barrier_.arrive());
 
-		// Sum load of all CPUs.
-		// TODO: Doing this on all CPUs is unnecessary. However, it is also reasonably fast
-		//       and might be preferable over synchronization overhead.
-		uint64_t systemLoad = 0;
-		for (size_t i = 0; i < getCpuCount(); ++i)
-			systemLoad += lbNode.getFor(i).totalLoad.load(std::memory_order_relaxed);
+		// Sum load once, then publish it to all CPUs through the barrier.
+		if (!cpu->cpuIndex) {
+			systemLoad_ = 0;
+			for (size_t i = 0; i < getCpuCount(); ++i)
+				systemLoad_ += lbNode.getFor(i).totalLoad.load(std::memory_order_relaxed);
+		}
+		co_await barrier_.async_wait(barrier_.arrive());
+
+		auto systemLoad = systemLoad_;
 		uint64_t idealLoad = systemLoad / getCpuCount();
 		if (debugLb && cpu == getCpuData(0))
 			infoLogger() << "Total system load is " << systemLoad
@@ -221,12 +224,11 @@ coroutine<void> LoadBalancer::run_(CpuData *cpu) {
 
 		if (enableLb) {
 			// Distribute load from other CPUs to this CPU.
-			// TODO: This loop probably does not scale very well since all CPUs try to pull from
-			//       all other CPUs in the same order (and this can cause lock contention).
-			for (size_t i = 0; i < getCpuCount(); ++i) {
-				auto *toCpu = getCpuData(i);
-				if (cpu != toCpu)
-					balanceBetween_(&lbNode.get(toCpu), thisNode, idealLoad);
+			// Start at the next CPU such that the CPUs do not visit the sources in the same order.
+			auto numCpus = getCpuCount();
+			for (size_t k = 1; k < numCpus; ++k) {
+				auto sourceIndex = (cpu->cpuIndex + k) % numCpus;
+				balanceBetween_(&lbNode.getFor(sourceIndex), thisNode, idealLoad);
 			}
 		}
 
@@ -262,6 +264,14 @@ void LoadBalancer::balanceBetween_(LbNode *srcNode, LbNode *dstNode, uint64_t id
 			// undersubscribed. While it may still be possible to improve the balance,
 			// it is probably not worth it in terms of effort and cache degradation.
 			if (srcLoad < idealLoad && dstLoad < idealLoad)
+				break;
+
+			// Pulling from a less loaded CPU can never improve the balance.
+			if (srcLoad <= dstLoad)
+				break;
+
+			// Do not pull beyond the ideal load, other CPUs would have to pull the excess again.
+			if (dstLoad >= idealLoad)
 				break;
 
 			// Do not move threads with tiny contributions to the total load.
