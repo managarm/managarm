@@ -1154,46 +1154,6 @@ ManagedSpace::ManagedSpace(smarter::shared_ptr<Hierarchy> hierarchy, size_t leng
 		numPages{length >> kPageShift}, readahead{readahead},
 		_evictQueue{frg::allocate_intrusive_shared<EvictionQueue>(Allocator{})} {
 	assert(!(length & (kPageSize - 1)));
-
-	attachQueue(_evictQueue.get());
-}
-
-void ManagedSpace::attachQueue(EvictionQueue *queue) {
-	auto irqLock = frg::guard(&irqMutex());
-	auto lock = frg::guard(&mutex);
-
-	ref_rc(queue);
-	_attachedQueues.push_back(queue);
-}
-
-void ManagedSpace::detachQueue(EvictionQueue *queue) {
-	{
-		auto irqLock = frg::guard(&irqMutex());
-		auto lock = frg::guard(&mutex);
-
-		_attachedQueues.erase(_attachedQueues.iterator_to(queue));
-	}
-	// Drop the space's reference outside the mutex, this may destroy the queue.
-	frg::intrusive_shared_ptr<EvictionQueue, Allocator> drop{frg::adopt_rc, queue};
-}
-
-coroutine<void> ManagedSpace::_fenceEphemeral() {
-	// Snapshot the list under the mutex, the references keep the queues alive
-	// even if their views detach concurrently.
-	frg::vector<frg::intrusive_shared_ptr<EvictionQueue, Allocator>, KernelAlloc>
-			snapshot{*kernelAlloc};
-	{
-		auto irqLock = frg::guard(&irqMutex());
-		auto lock = frg::guard(&mutex);
-
-		for(auto queue : _attachedQueues) {
-			ref_rc(queue);
-			snapshot.emplace_back(frg::adopt_rc, queue);
-		}
-	}
-
-	for(auto &queue : snapshot)
-		co_await queue->fenceEphemeral();
 }
 
 coroutine<void> ManagedSpace::_runReclaimLoop() {
@@ -1249,7 +1209,9 @@ coroutine<void> ManagedSpace::_runReclaimLoop() {
 		if(batch.empty() && discardBatch.empty())
 			continue;
 
-		co_await _fenceEphemeral();
+		// Concurrent lookups have averted the reclamation (avertReclaim/avertDiscard) by the end
+		// of the grace period; see CachePage::useCount.
+		co_await rcuBarrier();
 
 		bool anyDirty = false;
 		bool anyExpedite = false;
@@ -1643,7 +1605,7 @@ void ManagedSpace::discardPage(ManagedPage *pit, DiscardMode mode, bool &raiseDi
 		assert(!"discardPage() on page in unexpected transaction state");
 	}
 
-	// Erases entries without a frame right away instead of paying for a fenceEphemeral().
+	// Erases entries without a frame right away instead of paying for an RCU grace period.
 	if(dispose) {
 		assert(pit->transactionState == TxState::none);
 		assert(!pit->monitors);
@@ -1890,7 +1852,6 @@ coroutine<void> ManagedSpace::dispose() {
 	}
 
 	globalReclaimer->unregisterBundle(this);
-	detachQueue(_evictQueue.get());
 }
 
 ManagedSpace::~ManagedSpace() {
@@ -2846,18 +2807,12 @@ std::expected<smarter::shared_ptr<SwappableMemory>, Error> SwappableMemory::crea
 
 SwappableMemory::SwappableMemory(CtorToken, smarter::shared_ptr<Hierarchy> hierarchy,
 		smarter::shared_ptr<SwapSpace> space, size_t length)
-: MemoryView{frg::allocate_intrusive_shared<EvictionQueue>(Allocator{})},
-		_hierarchy{std::move(hierarchy)}, _space{std::move(space)}, _length{length},
+: _hierarchy{std::move(hierarchy)}, _space{std::move(space)}, _length{length},
 		_table{*kernelAlloc} {
 	assert(!(length & (kPageSize - 1)));
-
-	_space->attachQueue(evictionQueue());
 }
 
 SwappableMemory::~SwappableMemory() {
-	// No mappings (which hold view references) observe our queue anymore.
-	_space->detachQueue(evictionQueue());
-
 	for(auto it = _table.begin(); it != _table.end(); ++it) {
 		_space->discardPageAndRaise(*it, DiscardMode::dropDirty);
 		_hierarchy->unchargeSwap(kPageSize);
@@ -3261,17 +3216,10 @@ CopyOnWriteMemory::CopyOnWriteMemory(CtorToken, smarter::shared_ptr<Hierarchy> h
 	assert(length);
 	assert(!(offset & (kPageSize - 1)));
 	assert(!(length & (kPageSize - 1)));
-
-	// Our mappings must observe the space's fences.
-	if(_space)
-		_space->attachQueue(evictionQueue());
 }
 
 CopyOnWriteMemory::~CopyOnWriteMemory() {
 	unchargePages_(_chargedPages);
-
-	if(_space)
-		_space->detachQueue(evictionQueue());
 }
 
 size_t CopyOnWriteMemory::getLength() {

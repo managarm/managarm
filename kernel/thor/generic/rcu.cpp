@@ -267,4 +267,8 @@ void submitRcu(RcuCallable *callable, void (*call)(RcuCallable *)) {
 	rcuDispatcher.get().submit(callable, call);
 }
 
+coroutine<void> rcuBarrier() {
+	return rcuEngine->barrier();
+}
+
 } // namespace thor

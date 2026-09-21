@@ -146,6 +146,10 @@ inline void rcuClearQuiescent() {
 
 void submitRcu(RcuCallable *callable, void (*call)(RcuCallable *));
 
+// Waits until all RCU read-side critical sections (i.e., sections with scheduling disabled)
+// that are active on entry have ended. See RcuEngine::barrier() for details.
+coroutine<void> rcuBarrier();
+
 // Policy class for frigg::rcu_radixtree.
 struct RcuPolicy {
 	template<typename T, typename D>

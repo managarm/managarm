@@ -61,6 +61,14 @@ struct CachePage {
 
 	uint32_t flags = 0;
 	uint8_t generation = 0;
+
+	// Counts the references that may access the page without a lock (i.e., PTE and RevokeBatch entries).
+	// A PTE's use count may only be dropped after its shootdown completed.
+	// The bundle may free the frame of a page without uses or locks once an rcuBarrier() has elapsed.
+	// Lookups and use counts taken in the meantime avert the reclamation.
+	// Hence, code that obtains the frame without already owning a use count or a lock
+	// must take a use count within the same RCU critical section in which it obtained the page's address
+	// (e.g., via peekRange() or by looking up a PTE).
 	std::atomic<unsigned int> useCount = 0;
 };
 
@@ -80,6 +88,8 @@ struct CacheBundle {
 	// Number of generations for the LRU mechanism.
 	static constexpr unsigned int numGenerations = 8;
 
+	// Slow paths of the free incrementUses()/decrementUses() functions for the 0 <-> 1 transitions.
+	// A 0 -> 1 transition during the grace period of a reclamation must avert it; see CachePage::useCount.
 	virtual void incrementUses(CachePage *page) = 0;
 	virtual void decrementUses(CachePage *page) = 0;
 
@@ -132,6 +142,8 @@ inline void markDirty(PfnDescriptor descriptor) {
 	}
 }
 
+// Unless the caller already owns a use count of the page, this must be called in the
+// RCU critical section that found the page; see CachePage::useCount.
 inline void incrementUses(PfnDescriptor descriptor) {
 	if(!descriptor.isCachePage())
 		return;
@@ -237,9 +249,6 @@ enum class EvictMode {
 	breakRange,
 	// Collects PTE dirty bits in all mappings of a range and completes their shootdowns.
 	cleanRange,
-	// Waits until all temporary references to pages disappear. No range is specified.
-	// CachePages with a useCount of zero can be reclaimed after this fence.
-	fenceEphemeral,
 };
 
 struct RangeToEvict {
@@ -310,11 +319,6 @@ struct EvictionQueue final : frg::intrusive_rc {
 	auto cleanRange(uintptr_t offset, size_t size) {
 		return mechanism_.post(RangeToEvict{EvictMode::cleanRange, offset, size});
 	}
-	auto fenceEphemeral() {
-		return mechanism_.post(RangeToEvict{EvictMode::fenceEphemeral, 0, 0});
-	}
-
-	frg::default_list_hook<EvictionQueue> attachHook;
 
 private:
 	frg::ticket_spinlock mutex_;
@@ -394,7 +398,9 @@ public:
 	virtual void unlockRange(uintptr_t offset, size_t size) = 0;
 
 	// Optimistically returns the physical memory that backs a range of memory.
-	// Result stays valid until the range is evicted.
+	// The frame backs the range until the range is evicted, but without a lock (see lockRange())
+	// it may only be accessed within the RCU critical section that called peekRange(),
+	// unless a use count is taken in that section; see CachePage::useCount.
 	// Note that:
 	// - The offset is not necessarily page aligned.
 	// - The offset is not necessarily within the memory object's current size.
@@ -731,11 +737,11 @@ struct ManagedSpace : CacheBundle {
 		// Page is owned by the MemoryReclaimer.
 		// Valid in LoadState::present with lockCount == 0 and useCount == 0.
 		inReclaimer,
-		// Page has been selected for reclaimation and is awaiting fenceEphemeral().
+		// Page has been selected for reclaimation and is awaiting an RCU grace period.
 		// Page is owned by the ManagedSpace reclamation logic.
 		// Valid in LoadState::present.
 		performReclaim,
-		// Page will not be reclaimed but is still awaiting fenceEphemeral().
+		// Page will not be reclaimed but is still awaiting an RCU grace period.
 		// Page is owned by the ManagedSpace reclamation logic.
 		// Valid in LoadState::present.
 		avertReclaim,
@@ -744,12 +750,12 @@ struct ManagedSpace : CacheBundle {
 		// Valid in any LoadState, with or without a frame,
 		// with lockCount == 0 and useCount == 0.
 		discardQueued,
-		// Page has been picked up for discarding and is awaiting fenceEphemeral().
+		// Page has been picked up for discarding and is awaiting an RCU grace period.
 		// Page is owned by the ManagedSpace reclamation logic.
 		// Valid in any LoadState, with or without a frame,
 		// with lockCount == 0 and useCount == 0.
 		performDiscard,
-		// Page will not be discarded in this iteration but is still awaiting fenceEphemeral().
+		// Page will not be discarded in this iteration but is still awaiting an RCU grace period.
 		// The page may be in the _discardList (on discardQueued -> avertDiscard transitions).
 		// Page is owned by the ManagedSpace reclamation logic.
 		// Valid in any LoadState, with or without a frame.
@@ -888,7 +894,7 @@ struct ManagedSpace : CacheBundle {
 
 	// Discards the given page. The entry is either immediately erased
 	// or once the in-flight transaction is completed. The frames are freed by
-	// the reclamation behind a fenceEphemeral().
+	// the reclamation behind an RCU grace period.
 	// Idempotent: discarding an already discarded page is a no-op (i.e., the first call fixes the mode).
 	// Must be called under mutex.
 	// The caller must raise the appended monitors and _dirtyEvent/_discardEvent/_expediteEvent as requested.
@@ -931,18 +937,9 @@ struct ManagedSpace : CacheBundle {
 	// Unblocks the drain coroutine after the swap budget has grown.
 	void _wakeDrain();
 
-	// Registers/deregisters the queue of an attached view, the space's fences are posted
-	// on all registered queues. The managed space takes a reference to the queue and releases
-	// it on detach.
-	void attachQueue(EvictionQueue *queue);
-	void detachQueue(EvictionQueue *queue);
-
 	coroutine<void> _runReclaimLoop();
 	coroutine<void> _runDrainLoop();
 	coroutine<void> _runInvalidationLoop();
-
-	// Post a fenceEphemeral on every attached queue and await all acknowledgements.
-	coroutine<void> _fenceEphemeral();
 
 	Error lockPages(uintptr_t offset, size_t size);
 	void unlockPages(uintptr_t offset, size_t size);
@@ -1038,17 +1035,6 @@ struct ManagedSpace : CacheBundle {
 
 	// Queue that BackingMemory/FrontalMemory mappings observe.
 	frg::intrusive_shared_ptr<EvictionQueue, Allocator> _evictQueue;
-
-	// Queues of all views whose mappings must observe this space's fences (always
-	// including _evictQueue). Protected by mutex.
-	frg::intrusive_list<
-		EvictionQueue,
-		frg::locate_member<
-			EvictionQueue,
-			frg::default_list_hook<EvictionQueue>,
-			&EvictionQueue::attachHook
-		>
-	> _attachedQueues;
 
 	CachePagesList _dirtyList;
 
