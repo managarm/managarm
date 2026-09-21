@@ -1,5 +1,7 @@
 #include <frg/unique.hpp>
 #include <thor-internal/load-balancing.hpp>
+#include <thor-internal/rcu.hpp>
+#include <thor-internal/thread.hpp>
 #include <thor-internal/timer.hpp>
 
 namespace thor {
@@ -22,6 +24,10 @@ frg::eternal<LoadBalancer> loadBalancer;
 
 THOR_DEFINE_PERCPU(lbNode);
 
+void LbControlBlock::retire_(RcuCallable *base) {
+	frg::destruct(*kernelAlloc, static_cast<LbControlBlock *>(base));
+}
+
 LoadBalancer &LoadBalancer::singleton() {
 	return loadBalancer.get();
 }
@@ -36,20 +42,92 @@ void LoadBalancer::setOnline(CpuData *cpu) {
 }
 
 void LoadBalancer::connect(Thread *thread, CpuData *cpu) {
-	assert(!thread->_lbCb);
+	assert(!thread->_lbState.cb_.load(std::memory_order_relaxed));
 	auto *node = &lbNode.get(cpu);
 
-	auto cb = frg::construct<LbControlBlock>(*kernelAlloc, thread, node);
-	cb->_assignedCpu.store(cpu, std::memory_order_relaxed);
-	thread->_lbCb = cb;
+	auto cb = frg::construct<LbControlBlock>(*kernelAlloc, thread->self.lock());
+	cb->node_ = node;
 
-	// The LbControlBlock is now owned by the node.
 	{
 		auto irqLock = frg::guard(&irqMutex());
 		auto lock = frg::guard(&node->mutex);
 
 		node->tasks.push_back(cb);
 	}
+	thread->_lbState.cb_.store(cb, std::memory_order_release);
+}
+
+void LoadBalancer::setAffinity(Thread *thread, frg::span<const uint8_t> mask) {
+	assert(mask.size() == LbThreadState::affinityMaskSize());
+	assert(LbThreadState::findFirstCpu(mask) != static_cast<size_t>(-1));
+
+	auto *state = &thread->_lbState;
+	// Whether the thread has to move is only known under the lock.
+	// Allocate the replacement control block up front instead of allocating there.
+	auto *newCb = frg::construct<LbControlBlock>(*kernelAlloc);
+	bool moved = false;
+	{
+		auto irqLock = frg::guard(&irqMutex());
+		auto lock = frg::guard(&state->mutex_);
+
+		state->setAffinityMask_(mask);
+		auto *cb = state->cb_.load(std::memory_order_relaxed);
+		if (!state->inAffinityMask_(cb->node_->cpu->cpuIndex)) {
+			// Pick the least-loaded allowed CPU (by the last accounting snapshot)
+			// so that shrinking a mask does not herd threads onto its first CPU.
+			size_t bestIndex = static_cast<size_t>(-1);
+			uint64_t bestLoad = 0;
+			for (size_t i = 0; i < getCpuCount(); ++i) {
+				if (!state->inAffinityMask_(i))
+					continue;
+				auto load = lbNode.getFor(i).totalLoad.load(std::memory_order_relaxed);
+				if (bestIndex == static_cast<size_t>(-1) || load < bestLoad) {
+					bestIndex = i;
+					bestLoad = load;
+				}
+			}
+			doMigration_(state, &lbNode.getFor(bestIndex), newCb);
+			moved = true;
+		}
+	}
+	if (!moved)
+		frg::destruct(*kernelAlloc, newCb);
+
+	// Also raise the condition if only the mask changed:
+	// the thread may still be on its way to the assigned CPU from an earlier migration.
+	Thread::migrateOther(thread->self);
+}
+
+void LoadBalancer::doMigration_(LbThreadState *state, LbNode *dstNode, LbControlBlock *newCb) {
+	auto *cb = state->cb_.load(std::memory_order_relaxed);
+	auto *srcNode = cb->node_;
+	assert(srcNode != dstNode);
+	auto load = cb->load_.load(std::memory_order_relaxed);
+
+	// Link the replacement before unlinking the old control block.
+	// The thread is counted on both nodes in between rather than on neither.
+	newCb->thread_ = cb->thread_;
+	newCb->node_ = dstNode;
+	newCb->load_.store(load, std::memory_order_relaxed);
+	{
+		auto lock = frg::guard(&dstNode->mutex);
+
+		dstNode->tasks.push_back(newCb);
+		dstNode->currentLoad.fetch_add(load, std::memory_order_relaxed);
+	}
+	state->cb_.store(newCb, std::memory_order_release);
+	{
+		auto lock = frg::guard(&srcNode->mutex);
+
+		assert(!cb->unlinked_);
+		srcNode->tasks.erase(cb);
+		cb->unlinked_ = true;
+		// A concurrent accounting pass may have published a sum that already
+		// excludes the control block.
+		auto current = srcNode->currentLoad.load(std::memory_order_relaxed);
+		srcNode->currentLoad.store(current - frg::min(current, load), std::memory_order_relaxed);
+	}
+	submitRcu(cb, &LbControlBlock::retire_);
 }
 
 coroutine<void> LoadBalancer::run_(CpuData *cpu) {
@@ -81,47 +159,48 @@ coroutine<void> LoadBalancer::run_(CpuData *cpu) {
 
 		// On this CPU, estimate the load.
 		uint64_t load = 0;
-		frg::intrusive_list<
-			LbControlBlock,
-			frg::locate_member<
-				LbControlBlock,
-				frg::default_list_hook<LbControlBlock>,
-				&LbControlBlock::hook_
-			>
-		> staleCbs;
+		{
+			IplGuard<ipl::noSchedule> rcuGuard;
+
+			auto it = thisNode->tasks.begin();
+			while (it != thisNode->tasks.end()) {
+				auto *cb = *it;
+				++it;
+
+				// Control blocks of destroyed threads are unlinked here
+				// (unless a migration already did so) and deallocated after the grace period.
+				auto thread = cb->thread_.lock();
+				if (!thread) {
+					bool unlink;
+					{
+						auto irqLock = frg::guard(&irqMutex());
+						auto lock = frg::guard(&thisNode->mutex);
+
+						unlink = !cb->unlinked_;
+						if (unlink) {
+							thisNode->tasks.erase(cb);
+							cb->unlinked_ = true;
+						}
+					}
+					if (unlink)
+						submitRcu(cb, &LbControlBlock::retire_);
+					continue;
+				}
+
+				thread->updateLoad(applyDecay, lbDecay, 8);
+				auto threadLoad = thread->loadLevel();
+				cb->load_.store(threadLoad, std::memory_order_relaxed);
+				load += threadLoad;
+			}
+		}
+
 		{
 			auto irqLock = frg::guard(&irqMutex());
 			auto lock = frg::guard(&thisNode->mutex);
 
-			auto it = thisNode->tasks.begin();
-			while (it != thisNode->tasks.end()) {
-				auto currentIt = it;
-				auto *cb = *currentIt;
-				++it;
-
-				// cb is owned by thisNode.
-				// We deallocate the control block once the thread has been destroyed.
-				auto thread = cb->thread_.lock();
-				if (!thread) {
-					thisNode->tasks.erase(currentIt);
-					staleCbs.push_back(cb);
-					continue;
-				}
-
-				thread->updateLoad();
-				if (applyDecay)
-					thread->decayLoad(lbDecay, 8);
-				cb->load_ = thread->loadLevel();
-				load += cb->load_;
-			}
+			thisNode->totalLoad.store(load, std::memory_order_relaxed);
+			thisNode->currentLoad.store(load, std::memory_order_relaxed);
 		}
-
-		thisNode->totalLoad = load;
-		thisNode->currentLoad = load;
-
-		// Destroy stale CBs outside of locks.
-		while(!staleCbs.empty())
-			frg::destruct(*kernelAlloc, staleCbs.pop_front());
 
 		if (debugLb)
 			infoLogger() << "CPU #" << cpu->cpuIndex << " has load " << load << frg::endlog;
@@ -129,12 +208,15 @@ coroutine<void> LoadBalancer::run_(CpuData *cpu) {
 		// Global barrier to wait until all CPUs know their load level.
 		co_await barrier_.async_wait(barrier_.arrive());
 
-		// Sum load of all CPUs.
-		// TODO: Doing this on all CPUs is unnecessary. However, it is also reasonably fast
-		//       and might be preferable over synchronization overhead.
-		uint64_t systemLoad = 0;
-		for (size_t i = 0; i < getCpuCount(); ++i)
-			systemLoad += lbNode.getFor(i).totalLoad;
+		// Sum load once, then publish it to all CPUs through the barrier.
+		if (!cpu->cpuIndex) {
+			systemLoad_ = 0;
+			for (size_t i = 0; i < getCpuCount(); ++i)
+				systemLoad_ += lbNode.getFor(i).totalLoad.load(std::memory_order_relaxed);
+		}
+		co_await barrier_.async_wait(barrier_.arrive());
+
+		auto systemLoad = systemLoad_;
 		uint64_t idealLoad = systemLoad / getCpuCount();
 		if (debugLb && cpu == getCpuData(0))
 			infoLogger() << "Total system load is " << systemLoad
@@ -142,13 +224,11 @@ coroutine<void> LoadBalancer::run_(CpuData *cpu) {
 
 		if (enableLb) {
 			// Distribute load from other CPUs to this CPU.
-			// TODO: This loop probably does not scale very well since all CPUs try to pull from
-			//       all other CPUs in the same order (and this can cause lock contention).
-			uint64_t newLoad = thisNode->totalLoad;
-			for (size_t i = 0; i < getCpuCount(); ++i) {
-				auto *toCpu = getCpuData(i);
-				if (cpu != toCpu)
-					balanceBetween_(&lbNode.get(toCpu), thisNode, newLoad, idealLoad);
+			// Start at the next CPU such that the CPUs do not visit the sources in the same order.
+			auto numCpus = getCpuCount();
+			for (size_t k = 1; k < numCpus; ++k) {
+				auto sourceIndex = (cpu->cpuIndex + k) % numCpus;
+				balanceBetween_(&lbNode.getFor(sourceIndex), thisNode, idealLoad);
 			}
 		}
 
@@ -161,7 +241,7 @@ coroutine<void> LoadBalancer::run_(CpuData *cpu) {
 	co_return;
 }
 
-void LoadBalancer::balanceBetween_(LbNode *srcNode, LbNode *dstNode, uint64_t &newLoad, uint64_t idealLoad) {
+void LoadBalancer::balanceBetween_(LbNode *srcNode, LbNode *dstNode, uint64_t idealLoad) {
 	auto improvesBalance = [] (uint64_t srcLoad, uint64_t dstLoad, uint64_t stolenLoad) -> bool {
 		uint64_t srcLoadPostMove = srcLoad - stolenLoad;
 		uint64_t dstLoadPostMove = dstLoad + stolenLoad;
@@ -171,71 +251,71 @@ void LoadBalancer::balanceBetween_(LbNode *srcNode, LbNode *dstNode, uint64_t &n
 		return maxLoadPostMove < maxLoad;
 	};
 
-	// Remove tasks from srcNode, put them into a temporary list.
-	frg::intrusive_list<
-		LbControlBlock,
-		frg::locate_member<
-			LbControlBlock,
-			frg::default_list_hook<LbControlBlock>,
-			&LbControlBlock::hook_
-		>
-	> stolenTasks;
+	// Replacement control block for the next migration, allocated outside of all locks.
+	LbControlBlock *spare = nullptr;
 	{
-		auto irqLock = frg::guard(&irqMutex());
-		auto lock = frg::guard(&srcNode->mutex);
+		IplGuard<ipl::noSchedule> rcuGuard;
 
-		auto it = srcNode->tasks.begin();
-		while (it != srcNode->tasks.end()) {
-			auto currentIt = it;
-			auto *cb = *currentIt;
-			++it;
+		for (auto *cb : srcNode->tasks) {
+			auto srcLoad = srcNode->currentLoad.load(std::memory_order_relaxed);
+			auto dstLoad = dstNode->currentLoad.load(std::memory_order_relaxed);
 
 			// Do not attempt to do load balancing if source and destination are both
 			// undersubscribed. While it may still be possible to improve the balance,
 			// it is probably not worth it in terms of effort and cache degradation.
-			if (srcNode->currentLoad < idealLoad && newLoad < idealLoad)
+			if (srcLoad < idealLoad && dstLoad < idealLoad)
+				break;
+
+			// Pulling from a less loaded CPU can never improve the balance.
+			if (srcLoad <= dstLoad)
+				break;
+
+			// Do not pull beyond the ideal load, other CPUs would have to pull the excess again.
+			if (dstLoad >= idealLoad)
 				break;
 
 			// Do not move threads with tiny contributions to the total load.
-			if (!cb->load_)
+			auto load = cb->load_.load(std::memory_order_relaxed);
+			if (!load)
 				continue;
 
-			if (!cb->inAffinityMask(dstNode->cpu->cpuIndex))
+			if (!improvesBalance(srcLoad, dstLoad, load))
 				continue;
 
-			if (!improvesBalance(srcNode->currentLoad, newLoad, cb->load_))
+			auto thread = cb->thread_.lock();
+			if (!thread)
 				continue;
+			auto *state = &thread->_lbState;
 
-			if (debugLb)
-				infoLogger() << "Moving thread with load " << cb->load_
-						<< " from CPU " << srcNode->cpu->cpuIndex
-						<< " to CPU " << dstNode->cpu->cpuIndex << frg::endlog;
+			if (!spare)
+				spare = frg::construct<LbControlBlock>(*kernelAlloc);
 
-			// Move ownership from srcNode to dstNode.
-			assert(cb->node_ == srcNode);
-			srcNode->tasks.erase(currentIt);
-			cb->node_ = dstNode;
-			cb->_assignedCpu.store(dstNode->cpu, std::memory_order_relaxed);
-			stolenTasks.push_back(cb);
+			bool moved = false;
+			{
+				auto irqLock = frg::guard(&irqMutex());
+				auto lock = frg::guard(&state->mutex_);
 
-			srcNode->currentLoad -= cb->load_;
-			newLoad += cb->load_;
+				// Skip control blocks that a concurrent migration already replaced.
+				if (state->cb_.load(std::memory_order_relaxed) == cb
+						&& state->inAffinityMask_(dstNode->cpu->cpuIndex)) {
+					if (debugLb)
+						infoLogger() << "Moving thread with load " << load
+								<< " from CPU " << srcNode->cpu->cpuIndex
+								<< " to CPU " << dstNode->cpu->cpuIndex << frg::endlog;
+
+					doMigration_(state, dstNode, spare);
+					moved = true;
+				}
+			}
+			if (moved) {
+				spare = nullptr;
+				// Notify the thread such that it eventually moves to its assigned CPU.
+				Thread::migrateOther(thread);
+			}
 		}
 	}
-
-	// Notify the threads such that they eventually move to their assigned CPUs.
-	for (auto *cb : stolenTasks) {
-		if (auto thread = cb->thread_.lock())
-			Thread::migrateOther(thread);
-	}
-
-	// Add tasks from temporary list to dstNode.
-	{
-		auto irqLock = frg::guard(&irqMutex());
-		auto lock = frg::guard(&dstNode->mutex);
-
-		dstNode->tasks.splice(dstNode->tasks.end(), stolenTasks);
-	}
+	if (spare)
+		frg::destruct(*kernelAlloc, spare);
 }
 
 } // namespace thor

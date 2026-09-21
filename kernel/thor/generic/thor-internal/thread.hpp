@@ -8,6 +8,7 @@
 #include <thor-internal/credentials.hpp>
 #include <thor-internal/cpu-data.hpp>
 #include <thor-internal/error.hpp>
+#include <thor-internal/load-balancing.hpp>
 #include <thor-internal/rcu.hpp>
 #include <thor-internal/schedule.hpp>
 #include <thor-internal/universe.hpp>
@@ -67,7 +68,7 @@ concept AnyTag = (std::same_as<T, AsyncBlockCurrentNormalTag> || std::same_as<T,
 constexpr int loadShift = 10;
 
 struct Thread;
-struct LbControlBlock;
+struct LbThreadState;
 
 smarter::borrowed_ptr<Thread> getCurrentThread();
 
@@ -271,7 +272,6 @@ public:
 
 	// If any conditions in checkedConditions is set, we do not block.
 	static void blockCurrent(Condition checkedConditions);
-	static void migrateCurrent();
 	static void deferCurrent();
 	static void deferCurrent(IrqImageAccessor image);
 	static void suspendCurrent(IrqImageAccessor image);
@@ -519,17 +519,15 @@ public:
 	// Load level of the thread.
 	std::atomic<uint64_t> _loadLevel{0};
 
-	// Update the load factor.
-	void updateLoad();
-	// Called periodically by load balancing code.
-	void decayLoad(uint64_t decayFactor, int decayScale);
+	// Update the load factor and optionally decay its history.
+	void updateLoad(bool applyDecay, uint64_t decayFactor, int decayScale);
 
 	// Return the load factor.
 	uint64_t loadLevel() {
 		return _loadLevel.load(std::memory_order_relaxed);
 	}
 
-	LbControlBlock *_lbCb{nullptr};
+	LbThreadState _lbState;
 
 private:
 	smarter::shared_ptr<Universe> _universe;
