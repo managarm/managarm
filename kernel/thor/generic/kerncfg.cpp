@@ -21,6 +21,10 @@
 
 #include <thor-internal/ring-buffer.hpp>
 
+#if defined(__aarch64__)
+#include <thor-internal/arch/cpu.hpp>
+#endif
+
 namespace thor {
 
 extern frg::manual_box<frg::string<KernelAlloc>> kernelCommandLine;
@@ -124,6 +128,11 @@ private:
 			managarm::kerncfg::GetCpuInfoResponse<KernelAlloc> resp(*kernelAlloc);
 			resp.set_error(managarm::kerncfg::Error::SUCCESS);
 			resp.set_num_cpu(getCpuCount());
+#if defined(__aarch64__)
+			resp.set_aarch64_midr(getCpuData(0)->midr);
+#else
+			resp.set_aarch64_midr(0);
+#endif
 
 			frg::unique_memory<KernelAlloc> respBuffer{*kernelAlloc, resp.size_of_head()};
 			bragi::write_head_only(resp, respBuffer);

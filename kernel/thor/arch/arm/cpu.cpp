@@ -267,6 +267,7 @@ void initializeThisProcessor() {
 	uint64_t mpidr;
 	asm volatile("mrs %0, mpidr_el1" : "=r"(mpidr));
 	cpu_data->affinity = affinityFromMpidr(mpidr);
+	asm volatile("mrs %0, midr_el1" : "=r"(cpu_data->midr));
 
 	cpu_data->detachedStack = UniqueKernelStack::make();
 	cpu_data->idleStack = UniqueKernelStack::make();

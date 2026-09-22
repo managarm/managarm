@@ -105,6 +105,7 @@ namespace {
 	helix::UniqueLane pmLane;
 	size_t affinityMaskSize = 0;
 	size_t procfsCpuCount = 0;
+	uint64_t aarch64Midr = 0;
 };
 
 helix::UniqueLane &getKerncfgLane() {
@@ -123,6 +124,10 @@ size_t getAffinityMaskSize() {
 size_t getProcfsCpuCount() {
 	assert(procfsCpuCount);
 	return procfsCpuCount;
+}
+
+uint64_t getAarch64Midr() {
+	return aarch64Midr;
 }
 
 struct CmdlineNode final : public procfs::RegularNode {
@@ -192,6 +197,7 @@ async::result<void> enumerateKerncfg() {
 	recvResp.reset();
 	assert(cpuInfoResp->error() == managarm::kerncfg::Error::SUCCESS);
 	procfsCpuCount = cpuInfoResp->num_cpu();
+	aarch64Midr = cpuInfoResp->aarch64_midr();
 	affinityMaskSize = (procfsCpuCount + 7) / 8;
 
 	auto procfsRoot = smarter::static_pointer_cast<procfs::DirectoryNode>(getProcfs()->getTarget());

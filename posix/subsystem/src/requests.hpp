@@ -10,3 +10,4 @@ helix::UniqueLane &getPmLane();
 
 size_t getAffinityMaskSize();
 size_t getProcfsCpuCount();
+uint64_t getAarch64Midr();

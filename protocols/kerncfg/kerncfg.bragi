@@ -106,4 +106,5 @@ message GetCpuInfoResponse 15 {
 head(128):
 	Error error;
 	uint64 num_cpu;
+	uint64 aarch64_midr;
 }

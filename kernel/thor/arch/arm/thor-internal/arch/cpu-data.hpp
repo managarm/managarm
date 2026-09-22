@@ -31,6 +31,7 @@ struct PlatformCpuData : public AssemblyCpuData {
 
 	int cpuIndex;
 	int archCpuIndex;
+	uint64_t midr{0};
 
 	uint32_t profileFlags = 0;
 
