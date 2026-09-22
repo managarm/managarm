@@ -31,10 +31,16 @@ namespace {
 				if(logIdle)
 					infoLogger() << "System is idle" << frg::endlog;
 				// Restore IPL (as in restoreExecutor() for threads/fibers).
-				iplLeaveContext(IplState{.context = ipl::passive, .current = ipl::exceptional});
+				iplLeaveContext(IplState{.context = ipl::passive, .current = ipl::interrupt});
 				while(true) {
+					// Note: rcuClearQuiescent() is also done by the interrupt entry path.
+					//       However, some idle methods (e.g., mwait) can return without actually seeing an interrupt,
+					//       so we have to also perform it below.
+					iplLower(ipl::interrupt, ipl::exceptional);
 					rcuSetQuiescent();
 					haltUntilInterrupt();
+					rcuClearQuiescent();
+					iplRaise(ipl::interrupt);
 				}
 			}, getCpuData()->idleStack.base());
 			__builtin_trap();
