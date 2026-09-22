@@ -6,8 +6,10 @@
 #include <array>
 #include <sstream>
 #include <iomanip>
+#include <vector>
 
 #include <core/clock.hpp>
+#include <hel-syscalls.h>
 #include "common.hpp"
 #include "procfs.hpp"
 #include "process.hpp"
@@ -115,46 +117,59 @@ CpuinfoData queryCpuinfoData() {
 #endif
 
 struct CpuinfoNode final : RegularNode {
-	CpuinfoNode()
+	CpuinfoNode() {
 #if defined(__x86_64__)
-	: data_{queryCpuinfoData()}
+		data_.reserve(getProcfsCpuCount());
+
+		std::vector<uint8_t> originalAffinity(getAffinityMaskSize());
+		size_t actualAffinitySize = 0;
+		HEL_CHECK(helGetAffinity(kHelThisThread, originalAffinity.data(),
+				originalAffinity.size(), &actualAffinitySize));
+
+		for(size_t cpu = 0; cpu < getProcfsCpuCount(); ++cpu) {
+			std::vector<uint8_t> affinity(getAffinityMaskSize());
+			affinity[cpu / 8] |= uint8_t{1} << (cpu % 8);
+			HEL_CHECK(helSetAffinity(kHelThisThread, affinity.data(), affinity.size()));
+			data_.push_back(queryCpuinfoData());
+		}
+
+		HEL_CHECK(helSetAffinity(kHelThisThread, originalAffinity.data(), actualAffinitySize));
 #endif
-	{ }
+	}
 
 	async::result<std::expected<std::string, Error>> show(Process *) override {
 		std::stringstream stream;
-#if defined(__aarch64__)
-		auto midr = getAarch64Midr();
-#endif
 		for(uint64_t processor = 0; processor < getProcfsCpuCount(); ++processor) {
+			auto &cpuInfo = getProcfsCpuInfo(processor);
 			stream << "processor\t: " << processor << '\n';
 #if defined(__x86_64__)
-			stream << "vendor_id\t: " << data_.vendorId << '\n';
-			stream << "cpu family\t: " << data_.family << '\n';
-			stream << "model\t\t: " << data_.model << '\n';
-			stream << "model name\t: " << data_.modelName << '\n';
-			stream << "stepping\t: " << data_.stepping << '\n';
-			stream << "fpu\t\t: " << (data_.fpu ? "yes" : "no") << '\n';
-			stream << "fpu_exception\t: " << (data_.fpu ? "yes" : "no") << '\n';
-			stream << "cpuid level\t: " << data_.cpuidLevel << '\n';
-			if(data_.haveClflushSize) {
-				stream << "clflush size\t: " << data_.clflushSize << '\n';
-				stream << "cache_alignment\t: " << data_.clflushSize << '\n';
+			auto &data = data_[processor];
+			stream << "vendor_id\t: " << data.vendorId << '\n';
+			stream << "cpu family\t: " << data.family << '\n';
+			stream << "model\t\t: " << data.model << '\n';
+			stream << "model name\t: " << data.modelName << '\n';
+			stream << "stepping\t: " << data.stepping << '\n';
+			stream << "fpu\t\t: " << (data.fpu ? "yes" : "no") << '\n';
+			stream << "fpu_exception\t: " << (data.fpu ? "yes" : "no") << '\n';
+			stream << "cpuid level\t: " << data.cpuidLevel << '\n';
+			if(data.haveClflushSize) {
+				stream << "clflush size\t: " << data.clflushSize << '\n';
+				stream << "cache_alignment\t: " << data.clflushSize << '\n';
 			}
-			if(data_.haveAddressSizes)
-				stream << "address sizes\t: " << data_.physicalAddressBits
-						<< " bits physical, " << data_.virtualAddressBits << " bits virtual\n";
+			if(data.haveAddressSizes)
+				stream << "address sizes\t: " << data.physicalAddressBits
+						<< " bits physical, " << data.virtualAddressBits << " bits virtual\n";
 
 			// This first pass intentionally uses only unprivileged CPUID. In particular,
 			// flags and bugs are deferred, and fields requiring MSRs, kernel state,
 			// topology, or frequency calibration are not fabricated here.
 #elif defined(__aarch64__)
-			if(midr) {
-				stream << std::format("CPU implementer\t: 0x{:02x}\n", (midr >> 24) & 0xFF);
+			if(cpuInfo.midr) {
+				stream << std::format("CPU implementer\t: 0x{:02x}\n", (cpuInfo.midr >> 24) & 0xFF);
 				stream << "CPU architecture: 8\n";
-				stream << std::format("CPU variant\t: 0x{:x}\n", (midr >> 20) & 0xF);
-				stream << std::format("CPU part\t: 0x{:03x}\n", (midr >> 4) & 0xFFF);
-				stream << std::format("CPU revision\t: {}\n", midr & 0xF);
+				stream << std::format("CPU variant\t: 0x{:x}\n", (cpuInfo.midr >> 20) & 0xF);
+				stream << std::format("CPU part\t: 0x{:03x}\n", (cpuInfo.midr >> 4) & 0xFFF);
+				stream << std::format("CPU revision\t: {}\n", cpuInfo.midr & 0xF);
 			}
 #endif
 			stream << '\n';
@@ -167,7 +182,7 @@ struct CpuinfoNode final : RegularNode {
 	}
 
 #if defined(__x86_64__)
-	CpuinfoData data_;
+	std::vector<CpuinfoData> data_;
 #endif
 };
 

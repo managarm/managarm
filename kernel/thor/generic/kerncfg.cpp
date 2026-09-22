@@ -126,10 +126,15 @@ private:
 			}
 
 			managarm::kerncfg::GetX86CpuInfoResponse<KernelAlloc> resp(*kernelAlloc);
-			resp.set_error(managarm::kerncfg::Error::SUCCESS);
 			resp.set_num_cpu(getCpuCount());
+			resp.set_cpu(req->cpu());
 			resp.set_features(0);
 			resp.set_bugs(0);
+			if(req->cpu() >= getCpuCount()) {
+				resp.set_error(managarm::kerncfg::Error::ILLEGAL_REQUEST);
+			} else {
+				resp.set_error(managarm::kerncfg::Error::SUCCESS);
+			}
 
 			frg::unique_memory<KernelAlloc> respBuffer{*kernelAlloc, resp.size_of_head()};
 			bragi::write_head_only(resp, respBuffer);
@@ -145,15 +150,19 @@ private:
 			}
 
 			managarm::kerncfg::GetAarch64CpuInfoResponse<KernelAlloc> resp(*kernelAlloc);
-			resp.set_error(managarm::kerncfg::Error::SUCCESS);
 			resp.set_num_cpu(getCpuCount());
+			resp.set_cpu(req->cpu());
 			resp.set_features(0);
 			resp.set_bugs(0);
-#if defined(__aarch64__)
-			resp.set_midr(getCpuData(0)->midr);
-#else
 			resp.set_midr(0);
+			if(req->cpu() >= getCpuCount()) {
+				resp.set_error(managarm::kerncfg::Error::ILLEGAL_REQUEST);
+			} else {
+				resp.set_error(managarm::kerncfg::Error::SUCCESS);
+#if defined(__aarch64__)
+				resp.set_midr(getCpuData(req->cpu())->midr);
 #endif
+			}
 
 			frg::unique_memory<KernelAlloc> respBuffer{*kernelAlloc, resp.size_of_head()};
 			bragi::write_head_only(resp, respBuffer);
@@ -169,10 +178,15 @@ private:
 			}
 
 			managarm::kerncfg::GetRiscv64CpuInfoResponse<KernelAlloc> resp(*kernelAlloc);
-			resp.set_error(managarm::kerncfg::Error::SUCCESS);
 			resp.set_num_cpu(getCpuCount());
+			resp.set_cpu(req->cpu());
 			resp.set_features(0);
 			resp.set_bugs(0);
+			if(req->cpu() >= getCpuCount()) {
+				resp.set_error(managarm::kerncfg::Error::ILLEGAL_REQUEST);
+			} else {
+				resp.set_error(managarm::kerncfg::Error::SUCCESS);
+			}
 
 			frg::unique_memory<KernelAlloc> respBuffer{*kernelAlloc, resp.size_of_head()};
 			bragi::write_head_only(resp, respBuffer);
