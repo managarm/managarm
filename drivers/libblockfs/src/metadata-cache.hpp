@@ -3,13 +3,11 @@
 #include <cstddef>
 #include <mutex>
 #include <unordered_map>
-#include <unordered_set>
 #include <utility>
 #include <vector>
 
 #include <async/mutex.hpp>
 #include <async/result.hpp>
-#include <async/sequenced-event.hpp>
 #include <frg/list.hpp>
 #include <hel.h>
 #include <helix/ipc.hpp>
@@ -83,7 +81,8 @@ public:
 	//
 	// Destroying a writable window marks it as dirty in the kernel's writeback machinery.
 	// Callers that write through a short-lived window therefore need not request a writeback explicitly.
-	// Callers that use long-lived windows can use markDirty(). The writeback is asynchronous in both cases.
+	// Callers that use long-lived windows must call markDirty() after writing (the mapping does not track dirty bits).
+	// The writeback is asynchronous in both cases.
 	struct BlockWindow {
 		friend void swap(BlockWindow &lhs, BlockWindow &rhs) {
 			std::swap(lhs.cacheBlock_, rhs.cacheBlock_);
@@ -147,7 +146,6 @@ public:
 	async::result<void> synchronize();
 
 private:
-	async::result<void> run_();
 	async::result<void> manage_();
 	async::result<void> serviceRequest_(helix::BorrowedDescriptor backing,
 			int type, uintptr_t offset, size_t length);
@@ -162,7 +160,6 @@ private:
 	CacheBlockPtr touchLru_(CacheBlock *cacheBlock);
 	void destroyCacheBlock_(CacheBlock *cacheBlock);
 	void markDirty_(uint64_t block);
-	async::result<void> flushDirty_();
 
 	BlockDevice *device_;
 	uint64_t baseBlock_;
@@ -192,16 +189,6 @@ private:
 	size_t lruSize_ = 0;
 	// Serializes cache block creation so that concurrent misses on the same block cannot create two of them.
 	async::mutex creationMutex_;
-
-	std::mutex dirtyMutex_;
-	// Blocks awaiting a deferred writeback.
-	// Protected by dirtyMutex_.
-	std::unordered_set<uint64_t> dirtyBlocks_;
-	// markDirty() calls that hit an already queued block.
-	// Protected by dirtyMutex_.
-	uint64_t numRedundantDirty_ = 0;
-	// Raised to request a writeback of dirtyBlocks_.
-	async::sequenced_event dirtyEvent_;
 };
 
 inline void *MetadataCache::BlockWindow::get() {
