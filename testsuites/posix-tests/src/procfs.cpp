@@ -83,6 +83,13 @@ DEFINE_TEST(procfs_cpuinfo, ([] {
 		memcpy(vendor + 4, &edx, sizeof(edx));
 		memcpy(vendor + 8, &ecx, sizeof(ecx));
 		assert(records[i].find(std::string{"vendor_id\t: "} + vendor + '\n') != std::string::npos);
+#elif defined(__aarch64__)
+		assert(has_field(records[i], "CPU implementer"));
+		assert(has_field(records[i], "CPU architecture"));
+		assert(has_field(records[i], "CPU variant"));
+		assert(has_field(records[i], "CPU part"));
+		assert(has_field(records[i], "CPU revision"));
+		assert(records[i].find("CPU architecture: 8\n") != std::string::npos);
 #endif
 	}
 }))

@@ -123,6 +123,9 @@ struct CpuinfoNode final : RegularNode {
 
 	async::result<std::expected<std::string, Error>> show(Process *) override {
 		std::stringstream stream;
+#if defined(__aarch64__)
+		auto midr = getAarch64Midr();
+#endif
 		for(uint64_t processor = 0; processor < getProcfsCpuCount(); ++processor) {
 			stream << "processor\t: " << processor << '\n';
 #if defined(__x86_64__)
@@ -145,6 +148,14 @@ struct CpuinfoNode final : RegularNode {
 			// This first pass intentionally uses only unprivileged CPUID. In particular,
 			// flags and bugs are deferred, and fields requiring MSRs, kernel state,
 			// topology, or frequency calibration are not fabricated here.
+#elif defined(__aarch64__)
+			if(midr) {
+				stream << std::format("CPU implementer\t: 0x{:02x}\n", (midr >> 24) & 0xFF);
+				stream << "CPU architecture: 8\n";
+				stream << std::format("CPU variant\t: 0x{:x}\n", (midr >> 20) & 0xF);
+				stream << std::format("CPU part\t: 0x{:03x}\n", (midr >> 4) & 0xFFF);
+				stream << std::format("CPU revision\t: {}\n", midr & 0xF);
+			}
 #endif
 			stream << '\n';
 		}
