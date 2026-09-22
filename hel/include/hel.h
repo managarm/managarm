@@ -512,6 +512,14 @@ enum HelManageRequests {
 	kHelManageWriteback = 2
 };
 
+//! Additional @p type values of helUpdateMemory(); these are never issued as manage requests.
+enum HelUpdateMemoryTypes {
+	//! Marks a range as dirty, as if it had been written through a dirty-tracked mapping.
+	//! Useful when used with kHelMapNoDirtyTracking mappings.
+	//! Note that clean pages may be discarded at any time, so users need to pin them as appropriate.
+	kHelUpdateMarkDirty = 3
+};
+
 enum HelMapFlags {
 	// Additional flags that may be set.
 	kHelMapProtRead = UINT32_C(1) << 8,

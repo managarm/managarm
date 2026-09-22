@@ -2288,17 +2288,16 @@ HelError helUpdateMemory(HelHandle handle, int type,
 	case kHelManageWriteback:
 		error = memory->updateRange(ManageRequest::writeback, offset, length);
 		break;
+	case kHelUpdateMarkDirty:
+		error = memory->markDirtyRange(offset, length);
+		break;
 	default:
 		return kHelErrIllegalArgs;
 	}
 
 	if(error == Error::illegalObject)
 		return kHelErrUnsupportedOperation;
-	else if(error == Error::illegalArgs)
-		return kHelErrIllegalArgs;
-
-	assert(error == Error::success);
-	return kHelErrNone;
+	return translateError(error);
 }
 
 HelError doSubmitLockMemoryView(HelHandle handle, smarter::shared_ptr<IpcQueue> queue,
