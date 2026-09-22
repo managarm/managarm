@@ -37,11 +37,11 @@ MetadataCache::MetadataCache(BlockDevice *device, uint64_t baseBlock, uint64_t n
 	// The mapping is lazy, i.e., its cost does not scale with the cache size.
 	mapping_ = helix::Mapping{frontal_, 0,
 			static_cast<size_t>(numBlocks << blockPagesShift_),
-			kHelMapProtRead | kHelMapProtWrite | kHelMapDontRequireBacking};
+			kHelMapProtRead | kHelMapProtWrite | kHelMapDontRequireBacking
+			| kHelMapNoDirtyTracking};
 
-	// Distribute MetadataCache servicing coroutines over the helix::DispatcherPool,
-	// but keep manage_() and flushDirty_() on the same thread.
-	helix::DispatcherPool::global().detach(run_());
+	// Distribute MetadataCache servicing coroutines over the helix::DispatcherPool.
+	helix::DispatcherPool::global().detach(manage_());
 }
 
 void MetadataCache::CacheBlockPolicy::increment() const {
@@ -185,12 +185,6 @@ async::result<void> MetadataCache::read(uint64_t block, size_t offset, size_t le
 async::result<void> MetadataCache::forget(uint64_t block) {
 	assert(block >= baseBlock_ && block - baseBlock_ < numBlocks_);
 
-	// The block is being freed, so its contents are of no interest anymore.
-	{
-		std::lock_guard dirtyLock{dirtyMutex_};
-		dirtyBlocks_.erase(block);
-	}
-
 	// Destroy the CacheBlock object pointing to the block to unpin the block's memory.
 	// If the block was still pinned, invalidateMemory() below would block on unpin.
 	{
@@ -221,13 +215,6 @@ async::result<void> MetadataCache::forget(uint64_t block) {
 	HEL_CHECK(invalidate.error());
 }
 
-async::result<void> MetadataCache::run_() {
-	co_await async::when_all(
-		flushDirty_(),
-		manage_()
-	);
-}
-
 async::result<void> MetadataCache::manage_() {
 	while(true) {
 		helix::ManageMemory manage;
@@ -254,7 +241,8 @@ async::result<void> MetadataCache::serviceRequest_(helix::BorrowedDescriptor bac
 	auto budgetToken = co_await servicingBudget().acquire(type == kHelManageWriteback, length);
 	auto budgetTime = timer.split();
 
-	auto view = device_->pagePool->realm()->importMemory(backing, offset, length);
+	auto view = device_->pagePool->realm()->importMemory(backing, offset, length,
+			kHelMapNoDirtyTracking);
 	auto importTime = timer.split();
 
 	for(size_t progress = 0; progress < length; progress += frameSize) {
@@ -292,59 +280,9 @@ async::result<void> MetadataCache::serviceRequest_(helix::BorrowedDescriptor bac
 }
 
 void MetadataCache::markDirty_(uint64_t block) {
-	{
-		std::lock_guard dirtyLock{dirtyMutex_};
-
-		// An entry that is already queued is covered by the raise that queued it.
-		if(!dirtyBlocks_.insert(block).second) {
-			++numRedundantDirty_;
-			return;
-		}
-	}
-
-	dirtyEvent_.raise();
-}
-
-async::result<void> MetadataCache::flushDirty_() {
-	// Blocks dirtied while a batch is being synchronized are picked up by the next iteration.
-	uint64_t seenSeq = 0;
-	std::vector<uint64_t> batch;
-	while(true) {
-		co_await dirtyEvent_.async_wait(seenSeq);
-
-		protocols::ostrace::Timer timer;
-		uint64_t numRedundant;
-		{
-			std::lock_guard dirtyLock{dirtyMutex_};
-
-			// Take the sequence together with the batch, so that no request is missed.
-			// TODO: Use async::sequenced_event::current_sequence() once it exists.
-			seenSeq = dirtyEvent_.next_sequence() - 1;
-			batch.assign(dirtyBlocks_.begin(), dirtyBlocks_.end());
-			dirtyBlocks_.clear();
-			numRedundant = numRedundantDirty_;
-			numRedundantDirty_ = 0;
-		}
-		auto numBlocks = batch.size();
-
-		auto frameSize = size_t{1} << blockPagesShift_;
-		protocols::ostrace::Timer cleanTimer;
-		for(auto block : batch) {
-			auto synchronize = co_await helix_ng::synchronizeSpace(
-					helix::BorrowedDescriptor{kHelNullHandle},
-					blockAddress_(block), frameSize);
-			HEL_CHECK(synchronize.error());
-		}
-		auto cleanTime = cleanTimer.elapsed();
-
-		ostContext.emit(
-			ostEvtMetadataClean,
-			ostAttrTime(timer.elapsed()),
-			ostAttrNumBlocks(numBlocks),
-			ostAttrNumRedundant(numRedundant),
-			ostAttrTimeCleanPages(cleanTime)
-		);
-	}
+	auto frameSize = size_t{1} << blockPagesShift_;
+	HEL_CHECK(helUpdateMemory(backing_.getHandle(), kHelUpdateMarkDirty,
+			blockOffset_(block), frameSize));
 }
 
 async::result<void> MetadataCache::synchronize() {

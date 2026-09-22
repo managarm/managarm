@@ -1567,6 +1567,9 @@ std::expected<MapMemoryOperands, Error> resolveMapMemory(HelHandle memory_handle
 	if(flags & kHelMapDontRequireBacking)
 		map_flags |= AddressSpace::kMapDontRequireBacking;
 
+	if(flags & kHelMapNoDirtyTracking)
+		map_flags |= AddressSpace::kMapNoDirtyTracking;
+
 	smarter::shared_ptr<MemorySlice> slice;
 	smarter::shared_ptr<AddressSpace, BindableHandle> space;
 	smarter::shared_ptr<VirtualSpace> vspace;
@@ -1579,6 +1582,9 @@ std::expected<MapMemoryOperands, Error> resolveMapMemory(HelHandle memory_handle
 		requiredRights |= kHelRightWrite;
 	if (flags & kHelMapProtExecute)
 		requiredRights |= kHelRightExecute;
+	// Suppressing dirty tracking allows writes that never cause a writeback.
+	if (flags & kHelMapNoDirtyTracking)
+		requiredRights |= kHelRightManage;
 
 	smarter::shared_ptr<MemoryView> memory;
 	smarter::shared_ptr<IpcQueue> queue;
@@ -2282,17 +2288,16 @@ HelError helUpdateMemory(HelHandle handle, int type,
 	case kHelManageWriteback:
 		error = memory->updateRange(ManageRequest::writeback, offset, length);
 		break;
+	case kHelUpdateMarkDirty:
+		error = memory->markDirtyRange(offset, length);
+		break;
 	default:
 		return kHelErrIllegalArgs;
 	}
 
 	if(error == Error::illegalObject)
 		return kHelErrUnsupportedOperation;
-	else if(error == Error::illegalArgs)
-		return kHelErrIllegalArgs;
-
-	assert(error == Error::success);
-	return kHelErrNone;
+	return translateError(error);
 }
 
 HelError doSubmitLockMemoryView(HelHandle handle, smarter::shared_ptr<IpcQueue> queue,

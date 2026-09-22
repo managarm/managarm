@@ -72,7 +72,7 @@ inline CachingMode determineCachingMode(CachingMode physicalRangeCaching,
 template<typename Cursor, typename PageSpace>
 frg::expected<Error, PagesAffected> mapPresentPagesByCursor(PageSpace *ps, VirtualAddr va,
 		MemoryView *view, uintptr_t offset, size_t size, PageFlags flags, CachingMode mode,
-		typename Cursor::PolicyType policy) {
+		bool trackDirty, typename Cursor::PolicyType policy) {
 	assert(!(va & (kPageSize - 1)));
 	assert(!(offset & (kPageSize - 1)));
 	assert(!(size & (kPageSize - 1)));
@@ -100,7 +100,7 @@ frg::expected<Error, PagesAffected> mapPresentPagesByCursor(PageSpace *ps, Virtu
 		affected.rssIncrease += kPageSize;
 		if(status & page_status::present) {
 			if(auto descriptor = globalPfnDb().find(oldPhysical)) {
-				if(status & page_status::dirty)
+				if(trackDirty && (status & page_status::dirty))
 					markDirty(*descriptor);
 				decrementUses(*descriptor);
 			}
@@ -114,14 +114,15 @@ frg::expected<Error, PagesAffected> mapPresentPagesByCursor(PageSpace *ps, Virtu
 
 template<typename Cursor, typename PageSpace>
 frg::expected<Error, PagesAffected> mapPresentPagesByCursor(PageSpace *ps, VirtualAddr va,
-		MemoryView *view, uintptr_t offset, size_t size, PageFlags flags, CachingMode mode) {
-	return mapPresentPagesByCursor<Cursor>(ps, va, view, offset, size, flags, mode,
+		MemoryView *view, uintptr_t offset, size_t size, PageFlags flags, CachingMode mode,
+		bool trackDirty) {
+	return mapPresentPagesByCursor<Cursor>(ps, va, view, offset, size, flags, mode, trackDirty,
 			typename Cursor::PolicyType{});
 }
 
 template<typename Cursor, typename PageSpace>
 frg::expected<Error, PagesAffected> restrictPagesByCursor(PageSpace *ps, VirtualAddr va,
-		size_t size, PageFlags flags, typename Cursor::PolicyType policy) {
+		size_t size, PageFlags flags, bool trackDirty, typename Cursor::PolicyType policy) {
 	assert(!(va & (kPageSize - 1)));
 	assert(!(size & (kPageSize - 1)));
 	// At least one access bit is always set; see VirtualOperations.
@@ -132,8 +133,10 @@ frg::expected<Error, PagesAffected> restrictPagesByCursor(PageSpace *ps, Virtual
 	while(c.findPresent(va + size)) {
 		auto [status, physical, restricted] = c.restrict4k(flags);
 		if((status & page_status::present) && (status & page_status::dirty)) {
-			if(auto descriptor = globalPfnDb().find(physical))
-				markDirty(*descriptor);
+			if(trackDirty) {
+				if(auto descriptor = globalPfnDb().find(physical))
+					markDirty(*descriptor);
+			}
 			affected.anyRevoked = true;
 		}
 		if(restricted)
@@ -145,15 +148,15 @@ frg::expected<Error, PagesAffected> restrictPagesByCursor(PageSpace *ps, Virtual
 
 template<typename Cursor, typename PageSpace>
 frg::expected<Error, PagesAffected> restrictPagesByCursor(PageSpace *ps, VirtualAddr va,
-		size_t size, PageFlags flags) {
-	return restrictPagesByCursor<Cursor>(ps, va, size, flags,
+		size_t size, PageFlags flags, bool trackDirty) {
+	return restrictPagesByCursor<Cursor>(ps, va, size, flags, trackDirty,
 			typename Cursor::PolicyType{});
 }
 
 template<typename Cursor, typename PageSpace>
 frg::expected<Error, PagesAffected> faultPageByCursor(PageSpace *ps, VirtualAddr va,
 		MemoryView *view, uintptr_t offset, FetchFlags fetchFlags, PageFlags flags, CachingMode mode,
-		typename Cursor::PolicyType policy) {
+		bool trackDirty, typename Cursor::PolicyType policy) {
 	assert(!(va & (kPageSize - 1)));
 	assert(!(offset & (kPageSize - 1)));
 	// At least one access bit is always set; see VirtualOperations.
@@ -175,7 +178,7 @@ frg::expected<Error, PagesAffected> faultPageByCursor(PageSpace *ps, VirtualAddr
 		determineCachingMode(physicalRange.cachingMode, mode));
 	if(status & page_status::present) {
 		if(auto descriptor = globalPfnDb().find(oldPhysical)) {
-			if(status & page_status::dirty)
+			if(trackDirty && (status & page_status::dirty))
 				markDirty(*descriptor);
 			decrementUses(*descriptor);
 		}
@@ -189,14 +192,15 @@ frg::expected<Error, PagesAffected> faultPageByCursor(PageSpace *ps, VirtualAddr
 
 template<typename Cursor, typename PageSpace>
 frg::expected<Error, PagesAffected> faultPageByCursor(PageSpace *ps, VirtualAddr va,
-		MemoryView *view, uintptr_t offset, FetchFlags fetchFlags, PageFlags flags, CachingMode mode) {
-	return faultPageByCursor<Cursor>(ps, va, view, offset, fetchFlags, flags, mode,
+		MemoryView *view, uintptr_t offset, FetchFlags fetchFlags, PageFlags flags, CachingMode mode,
+		bool trackDirty) {
+	return faultPageByCursor<Cursor>(ps, va, view, offset, fetchFlags, flags, mode, trackDirty,
 			typename Cursor::PolicyType{});
 }
 
 template<typename Cursor, typename PageSpace>
 frg::expected<Error, PagesAffected> cleanPagesByCursor(PageSpace *ps, VirtualAddr va, size_t size,
-		typename Cursor::PolicyType policy) {
+		bool trackDirty, typename Cursor::PolicyType policy) {
 	assert(!(va & (kPageSize - 1)));
 	assert(!(size & (kPageSize - 1)));
 
@@ -205,8 +209,10 @@ frg::expected<Error, PagesAffected> cleanPagesByCursor(PageSpace *ps, VirtualAdd
 	while(c.findDirty(va + size)) {
 		auto [status, physical] = c.clean4k();
 		if((status & page_status::present) && (status & page_status::dirty)) {
-			if(auto descriptor = globalPfnDb().find(physical))
-				markDirty(*descriptor);
+			if(trackDirty) {
+				if(auto descriptor = globalPfnDb().find(physical))
+					markDirty(*descriptor);
+			}
 			affected.anyRevoked = true;
 		}
 		c.advance4k();
@@ -215,13 +221,14 @@ frg::expected<Error, PagesAffected> cleanPagesByCursor(PageSpace *ps, VirtualAdd
 }
 
 template<typename Cursor, typename PageSpace>
-frg::expected<Error, PagesAffected> cleanPagesByCursor(PageSpace *ps, VirtualAddr va, size_t size) {
-	return cleanPagesByCursor<Cursor>(ps, va, size, typename Cursor::PolicyType{});
+frg::expected<Error, PagesAffected> cleanPagesByCursor(PageSpace *ps, VirtualAddr va, size_t size,
+		bool trackDirty) {
+	return cleanPagesByCursor<Cursor>(ps, va, size, trackDirty, typename Cursor::PolicyType{});
 }
 
 template<typename Cursor, typename PageSpace>
 frg::expected<Error, PagesAffected> unmapPagesByCursor(PageSpace *ps, VirtualAddr va, size_t size,
-		typename Cursor::PolicyType policy) {
+		bool trackDirty, typename Cursor::PolicyType policy) {
 	assert(!(va & (kPageSize - 1)));
 	assert(!(size & (kPageSize - 1)));
 
@@ -231,7 +238,7 @@ frg::expected<Error, PagesAffected> unmapPagesByCursor(PageSpace *ps, VirtualAdd
 		auto [status, physical] = c.unmap4k();
 		if(status & page_status::present) {
 			if(auto descriptor = globalPfnDb().find(physical)) {
-				if(status & page_status::dirty)
+				if(trackDirty && (status & page_status::dirty))
 					markDirty(*descriptor);
 				decrementUses(*descriptor);
 			}
@@ -245,13 +252,14 @@ frg::expected<Error, PagesAffected> unmapPagesByCursor(PageSpace *ps, VirtualAdd
 }
 
 template<typename Cursor, typename PageSpace>
-frg::expected<Error, PagesAffected> unmapPagesByCursor(PageSpace *ps, VirtualAddr va, size_t size) {
-	return unmapPagesByCursor<Cursor>(ps, va, size, typename Cursor::PolicyType{});
+frg::expected<Error, PagesAffected> unmapPagesByCursor(PageSpace *ps, VirtualAddr va, size_t size,
+		bool trackDirty) {
+	return unmapPagesByCursor<Cursor>(ps, va, size, trackDirty, typename Cursor::PolicyType{});
 }
 
 template<typename Cursor, typename PageSpace>
 frg::expected<Error, PagesAffected> agePagesByCursor(PageSpace *ps, VirtualAddr va, size_t size,
-		bool vacate, typename Cursor::PolicyType policy) {
+		bool vacate, bool trackDirty, typename Cursor::PolicyType policy) {
 	assert(!(va & (kPageSize - 1)));
 	assert(!(size & (kPageSize - 1)));
 
@@ -262,7 +270,7 @@ frg::expected<Error, PagesAffected> agePagesByCursor(PageSpace *ps, VirtualAddr 
 		auto [status, physical, unmapped] = c.age4k(vacate);
 		if(unmapped) {
 			if(auto descriptor = globalPfnDb().find(physical)) {
-				if(status & page_status::dirty)
+				if(trackDirty && (status & page_status::dirty))
 					markDirty(*descriptor);
 				decrementUses(*descriptor);
 			}
@@ -276,8 +284,9 @@ frg::expected<Error, PagesAffected> agePagesByCursor(PageSpace *ps, VirtualAddr 
 
 template<typename Cursor, typename PageSpace>
 frg::expected<Error, PagesAffected> agePagesByCursor(PageSpace *ps, VirtualAddr va, size_t size,
-		bool vacate) {
-	return agePagesByCursor<Cursor>(ps, va, size, vacate, typename Cursor::PolicyType{});
+		bool vacate, bool trackDirty) {
+	return agePagesByCursor<Cursor>(ps, va, size, vacate, trackDirty,
+			typename Cursor::PolicyType{});
 }
 
 struct VirtualOperations {
@@ -285,24 +294,31 @@ struct VirtualOperations {
 
 	virtual bool submitShootdown(ShootNode *node) = 0;
 
+	// trackDirty determines whether harvested PTE dirty bits are propagated to the
+	// CacheBundle; it is false for mappings that suppress dirty tracking.
 	// Precondition: flags has at least one access bit (read/write/execute) set.
 	virtual frg::expected<Error, PagesAffected> mapPresentPages(VirtualAddr va, MemoryView *view,
-			uintptr_t offset, size_t size, PageFlags flags, CachingMode mode) = 0;
+			uintptr_t offset, size_t size, PageFlags flags, CachingMode mode,
+			bool trackDirty) = 0;
 
 	// Restricts the permissions of present pages; the caching mode of a page is preserved.
 	// Precondition: flags has at least one access bit (read/write/execute) set.
 	virtual frg::expected<Error, PagesAffected> restrictPages(VirtualAddr va,
-			size_t size, PageFlags flags) = 0;
+			size_t size, PageFlags flags, bool trackDirty) = 0;
 
 	// Precondition: flags has at least one access bit (read/write/execute) set.
 	virtual frg::expected<Error, PagesAffected> faultPage(VirtualAddr va, MemoryView *view,
-			uintptr_t offset, FetchFlags fetchFlags, PageFlags flags, CachingMode mode) = 0;
+			uintptr_t offset, FetchFlags fetchFlags, PageFlags flags, CachingMode mode,
+			bool trackDirty) = 0;
 
-	virtual frg::expected<Error, PagesAffected> cleanPages(VirtualAddr va, size_t size) = 0;
+	virtual frg::expected<Error, PagesAffected> cleanPages(VirtualAddr va, size_t size,
+			bool trackDirty) = 0;
 
-	virtual frg::expected<Error, PagesAffected> unmapPages(VirtualAddr va, size_t size) = 0;
+	virtual frg::expected<Error, PagesAffected> unmapPages(VirtualAddr va, size_t size,
+			bool trackDirty) = 0;
 
-	virtual frg::expected<Error, PagesAffected> agePages(VirtualAddr va, size_t size, bool vacate) = 0;
+	virtual frg::expected<Error, PagesAffected> agePages(VirtualAddr va, size_t size, bool vacate,
+			bool trackDirty) = 0;
 
 	// ----------------------------------------------------------------------------------
 	// Sender boilerplate for retire()
@@ -453,7 +469,9 @@ enum MappingFlags : uint32_t {
 	protWrite = 0x20,
 	protExecute = 0x40,
 
-	dontRequireBacking = 0x100
+	dontRequireBacking = 0x100,
+	// PTE dirty bits of this mapping are discarded instead of dirtying the underlying pages.
+	noDirtyTracking = 0x200
 };
 
 struct TouchVirtualResult {
@@ -485,6 +503,10 @@ struct Mapping {
 	Mapping &operator= (const Mapping &) = delete;
 
 	void protect(MappingFlags flags);
+
+	bool tracksDirty() const {
+		return !(flags.load(std::memory_order_relaxed) & MappingFlags::noDirtyTracking);
+	}
 
 	smarter::borrowed_ptr<Mapping> selfPtr;
 
@@ -591,7 +613,8 @@ public:
 		kMapProtExecute = 0x20,
 		kMapPopulate = 0x200,
 		kMapDontRequireBacking = 0x400,
-		kMapFixedNoReplace = 0x800
+		kMapFixedNoReplace = 0x800,
+		kMapNoDirtyTracking = 0x1000
 	};
 
 	enum FaultFlags : uint32_t {
@@ -824,36 +847,41 @@ public:
 		}
 
 		frg::expected<Error, PagesAffected> mapPresentPages(VirtualAddr va, MemoryView *view,
-				uintptr_t offset, size_t size, PageFlags flags, CachingMode mode) override {
+				uintptr_t offset, size_t size, PageFlags flags, CachingMode mode,
+				bool trackDirty) override {
 			return mapPresentPagesByCursor<ClientPageSpace::Cursor>(&space_->pageSpace_,
-					va, view, offset, size, flags, mode);
+					va, view, offset, size, flags, mode, trackDirty);
 		}
 
 		frg::expected<Error, PagesAffected> restrictPages(VirtualAddr va,
-				size_t size, PageFlags flags) override {
+				size_t size, PageFlags flags, bool trackDirty) override {
 			return restrictPagesByCursor<ClientPageSpace::Cursor>(&space_->pageSpace_,
-					va, size, flags);
+					va, size, flags, trackDirty);
 		}
 
 		frg::expected<Error, PagesAffected> faultPage(VirtualAddr va, MemoryView *view,
-				uintptr_t offset, FetchFlags fetchFlags, PageFlags flags, CachingMode mode) override {
+				uintptr_t offset, FetchFlags fetchFlags, PageFlags flags, CachingMode mode,
+				bool trackDirty) override {
 			return faultPageByCursor<ClientPageSpace::Cursor>(&space_->pageSpace_,
-					va, view, offset, fetchFlags, flags, mode);
+					va, view, offset, fetchFlags, flags, mode, trackDirty);
 		}
 
-		frg::expected<Error, PagesAffected> cleanPages(VirtualAddr va, size_t size) override {
+		frg::expected<Error, PagesAffected> cleanPages(VirtualAddr va, size_t size,
+				bool trackDirty) override {
 			return cleanPagesByCursor<ClientPageSpace::Cursor>(&space_->pageSpace_,
-					va, size);
+					va, size, trackDirty);
 		}
 
-		frg::expected<Error, PagesAffected> unmapPages(VirtualAddr va, size_t size) override {
+		frg::expected<Error, PagesAffected> unmapPages(VirtualAddr va, size_t size,
+				bool trackDirty) override {
 			return unmapPagesByCursor<ClientPageSpace::Cursor>(&space_->pageSpace_,
-					va, size);
+					va, size, trackDirty);
 		}
 
-		frg::expected<Error, PagesAffected> agePages(VirtualAddr va, size_t size, bool vacate) override {
+		frg::expected<Error, PagesAffected> agePages(VirtualAddr va, size_t size, bool vacate,
+				bool trackDirty) override {
 			return agePagesByCursor<ClientPageSpace::Cursor>(&space_->pageSpace_,
-					va, size, vacate);
+					va, size, vacate, trackDirty);
 		}
 
 	private:

@@ -43,16 +43,17 @@ frg::expected<Error, PagesAffected> Operations::mapPresentPages(
     uintptr_t offset,
     size_t size,
     PageFlags flags,
-    CachingMode mode
+    CachingMode mode,
+    bool trackDirty
 ) {
 	return mapPresentPagesByCursor<HypervisorCursor>(
-	    pageSpace_, va, view, offset, size, flags, mode
+	    pageSpace_, va, view, offset, size, flags, mode, trackDirty
 	);
 }
 
 frg::expected<Error, PagesAffected>
-Operations::restrictPages(VirtualAddr va, size_t size, PageFlags flags) {
-	return restrictPagesByCursor<HypervisorCursor>(pageSpace_, va, size, flags);
+Operations::restrictPages(VirtualAddr va, size_t size, PageFlags flags, bool trackDirty) {
+	return restrictPagesByCursor<HypervisorCursor>(pageSpace_, va, size, flags, trackDirty);
 }
 
 frg::expected<Error, PagesAffected> Operations::faultPage(
@@ -61,23 +62,27 @@ frg::expected<Error, PagesAffected> Operations::faultPage(
     uintptr_t offset,
     FetchFlags fetchFlags,
     PageFlags flags,
-    CachingMode mode
+    CachingMode mode,
+    bool trackDirty
 ) {
 	return faultPageByCursor<HypervisorCursor>(
-	    pageSpace_, va, view, offset, fetchFlags, flags, mode
+	    pageSpace_, va, view, offset, fetchFlags, flags, mode, trackDirty
 	);
 }
 
-frg::expected<Error, PagesAffected> Operations::cleanPages(VirtualAddr va, size_t size) {
-	return cleanPagesByCursor<HypervisorCursor>(pageSpace_, va, size);
+frg::expected<Error, PagesAffected>
+Operations::cleanPages(VirtualAddr va, size_t size, bool trackDirty) {
+	return cleanPagesByCursor<HypervisorCursor>(pageSpace_, va, size, trackDirty);
 }
 
-frg::expected<Error, PagesAffected> Operations::unmapPages(VirtualAddr va, size_t size) {
-	return unmapPagesByCursor<HypervisorCursor>(pageSpace_, va, size);
+frg::expected<Error, PagesAffected>
+Operations::unmapPages(VirtualAddr va, size_t size, bool trackDirty) {
+	return unmapPagesByCursor<HypervisorCursor>(pageSpace_, va, size, trackDirty);
 }
 
-frg::expected<Error, PagesAffected> Operations::agePages(VirtualAddr va, size_t size, bool vacate) {
-	return agePagesByCursor<HypervisorCursor>(pageSpace_, va, size, vacate);
+frg::expected<Error, PagesAffected>
+Operations::agePages(VirtualAddr va, size_t size, bool vacate, bool trackDirty) {
+	return agePagesByCursor<HypervisorCursor>(pageSpace_, va, size, vacate, trackDirty);
 }
 
 HypervisorSpace::HypervisorSpace(CtorToken, PhysicalAddr root)

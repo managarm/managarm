@@ -17,7 +17,6 @@ inline constinit protocols::ostrace::Event ostEvtMetadataInitialize{"libblockfs.
 inline constinit protocols::ostrace::Event ostEvtMetadataWriteback{"libblockfs.metadataWriteback"};
 inline constinit protocols::ostrace::Event ostEvtMetadataAccess{"libblockfs.metadataAccess"};
 inline constinit protocols::ostrace::Event ostEvtMetadataUnmap{"libblockfs.metadataUnmap"};
-inline constinit protocols::ostrace::Event ostEvtMetadataClean{"libblockfs.metadataClean"};
 inline constinit protocols::ostrace::Event ostEvtMetadataRead{"libblockfs.metadataRead"};
 inline constinit protocols::ostrace::Event ostEvtExt2Mount{"ext2.mount"};
 inline constinit protocols::ostrace::Event ostEvtExt2InitiateInode{"ext2.initiateInode"};
@@ -65,14 +64,12 @@ inline constinit protocols::ostrace::UintAttribute ostAttrNewSize{"newSize"};
 inline constinit protocols::ostrace::UintAttribute ostAttrFileSize{"fileSize"};
 // Filesystem block number the operation acted on.
 inline constinit protocols::ostrace::UintAttribute ostAttrBlock{"block"};
-// Number of filesystem blocks allocated, assigned or cleaned.
+// Number of filesystem blocks allocated, assigned or freed.
 inline constinit protocols::ostrace::UintAttribute ostAttrNumBlocks{"numBlocks"};
 // Block groups whose bitmap was consulted before the search succeeded.
 inline constinit protocols::ostrace::UintAttribute ostAttrNumGroups{"numGroups"};
 // Block groups that the filesystem consists of.
 inline constinit protocols::ostrace::UintAttribute ostAttrNumBlockGroups{"numBlockGroups"};
-// markDirty() calls since the last batch that hit an already queued block.
-inline constinit protocols::ostrace::UintAttribute ostAttrNumRedundant{"numRedundant"};
 // Path components the caller asked to resolve, and how many of them were resolved.
 inline constinit protocols::ostrace::UintAttribute ostAttrNumComponents{"numComponents"};
 inline constinit protocols::ostrace::UintAttribute ostAttrNumResolved{"numResolved"};
@@ -120,9 +117,6 @@ inline constinit protocols::ostrace::UintAttribute ostAttrTimeCopy{"timeCopy"};
 inline constinit protocols::ostrace::UintAttribute ostAttrTimeSetup{"timeSetup"};
 // Obtaining descriptors from the virtqueue, i.e. waiting for a free slot.
 inline constinit protocols::ostrace::UintAttribute ostAttrTimeObtain{"timeObtain"};
-// Clearing dirty page table entries so that the page cache takes the pages over for
-// writeback. Includes the TLB shootdown but no device access; see libblockfs.metadataWriteback.
-inline constinit protocols::ostrace::UintAttribute ostAttrTimeCleanPages{"timeCleanPages"};
 // Walking the directory entries in the page cache. Free of I/O, but a scan through a mapping
 // that was just established also faults in its page table entries.
 inline constinit protocols::ostrace::UintAttribute ostAttrTimeScan{"timeScan"};
@@ -161,7 +155,6 @@ inline protocols::ostrace::Vocabulary ostVocabulary{
 	ostEvtMetadataWriteback,
 	ostEvtMetadataAccess,
 	ostEvtMetadataUnmap,
-	ostEvtMetadataClean,
 	ostEvtMetadataRead,
 	ostEvtExt2Mount,
 	ostEvtExt2InitiateInode,
@@ -200,7 +193,6 @@ inline protocols::ostrace::Vocabulary ostVocabulary{
 	ostAttrNumBlocks,
 	ostAttrNumGroups,
 	ostAttrNumBlockGroups,
-	ostAttrNumRedundant,
 	ostAttrNumComponents,
 	ostAttrNumResolved,
 	ostAttrIno,
@@ -224,7 +216,6 @@ inline protocols::ostrace::Vocabulary ostVocabulary{
 	ostAttrTimeCopy,
 	ostAttrTimeSetup,
 	ostAttrTimeObtain,
-	ostAttrTimeCleanPages,
 	ostAttrTimeScan,
 	ostAttrTimeMap,
 	ostAttrTimeGrow,

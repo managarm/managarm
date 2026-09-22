@@ -65,7 +65,8 @@ struct dma_memory_region : dma_region {
 	  backingMemory_{std::move(backingMemory)},
 	  borrowedMemory_{backingMemory_},
 	  backingMemoryOffset_{backingMemoryOffset},
-	  imported_{false} {
+	  imported_{false},
+	  mapFlags_{0} {
 		void *p = nullptr;
 		HEL_CHECK(helMapMemory(borrowedMemory_.getHandle(), kHelNullHandle, nullptr, backingMemoryOffset, s,
 		kHelMapProtRead | kHelMapProtWrite, &p));
@@ -78,7 +79,8 @@ struct dma_memory_region : dma_region {
 	    helix::BorrowedDescriptor borrowedMemory,
 	    size_t backingMemoryOffset,
 	    size_t s,
-	    bool imported = false
+	    bool imported = false,
+	    uint32_t mapFlags = 0
 	)
 	: dma_region{pool},
 	  realm_{realm},
@@ -86,10 +88,11 @@ struct dma_memory_region : dma_region {
 	  backingMemory_{},
 	  borrowedMemory_{std::move(borrowedMemory)},
 	  backingMemoryOffset_{backingMemoryOffset},
-	  imported_{imported} {
+	  imported_{imported},
+	  mapFlags_{mapFlags} {
 		void *p = nullptr;
 		HEL_CHECK(helMapMemory(borrowedMemory_.getHandle(), kHelNullHandle, nullptr, backingMemoryOffset, s,
-		kHelMapProtRead | kHelMapProtWrite, &p));
+		kHelMapProtRead | kHelMapProtWrite | mapFlags, &p));
 		base_va = reinterpret_cast<uintptr_t>(p);
 	}
 
@@ -130,6 +133,7 @@ private:
 
 	std::array<std::atomic<per_space_state *>, max_dma_spaces> spaceStates_{};
 	bool imported_;
+	uint32_t mapFlags_;
 };
 
 // Set of DMA spaces that a driver uses. Pools attach to a realm.
@@ -147,7 +151,10 @@ struct dma_realm {
 	dma_space attachDmaSpace(helix::BorrowedDescriptor ioSpace, bool iommuActive);
 
 	// Wraps foreign memory into a region of this realm.
-	imported_dma_buffer importMemory(helix::BorrowedDescriptor memory, size_t offset, size_t size);
+	// mapFlags are passed to helMapMemory() in addition to the read/write protection,
+	// both for the CPU mapping and for the mappings into the DMA spaces.
+	imported_dma_buffer importMemory(helix::BorrowedDescriptor memory, size_t offset, size_t size,
+			uint32_t mapFlags = 0);
 
 private:
 	dma_realm_options options_;

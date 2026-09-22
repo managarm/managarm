@@ -26,6 +26,9 @@ namespace {
 
 	// Number of page entries that BackingMemory::writebackFence() scans per critical section.
 	constexpr size_t fenceChunkSize = 512;
+
+	// Number of page entries that BackingMemory::markDirtyRange() scans per critical section.
+	constexpr size_t markDirtyChunkSize = 512;
 }
 
 // --------------------------------------------------------
@@ -491,6 +494,10 @@ MemoryView::touchFullRange(uintptr_t offset, size_t size, FetchFlags flags) {
 }
 
 Error MemoryView::updateRange(ManageRequest, size_t, size_t) {
+	return Error::illegalObject;
+}
+
+Error MemoryView::markDirtyRange(size_t, size_t) {
 	return Error::illegalObject;
 }
 
@@ -2278,6 +2285,11 @@ void ManagedSpace::markDirtyPage(ManagedPage *page, bool &needsEvent, bool &need
 		// Only reachable on DiscardMode::keepDirty pages.
 		// The discard machinery re-routes them to the writeback pipeline.
 		page->stillDirty = true;
+	} else if(page->transactionState == TxState::discardQueued
+			|| page->transactionState == TxState::performDiscard) {
+		// Only reachable on DiscardMode::keepDirty pages without uses or locks (via markDirtyRange()).
+		page->transactionState = TxState::avertDiscard;
+		page->stillDirty = true;
 	} else {
 		assert(page->transactionState == TxState::dirty
 				|| page->transactionState == TxState::pendingWriteback
@@ -2544,6 +2556,47 @@ Error BackingMemory::updateRange(ManageRequest type, size_t offset, size_t lengt
 		auto node = pendingManagement.pop_front();
 		node->completionEvent.raise();
 	}
+
+	return Error::success;
+}
+
+Error BackingMemory::markDirtyRange(size_t offset, size_t length) {
+	if (offset & (kPageSize - 1))
+		return Error::illegalArgs;
+	if (length & (kPageSize - 1))
+		return Error::illegalArgs;
+	if (offset > backingMemoryLength || length > backingMemoryLength - offset)
+		return Error::bufferTooSmall;
+
+	auto limitPage = (offset + length) >> kPageShift;
+
+	bool needsEvent = false;
+	bool needsExpedite = false;
+	uint64_t cursor = offset >> kPageShift;
+	bool exhausted = false;
+	while(!exhausted) {
+		auto irqLock = frg::guard(&irqMutex());
+		auto lock = frg::guard(&_managed->mutex);
+
+		// Skip over absent entries and scan in chunks
+		// so that the spinlock is not held for an unbounded time.
+		auto it = _managed->pages.lower_bound(cursor);
+		for(size_t i = 0; i < markDirtyChunkSize; ++i) {
+			if(it == _managed->pages.end() || it->cachePage.identity >= limitPage) {
+				exhausted = true;
+				break;
+			}
+			auto *pit = &*it;
+			++it;
+			cursor = pit->cachePage.identity + 1;
+			_managed->markDirtyPage(pit, needsEvent, needsExpedite);
+		}
+	}
+
+	if(needsEvent)
+		_managed->_dirtyEvent.raise();
+	if(needsExpedite)
+		_managed->_expediteEvent.raise();
 
 	return Error::success;
 }

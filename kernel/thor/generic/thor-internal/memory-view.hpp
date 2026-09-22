@@ -426,6 +426,9 @@ public:
 	// Called (e.g. by user space) to update a range after loading or writeback.
 	virtual Error updateRange(ManageRequest type, size_t offset, size_t length);
 
+	// Marks present pages in a range as dirty.
+	virtual Error markDirtyRange(size_t offset, size_t length);
+
 	virtual coroutine<frg::expected<Error>> writebackFence(uintptr_t offset, size_t size);
 
 	virtual coroutine<frg::expected<Error>> invalidateRange(uintptr_t offset, size_t size,
@@ -1176,6 +1179,7 @@ public:
 			FetchFlags flags, PageAccessFn fn) override;
 	coroutine<frg::expected<Error, MemoryNotification>> pollNotification() override;
 	Error updateRange(ManageRequest type, size_t offset, size_t length) override;
+	Error markDirtyRange(size_t offset, size_t length) override;
 	coroutine<frg::expected<Error>> writebackFence(uintptr_t offset, size_t size) override;
 	coroutine<frg::expected<Error>> invalidateRange(uintptr_t offset, size_t size,
 			DiscardMode mode) override;
