@@ -900,6 +900,8 @@ private:
 	Operations ops_;
 	ClientPageSpace pageSpace_;
 };
+// Assert that AddressSpace::dispose() does not count as a dispose() hook for allocate_rcu_shared().
+static_assert(!HasDispose<AddressSpace>);
 
 struct MemoryViewLockHandle {
 	friend void swap(MemoryViewLockHandle &a, MemoryViewLockHandle &b) {

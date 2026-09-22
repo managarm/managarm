@@ -164,8 +164,27 @@ struct RcuPolicy {
 };
 
 template<typename T>
+concept HasDispose = requires (T &object) {
+	// Require a sender to avoid accidental use of dispose() overloads.
+	{ object.dispose() } -> async::Sender;
+};
+
+template<typename T>
 concept HasFinalizeBeforeRcu = requires (T &object) {
 	object.finalizeBeforeRcu();
+};
+
+// Storage for the operation of T::dispose(). empty if T has no such hook.
+template<typename T, typename R>
+struct rcu_dispose_storage {
+	struct type { };
+};
+
+template<HasDispose T, typename R>
+struct rcu_dispose_storage<T, R> {
+	using type = frg::manual_box<
+		async::execution::operation_t<decltype(std::declval<T &>().dispose()), R>
+	>;
 };
 
 // shared_ptr integration with RCU.
@@ -178,6 +197,15 @@ struct rcu_meta_object final
 		ctr().setup(smarter::adopt_rc, 1);
 		weak_ctr().setup(smarter::adopt_rc, 1);
 		box_.initialize(std::forward<Args>(args)...);
+		// Connect eagerly: this causes coroutine frames to be allocated early.
+		if constexpr (HasDispose<T>) {
+			disposeOp_.construct_with([&] {
+				return async::execution::connect(
+					get()->dispose(),
+					DisposeReceiver{.self = this, .wq = WorkQueue::generalQueue().get()}
+				);
+			});
+		}
 	}
 
 	T *get() {
@@ -185,8 +213,37 @@ struct rcu_meta_object final
 	}
 
 private:
+	struct DisposeEnv {
+		WorkQueue *get_work_queue() {
+			return wq;
+		}
+
+		WorkQueue *wq;
+	};
+
+	struct DisposeReceiver {
+		void set_value() {
+			doRcuSubmission_(self);
+		}
+
+		auto get_env() {
+			return DisposeEnv{.wq = wq};
+		}
+
+		rcu_meta_object *self;
+		WorkQueue *wq;
+	};
+
 	static void finalize_(smarter::meta_object_base *base) {
 		auto self = static_cast<rcu_meta_object *>(base);
+		if constexpr (HasDispose<T>) {
+			async::execution::start(*self->disposeOp_);
+		} else {
+			doRcuSubmission_(self);
+		}
+	}
+
+	static void doRcuSubmission_(rcu_meta_object *self) {
 		if constexpr (HasFinalizeBeforeRcu<T>)
 			self->get()->finalizeBeforeRcu();
 		submitRcu(self, &rcu_callback_);
@@ -199,6 +256,8 @@ private:
 
 	static void rcu_callback_(RcuCallable *rcuBase) {
 		auto self = static_cast<rcu_meta_object *>(rcuBase);
+		if constexpr (HasDispose<T>)
+			self->disposeOp_.destruct();
 		self->box_.destruct();
 		if(self->weak_ctr().decrement_and_check_if_zero())
 			self->finalize_weak();
@@ -206,9 +265,11 @@ private:
 
 	frg::manual_box<T> box_;
 	Deallocator d_;
+	[[no_unique_address]] typename rcu_dispose_storage<T, DisposeReceiver>::type disposeOp_;
 };
 
 // Like smarter::allocate_shared() but calls the destructor via submitRcu().
+// If present, the T::dispose() sender runs before RCU submission (and before finalizeBeforeRcu()).
 // T::finalizeBeforeRcu() (if present) runs as soon as the refcount drops to zero, before submitRcu().
 template<typename T, typename Allocator, typename... Args>
 smarter::shared_ptr<T> allocate_rcu_shared(Allocator alloc, Args &&... args) {

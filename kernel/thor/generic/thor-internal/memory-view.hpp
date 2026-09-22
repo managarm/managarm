@@ -8,6 +8,7 @@
 #include <async/oneshot-event.hpp>
 #include <async/post-ack.hpp>
 #include <async/recurring-event.hpp>
+#include <async/wait-group.hpp>
 #include <frg/list.hpp>
 #include <frg/rcu_radixtree.hpp>
 #include <frg/shared_ptr.hpp>
@@ -116,6 +117,9 @@ private:
 
 	// List hook used by MemoryReclaimer.
 	frg::intrusive_rcu_list_hook<CacheBundle> reclaimerHook_;
+
+	// Can be used to pin the bundle under RCU. Set by MemoryReclaimer::registerBundle().
+	smarter::weak_ptr<CacheBundle> selfPtr_;
 };
 
 inline void markDirty(PfnDescriptor descriptor) {
@@ -859,6 +863,9 @@ struct ManagedSpace : CacheBundle {
 	ManagedSpace(smarter::shared_ptr<Hierarchy> hierarchy, size_t length, bool readahead);
 	~ManagedSpace();
 
+	// dispose() hook for allocate_rcu_shared().
+	coroutine<void> dispose();
+
 	void incrementUses(CachePage *page) override;
 	void decrementUses(CachePage *page) override;
 	void markDirty(CachePage *page) override;
@@ -1088,7 +1095,15 @@ struct ManagedSpace : CacheBundle {
 
 	// Wakes the drain coroutine after _writebackExpedited has been set.
 	async::recurring_event _expediteEvent;
+
+	// Makes the reclaim/drain/invalidation loop exit at their next wait.
+	// Protected by mutex.
+	bool _stopLoops = false;
+
+	// Counts the reclaim/drain/invalidation loops that have not exited yet.
+	async::wait_group _runningLoops{0};
 };
+static_assert(HasDispose<ManagedSpace>);
 
 // Backing store for swappable anonymous memory].
 // Pages are keyed by swap offset, the kernel allocates offsets lazily on behalf of the attached views.
@@ -1128,6 +1143,7 @@ private:
 	// Protected by mutex.
 	size_t _budgetClaimed = 0;
 };
+static_assert(HasDispose<SwapSpace>);
 
 // Static size of BackingMemory views.
 // It also bounds the ManagedSpace size that is visible to FrontalMemory

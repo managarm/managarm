@@ -33,11 +33,27 @@ namespace {
 // --------------------------------------------------------
 
 struct MemoryReclaimer {
-	void registerBundle(CacheBundle *bundle) {
+	void registerBundle(const smarter::shared_ptr<CacheBundle> &bundle) {
+		bundle->selfPtr_ = bundle;
+
 		auto irqLock = frg::guard(&irqMutex());
 		auto lock = frg::guard(&mutex_);
 
-		bundleList_.push_back(bundle);
+		// Note that this push_back() publishes the bundle since traversal does not hold mutex_.
+		bundleList_.push_back(bundle.get());
+	}
+
+	void unregisterBundle(CacheBundle *bundle) {
+		auto irqLock = frg::guard(&irqMutex());
+		auto lock = frg::guard(&mutex_);
+
+		{
+			auto pageLock = frg::guard(&bundle->reclaimMutex_);
+			for(unsigned int i = 0; i < CacheBundle::numGenerations; i++)
+				assert(bundle->genLists_[i].empty());
+			assert(bundle->_reclaimList.empty());
+		}
+		bundleList_.erase(bundle);
 	}
 
 	void addPage(CachePage *page) {
@@ -218,9 +234,8 @@ private:
 		rotationTurnaround_.store(0, std::memory_order_relaxed);
 
 		size_t sizeReclaimed = 0;
-		for(auto it = bundleList_.begin(); it != bundleList_.end(); ++it) {
-			auto *bundle = *it;
-
+		auto bundle = pinNextBundle_(nullptr);
+		while(bundle) {
 			bool anyReclaimed = false;
 			{
 				auto irqLock = frg::guard(&irqMutex());
@@ -246,11 +261,33 @@ private:
 
 			if(anyReclaimed)
 				bundle->_reclaimEvent.raise();
+
+			// Drops the previous pin outside of the RCU section.
+			bundle = pinNextBundle_(bundle.get());
 		}
 
 		return {
 			.sizeReclaimed = sizeReclaimed
 		};
+	}
+
+	// Pins the first live bundle after previous (or the first live bundle if previous is null).
+	// Precondition: previous must be pinned by the caller, such that it is still linked.
+	smarter::shared_ptr<CacheBundle> pinNextBundle_(CacheBundle *previous) {
+		ScheduleGuard rcuGuard;
+
+		auto it = bundleList_.begin();
+		if(previous) {
+			it = bundleList_.iterator_to(previous);
+			++it;
+		}
+		// Dying bundles fail to lock() and can be skipped.
+		for(; it != bundleList_.end(); ++it) {
+			auto next = (*it)->selfPtr_.lock();
+			if(next)
+				return next;
+		}
+		return {};
 	}
 
 	bool shouldRotate_() {
@@ -1095,9 +1132,11 @@ std::expected<smarter::shared_ptr<ManagedSpace>, Error> ManagedSpace::create(
 		smarter::shared_ptr<Hierarchy> hierarchy, size_t length, bool readahead) {
 	if(length > backingMemoryLength)
 		return std::unexpected{Error::illegalArgs};
-	auto self = smarter::allocate_shared<ManagedSpace>(*kernelAlloc, std::move(hierarchy),
+	auto self = allocate_rcu_shared<ManagedSpace>(*kernelAlloc, std::move(hierarchy),
 			length, readahead);
 	self->selfPtr = self;
+	globalReclaimer->registerBundle(self);
+	self->_runningLoops.add(3);
 	spawnOnWorkQueue(*kernelAlloc, WorkQueue::generalQueue().lock(), self->_runReclaimLoop());
 	spawnOnWorkQueue(*kernelAlloc, WorkQueue::generalQueue().lock(), self->_runDrainLoop());
 	spawnOnWorkQueue(*kernelAlloc, WorkQueue::generalQueue().lock(), self->_runInvalidationLoop());
@@ -1111,7 +1150,6 @@ ManagedSpace::ManagedSpace(smarter::shared_ptr<Hierarchy> hierarchy, size_t leng
 	assert(!(length & (kPageSize - 1)));
 
 	attachQueue(_evictQueue.get());
-	globalReclaimer->registerBundle(this);
 }
 
 void ManagedSpace::attachQueue(EvictionQueue *queue) {
@@ -1168,7 +1206,6 @@ coroutine<void> ManagedSpace::_fenceAll(EvictMode mode) {
 
 coroutine<void> ManagedSpace::_runReclaimLoop() {
 	while(true) {
-		// TODO: Cancel these waits when the ManagedSpace is destructed.
 		co_await async::race_and_cancel(
 			[&] (async::cancellation_token ct) {
 				return globalReclaimer->awaitReclaim(this, ct);
@@ -1178,7 +1215,7 @@ coroutine<void> ManagedSpace::_runReclaimLoop() {
 					_discardEvent.async_wait_if([this] () -> bool {
 						auto irqLock = frg::guard(&irqMutex());
 						auto lock = frg::guard(&mutex);
-						return _discardList.empty();
+						return !_stopLoops && _discardList.empty();
 					}, ct),
 					[] (auto) { }
 				);
@@ -1190,6 +1227,8 @@ coroutine<void> ManagedSpace::_runReclaimLoop() {
 		{
 			auto irqLock = frg::guard(&irqMutex());
 			auto lock = frg::guard(&mutex);
+			if(_stopLoops)
+				break;
 
 			globalReclaimer->reclaimPages(this, batch);
 
@@ -1351,6 +1390,7 @@ coroutine<void> ManagedSpace::_runReclaimLoop() {
 				sizeFreed
 			)<< frg::endlog;
 	}
+	_runningLoops.done();
 }
 
 coroutine<void> ManagedSpace::_runDrainLoop() {
@@ -1358,7 +1398,7 @@ coroutine<void> ManagedSpace::_runDrainLoop() {
 		co_await _dirtyEvent.async_wait_if([this] () -> bool {
 			auto irqLock = frg::guard(&irqMutex());
 			auto lock = frg::guard(&mutex);
-			return _dirtyList.empty() || _drainBlocked;
+			return !_stopLoops && (_dirtyList.empty() || _drainBlocked);
 		});
 
 		// Delay the writeback such that further dirty pages can accumulate
@@ -1368,7 +1408,7 @@ coroutine<void> ManagedSpace::_runDrainLoop() {
 			{
 				auto irqLock = frg::guard(&irqMutex());
 				auto lock = frg::guard(&mutex);
-				if(_writebackExpedited)
+				if(_writebackExpedited || _stopLoops)
 					break;
 				deadline = _writebackDeadline;
 			}
@@ -1391,7 +1431,7 @@ coroutine<void> ManagedSpace::_runDrainLoop() {
 						_expediteEvent.async_wait_if([this] () -> bool {
 							auto irqLock = frg::guard(&irqMutex());
 							auto lock = frg::guard(&mutex);
-							return !_writebackExpedited;
+							return !_stopLoops && !_writebackExpedited;
 						}, ct),
 						[] (auto) { }
 					);
@@ -1403,6 +1443,8 @@ coroutine<void> ManagedSpace::_runDrainLoop() {
 		{
 			auto irqLock = frg::guard(&irqMutex());
 			auto lock = frg::guard(&mutex);
+			if(_stopLoops)
+				break;
 
 			// However we left the delay, this pass serves the pending expedite request.
 			_writebackExpedited = false;
@@ -1467,6 +1509,7 @@ coroutine<void> ManagedSpace::_runDrainLoop() {
 			node->completionEvent.raise();
 		}
 	}
+	_runningLoops.done();
 }
 
 coroutine<void> ManagedSpace::_runInvalidationLoop() {
@@ -1475,13 +1518,15 @@ coroutine<void> ManagedSpace::_runInvalidationLoop() {
 		co_await _discardEvent.async_wait_if([this] () -> bool {
 			auto irqLock = frg::guard(&irqMutex());
 			auto lock = frg::guard(&mutex);
-			return _invalidationList.empty();
+			return !_stopLoops && _invalidationList.empty();
 		});
 
 		CachePagesList batch;
 		{
 			auto irqLock = frg::guard(&irqMutex());
 			auto lock = frg::guard(&mutex);
+			if(_stopLoops)
+				break;
 
 			batch.splice(batch.end(), _invalidationList);
 		}
@@ -1535,6 +1580,7 @@ coroutine<void> ManagedSpace::_runInvalidationLoop() {
 		if(anyExpedite)
 			_expediteEvent.raise();
 	}
+	_runningLoops.done();
 }
 
 bool ManagedSpace::claimSwapBudget(ManagedPage *) {
@@ -1758,10 +1804,10 @@ std::expected<smarter::shared_ptr<SwapSpace>, Error> SwapSpace::create(
 		smarter::shared_ptr<Hierarchy> hierarchy) {
 	auto self = allocate_rcu_shared<SwapSpace>(*kernelAlloc, std::move(hierarchy));
 	self->selfPtr = self;
+	globalReclaimer->registerBundle(self);
+	self->_runningLoops.add(2);
 	spawnOnWorkQueue(*kernelAlloc, WorkQueue::generalQueue().lock(), self->_runReclaimLoop());
 	spawnOnWorkQueue(*kernelAlloc, WorkQueue::generalQueue().lock(), self->_runDrainLoop());
-	// TODO: Don't leak the swap spaces.
-	self.policy().increment();
 	return self;
 }
 
@@ -1829,10 +1875,72 @@ void SwapSpace::_freeOffset(uint64_t offset) {
 	_buddyAccessor.free(offset, 0);
 }
 
+coroutine<void> ManagedSpace::dispose() {
+	{
+		auto irqLock = frg::guard(&irqMutex());
+		auto lock = frg::guard(&mutex);
+		_stopLoops = true;
+	}
+	_dirtyEvent.raise();
+	_discardEvent.raise();
+	_expediteEvent.raise();
+
+	co_await _runningLoops.wait();
+
+	// No views exist anymore, hence there are no waiters, managers or lock holders.
+	assert(_managementQueue.empty());
+
+	{
+		auto irqLock = frg::guard(&irqMutex());
+		auto lock = frg::guard(&mutex);
+
+		// The pages themselves are released below.
+		_initializationList.clear();
+		_dirtyList.clear();
+		_writebackList.clear();
+		_discardList.clear();
+		_invalidationList.clear();
+	}
+
+	uint64_t nextIdentity = 0;
+	while(true) {
+		PhysicalAddr physical = PhysicalAddr(-1);
+		{
+			auto irqLock = frg::guard(&irqMutex());
+			auto lock = frg::guard(&mutex);
+
+			auto it = pages.lower_bound(nextIdentity);
+			if(it == pages.end())
+				break;
+			auto *pit = &(*it);
+			auto identity = pit->cachePage.identity;
+
+			assert(!pit->lockCount);
+			assert(!pit->cachePage.useCount.load(std::memory_order_relaxed));
+			if(pit->transactionState == TxState::inReclaimer)
+				globalReclaimer->removePage(&pit->cachePage);
+			// Abandoned transactions can leave monitors attached; their waiters are gone.
+			pit->detachMonitor(MonitorType::initialization);
+			pit->detachMonitor(MonitorType::writeback);
+			pit->detachMonitor(MonitorType::discard);
+			physical = pit->physical;
+			if(physical != PhysicalAddr(-1))
+				globalPfnDb().erase(physical);
+			pages.erase(identity);
+			nextIdentity = identity + 1;
+		}
+		if(physical != PhysicalAddr(-1)) {
+			physicalAllocator->free(physical, kPageSize);
+			hierarchy->unchargeMemory(kPageSize);
+		}
+	}
+
+	globalReclaimer->unregisterBundle(this);
+	detachQueue(_evictQueue.get());
+}
+
 ManagedSpace::~ManagedSpace() {
-	// TODO: Free all physical memory.
-	// TODO: We also have to remove all Loaded/Evicting pages from the reclaimer.
-	assert(!"Implement this");
+	// All cleanup has already been done by dispose().
 }
 
 // Note: Neither offset nor size are necessarily multiples of the page size.
