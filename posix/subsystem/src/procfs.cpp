@@ -8,7 +8,6 @@
 #include <iomanip>
 
 #include <core/clock.hpp>
-#include <kerncfg.bragi.hpp>
 #include "common.hpp"
 #include "procfs.hpp"
 #include "process.hpp"
@@ -17,8 +16,6 @@
 
 #include <bitset>
 #include <sys/epoll.h>
-
-#include <bragi/helpers-std.hpp>
 
 #if defined(__x86_64__)
 #include <cpuid.h>
@@ -125,24 +122,8 @@ struct CpuinfoNode final : RegularNode {
 	{ }
 
 	async::result<std::expected<std::string, Error>> show(Process *) override {
-		managarm::kerncfg::GetNumCpuRequest request;
-		auto [offer, sendRequest, receiveResponse] = co_await helix_ng::exchangeMsgs(
-			getKerncfgLane(),
-			helix_ng::offer(
-					helix_ng::sendBragiHeadOnly(request, frg::stl_allocator{}),
-					helix_ng::recvInline()
-			)
-		);
-		HEL_CHECK(offer.error());
-		HEL_CHECK(sendRequest.error());
-		HEL_CHECK(receiveResponse.error());
-
-		auto response = bragi::parse_head_only<managarm::kerncfg::GetNumCpuResponse>(receiveResponse);
-		receiveResponse.reset();
-		assert(response->error() == managarm::kerncfg::Error::SUCCESS);
-
 		std::stringstream stream;
-		for(uint64_t processor = 0; processor < response->num_cpu(); ++processor) {
+		for(uint64_t processor = 0; processor < getProcfsCpuCount(); ++processor) {
 			stream << "processor\t: " << processor << '\n';
 #if defined(__x86_64__)
 			stream << "vendor_id\t: " << data_.vendorId << '\n';
