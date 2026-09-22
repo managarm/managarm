@@ -8,6 +8,7 @@
 #include <async/oneshot-event.hpp>
 #include <async/post-ack.hpp>
 #include <async/recurring-event.hpp>
+#include <async/wait-group.hpp>
 #include <frg/list.hpp>
 #include <frg/rcu_radixtree.hpp>
 #include <frg/shared_ptr.hpp>
@@ -1088,6 +1089,13 @@ struct ManagedSpace : CacheBundle {
 
 	// Wakes the drain coroutine after _writebackExpedited has been set.
 	async::recurring_event _expediteEvent;
+
+	// Makes the reclaim/drain/invalidation loop exit at their next wait.
+	// Protected by mutex.
+	bool _stopLoops = false;
+
+	// Counts the reclaim/drain/invalidation loops that have not exited yet.
+	async::wait_group _runningLoops{0};
 };
 
 // Backing store for swappable anonymous memory].

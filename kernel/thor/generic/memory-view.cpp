@@ -1098,6 +1098,7 @@ std::expected<smarter::shared_ptr<ManagedSpace>, Error> ManagedSpace::create(
 	auto self = smarter::allocate_shared<ManagedSpace>(*kernelAlloc, std::move(hierarchy),
 			length, readahead);
 	self->selfPtr = self;
+	self->_runningLoops.add(3);
 	spawnOnWorkQueue(*kernelAlloc, WorkQueue::generalQueue().lock(), self->_runReclaimLoop());
 	spawnOnWorkQueue(*kernelAlloc, WorkQueue::generalQueue().lock(), self->_runDrainLoop());
 	spawnOnWorkQueue(*kernelAlloc, WorkQueue::generalQueue().lock(), self->_runInvalidationLoop());
@@ -1168,7 +1169,6 @@ coroutine<void> ManagedSpace::_fenceAll(EvictMode mode) {
 
 coroutine<void> ManagedSpace::_runReclaimLoop() {
 	while(true) {
-		// TODO: Cancel these waits when the ManagedSpace is destructed.
 		co_await async::race_and_cancel(
 			[&] (async::cancellation_token ct) {
 				return globalReclaimer->awaitReclaim(this, ct);
@@ -1178,7 +1178,7 @@ coroutine<void> ManagedSpace::_runReclaimLoop() {
 					_discardEvent.async_wait_if([this] () -> bool {
 						auto irqLock = frg::guard(&irqMutex());
 						auto lock = frg::guard(&mutex);
-						return _discardList.empty();
+						return !_stopLoops && _discardList.empty();
 					}, ct),
 					[] (auto) { }
 				);
@@ -1190,6 +1190,8 @@ coroutine<void> ManagedSpace::_runReclaimLoop() {
 		{
 			auto irqLock = frg::guard(&irqMutex());
 			auto lock = frg::guard(&mutex);
+			if(_stopLoops)
+				break;
 
 			globalReclaimer->reclaimPages(this, batch);
 
@@ -1351,6 +1353,7 @@ coroutine<void> ManagedSpace::_runReclaimLoop() {
 				sizeFreed
 			)<< frg::endlog;
 	}
+	_runningLoops.done();
 }
 
 coroutine<void> ManagedSpace::_runDrainLoop() {
@@ -1358,7 +1361,7 @@ coroutine<void> ManagedSpace::_runDrainLoop() {
 		co_await _dirtyEvent.async_wait_if([this] () -> bool {
 			auto irqLock = frg::guard(&irqMutex());
 			auto lock = frg::guard(&mutex);
-			return _dirtyList.empty() || _drainBlocked;
+			return !_stopLoops && (_dirtyList.empty() || _drainBlocked);
 		});
 
 		// Delay the writeback such that further dirty pages can accumulate
@@ -1368,7 +1371,7 @@ coroutine<void> ManagedSpace::_runDrainLoop() {
 			{
 				auto irqLock = frg::guard(&irqMutex());
 				auto lock = frg::guard(&mutex);
-				if(_writebackExpedited)
+				if(_writebackExpedited || _stopLoops)
 					break;
 				deadline = _writebackDeadline;
 			}
@@ -1391,7 +1394,7 @@ coroutine<void> ManagedSpace::_runDrainLoop() {
 						_expediteEvent.async_wait_if([this] () -> bool {
 							auto irqLock = frg::guard(&irqMutex());
 							auto lock = frg::guard(&mutex);
-							return !_writebackExpedited;
+							return !_stopLoops && !_writebackExpedited;
 						}, ct),
 						[] (auto) { }
 					);
@@ -1403,6 +1406,8 @@ coroutine<void> ManagedSpace::_runDrainLoop() {
 		{
 			auto irqLock = frg::guard(&irqMutex());
 			auto lock = frg::guard(&mutex);
+			if(_stopLoops)
+				break;
 
 			// However we left the delay, this pass serves the pending expedite request.
 			_writebackExpedited = false;
@@ -1467,6 +1472,7 @@ coroutine<void> ManagedSpace::_runDrainLoop() {
 			node->completionEvent.raise();
 		}
 	}
+	_runningLoops.done();
 }
 
 coroutine<void> ManagedSpace::_runInvalidationLoop() {
@@ -1475,13 +1481,15 @@ coroutine<void> ManagedSpace::_runInvalidationLoop() {
 		co_await _discardEvent.async_wait_if([this] () -> bool {
 			auto irqLock = frg::guard(&irqMutex());
 			auto lock = frg::guard(&mutex);
-			return _invalidationList.empty();
+			return !_stopLoops && _invalidationList.empty();
 		});
 
 		CachePagesList batch;
 		{
 			auto irqLock = frg::guard(&irqMutex());
 			auto lock = frg::guard(&mutex);
+			if(_stopLoops)
+				break;
 
 			batch.splice(batch.end(), _invalidationList);
 		}
@@ -1535,6 +1543,7 @@ coroutine<void> ManagedSpace::_runInvalidationLoop() {
 		if(anyExpedite)
 			_expediteEvent.raise();
 	}
+	_runningLoops.done();
 }
 
 bool ManagedSpace::claimSwapBudget(ManagedPage *) {
@@ -1758,6 +1767,7 @@ std::expected<smarter::shared_ptr<SwapSpace>, Error> SwapSpace::create(
 		smarter::shared_ptr<Hierarchy> hierarchy) {
 	auto self = allocate_rcu_shared<SwapSpace>(*kernelAlloc, std::move(hierarchy));
 	self->selfPtr = self;
+	self->_runningLoops.add(2);
 	spawnOnWorkQueue(*kernelAlloc, WorkQueue::generalQueue().lock(), self->_runReclaimLoop());
 	spawnOnWorkQueue(*kernelAlloc, WorkQueue::generalQueue().lock(), self->_runDrainLoop());
 	// TODO: Don't leak the swap spaces.
