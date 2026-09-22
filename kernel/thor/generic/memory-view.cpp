@@ -40,6 +40,19 @@ struct MemoryReclaimer {
 		bundleList_.push_back(bundle);
 	}
 
+	void unregisterBundle(CacheBundle *bundle) {
+		auto irqLock = frg::guard(&irqMutex());
+		auto lock = frg::guard(&mutex_);
+
+		{
+			auto pageLock = frg::guard(&bundle->reclaimMutex_);
+			for(unsigned int i = 0; i < CacheBundle::numGenerations; i++)
+				assert(bundle->genLists_[i].empty());
+			assert(bundle->_reclaimList.empty());
+		}
+		bundleList_.erase(bundle);
+	}
+
 	void addPage(CachePage *page) {
 		auto *bundle = page->bundle;
 		{
