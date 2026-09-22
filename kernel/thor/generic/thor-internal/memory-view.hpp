@@ -117,6 +117,9 @@ private:
 
 	// List hook used by MemoryReclaimer.
 	frg::intrusive_rcu_list_hook<CacheBundle> reclaimerHook_;
+
+	// Can be used to pin the bundle under RCU. Set by MemoryReclaimer::registerBundle().
+	smarter::weak_ptr<CacheBundle> selfPtr_;
 };
 
 inline void markDirty(PfnDescriptor descriptor) {

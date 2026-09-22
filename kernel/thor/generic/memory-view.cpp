@@ -33,11 +33,14 @@ namespace {
 // --------------------------------------------------------
 
 struct MemoryReclaimer {
-	void registerBundle(CacheBundle *bundle) {
+	void registerBundle(const smarter::shared_ptr<CacheBundle> &bundle) {
+		bundle->selfPtr_ = bundle;
+
 		auto irqLock = frg::guard(&irqMutex());
 		auto lock = frg::guard(&mutex_);
 
-		bundleList_.push_back(bundle);
+		// Note that this push_back() publishes the bundle since traversal does not hold mutex_.
+		bundleList_.push_back(bundle.get());
 	}
 
 	void unregisterBundle(CacheBundle *bundle) {
@@ -231,9 +234,8 @@ private:
 		rotationTurnaround_.store(0, std::memory_order_relaxed);
 
 		size_t sizeReclaimed = 0;
-		for(auto it = bundleList_.begin(); it != bundleList_.end(); ++it) {
-			auto *bundle = *it;
-
+		auto bundle = pinNextBundle_(nullptr);
+		while(bundle) {
 			bool anyReclaimed = false;
 			{
 				auto irqLock = frg::guard(&irqMutex());
@@ -259,11 +261,33 @@ private:
 
 			if(anyReclaimed)
 				bundle->_reclaimEvent.raise();
+
+			// Drops the previous pin outside of the RCU section.
+			bundle = pinNextBundle_(bundle.get());
 		}
 
 		return {
 			.sizeReclaimed = sizeReclaimed
 		};
+	}
+
+	// Pins the first live bundle after previous (or the first live bundle if previous is null).
+	// Precondition: previous must be pinned by the caller, such that it is still linked.
+	smarter::shared_ptr<CacheBundle> pinNextBundle_(CacheBundle *previous) {
+		ScheduleGuard rcuGuard;
+
+		auto it = bundleList_.begin();
+		if(previous) {
+			it = bundleList_.iterator_to(previous);
+			++it;
+		}
+		// Dying bundles fail to lock() and can be skipped.
+		for(; it != bundleList_.end(); ++it) {
+			auto next = (*it)->selfPtr_.lock();
+			if(next)
+				return next;
+		}
+		return {};
 	}
 
 	bool shouldRotate_() {
@@ -1111,6 +1135,7 @@ std::expected<smarter::shared_ptr<ManagedSpace>, Error> ManagedSpace::create(
 	auto self = smarter::allocate_shared<ManagedSpace>(*kernelAlloc, std::move(hierarchy),
 			length, readahead);
 	self->selfPtr = self;
+	globalReclaimer->registerBundle(self);
 	self->_runningLoops.add(3);
 	spawnOnWorkQueue(*kernelAlloc, WorkQueue::generalQueue().lock(), self->_runReclaimLoop());
 	spawnOnWorkQueue(*kernelAlloc, WorkQueue::generalQueue().lock(), self->_runDrainLoop());
@@ -1125,7 +1150,6 @@ ManagedSpace::ManagedSpace(smarter::shared_ptr<Hierarchy> hierarchy, size_t leng
 	assert(!(length & (kPageSize - 1)));
 
 	attachQueue(_evictQueue.get());
-	globalReclaimer->registerBundle(this);
 }
 
 void ManagedSpace::attachQueue(EvictionQueue *queue) {
@@ -1780,6 +1804,7 @@ std::expected<smarter::shared_ptr<SwapSpace>, Error> SwapSpace::create(
 		smarter::shared_ptr<Hierarchy> hierarchy) {
 	auto self = allocate_rcu_shared<SwapSpace>(*kernelAlloc, std::move(hierarchy));
 	self->selfPtr = self;
+	globalReclaimer->registerBundle(self);
 	self->_runningLoops.add(2);
 	spawnOnWorkQueue(*kernelAlloc, WorkQueue::generalQueue().lock(), self->_runReclaimLoop());
 	spawnOnWorkQueue(*kernelAlloc, WorkQueue::generalQueue().lock(), self->_runDrainLoop());
