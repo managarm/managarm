@@ -106,9 +106,7 @@ async::result<void> testWritebackFence() {
 } // anonymous namespace
 
 DEFINE_TEST(writebackFence, ([] {
-	(void)testWritebackFence;
-	// TODO: The test works but we run into a crash afterwards due to a missing implementation of ~ManagedSpace() in thor.
-	//async::run(testWritebackFence(), helix::currentDispatcher);
+	async::run(testWritebackFence(), helix::currentDispatcher);
 }))
 
 namespace {
@@ -148,7 +146,5 @@ async::result<void> testInvalidateRange() {
 } // anonymous namespace
 
 DEFINE_TEST(invalidateRange, ([] {
-	(void)testInvalidateRange;
-	// TODO: The test works but we run into a crash afterwards due to a missing implementation of ~ManagedSpace() in thor.
-	//async::run(testInvalidateRange(), helix::currentDispatcher);
+	async::run(testInvalidateRange(), helix::currentDispatcher);
 }))
