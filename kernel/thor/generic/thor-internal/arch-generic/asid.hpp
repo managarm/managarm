@@ -2,6 +2,7 @@
 
 #include <smarter.hpp>
 #include <async/basic.hpp>
+#include <frg/dyn_bitset.hpp>
 #include <thor-internal/cpu-data.hpp>
 #include <thor-internal/kernel-heap.hpp>
 #include <thor-internal/rcu.hpp>
@@ -191,6 +192,13 @@ struct PageSpace {
 		return tableMutex_;
 	}
 
+protected:
+	// The kernel space is constructed before the heap exists and is only ever held by
+	// global bindings, hence it does not track the CPUs that bind it.
+	struct KernelSpaceTag { };
+
+	PageSpace(PhysicalAddr rootTable, KernelSpaceTag);
+
 private:
 	PhysicalAddr rootTable_;
 
@@ -201,6 +209,8 @@ private:
 	frg::ticket_spinlock tableMutex_;
 
 	unsigned int numBindings_;
+	// CPUs that hold this space in a non-global binding.
+	frg::dyn_bitset<KernelAlloc> boundCpus_;
 
 	uint64_t shootSequence_;
 

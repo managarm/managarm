@@ -4,6 +4,7 @@
 #include <arch/register.hpp>
 #include <thor-internal/arch/pic.hpp>
 #include <thor-internal/arch/hpet.hpp>
+#include <thor-internal/cpu-state.hpp>
 #include <thor-internal/debug.hpp>
 #include <thor-internal/fiber.hpp>
 #include <initgraph.hpp>
@@ -357,18 +358,32 @@ void acknowledgeIpi() {
 	picBase.store(lApicEoi, 0);
 }
 
+namespace {
+
+// Sends an IPI via the xAPIC ICR.
+void sendXapicIpi(uint32_t apicId, arch::bit_value<uint32_t> icrLow) {
+	StatelessIrqLock irqLock;
+
+	// TODO: An NMI can happen between these accesses.
+	//       A simple fix may be replaying the IPI in the NMI.
+	//       Alternatively, we could use iseq to do this.
+	picBase.store(lApicIcrHigh, apicIcrHighDestField(apicId));
+	picBase.store(lApicIcrLow, icrLow);
+	while(picBase.load(lApicIcrLow) & apicIcrLowDelivStatus) {
+		// Wait for IPI delivery.
+	}
+}
+
+} // namespace anonymous
+
 void raiseInitAssertIpi(uint32_t dest_apic_id) {
 	if(picBase.isUsingX2apic()){
 		picBase.store(lX2ApicIcr, x2apicIcrLowDelivMode(5)
 			| x2apicIcrLowLevel(true) | x2apicIcrLowTriggerMode(true) | x2apicIcrHighDestField(dest_apic_id));
 	} else {
-		picBase.store(lApicIcrHigh, apicIcrHighDestField(dest_apic_id));
 		// DM:init = 5, Level:assert = 1, TM:Level = 1
-		picBase.store(lApicIcrLow, apicIcrLowDelivMode(5)
+		sendXapicIpi(dest_apic_id, apicIcrLowDelivMode(5)
 				| apicIcrLowLevel(true) | apicIcrLowTriggerMode(true));
-		while(picBase.load(lApicIcrLow) & apicIcrLowDelivStatus) {
-			// Wait for IPI delivery.
-		}
 	}
 }
 
@@ -377,13 +392,9 @@ void raiseInitDeassertIpi(uint32_t dest_apic_id) {
 		picBase.store(lX2ApicIcr, x2apicIcrLowDelivMode(5)
 			| x2apicIcrLowTriggerMode(true) | x2apicIcrHighDestField(dest_apic_id));
 	} else {
-		picBase.store(lApicIcrHigh, apicIcrHighDestField(dest_apic_id));
 		// DM:init = 5, TM:Level = 1
-		picBase.store(lApicIcrLow, apicIcrLowDelivMode(5)
+		sendXapicIpi(dest_apic_id, apicIcrLowDelivMode(5)
 				| apicIcrLowTriggerMode(true));
-		while(picBase.load(lApicIcrLow) & apicIcrLowDelivStatus) {
-			// Wait for IPI delivery.
-		}
 	}
 }
 
@@ -394,13 +405,9 @@ void raiseStartupIpi(uint32_t dest_apic_id, uint32_t page) {
 		picBase.store(lX2ApicIcr, x2apicIcrLowVector(vector)
 				| x2apicIcrLowDelivMode(6) | x2apicIcrHighDestField(dest_apic_id));
 	} else {
-		picBase.store(lApicIcrHigh, apicIcrHighDestField(dest_apic_id));
 		// DM:startup = 6
-		picBase.store(lApicIcrLow, apicIcrLowVector(vector)
+		sendXapicIpi(dest_apic_id, apicIcrLowVector(vector)
 				| apicIcrLowDelivMode(6));
-		while(picBase.load(lApicIcrLow) & apicIcrLowDelivStatus) {
-			// Wait for IPI delivery.
-		}
 	}
 }
 
@@ -409,11 +416,43 @@ void sendShootdownIpi() {
 		picBase.store(lX2ApicIcr, x2apicIcrLowVector(0xF0) | x2apicIcrLowDelivMode(0)
 				| x2apicIcrLowLevel(true) | x2apicIcrLowShorthand(2) | x2apicIcrHighDestField(0));
 	} else {
-		picBase.store(lApicIcrHigh, apicIcrHighDestField(0));
-		picBase.store(lApicIcrLow, apicIcrLowVector(0xF0) | apicIcrLowDelivMode(0)
+		sendXapicIpi(0, apicIcrLowVector(0xF0) | apicIcrLowDelivMode(0)
 				| apicIcrLowLevel(true) | apicIcrLowShorthand(2));
-		while(picBase.load(lApicIcrLow) & apicIcrLowDelivStatus) {
-			// Wait for IPI delivery.
+	}
+}
+
+void sendShootdownIpi(const frg::dyn_bitset<KernelAlloc> &targets) {
+	if(picBase.isUsingX2apic()) {
+		// In logical destination mode, one ICR write reaches up to 16 CPUs of one cluster.
+		uint32_t cluster = 0;
+		uint32_t members = 0;
+		auto flush = [&] {
+			if(!members)
+				return;
+			picBase.store(lX2ApicIcr, x2apicIcrLowVector(0xF0) | x2apicIcrLowDelivMode(0)
+					| x2apicIcrLowDestMode(true) | x2apicIcrLowLevel(true)
+					| x2apicIcrLowShorthand(0) | x2apicIcrHighDestField((cluster << 16) | members));
+			members = 0;
+		};
+		for(auto cpu : targets.set_bits()) {
+			auto *dstData = getCpuData(cpu);
+			if(suppressIpiToOfflineCpu(dstData))
+				continue;
+			auto apic = static_cast<uint32_t>(dstData->localApicId);
+			assert(apic < (UINT32_C(1) << 20));
+			if(members && (apic >> 4) != cluster)
+				flush();
+			cluster = apic >> 4;
+			members |= UINT32_C(1) << (apic & 0xF);
+		}
+		flush();
+	} else {
+		for(auto cpu : targets.set_bits()) {
+			auto *dstData = getCpuData(cpu);
+			if(suppressIpiToOfflineCpu(dstData))
+				continue;
+			sendXapicIpi(dstData->localApicId, apicIcrLowVector(0xF0) | apicIcrLowDelivMode(0)
+					| apicIcrLowLevel(true) | apicIcrLowShorthand(0));
 		}
 	}
 }
@@ -425,12 +464,8 @@ void sendPingIpi(CpuData *dstData) {
 		picBase.store(lX2ApicIcr, x2apicIcrLowVector(0xF1) | x2apicIcrLowDelivMode(0)
 				| x2apicIcrLowLevel(true) | x2apicIcrLowShorthand(0) | x2apicIcrHighDestField(apic));
 	} else {
-		picBase.store(lApicIcrHigh, apicIcrHighDestField(apic));
-		picBase.store(lApicIcrLow, apicIcrLowVector(0xF1) | apicIcrLowDelivMode(0)
+		sendXapicIpi(apic, apicIcrLowVector(0xF1) | apicIcrLowDelivMode(0)
 				| apicIcrLowLevel(true) | apicIcrLowShorthand(0));
-		while(picBase.load(lApicIcrLow) & apicIcrLowDelivStatus) {
-			// Wait for IPI delivery.
-		}
 	}
 }
 
@@ -441,12 +476,8 @@ void sendSelfCallIpi() {
 		picBase.store(lX2ApicIcr, x2apicIcrLowVector(vec) | x2apicIcrLowDelivMode(0)
 				| x2apicIcrLowLevel(true) | x2apicIcrLowShorthand(0) | x2apicIcrHighDestField(apic));
 	} else {
-		picBase.store(lApicIcrHigh, apicIcrHighDestField(apic));
-		picBase.store(lApicIcrLow, apicIcrLowVector(vec) | apicIcrLowDelivMode(0)
+		sendXapicIpi(apic, apicIcrLowVector(vec) | apicIcrLowDelivMode(0)
 				| apicIcrLowLevel(true) | apicIcrLowShorthand(0));
-		while(picBase.load(lApicIcrLow) & apicIcrLowDelivStatus) {
-			// Wait for IPI delivery.
-		}
 	}
 }
 
@@ -456,12 +487,8 @@ void sendGlobalNmi() {
 		picBase.store(lX2ApicIcr, x2apicIcrLowVector(0) | x2apicIcrLowDelivMode(4)
 				| x2apicIcrLowLevel(true) | x2apicIcrLowShorthand(3) | x2apicIcrHighDestField(0));
 	} else {
-		picBase.store(lApicIcrHigh, apicIcrHighDestField(0));
-		picBase.store(lApicIcrLow, apicIcrLowVector(0) | apicIcrLowDelivMode(4)
+		sendXapicIpi(0, apicIcrLowVector(0) | apicIcrLowDelivMode(4)
 				| apicIcrLowLevel(true) | apicIcrLowShorthand(3));
-		while(picBase.load(lApicIcrLow) & apicIcrLowDelivStatus) {
-			// Wait for IPI delivery.
-		}
 	}
 }
 

@@ -2,6 +2,7 @@
 #include <thor-internal/arch/trap.hpp>
 #include <thor-internal/dtb/dtb.hpp>
 #include <thor-internal/cpu-data.hpp>
+#include <thor-internal/cpu-state.hpp>
 #include <thor-internal/arch/system.hpp>
 #include <thor-internal/arch-generic/paging.hpp>
 
@@ -443,20 +444,50 @@ GicV3::GicV3() : irqPins_{*kernelAlloc} {
 	}
 }
 
-void GicV3::sendIpi(int cpuId, uint8_t id) {
-	auto affinity = getCpuData(cpuId)->affinity;
-	uint8_t aff0 = affinity;
+void GicV3::sendSgi_(uint32_t affinity, uint16_t targetList, uint8_t id) {
 	uint8_t aff1 = affinity >> 8;
 	uint8_t aff2 = affinity >> 16;
 	uint8_t aff3 = affinity >> 24;
 
 	arch::bit_value<uint64_t> v =
-		cpu_sgi1r::targetList(1U << aff0) |
+		cpu_sgi1r::targetList(targetList) |
 		cpu_sgi1r::aff1(aff1) |
 		cpu_sgi1r::aff2(aff2) |
 		cpu_sgi1r::aff3(aff3) |
 		cpu_sgi1r::intId(id);
 	asm volatile("msr icc_sgi1r_el1, %0; isb" : : "r"(v));
+}
+
+void GicV3::sendIpi(int cpuId, uint8_t id) {
+	auto affinity = getCpuData(cpuId)->affinity;
+	uint8_t aff0 = affinity;
+	assert(aff0 < 16);
+	sendSgi_(affinity, 1U << aff0, id);
+}
+
+void GicV3::sendIpi(const frg::dyn_bitset<KernelAlloc> &targets, uint8_t id) {
+	// One SGI register write reaches up to 16 PEs that share affinity levels 1 to 3.
+	uint32_t cluster = 0;
+	uint16_t targetList = 0;
+	auto flush = [&] {
+		if (!targetList)
+			return;
+		sendSgi_(cluster, targetList, id);
+		targetList = 0;
+	};
+	for (auto cpu : targets.set_bits()) {
+		auto *dstData = getCpuData(cpu);
+		if (suppressIpiToOfflineCpu(dstData))
+			continue;
+		auto affinity = dstData->affinity;
+		uint8_t aff0 = affinity;
+		assert(aff0 < 16);
+		if (targetList && (affinity & ~UINT32_C(0xFF)) != cluster)
+			flush();
+		cluster = affinity & ~UINT32_C(0xFF);
+		targetList |= 1U << aff0;
+	}
+	flush();
 }
 
 void GicV3::sendIpiToOthers(uint8_t id) {
@@ -468,13 +499,8 @@ void GicV3::sendIpiToOthers(uint8_t id) {
 	for (size_t i = 0; i < getCpuCount(); ++i) {
 		if (i == self)
 			continue;
-		// A stale non-online state would wrongly skip a CPU, hence re-check behind a fence.
-		// This pairs with the fence in setCpuState().
-		if (getCpuData(i)->cpuState.load(std::memory_order_acquire) != CpuState::online) [[unlikely]] {
-			std::atomic_thread_fence(std::memory_order_seq_cst);
-			if (getCpuData(i)->cpuState.load(std::memory_order_seq_cst) != CpuState::online)
-				continue;
-		}
+		if (suppressIpiToOfflineCpu(getCpuData(i)))
+			continue;
 		sendIpi(static_cast<int>(i), id);
 	}
 }

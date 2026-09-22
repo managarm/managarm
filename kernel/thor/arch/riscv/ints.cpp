@@ -1,6 +1,7 @@
 #include <riscv/sbi.hpp>
 #include <thor-internal/arch-generic/ints.hpp>
 #include <thor-internal/cpu-data.hpp>
+#include <thor-internal/cpu-state.hpp>
 #include <thor-internal/debug.hpp>
 
 namespace thor {
@@ -37,17 +38,41 @@ void sendShootdownIpi() {
 	for (size_t i = 0; i < getCpuCount(); ++i) {
 		auto *dstData = getCpuData(i);
 
-		// A stale non-online state would wrongly skip a CPU, hence re-check behind a fence.
-		// This pairs with the fence in setCpuState().
-		if (dstData->cpuState.load(std::memory_order_acquire) != CpuState::online) [[unlikely]] {
-			std::atomic_thread_fence(std::memory_order_seq_cst);
-			if (dstData->cpuState.load(std::memory_order_seq_cst) != CpuState::online)
-				continue;
-		}
+		if (suppressIpiToOfflineCpu(dstData))
+			continue;
 
 		if (raiseIpiBit(dstData, PlatformCpuData::ipiShootdown))
 			doSendIpi(dstData);
 	}
+}
+
+void sendShootdownIpi(const frg::dyn_bitset<KernelAlloc> &targets) {
+	// One SBI call reaches up to 64 harts whose IDs fall into the same aligned window.
+	uint64_t base = 0;
+	uint64_t hartMask = 0;
+	auto flush = [&] {
+		if (!hartMask)
+			return;
+		if (sbi::Error e = sbi::ipi::sendIpi(hartMask, base); e)
+			panicLogger() << "Failed to send shootdown IPI to HARTs at " << base << " (error: " << e
+			              << ")" << frg::endlog;
+		hartMask = 0;
+	};
+	for (auto cpu : targets.set_bits()) {
+		auto *dstData = getCpuData(cpu);
+
+		if (suppressIpiToOfflineCpu(dstData))
+			continue;
+
+		if (!raiseIpiBit(dstData, PlatformCpuData::ipiShootdown))
+			continue;
+		auto hartId = dstData->hartId;
+		if (hartMask && (hartId & ~UINT64_C(63)) != base)
+			flush();
+		base = hartId & ~UINT64_C(63);
+		hartMask |= UINT64_C(1) << (hartId & 63);
+	}
+	flush();
 }
 
 void sendSelfCallIpi() {

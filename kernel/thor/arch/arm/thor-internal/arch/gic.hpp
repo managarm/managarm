@@ -1,15 +1,18 @@
 #pragma once
 
 #include <arch/mem_space.hpp>
+#include <frg/dyn_bitset.hpp>
 #include <initgraph.hpp>
 #include <thor-internal/arch-generic/cpu.hpp>
 #include <thor-internal/dtb/irq.hpp>
 #include <thor-internal/irq.hpp>
+#include <thor-internal/kernel-heap.hpp>
 
 namespace thor {
 
 struct Gic : dt::IrqController {
 	virtual void sendIpi(int cpuId, uint8_t id) = 0;
+	virtual void sendIpi(const frg::dyn_bitset<KernelAlloc> &targets, uint8_t id) = 0;
 	virtual void sendIpiToOthers(uint8_t id) = 0;
 
 	struct CpuIrq {

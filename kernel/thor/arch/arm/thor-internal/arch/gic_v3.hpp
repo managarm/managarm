@@ -70,6 +70,7 @@ struct GicV3 : public Gic {
 	GicV3();
 
 	void sendIpi(int cpuId, uint8_t id) override;
+	void sendIpi(const frg::dyn_bitset<KernelAlloc> &targets, uint8_t id) override;
 	void sendIpiToOthers(uint8_t id) override;
 
 	CpuIrq getIrq() override;
@@ -80,6 +81,8 @@ struct GicV3 : public Gic {
 	uint32_t irqCount() override;
 
 private:
+	void sendSgi_(uint32_t affinity, uint16_t targetList, uint8_t id);
+
 	frg::vector<smarter::shared_ptr<GicPinV3>, KernelAlloc> irqPins_;
 };
 
