@@ -1366,8 +1366,10 @@ async::result<void> FileSystem::serviceFileData(std::shared_ptr<Inode> inode,
 			budgetToken = co_await servicingBudget().acquire(false, length);
 			budgetTime = timer.split();
 
+			// The manager's own writes into the backing view must not schedule a writeback.
 			fileView = pool->realm()->importMemory(
-			    helix::BorrowedDescriptor{inode->backingMemory}, offset, length
+			    helix::BorrowedDescriptor{inode->backingMemory}, offset, length,
+			    kHelMapNoDirtyTracking
 			);
 			importTime = timer.split();
 
@@ -1449,8 +1451,10 @@ async::result<void> FileSystem::serviceFileData(std::shared_ptr<Inode> inode,
 			budgetToken = co_await servicingBudget().acquire(true, length);
 			budgetTime = timer.split();
 
+			// The manager's own writes into the backing view must not schedule a writeback.
 			fileView = pool->realm()->importMemory(
-			    helix::BorrowedDescriptor{inode->backingMemory}, offset, length
+			    helix::BorrowedDescriptor{inode->backingMemory}, offset, length,
+			    kHelMapNoDirtyTracking
 			);
 			importTime = timer.split();
 
