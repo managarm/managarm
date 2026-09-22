@@ -119,7 +119,7 @@ async::result<void> dma_space::establish_(dma_memory_region *reg) const {
 		reg->backingMemoryOffset_,
 		reg->size,
 		kHelMapProtRead | kHelMapProtWrite | kHelMapDontRequireBacking
-				| realm_->options_.dmaMapFlags,
+				| realm_->options_.dmaMapFlags | reg->mapFlags_,
 		&p
 	));
 	auto deviceVa = reinterpret_cast<uintptr_t>(p);
@@ -159,8 +159,9 @@ async::result<void> dma_space::establish_(dma_memory_region *reg) const {
 	state->establishedEvent.raise();
 }
 
-imported_dma_buffer dma_realm::importMemory(helix::BorrowedDescriptor memory, size_t offset, size_t size) {
-	auto rn = new dma_memory_region{this, nullptr, std::move(memory), offset, size, true};
+imported_dma_buffer dma_realm::importMemory(helix::BorrowedDescriptor memory, size_t offset, size_t size,
+		uint32_t mapFlags) {
+	auto rn = new dma_memory_region{this, nullptr, std::move(memory), offset, size, true, mapFlags};
 	dma_ptr ptr{rn, 0};
 	return imported_dma_buffer{this, ptr, size};
 }
