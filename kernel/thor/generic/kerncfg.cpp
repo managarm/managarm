@@ -20,10 +20,7 @@
 #include "kerncfg.frigg_bragi.hpp"
 
 #include <thor-internal/ring-buffer.hpp>
-
-#if defined(__aarch64__)
-#include <thor-internal/arch/cpu.hpp>
-#endif
+#include <thor-internal/cpu-info.hpp>
 
 namespace thor {
 
@@ -134,6 +131,8 @@ private:
 				resp.set_error(managarm::kerncfg::Error::ILLEGAL_REQUEST);
 			} else {
 				resp.set_error(managarm::kerncfg::Error::SUCCESS);
+				resp.set_features(cpuInfo.getFor(req->cpu()).features);
+				resp.set_bugs(cpuInfo.getFor(req->cpu()).bugs);
 			}
 
 			frg::unique_memory<KernelAlloc> respBuffer{*kernelAlloc, resp.size_of_head()};
@@ -159,8 +158,10 @@ private:
 				resp.set_error(managarm::kerncfg::Error::ILLEGAL_REQUEST);
 			} else {
 				resp.set_error(managarm::kerncfg::Error::SUCCESS);
+				resp.set_features(cpuInfo.getFor(req->cpu()).features);
+				resp.set_bugs(cpuInfo.getFor(req->cpu()).bugs);
 #if defined(__aarch64__)
-				resp.set_midr(getCpuData(req->cpu())->midr);
+				resp.set_midr(cpuInfo.getFor(req->cpu()).midr);
 #endif
 			}
 
@@ -186,6 +187,8 @@ private:
 				resp.set_error(managarm::kerncfg::Error::ILLEGAL_REQUEST);
 			} else {
 				resp.set_error(managarm::kerncfg::Error::SUCCESS);
+				resp.set_features(cpuInfo.getFor(req->cpu()).features);
+				resp.set_bugs(cpuInfo.getFor(req->cpu()).bugs);
 			}
 
 			frg::unique_memory<KernelAlloc> respBuffer{*kernelAlloc, resp.size_of_head()};
