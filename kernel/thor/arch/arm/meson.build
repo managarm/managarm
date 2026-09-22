@@ -8,6 +8,7 @@ src += files(
 	'gic.cpp',
 	'gic_v2.cpp',
 	'gic_v3.cpp',
+	'idle.cpp',
 	'ints.cpp',
 	'paging.cpp',
 	'system.cpp',

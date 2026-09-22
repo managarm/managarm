@@ -793,16 +793,5 @@ extern "C" void onFredEvent(Frame* frame) {
 	panicLogger() << "FRED: unexpected event type" << frg::endlog;
 }
 
-void haltUntilInterrupt() {
-	assert(!intsAreEnabled());
-	// sti only takes effect after the next instruction, so no interrupt can be taken before hlt.
-	asm volatile (
-		"sti\n"
-		"\thlt\n"
-		"\tcli"
-		::: "memory"
-	);
-}
-
 } // namespace thor
 

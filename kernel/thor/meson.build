@@ -48,6 +48,7 @@ src = files(
 	'generic/gdbserver.cpp',
 	'generic/hel.cpp',
 	'generic/hierarchy.cpp',
+	'generic/idle.cpp',
 	'generic/int-call.cpp',
 	'generic/irq.cpp',
 	'generic/io.cpp',

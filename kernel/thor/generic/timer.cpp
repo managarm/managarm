@@ -90,6 +90,16 @@ void setIdleDeadline(frg::optional<uint64_t> deadline) {
 	updateDeadline_();
 }
 
+frg::optional<uint64_t> getTimerDeadlineWithoutIdle() {
+	assert(!intsAreEnabled());
+	auto &state = deadlineState.get();
+	if(!state.timerDeadline)
+		return state.preemptionDeadline;
+	if(!state.preemptionDeadline)
+		return state.timerDeadline;
+	return frg::min(*state.timerDeadline, *state.preemptionDeadline);
+}
+
 
 void handleTimerInterrupt() {
 	auto &state = deadlineState.get();

@@ -17,6 +17,4 @@ inline void disableInts() { asm volatile("msr daifset, #15"); }
 
 inline void halt() { asm volatile("wfi"); }
 
-void haltUntilInterrupt();
-
 } // namespace thor

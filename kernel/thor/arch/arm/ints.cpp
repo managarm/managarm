@@ -6,15 +6,6 @@
 
 namespace thor {
 
-void haltUntilInterrupt() {
-	assert(!intsAreEnabled());
-	// Wait for an interrupt with interrupts masked.
-	asm volatile ("wfi" ::: "memory");
-	// Flush the pending interrupt.
-	enableInts();
-	disableInts();
-}
-
 void sendPingIpi(CpuData *dstData) {
 	std::visit(
 	    frg::overloaded{
