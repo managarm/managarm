@@ -848,6 +848,8 @@ void initializeThisProcessor() {
 	cpuData->generalWorkQueue = cpuData->wqFiber->associatedWorkQueue().lock();
 	assert(cpuData->generalWorkQueue);
 
+	initializeIdleStates();
+
 	initLocalApicPerCpu();
 }
 

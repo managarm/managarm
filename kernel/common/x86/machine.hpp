@@ -39,6 +39,8 @@ inline frg::array<uint32_t, 4> cpuid(uint32_t eax, uint32_t ecx = 0) {
 
 enum {
 	kMsrLocalApicBase = 0x0000001B,
+	kMsrPkgCstConfigControl = 0x000000E2,
+	kMsrIa32PowerCtl = 0x000001FC,
 	kMsrPAT = 0x00000277,
 	kMsrIa32PmEnable = 0x00000770,
 	kMsrIa32HwpCapabilities = 0x00000771,
