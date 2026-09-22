@@ -104,8 +104,22 @@ namespace {
 	helix::UniqueLane kerncfgLane;
 	helix::UniqueLane pmLane;
 	size_t affinityMaskSize = 0;
+	// CPU info is currently a homogeneous snapshot; per-CPU data needs a protocol extension.
 	size_t procfsCpuCount = 0;
 	uint64_t aarch64Midr = 0;
+
+#if defined(__x86_64__)
+	using CpuInfoRequest = managarm::kerncfg::GetX86CpuInfoRequest;
+	using CpuInfoResponse = managarm::kerncfg::GetX86CpuInfoResponse;
+#elif defined(__aarch64__)
+	using CpuInfoRequest = managarm::kerncfg::GetAarch64CpuInfoRequest;
+	using CpuInfoResponse = managarm::kerncfg::GetAarch64CpuInfoResponse;
+#elif defined(__riscv) && __riscv_xlen == 64
+	using CpuInfoRequest = managarm::kerncfg::GetRiscv64CpuInfoRequest;
+	using CpuInfoResponse = managarm::kerncfg::GetRiscv64CpuInfoResponse;
+#else
+	#error "Unknown architecture"
+#endif
 };
 
 helix::UniqueLane &getKerncfgLane() {
@@ -181,7 +195,7 @@ async::result<void> enumerateKerncfg() {
 	kerncfgLane = (co_await entity.getRemoteLane()).unwrap();
 
 	// Determine the size of the affinity masks that thor accepts, i.e., one bit per CPU.
-	managarm::kerncfg::GetCpuInfoRequest cpuInfoReq;
+	CpuInfoRequest cpuInfoReq;
 	auto [offer, sendReq, recvResp] = co_await helix_ng::exchangeMsgs(
 		kerncfgLane,
 		helix_ng::offer(
@@ -193,11 +207,13 @@ async::result<void> enumerateKerncfg() {
 	HEL_CHECK(sendReq.error());
 	HEL_CHECK(recvResp.error());
 
-	auto cpuInfoResp = bragi::parse_head_only<managarm::kerncfg::GetCpuInfoResponse>(recvResp);
+	auto cpuInfoResp = bragi::parse_head_only<CpuInfoResponse>(recvResp);
 	recvResp.reset();
 	assert(cpuInfoResp->error() == managarm::kerncfg::Error::SUCCESS);
 	procfsCpuCount = cpuInfoResp->num_cpu();
-	aarch64Midr = cpuInfoResp->aarch64_midr();
+#if defined(__aarch64__)
+	aarch64Midr = cpuInfoResp->midr();
+#endif
 	affinityMaskSize = (procfsCpuCount + 7) / 8;
 
 	auto procfsRoot = smarter::static_pointer_cast<procfs::DirectoryNode>(getProcfs()->getTarget());

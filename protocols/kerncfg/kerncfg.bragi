@@ -98,13 +98,39 @@ tail:
 	HierarchyNode[] nodes;
 }
 
-message GetCpuInfoRequest 14 {
+message GetX86CpuInfoRequest 14 {
 head(128):
 }
 
-message GetCpuInfoResponse 15 {
+message GetX86CpuInfoResponse 15 {
 head(128):
 	Error error;
 	uint64 num_cpu;
-	uint64 aarch64_midr;
+	uint64 features;
+	uint64 bugs;
+}
+
+message GetAarch64CpuInfoRequest 16 {
+head(128):
+}
+
+message GetAarch64CpuInfoResponse 17 {
+head(128):
+	Error error;
+	uint64 num_cpu;
+	uint64 features;
+	uint64 bugs;
+	uint64 midr;
+}
+
+message GetRiscv64CpuInfoRequest 18 {
+head(128):
+}
+
+message GetRiscv64CpuInfoResponse 19 {
+head(128):
+	Error error;
+	uint64 num_cpu;
+	uint64 features;
+	uint64 bugs;
 }

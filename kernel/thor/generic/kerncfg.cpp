@@ -118,21 +118,61 @@ private:
 			if(respError != Error::success) {
 				co_return respError;
 			}
-		}else if(preamble.id() == bragi::message_id<managarm::kerncfg::GetCpuInfoRequest>) {
-			auto req = bragi::parse_head_only<managarm::kerncfg::GetCpuInfoRequest>(reqBuffer, *kernelAlloc);
+		}else if(preamble.id() == bragi::message_id<managarm::kerncfg::GetX86CpuInfoRequest>) {
+			auto req = bragi::parse_head_only<managarm::kerncfg::GetX86CpuInfoRequest>(reqBuffer, *kernelAlloc);
 
 			if (!req) {
 				co_return Error::protocolViolation;
 			}
 
-			managarm::kerncfg::GetCpuInfoResponse<KernelAlloc> resp(*kernelAlloc);
+			managarm::kerncfg::GetX86CpuInfoResponse<KernelAlloc> resp(*kernelAlloc);
 			resp.set_error(managarm::kerncfg::Error::SUCCESS);
 			resp.set_num_cpu(getCpuCount());
+			resp.set_features(0);
+			resp.set_bugs(0);
+
+			frg::unique_memory<KernelAlloc> respBuffer{*kernelAlloc, resp.size_of_head()};
+			bragi::write_head_only(resp, respBuffer);
+			auto respError = co_await sendBuffer(lane, std::move(respBuffer));
+			if(respError != Error::success) {
+				co_return respError;
+			}
+		}else if(preamble.id() == bragi::message_id<managarm::kerncfg::GetAarch64CpuInfoRequest>) {
+			auto req = bragi::parse_head_only<managarm::kerncfg::GetAarch64CpuInfoRequest>(reqBuffer, *kernelAlloc);
+
+			if (!req) {
+				co_return Error::protocolViolation;
+			}
+
+			managarm::kerncfg::GetAarch64CpuInfoResponse<KernelAlloc> resp(*kernelAlloc);
+			resp.set_error(managarm::kerncfg::Error::SUCCESS);
+			resp.set_num_cpu(getCpuCount());
+			resp.set_features(0);
+			resp.set_bugs(0);
 #if defined(__aarch64__)
-			resp.set_aarch64_midr(getCpuData(0)->midr);
+			resp.set_midr(getCpuData(0)->midr);
 #else
-			resp.set_aarch64_midr(0);
+			resp.set_midr(0);
 #endif
+
+			frg::unique_memory<KernelAlloc> respBuffer{*kernelAlloc, resp.size_of_head()};
+			bragi::write_head_only(resp, respBuffer);
+			auto respError = co_await sendBuffer(lane, std::move(respBuffer));
+			if(respError != Error::success) {
+				co_return respError;
+			}
+		}else if(preamble.id() == bragi::message_id<managarm::kerncfg::GetRiscv64CpuInfoRequest>) {
+			auto req = bragi::parse_head_only<managarm::kerncfg::GetRiscv64CpuInfoRequest>(reqBuffer, *kernelAlloc);
+
+			if (!req) {
+				co_return Error::protocolViolation;
+			}
+
+			managarm::kerncfg::GetRiscv64CpuInfoResponse<KernelAlloc> resp(*kernelAlloc);
+			resp.set_error(managarm::kerncfg::Error::SUCCESS);
+			resp.set_num_cpu(getCpuCount());
+			resp.set_features(0);
+			resp.set_bugs(0);
 
 			frg::unique_memory<KernelAlloc> respBuffer{*kernelAlloc, resp.size_of_head()};
 			bragi::write_head_only(resp, respBuffer);
