@@ -9,3 +9,4 @@ helix::UniqueLane &getKerncfgLane();
 helix::UniqueLane &getPmLane();
 
 size_t getAffinityMaskSize();
+size_t getProcfsCpuCount();

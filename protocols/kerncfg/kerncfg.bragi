@@ -97,3 +97,13 @@ head(128):
 tail:
 	HierarchyNode[] nodes;
 }
+
+message GetCpuInfoRequest 14 {
+head(128):
+}
+
+message GetCpuInfoResponse 15 {
+head(128):
+	Error error;
+	uint64 num_cpu;
+}
