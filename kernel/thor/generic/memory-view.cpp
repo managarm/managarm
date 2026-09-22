@@ -1132,7 +1132,7 @@ std::expected<smarter::shared_ptr<ManagedSpace>, Error> ManagedSpace::create(
 		smarter::shared_ptr<Hierarchy> hierarchy, size_t length, bool readahead) {
 	if(length > backingMemoryLength)
 		return std::unexpected{Error::illegalArgs};
-	auto self = smarter::allocate_shared<ManagedSpace>(*kernelAlloc, std::move(hierarchy),
+	auto self = allocate_rcu_shared<ManagedSpace>(*kernelAlloc, std::move(hierarchy),
 			length, readahead);
 	self->selfPtr = self;
 	globalReclaimer->registerBundle(self);
@@ -1808,8 +1808,6 @@ std::expected<smarter::shared_ptr<SwapSpace>, Error> SwapSpace::create(
 	self->_runningLoops.add(2);
 	spawnOnWorkQueue(*kernelAlloc, WorkQueue::generalQueue().lock(), self->_runReclaimLoop());
 	spawnOnWorkQueue(*kernelAlloc, WorkQueue::generalQueue().lock(), self->_runDrainLoop());
-	// TODO: Don't leak the swap spaces.
-	self.policy().increment();
 	return self;
 }
 
@@ -1877,10 +1875,72 @@ void SwapSpace::_freeOffset(uint64_t offset) {
 	_buddyAccessor.free(offset, 0);
 }
 
+coroutine<void> ManagedSpace::dispose() {
+	{
+		auto irqLock = frg::guard(&irqMutex());
+		auto lock = frg::guard(&mutex);
+		_stopLoops = true;
+	}
+	_dirtyEvent.raise();
+	_discardEvent.raise();
+	_expediteEvent.raise();
+
+	co_await _runningLoops.wait();
+
+	// No views exist anymore, hence there are no waiters, managers or lock holders.
+	assert(_managementQueue.empty());
+
+	{
+		auto irqLock = frg::guard(&irqMutex());
+		auto lock = frg::guard(&mutex);
+
+		// The pages themselves are released below.
+		_initializationList.clear();
+		_dirtyList.clear();
+		_writebackList.clear();
+		_discardList.clear();
+		_invalidationList.clear();
+	}
+
+	uint64_t nextIdentity = 0;
+	while(true) {
+		PhysicalAddr physical = PhysicalAddr(-1);
+		{
+			auto irqLock = frg::guard(&irqMutex());
+			auto lock = frg::guard(&mutex);
+
+			auto it = pages.lower_bound(nextIdentity);
+			if(it == pages.end())
+				break;
+			auto *pit = &(*it);
+			auto identity = pit->cachePage.identity;
+
+			assert(!pit->lockCount);
+			assert(!pit->cachePage.useCount.load(std::memory_order_relaxed));
+			if(pit->transactionState == TxState::inReclaimer)
+				globalReclaimer->removePage(&pit->cachePage);
+			// Abandoned transactions can leave monitors attached; their waiters are gone.
+			pit->detachMonitor(MonitorType::initialization);
+			pit->detachMonitor(MonitorType::writeback);
+			pit->detachMonitor(MonitorType::discard);
+			physical = pit->physical;
+			if(physical != PhysicalAddr(-1))
+				globalPfnDb().erase(physical);
+			pages.erase(identity);
+			nextIdentity = identity + 1;
+		}
+		if(physical != PhysicalAddr(-1)) {
+			physicalAllocator->free(physical, kPageSize);
+			hierarchy->unchargeMemory(kPageSize);
+		}
+	}
+
+	globalReclaimer->unregisterBundle(this);
+	detachQueue(_evictQueue.get());
+}
+
 ManagedSpace::~ManagedSpace() {
-	// TODO: Free all physical memory.
-	// TODO: We also have to remove all Loaded/Evicting pages from the reclaimer.
-	assert(!"Implement this");
+	// All cleanup has already been done by dispose().
 }
 
 // Note: Neither offset nor size are necessarily multiples of the page size.
