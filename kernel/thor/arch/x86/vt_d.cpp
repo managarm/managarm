@@ -484,19 +484,23 @@ struct IntelIommuOperations final : PageSpace, VirtualOperations {
 	bool submitShootdown(ShootNode *node) override;
 
 	frg::expected<Error, PagesAffected> mapPresentPages(VirtualAddr va, MemoryView *view,
-			uintptr_t offset, size_t size, PageFlags flags, CachingMode mode) override;
+			uintptr_t offset, size_t size, PageFlags flags, CachingMode mode,
+			bool trackDirty) override;
 
 	frg::expected<Error, PagesAffected> restrictPages(VirtualAddr va,
-			size_t size, PageFlags flags) override;
+			size_t size, PageFlags flags, bool trackDirty) override;
 
 	frg::expected<Error, PagesAffected> faultPage(VirtualAddr va, MemoryView *view,
-			uintptr_t offset, FetchFlags fetchFlags, PageFlags flags, CachingMode mode) override;
+			uintptr_t offset, FetchFlags fetchFlags, PageFlags flags, CachingMode mode,
+			bool trackDirty) override;
 
-	frg::expected<Error, PagesAffected> cleanPages(VirtualAddr va, size_t size) override;
+	frg::expected<Error, PagesAffected> cleanPages(VirtualAddr va, size_t size,
+			bool trackDirty) override;
 
-	frg::expected<Error, PagesAffected> unmapPages(VirtualAddr va, size_t size) override;
+	frg::expected<Error, PagesAffected> unmapPages(VirtualAddr va, size_t size,
+			bool trackDirty) override;
 
-	frg::expected<Error, PagesAffected> agePages(VirtualAddr, size_t, bool) override {
+	frg::expected<Error, PagesAffected> agePages(VirtualAddr, size_t, bool, bool) override {
 		return PagesAffected{};
 	}
 
@@ -1833,31 +1837,36 @@ bool handleRmrr(frg::span<uint8_t> remappingStructureTypes,
 }
 
 frg::expected<Error, PagesAffected> IntelIommuOperations::mapPresentPages(VirtualAddr va, MemoryView *view,
-		uintptr_t offset, size_t size, PageFlags flags, CachingMode mode) {
+		uintptr_t offset, size_t size, PageFlags flags, CachingMode mode, bool trackDirty) {
 	IntelIommuCursorPolicy policy{iommu_->sagaw(), iommu_->pageWalkingCoherent()};
-	return mapPresentPagesByCursor<IntelIommuCursor>(this, va, view, offset, size, flags, mode, policy);
+	return mapPresentPagesByCursor<IntelIommuCursor>(this, va, view, offset, size, flags, mode,
+			trackDirty, policy);
 }
 
 frg::expected<Error, PagesAffected> IntelIommuOperations::restrictPages(VirtualAddr va,
-		size_t size, PageFlags flags) {
+		size_t size, PageFlags flags, bool trackDirty) {
 	IntelIommuCursorPolicy policy{iommu_->sagaw(), iommu_->pageWalkingCoherent()};
-	return restrictPagesByCursor<IntelIommuCursor>(this, va, size, flags, policy);
+	return restrictPagesByCursor<IntelIommuCursor>(this, va, size, flags, trackDirty, policy);
 }
 
 frg::expected<Error, PagesAffected> IntelIommuOperations::faultPage(VirtualAddr va, MemoryView *view,
-		uintptr_t offset, FetchFlags fetchFlags, PageFlags flags, CachingMode mode) {
+		uintptr_t offset, FetchFlags fetchFlags, PageFlags flags, CachingMode mode,
+		bool trackDirty) {
 	IntelIommuCursorPolicy policy{iommu_->sagaw(), iommu_->pageWalkingCoherent()};
-	return faultPageByCursor<IntelIommuCursor>(this, va, view, offset, fetchFlags, flags, mode, policy);
+	return faultPageByCursor<IntelIommuCursor>(this, va, view, offset, fetchFlags, flags, mode,
+			trackDirty, policy);
 }
 
-frg::expected<Error, PagesAffected> IntelIommuOperations::cleanPages(VirtualAddr va, size_t size) {
+frg::expected<Error, PagesAffected> IntelIommuOperations::cleanPages(VirtualAddr va, size_t size,
+		bool trackDirty) {
 	IntelIommuCursorPolicy policy{iommu_->sagaw(), iommu_->pageWalkingCoherent()};
-	return cleanPagesByCursor<IntelIommuCursor>(this, va, size, policy);
+	return cleanPagesByCursor<IntelIommuCursor>(this, va, size, trackDirty, policy);
 }
 
-frg::expected<Error, PagesAffected> IntelIommuOperations::unmapPages(VirtualAddr va, size_t size) {
+frg::expected<Error, PagesAffected> IntelIommuOperations::unmapPages(VirtualAddr va, size_t size,
+		bool trackDirty) {
 	IntelIommuCursorPolicy policy{iommu_->sagaw(), iommu_->pageWalkingCoherent()};
-	return unmapPagesByCursor<IntelIommuCursor>(this, va, size, policy);
+	return unmapPagesByCursor<IntelIommuCursor>(this, va, size, trackDirty, policy);
 }
 
 

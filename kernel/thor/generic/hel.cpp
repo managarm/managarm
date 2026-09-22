@@ -1567,6 +1567,9 @@ std::expected<MapMemoryOperands, Error> resolveMapMemory(HelHandle memory_handle
 	if(flags & kHelMapDontRequireBacking)
 		map_flags |= AddressSpace::kMapDontRequireBacking;
 
+	if(flags & kHelMapNoDirtyTracking)
+		map_flags |= AddressSpace::kMapNoDirtyTracking;
+
 	smarter::shared_ptr<MemorySlice> slice;
 	smarter::shared_ptr<AddressSpace, BindableHandle> space;
 	smarter::shared_ptr<VirtualSpace> vspace;
@@ -1579,6 +1582,9 @@ std::expected<MapMemoryOperands, Error> resolveMapMemory(HelHandle memory_handle
 		requiredRights |= kHelRightWrite;
 	if (flags & kHelMapProtExecute)
 		requiredRights |= kHelRightExecute;
+	// Suppressing dirty tracking allows writes that never cause a writeback.
+	if (flags & kHelMapNoDirtyTracking)
+		requiredRights |= kHelRightManage;
 
 	smarter::shared_ptr<MemoryView> memory;
 	smarter::shared_ptr<IpcQueue> queue;

@@ -166,11 +166,13 @@ coroutine<void> Mapping::runEvictionLoop() {
 				LocalRcuEngine::Guard revokeGuard{revokeRcu};
 
 				if(eviction.mode() == EvictMode::cleanRange) {
-					auto cleanOutcome = owner->_ops->cleanPages(address + shootOffset, shootSize);
+					auto cleanOutcome = owner->_ops->cleanPages(address + shootOffset, shootSize,
+							tracksDirty());
 					assert(cleanOutcome);
 					anyRevoked = cleanOutcome.value().anyRevoked;
 				} else {
-					auto unmapOutcome = owner->_ops->unmapPages(address + shootOffset, shootSize);
+					auto unmapOutcome = owner->_ops->unmapPages(address + shootOffset, shootSize,
+							tracksDirty());
 					assert(unmapOutcome);
 					owner->notifyRss_(unmapOutcome.value());
 					anyRevoked = unmapOutcome.value().anyRevoked;
@@ -277,7 +279,8 @@ void VirtualSpace::retire() {
 
 			co_await mapping->exposeRcu.barrier();
 
-			auto unmapOutcome = self->_ops->unmapPages(mapping->address, mapping->length);
+			auto unmapOutcome = self->_ops->unmapPages(mapping->address, mapping->length,
+					mapping->tracksDirty());
 			assert(unmapOutcome);
 			self->notifyRss_(unmapOutcome.value());
 
@@ -371,7 +374,8 @@ coroutine<void> VirtualSpace::runAgingLoop() {
 				LocalRcuEngine::Guard revokeGuard{mapping->revokeRcu};
 
 				bool vacate = rss_.load(std::memory_order_relaxed) > workingSetGoal_();
-				auto ageOutcome = _ops->agePages(mapping->address, mapping->length, vacate);
+				auto ageOutcome = _ops->agePages(mapping->address, mapping->length, vacate,
+						mapping->tracksDirty());
 				assert(ageOutcome);
 				agingTurnover_.fetch_sub(ageOutcome.value().scanned, std::memory_order_relaxed);
 				notifyRss_(ageOutcome.value());
@@ -464,6 +468,9 @@ VirtualSpace::map(smarter::borrowed_ptr<MemorySlice> slice,
 	if(flags & kMapDontRequireBacking)
 		mappingFlags |= MappingFlags::dontRequireBacking;
 
+	if(flags & kMapNoDirtyTracking)
+		mappingFlags |= MappingFlags::noDirtyTracking;
+
 	mapping = smarter::allocate_shared<Mapping>(Allocator{},
 		selfPtr.lock(),
 		actualAddress,
@@ -514,7 +521,8 @@ VirtualSpace::map(smarter::borrowed_ptr<MemorySlice> slice,
 				LocalRcuEngine::Guard revokeGuard{mapping->revokeRcu};
 
 				auto mapOutcome = _ops->mapPresentPages(mapping->address, mapping->view.get(),
-						mapping->viewOffset, mapping->length, pageFlags, caching);
+						mapping->viewOffset, mapping->length, pageFlags, caching,
+						mapping->tracksDirty());
 				assert(mapOutcome);
 				notifyRss_(mapOutcome.value());
 				if(mapOutcome.value().anyRevoked)
@@ -588,11 +596,12 @@ VirtualSpace::protect(VirtualAddr address, size_t length, uint32_t flags) {
 			// A present page is always readable, so dropping all access requires unmapping.
 			if(pageFlags) {
 				auto restrictOutcome = _ops->restrictPages(mapping->address,
-						mapping->length, pageFlags);
+						mapping->length, pageFlags, mapping->tracksDirty());
 				assert(restrictOutcome);
 				anyRevoked = restrictOutcome.value().anyRevoked;
 			}else{
-				auto unmapOutcome = _ops->unmapPages(mapping->address, mapping->length);
+				auto unmapOutcome = _ops->unmapPages(mapping->address, mapping->length,
+						mapping->tracksDirty());
 				assert(unmapOutcome);
 				notifyRss_(unmapOutcome.value());
 				anyRevoked = unmapOutcome.value().anyRevoked;
@@ -651,7 +660,8 @@ VirtualSpace::synchronize(VirtualAddr address, size_t size) {
 		{
 			LocalRcuEngine::Guard revokeGuard{mapping->revokeRcu};
 
-			auto cleanOutcome = _ops->cleanPages(mapping->address + mappingOffset, mappingChunk);
+			auto cleanOutcome = _ops->cleanPages(mapping->address + mappingOffset, mappingChunk,
+					mapping->tracksDirty());
 			assert(cleanOutcome);
 			anyRevoked = cleanOutcome.value().anyRevoked;
 			if(anyRevoked)
@@ -737,7 +747,8 @@ VirtualSpace::handleFault(VirtualAddr address, uint32_t faultFlags) {
 					mapping->viewOffset + offset,
 					fetchFlags,
 					compilePageFlags(flags),
-					caching
+					caching,
+					mapping->tracksDirty()
 				);
 				if(!remapOutcome) {
 					if(remapOutcome.error() == Error::spuriousOperation) {
@@ -1093,7 +1104,8 @@ coroutine<void> VirtualSpace::_unmapMappings(VirtualAddr address, size_t length,
 				LocalRcuEngine::Guard revokeGuard{mapping->revokeRcu};
 
 				// Mark pages as dirty and unmap without holding a lock.
-				auto unmapOutcome = _ops->unmapPages(mapping->address, mapping->length);
+				auto unmapOutcome = _ops->unmapPages(mapping->address, mapping->length,
+						mapping->tracksDirty());
 				assert(unmapOutcome);
 				notifyRss_(unmapOutcome.value());
 				anyRevoked = unmapOutcome.value().anyRevoked;

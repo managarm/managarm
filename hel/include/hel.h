@@ -514,13 +514,16 @@ enum HelManageRequests {
 
 enum HelMapFlags {
 	// Additional flags that may be set.
-	kHelMapProtRead = 256,
-	kHelMapProtWrite = 512,
-	kHelMapProtExecute = 1024,
-	kHelMapDontRequireBacking = 128,
-	kHelMapFixed = 2048,
-	kHelMapFixedNoReplace = 4096,
-	kHelMapPreferBottom = 8192
+	kHelMapProtRead = UINT32_C(1) << 8,
+	kHelMapProtWrite = UINT32_C(1) << 9,
+	kHelMapProtExecute = UINT32_C(1) << 10,
+	kHelMapDontRequireBacking = UINT32_C(1) << 7,
+	kHelMapFixed = UINT32_C(1) << 11,
+	kHelMapFixedNoReplace = UINT32_C(1) << 12,
+	kHelMapPreferBottom = UINT32_C(1) << 13,
+	//! Discards the mapping's dirty bits instead of scheduling the pages for writeback.
+	//! Requires kHelRightManage on the memory object.
+	kHelMapNoDirtyTracking = UINT32_C(1) << 14
 };
 
 enum HelSliceFlags {

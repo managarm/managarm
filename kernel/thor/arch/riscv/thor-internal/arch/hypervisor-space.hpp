@@ -37,11 +37,12 @@ public:
 		    uintptr_t offset,
 		    size_t size,
 		    PageFlags flags,
-		    CachingMode mode
+		    CachingMode mode,
+		    bool trackDirty
 		) override;
 
 		frg::expected<Error, PagesAffected>
-		restrictPages(VirtualAddr va, size_t size, PageFlags flags) override;
+		restrictPages(VirtualAddr va, size_t size, PageFlags flags, bool trackDirty) override;
 
 		frg::expected<Error, PagesAffected> faultPage(
 		    VirtualAddr va,
@@ -49,15 +50,18 @@ public:
 		    uintptr_t offset,
 		    FetchFlags fetchFlags,
 		    PageFlags flags,
-		    CachingMode mode
+		    CachingMode mode,
+		    bool trackDirty
 		) override;
 
-		frg::expected<Error, PagesAffected> cleanPages(VirtualAddr va, size_t size) override;
-
-		frg::expected<Error, PagesAffected> unmapPages(VirtualAddr va, size_t size) override;
+		frg::expected<Error, PagesAffected>
+		cleanPages(VirtualAddr va, size_t size, bool trackDirty) override;
 
 		frg::expected<Error, PagesAffected>
-		agePages(VirtualAddr va, size_t size, bool vacate) override;
+		unmapPages(VirtualAddr va, size_t size, bool trackDirty) override;
+
+		frg::expected<Error, PagesAffected>
+		agePages(VirtualAddr va, size_t size, bool vacate, bool trackDirty) override;
 
 	private:
 		HypervisorPageSpace *pageSpace_;
