@@ -199,5 +199,8 @@ void setPreemptionDeadline(frg::optional<uint64_t> deadline);
 // Returns the current preemption deadline, or frg::null_opt if there
 // is none.
 frg::optional<uint64_t> getPreemptionDeadline();
+// Wakes up the CPU (without taking any further action) when the monotonic clock
+// reaches the deadline, or disarms the wake-up when deadline is frg::null_opt.
+void setIdleDeadline(frg::optional<uint64_t> deadline);
 
 } // namespace thor
