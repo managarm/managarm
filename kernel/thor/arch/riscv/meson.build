@@ -7,6 +7,7 @@ src += files(
 	'hypervisor-space.cpp',
 	'hypervisor-stubs.S',
 	'hypervisor.cpp',
+	'idle.cpp',
 	'ints.cpp',
 	'paging.cpp',
 	'plic.cpp',

@@ -481,6 +481,8 @@ inline constexpr bool inHigherHalf(uintptr_t address) {
 
 void setupBootCpuContext();
 void initializeThisProcessor();
+// Enumerates the idle states of the current CPU.
+void initializeIdleStates();
 
 void bootSecondary(unsigned int apic_id, size_t cpuIndex);
 

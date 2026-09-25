@@ -89,13 +89,4 @@ void sendHypervisorIpi(CpuData *dstData) {
 		doSendIpi(dstData);
 }
 
-void haltUntilInterrupt() {
-	assert(!intsAreEnabled());
-	// Wait for an interrupt with interrupts masked.
-	asm volatile("wfi" ::: "memory");
-	// Flush the pending interrupt.
-	enableInts();
-	disableInts();
-}
-
 } // namespace thor

@@ -4,6 +4,7 @@
 #include <thor-internal/arch-generic/ints.hpp>
 #include <thor-internal/cpu-data.hpp>
 #include <thor-internal/debug.hpp>
+#include <thor-internal/idle.hpp>
 #include <thor-internal/rcu.hpp>
 #include <thor-internal/schedule.hpp>
 #include <thor-internal/thread.hpp>
@@ -31,10 +32,19 @@ namespace {
 				if(logIdle)
 					infoLogger() << "System is idle" << frg::endlog;
 				// Restore IPL (as in restoreExecutor() for threads/fibers).
-				iplLeaveContext(IplState{.context = ipl::passive, .current = ipl::exceptional});
+				iplLeaveContext(IplState{.context = ipl::passive, .current = ipl::interrupt});
 				while(true) {
+					auto method = determineIdleState();
+
+					// Note: rcuClearQuiescent() is also done by the interrupt entry path.
+					//       However, some idle methods (e.g., mwait) can return without actually seeing an interrupt,
+					//       so we have to also perform it below.
+					iplLower(ipl::interrupt, ipl::exceptional);
 					rcuSetQuiescent();
-					haltUntilInterrupt();
+					idleUntilInterrupt(method);
+					rcuClearQuiescent();
+					iplRaise(ipl::interrupt);
+					noteIdleWakeup(false);
 				}
 			}, getCpuData()->idleStack.base());
 			__builtin_trap();
@@ -45,6 +55,7 @@ namespace {
 			auto *scheduler = &localScheduler.get();
 			scheduler->update();
 			if(scheduler->maybeReschedule()) {
+				noteIdleWakeup(true);
 				runOnStack([] (Continuation cont, IrqImageAccessor image) {
 					scrubStack(image, cont);
 					localScheduler.get().commitReschedule();
@@ -59,6 +70,7 @@ namespace {
 			auto *scheduler = &localScheduler.get();
 			scheduler->update();
 			if(scheduler->maybeReschedule()) {
+				noteIdleWakeup(true);
 				runOnStack([] (Continuation) {
 					localScheduler.get().commitReschedule();
 				}, getCpuData()->detachedStack.base());

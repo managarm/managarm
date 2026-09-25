@@ -12,6 +12,8 @@ src += files(
 	'debug.cpp',
 	'ept.cpp',
 	'hpet.cpp',
+	'idle.cpp',
+	'idle-intel.cpp',
 	'ints.cpp',
 	'pic.cpp',
 	'npt.cpp',

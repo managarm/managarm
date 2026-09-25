@@ -14,6 +14,7 @@ namespace {
 struct DeadlineState {
 	frg::optional<uint64_t> timerDeadline{};
 	frg::optional<uint64_t> preemptionDeadline{};
+	frg::optional<uint64_t> idleDeadline{};
 
 	frg::optional<uint64_t> currentDeadline{};
 };
@@ -36,6 +37,7 @@ void updateDeadline_(bool inTimerInterrupt = false) {
 
 	consider(state.timerDeadline);
 	consider(state.preemptionDeadline);
+	consider(state.idleDeadline);
 
 	// If there is no deadline, we do not need to reprogram the hardware.
 	if (!deadline && !state.currentDeadline)
@@ -82,6 +84,22 @@ void setPreemptionDeadline(frg::optional<uint64_t> deadline) {
 	return deadlineState.get().preemptionDeadline;
 }
 
+void setIdleDeadline(frg::optional<uint64_t> deadline) {
+	assert(!intsAreEnabled());
+	deadlineState.get().idleDeadline = deadline;
+	updateDeadline_();
+}
+
+frg::optional<uint64_t> getTimerDeadlineWithoutIdle() {
+	assert(!intsAreEnabled());
+	auto &state = deadlineState.get();
+	if(!state.timerDeadline)
+		return state.preemptionDeadline;
+	if(!state.preemptionDeadline)
+		return state.timerDeadline;
+	return frg::min(*state.timerDeadline, *state.preemptionDeadline);
+}
+
 
 void handleTimerInterrupt() {
 	auto &state = deadlineState.get();
@@ -97,6 +115,8 @@ void handleTimerInterrupt() {
 
 	auto timerExpired = checkAndClear(state.timerDeadline);
 	auto preemptionExpired = checkAndClear(state.preemptionDeadline);
+	// The idle deadline only needs to wake up the CPU, so there is no further action.
+	checkAndClear(state.idleDeadline);
 
 	// Update the timer hardware.
 	// Note that timer deadlines may be computed based on a different clock than getClockNanos(),

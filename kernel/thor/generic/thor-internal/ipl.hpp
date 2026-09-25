@@ -95,7 +95,7 @@ inline void iplLower(Ipl expectedIpl, Ipl lowerIpl) {
 
 	assert(lowerIpl != ipl::bad);
 	if (current != expectedIpl)
-		panicOnIplScopeNesting(current);
+		panicOnIplScopeNesting(expectedIpl);
 
 	// Perform (rw, w) fence to prevent re-ordering of past accesses with the iplState store.
 	std::atomic_signal_fence(std::memory_order_release);
