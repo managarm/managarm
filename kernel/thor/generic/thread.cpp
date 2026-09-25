@@ -531,6 +531,7 @@ Thread::Thread(CtorToken, smarter::shared_ptr<Universe> universe,
 		intrImage_{&_userContext, abi},
 		_universe{std::move(universe)}, _addressSpace{std::move(address_space)} {
 	_lastRunTimeUpdate = getClockNanos();
+	_publishLoad();
 	// TODO: Alternatively, we could add a separate observation for new launched threads.
 	intrState_ = IntrState::inInterrupt;
 	_lastInterrupt = kIntrRequested;
@@ -691,22 +692,38 @@ void Thread::genericHandlePreemption(ImageAccessor image) {
 void Thread::_setRunState(RunState state) {
 	_updateRunTime();
 	_runState = state;
+	_publishLoad();
 }
 
 void Thread::_updateRunTime() {
 	auto now = getClockNanos();
 	assert(now >= _lastRunTimeUpdate);
 	auto elapsed = now - _lastRunTimeUpdate;
-	if (_runState == kRunActive || _runState == kRunDeferred) {
-		_loadRunnable += elapsed;
-	} else {
-		// TODO: Terminated counts as not runnable; we may want to revisit this.
-		assert(
-		    _runState == kRunBlocked || _runState == kRunTerminated
-		);
-		_loadNotRunnable += elapsed;
-	}
+
+	// TODO: Terminated counts as not runnable; we may want to revisit this.
+	assert(_runState == kRunActive || _runState == kRunDeferred
+			|| _runState == kRunBlocked || _runState == kRunTerminated);
+	constexpr uint64_t full = UINT64_C(1) << (loadShift + loadFractionShift);
+	bool isRunning = _runState == kRunActive;
+	bool isRunnable = isRunning || _runState == kRunDeferred;
+	auto factor = loadDecayFactor(elapsed);
+	_runnableAverage = advanceLoad(_runnableAverage, isRunnable ? full : 0, factor);
+	_runningAverage = advanceLoad(_runningAverage, isRunning ? full : 0, factor);
 	_lastRunTimeUpdate = now;
+}
+
+void Thread::_publishLoad() {
+	auto dropFraction = [] (uint64_t average) -> uint64_t {
+		return (average + (UINT64_C(1) << (loadFractionShift - 1))) >> loadFractionShift;
+	};
+	ThreadLoad load{
+		.timestamp = _lastRunTimeUpdate,
+		.runnable = dropFraction(_runnableAverage),
+		.running = dropFraction(_runningAverage),
+		.isRunnable = _runState == kRunActive || _runState == kRunDeferred,
+		.isRunning = _runState == kRunActive,
+	};
+	_publishedLoad.store(load);
 }
 
 void Thread::_uninvoke() {
@@ -724,27 +741,6 @@ void Thread::AssociatedWorkQueue::wakeup() {
 	} else {
 		assert(wqIpl() == ipl::exceptionalWork);
 		_thread->raiseCondition_(condition::exceptionalWq);
-	}
-}
-
-void Thread::updateLoad(bool applyDecay, uint64_t decayFactor, int decayScale) {
-	auto irqLock = frg::guard(&irqMutex());
-	auto lock = frg::guard(&_mutex);
-
-	_updateRunTime();
-
-	uint64_t factor = 0;
-	// Protect against division by zero.
-	if (_loadRunnable)
-		factor = (_loadRunnable << loadShift) / (_loadRunnable + _loadNotRunnable);
-	_loadLevel.store(factor, std::memory_order_relaxed);
-
-	// Apply a decay factor. Since this affects both numerator and denominator of the load level,
-	// the load level is not immediately affected by this decay.
-	if(applyDecay) {
-		auto decayTime = [&] (uint64_t t) -> uint64_t { return (t * decayFactor) >> decayScale; };
-		_loadRunnable = decayTime(_loadRunnable);
-		_loadNotRunnable = decayTime(_loadNotRunnable);
 	}
 }
 

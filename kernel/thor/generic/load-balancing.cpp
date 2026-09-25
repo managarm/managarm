@@ -14,10 +14,6 @@ constexpr bool debugLb = false;
 constexpr bool enableLb = true;
 constexpr uint64_t lbInterval = 100'000'000;
 
-// Load decay factor (scale is hardcoded to 8 below) and decay interval.
-constexpr uint64_t lbDecay = 184;
-constexpr uint64_t lbDecayInterval = 1'000'000'000;
-
 frg::eternal<LoadBalancer> loadBalancer;
 
 } // namespace
@@ -134,7 +130,6 @@ coroutine<void> LoadBalancer::run_(CpuData *cpu) {
 	auto *thisNode = &lbNode.get(cpu);
 
 	bool joined = false;
-	uint64_t lastDecay = getClockNanos();
 
 	while(true) {
 		// Global barrier to wait for initiation of load balancing.
@@ -150,12 +145,7 @@ coroutine<void> LoadBalancer::run_(CpuData *cpu) {
 		if (debugLb)
 			infoLogger() << "CPU #" << cpu->cpuIndex << " enters load balancing" << frg::endlog;
 
-		bool applyDecay = false;
 		auto now = getClockNanos();
-		if (now - lastDecay >= lbDecayInterval) {
-			applyDecay = true;
-			lastDecay = now;
-		}
 
 		// On this CPU, estimate the load.
 		uint64_t load = 0;
@@ -187,8 +177,7 @@ coroutine<void> LoadBalancer::run_(CpuData *cpu) {
 					continue;
 				}
 
-				thread->updateLoad(applyDecay, lbDecay, 8);
-				auto threadLoad = thread->loadLevel();
+				auto threadLoad = thread->load().at(now).runnable;
 				cb->load_.store(threadLoad, std::memory_order_relaxed);
 				load += threadLoad;
 			}
