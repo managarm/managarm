@@ -126,6 +126,21 @@ impl NamespaceNode {
         self.node
     }
 
+    pub fn find(self, path: &CStr) -> Result<Option<NamespaceNode>> {
+        let mut node: *mut uacpi_namespace_node = std::ptr::null_mut();
+        let status =
+            unsafe { uacpi_sys::uacpi_namespace_node_find(self.node, path.as_ptr(), &mut node) };
+        if !check_optional("uacpi_namespace_node_find", status)? {
+            return Ok(None);
+        }
+        Ok(NamespaceNode::from_raw(node))
+    }
+
+    pub fn execute(self, path: &CStr) -> Result<bool> {
+        let status = unsafe { uacpi_sys::uacpi_execute_simple(self.node, path.as_ptr()) };
+        check_optional("uacpi_execute_simple", status)
+    }
+
     /// Wraps uacpi_eval_simple_integer(). Returns None if the method does not exist.
     pub fn eval_simple_integer(self, path: &CStr) -> Result<Option<u64>> {
         let mut value: uacpi_u64 = 0;

@@ -478,6 +478,80 @@ pub async fn serve_acpi_object<D: AcpiObject + 'static>(lane: Handle, object: Ar
     .await
 }
 
+/// The state of a battery.
+/// The units are the ones of the hw protocol: µV, µA, µAh and µWh.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct BatteryState {
+    pub charging: bool,
+    pub current_now: Option<u64>,
+    pub power_now: Option<u64>,
+    pub energy_now: Option<u64>,
+    pub energy_full: Option<u64>,
+    pub energy_full_design: Option<u64>,
+    pub voltage_now: Option<u64>,
+    pub voltage_min_design: Option<u64>,
+}
+
+pub trait Battery {
+    fn state(&self, block_until_ready: bool) -> impl std::future::Future<Output = BatteryState>;
+}
+
+async fn handle_one_battery<B: Battery>(
+    lane: &Handle,
+    request: &[u8],
+    battery: &B,
+) -> hel::Result<()> {
+    let preamble = match bragi::preamble_from_bytes(request) {
+        Ok(p) => p,
+        Err(_) => return Ok(()),
+    };
+
+    match preamble.id() {
+        bindings::BatteryStateRequest::MESSAGE_ID => {
+            let req: bindings::BatteryStateRequest =
+                bragi::head_from_bytes(request).map_err(|_| hel::Error::IllegalArgs)?;
+            let state = battery.state(req.block_until_ready() != 0).await;
+
+            let mut resp = bindings::BatteryStateReply::default();
+            resp.set_error(Errors::Success);
+            resp.set_charging(state.charging.into());
+            // Fields that the battery does not report are left out of the reply.
+            if let Some(current_now) = state.current_now {
+                resp.set_current_now(current_now);
+            }
+            if let Some(power_now) = state.power_now {
+                resp.set_power_now(power_now);
+            }
+            if let Some(energy_now) = state.energy_now {
+                resp.set_energy_now(energy_now);
+            }
+            if let Some(energy_full) = state.energy_full {
+                resp.set_energy_full(energy_full);
+            }
+            if let Some(energy_full_design) = state.energy_full_design {
+                resp.set_energy_full_design(energy_full_design);
+            }
+            if let Some(voltage_now) = state.voltage_now {
+                resp.set_voltage_now(voltage_now);
+            }
+            if let Some(voltage_min_design) = state.voltage_min_design {
+                resp.set_voltage_min_design(voltage_min_design);
+            }
+            send_response(lane, &resp).await?;
+        }
+        _ => send_response(lane, &error_response(Errors::DeviceError)).await?,
+    }
+
+    Ok(())
+}
+
+pub async fn serve_battery<B: Battery + 'static>(lane: Handle, battery: Arc<B>) {
+    serve_requests(lane, async |conversation: &Handle, request: &[u8]| {
+        handle_one_battery(conversation, request, battery.as_ref()).await
+    })
+    .await
+}
+
 /// A register range of a device tree node's reg property.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct DtRegisterDescriptor {

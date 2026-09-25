@@ -28,7 +28,7 @@ pub use submission::action::{
     ReceiveInline, SendBuffer,
 };
 #[cfg(feature = "std")]
-pub use submission::{sleep_for, sleep_until, submit_async};
+pub use submission::{await_event, sleep_for, sleep_until, submit_async};
 
 /// Creates a pair of connected lanes that can be used to communicate.
 pub fn create_stream() -> Result<(Handle, Handle)> {
@@ -126,7 +126,9 @@ pub fn create_dma_space(iommu: Option<&Handle>, regions: &[DmaReservedRegion]) -
         })
         .collect();
 
-    let iommu = iommu.map_or(hel_sys::kHelNullHandle as hel_sys::HelHandle, |i| i.handle());
+    let iommu = iommu.map_or(hel_sys::kHelNullHandle as hel_sys::HelHandle, |i| {
+        i.handle()
+    });
     let mut handle = hel_sys::kHelNullHandle as hel_sys::HelHandle;
     result::hel_check(unsafe {
         hel_sys::helCreateDmaSpace(iommu, regions.as_ptr(), regions.len(), 0, &mut handle)
@@ -281,6 +283,11 @@ pub fn handle_irq(pin: &Handle) -> Result<Handle> {
     let mut handle = hel_sys::kHelNullHandle as hel_sys::HelHandle;
     result::hel_check(unsafe { hel_sys::helHandleIrq(pin.handle(), &mut handle) })?;
     Ok(unsafe { Handle::from_raw(handle) })
+}
+
+/// Acknowledges or rejects the IRQ that was raised for a sequence number.
+pub fn acknowledge_irq(handle: &Handle, flags: u32, sequence: u64) -> Result<()> {
+    result::hel_check(unsafe { hel_sys::helAcknowledgeIrq(handle.handle(), flags, sequence) })
 }
 
 /// The trigger mode of an interrupt.
