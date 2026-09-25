@@ -57,8 +57,7 @@ void Thread::blockCurrent(Condition checkedConditions) {
 				<< " is blocked" << frg::endlog;
 
 	assert(thisThread->_runState == kRunActive);
-	thisThread->_updateRunTime();
-	thisThread->_runState = kRunBlocked;
+	thisThread->_setRunState(kRunBlocked);
 	thisThread->unblockConditions_ = checkedConditions;
 	localScheduler.get().update();
 	Scheduler::suspendCurrent();
@@ -86,8 +85,7 @@ void Thread::deferCurrent() {
 				<< " is deferred" << frg::endlog;
 
 	assert(thisThread->_runState == kRunActive);
-	thisThread->_updateRunTime();
-	thisThread->_runState = kRunDeferred;
+	thisThread->_setRunState(kRunDeferred);
 	localScheduler.get().update();
 	localScheduler.get().forceReschedule();
 	thisThread->_uninvoke();
@@ -113,8 +111,7 @@ void Thread::deferCurrent(IrqImageAccessor image) {
 				<< " is deferred" << frg::endlog;
 
 	assert(this_thread->_runState == kRunActive);
-	this_thread->_updateRunTime();
-	this_thread->_runState = kRunDeferred;
+	this_thread->_setRunState(kRunDeferred);
 	saveExecutor(&this_thread->_executor, image);
 	localScheduler.get().update();
 	localScheduler.get().forceReschedule();
@@ -139,8 +136,7 @@ void Thread::suspendCurrent(IrqImageAccessor image) {
 				<< " is suspended" << frg::endlog;
 
 	assert(this_thread->_runState == kRunActive);
-	this_thread->_updateRunTime();
-	this_thread->_runState = kRunDeferred;
+	this_thread->_setRunState(kRunDeferred);
 	saveExecutor(&this_thread->_executor, image);
 	localScheduler.get().update();
 	localScheduler.get().forceReschedule();
@@ -298,8 +294,7 @@ void Thread::terminateCurrent_() {
 		infoLogger() << "thor: terminateCurrent_() in " << (void *)thisThread.get() << frg::endlog;
 	assert(thisThread->_runState == kRunActive);
 
-	thisThread->_updateRunTime();
-	thisThread->_runState = kRunTerminated;
+	thisThread->_setRunState(kRunTerminated);
 	thisThread->_uninvoke();
 
 	localScheduler.get().updateState();
@@ -353,8 +348,7 @@ void Thread::migrateCurrentToAssignedCpu(ImageAccessor image) {
 		infoLogger() << "thor: " << (void *)this_thread.get()
 				<< " is moved to CPU " << assignedCpu->cpuIndex << frg::endlog;
 
-	this_thread->_updateRunTime();
-	this_thread->_runState = kRunDeferred;
+	this_thread->_setRunState(kRunDeferred);
 	saveExecutor(&this_thread->_executor, image);
 	localScheduler.get().update();
 	Scheduler::suspendCurrent();
@@ -448,8 +442,7 @@ void Thread::unblockOther(smarter::borrowed_ptr<Thread> thread) {
 		infoLogger() << "thor: " << (void *)thread.get()
 				<< " is deferred (via unblock)" << frg::endlog;
 
-	thread->_updateRunTime();
-	thread->_runState = kRunDeferred;
+	thread->_setRunState(kRunDeferred);
 	Scheduler::resume(thread.get());
 }
 
@@ -614,8 +607,7 @@ void Thread::invoke() {
 				<< " is activated" << frg::endlog;
 
 	assert(_runState == kRunDeferred);
-	_updateRunTime();
-	_runState = kRunActive;
+	_setRunState(kRunActive);
 	activeCpu_ = cpuData;
 
 	lock.unlock();
@@ -642,8 +634,7 @@ void Thread::handlePreemption() {
 			infoLogger() << "thor: " << (void *)this << " is deferred" << frg::endlog;
 
 		assert(_runState == kRunActive);
-		_updateRunTime();
-		_runState = kRunDeferred;
+		_setRunState(kRunDeferred);
 		_uninvoke();
 
 		forkExecutor([&] {
@@ -683,8 +674,7 @@ void Thread::genericHandlePreemption(ImageAccessor image) {
 			infoLogger() << "thor: " << (void *)this << " is deferred" << frg::endlog;
 
 		assert(_runState == kRunActive);
-		_updateRunTime();
-		_runState = kRunDeferred;
+		_setRunState(kRunDeferred);
 		saveExecutor(&_executor, image);
 		_uninvoke();
 
@@ -696,6 +686,11 @@ void Thread::genericHandlePreemption(ImageAccessor image) {
 	}else{
 		scheduler->renewSchedule();
 	}
+}
+
+void Thread::_setRunState(RunState state) {
+	_updateRunTime();
+	_runState = state;
 }
 
 void Thread::_updateRunTime() {

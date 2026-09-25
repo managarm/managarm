@@ -459,6 +459,8 @@ private:
 		resumeFromInterrupt,
 	};
 
+	void _setRunState(RunState state);
+
 	// Used by the AssociatedWorkQueues below so must be initialized before.
 	ExecutorContext *_executorContext{ExecutorContext::create()};
 
