@@ -5,10 +5,14 @@ use std::sync::atomic::{AtomicI64, Ordering};
 use std::sync::{Arc, Mutex, Weak};
 
 use async_trait::async_trait;
+use bragi::Message;
 use hel::Handle;
 use managarm::fs;
+use managarm::fs::bindings as fs_proto;
 
 use crate::EXPECT_LOCK;
+
+const SYSFS_MAGIC: u32 = 0x62656572;
 
 /// Handles the read/write operations of a sysfs attribute (i.e., a regular file).
 #[async_trait(?Send)]
@@ -520,4 +524,86 @@ impl fs::server::File for AttributeFile {
     async fn access_memory(&self) -> Result<Handle, fs::server::Error> {
         self.attr.access_memory().await
     }
+}
+
+/// Serves the sysfs superblock lane that posix mounts the filesystem from.
+pub async fn serve_superblock(lane: Handle, root: Arc<SysfsNode>) {
+    loop {
+        match handle_superblock_request(&lane, &root).await {
+            Ok(true) => {}
+            Ok(false) => return,
+            Err(e) => eprintln!("devserver: error while serving the sysfs superblock: {e:?}"),
+        }
+    }
+}
+
+async fn receive_tail(conversation: &Handle, tail_size: usize) -> anyhow::Result<Vec<u8>> {
+    let mut tail = vec![0u8; tail_size];
+    hel::submit_async(conversation, hel::ReceiveBuffer::new(&mut tail)).await??;
+    Ok(tail)
+}
+
+async fn handle_superblock_request(lane: &Handle, root: &Arc<SysfsNode>) -> anyhow::Result<bool> {
+    let (conv, (head,)) = hel::submit_async(lane, hel::Accept::new((hel::ReceiveInline,))).await?;
+
+    let conversation = match conv {
+        Ok(Some(lane)) => lane,
+        Ok(None) => anyhow::bail!("accept did not yield a conversation lane"),
+        Err(hel::Error::EndOfLane) | Err(hel::Error::LaneShutdown) => return Ok(false),
+        Err(e) => return Err(e.into()),
+    };
+    let head = head?;
+
+    let preamble = bragi::preamble_from_bytes(&head)?;
+    match preamble.id() {
+        fs_proto::MountRequest::MESSAGE_ID => {
+            let tail = receive_tail(&conversation, preamble.tail_size() as usize).await?;
+            let _req: fs_proto::MountRequest = bragi::head_tail_from_bytes(&head, &tail)?;
+
+            let (local, remote) = hel::create_stream()?;
+            fs::server::serve_node(local, root.clone());
+
+            let resp =
+                fs_proto::MountResponse::new(fs_proto::Errors::Success, 0, ROOT_INODE as u64);
+            let resp_head = bragi::head_to_bytes(&resp)?;
+            let (send_resp, push_node) = hel::submit_async(
+                &conversation,
+                (
+                    hel::SendBuffer::new(&resp_head),
+                    hel::PushDescriptor::new(
+                        &remote,
+                        hel_sys::kHelRightInvoke | hel_sys::kHelRightManage,
+                    ),
+                ),
+            )
+            .await?;
+            send_resp?;
+            push_node?;
+        }
+        fs_proto::GetFsStatsRequest::MESSAGE_ID => {
+            let resp = fs_proto::GetFsStatsResponse::new(
+                fs_proto::Errors::Success,
+                SYSFS_MAGIC,
+                4096,
+                4096,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                255,
+                0,
+                0,
+                0,
+            );
+            let resp_head = bragi::head_to_bytes(&resp)?;
+            hel::submit_async(&conversation, hel::SendBuffer::new(&resp_head)).await??;
+        }
+        id => {
+            eprintln!("devserver: dismissing superblock request with unexpected message ID {id}");
+            hel::submit_async(&conversation, hel::Dismiss).await??;
+        }
+    }
+    Ok(true)
 }
