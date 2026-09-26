@@ -1,9 +1,11 @@
 posix_bragi = cxxbragi.process(protos/'posix/posix.bragi')
+devserver_bragi = cxxbragi.process(protos/'posix/devserver.bragi')
 
 src = [
 	'src/cgroupfs.cpp',
 	'src/clocks.cpp',
 	'src/coredump.cpp',
+	'src/devserver.cpp',
 	'src/device.cpp',
 	'src/devices/full.cpp',
 	'src/devices/helout.cpp',
@@ -75,7 +77,8 @@ src = [
 	'src/un-socket.cpp',
 	'src/util.cpp',
 	'src/vfs.cpp',
-	posix_bragi
+	posix_bragi,
+	devserver_bragi
 ]
 
 executable('posix-subsystem', src,
