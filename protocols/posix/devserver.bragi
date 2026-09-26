@@ -1,0 +1,45 @@
+namespace "managarm::devserver";
+
+enum Errors {
+	SUCCESS = 0,
+	ILLEGAL_REQUEST = 1
+}
+
+enum NodeType {
+	CHAR_DEVICE = 1,
+	BLOCK_DEVICE = 2
+}
+
+message GenericResponse 1 {
+head(128):
+	Errors error;
+}
+
+// Launch a devserver instance.
+// The response pushes two lanes:
+// - the sysfs superblock lane,
+// - a devserver -> posix-subsystem lane.
+message LaunchRequest 2 {
+head(128):
+}
+
+// Messages on the devserver -> posix-subsystem lane.
+group {
+	// Broadcast a device uevent.
+	message EmitUeventRequest 2 {
+	head(128):
+	tail:
+		string buffer;
+	}
+
+	// Installs a device node in posix-subsystem's device registry and in devtmpfs.
+	// Pushes the device's lane for open() and mount() etc.
+	message InstallNodeRequest 3 {
+	head(128):
+		NodeType node_type;
+		int32 major;
+		int32 minor;
+	tail:
+		string path;
+	}
+}
