@@ -1246,6 +1246,9 @@ FutureMaybe<smarter::shared_ptr<FsNode>> Superblock::createRegular(Process *proc
 	);
 	HEL_CHECK(offer.error());
 	HEL_CHECK(send_req.error());
+	// Servers that do not implement SB_CREATE_REGULAR dismiss the request.
+	if(recv_resp.error() == kHelErrDismissed)
+		co_return nullptr;
 	HEL_CHECK(recv_resp.error());
 
 	managarm::fs::SvrResponse resp;
@@ -1288,6 +1291,12 @@ async::result<frg::expected<Error, smarter::shared_ptr<FsLink, LinkRc>>>
 
 	HEL_CHECK(offer.error());
 	HEL_CHECK(send_head.error());
+	// Servers that do not implement renames dismiss the request.
+	if(send_tail.error() == kHelErrDismissed) {
+		sourcePending.complete(0);
+		targetPending.complete(0);
+		co_return Error::insufficientPermissions;
+	}
 	HEL_CHECK(send_tail.error());
 	HEL_CHECK(recv_resp.error());
 
