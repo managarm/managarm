@@ -401,6 +401,7 @@ FutureMaybe<smarter::shared_ptr<FsLink, LinkRc>> mountExternalDevice(helix::Borr
 	recv_resp.reset();
 	assert(parsed);
 	assert(resp.error() == managarm::fs::Errors::SUCCESS);
-	co_return extern_fs::createRoot(lane.dup(), pull_node.descriptor(), device, resp.caps());
+	co_return extern_fs::createRoot(lane.dup(), pull_node.descriptor(), device, resp.caps(),
+			std::move(fs_type), resp.root_inode());
 }
 

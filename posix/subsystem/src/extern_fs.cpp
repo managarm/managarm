@@ -113,7 +113,8 @@ private:
 };
 
 struct Superblock final : FsSuperblock, LinkReclaimer {
-	Superblock(helix::UniqueLane lane, std::shared_ptr<UnixDevice> device, uint64_t mountCaps);
+	Superblock(helix::UniqueLane lane, std::shared_ptr<UnixDevice> device, uint64_t mountCaps,
+			std::string fsType);
 	async::result<Error> synchronize(protocols::fs::SynchronizeFlags flags) override;
 
 	FutureMaybe<smarter::shared_ptr<FsNode>> createRegular(Process *process) override;
@@ -123,10 +124,12 @@ struct Superblock final : FsSuperblock, LinkReclaimer {
 	async::result<frg::expected<Error, FsStats>> getFsStats() override;
 
 	std::string getFsType() override {
-		return "ext2";
+		return fsType_;
 	}
 
 	dev_t deviceNumber() override {
+		if(!device_)
+			return makedev(0, deviceMinor_);
 		auto id = device_->getId();
 		return makedev(id.first, id.second);
 	}
@@ -198,6 +201,8 @@ private:
 	std::vector<NameCacheBucket> _nameCacheBuckets;
 
 	std::shared_ptr<UnixDevice> device_;
+	std::string fsType_;
+	unsigned int deviceMinor_ = 0;
 };
 
 // Marks a directory entry as being mutated by an in-flight request, see Superblock::beginMutation().
@@ -1212,11 +1217,13 @@ private:
 };
 
 Superblock::Superblock(helix::UniqueLane lane, std::shared_ptr<UnixDevice> device,
-		uint64_t mountCaps)
+		uint64_t mountCaps, std::string fsType)
 : LinkReclaimer{nameCacheCapacity}, _lane{std::move(lane)}, _mountCaps{mountCaps},
-		device_{device} {
+		device_{device}, fsType_{std::move(fsType)} {
 	if(nameCacheEnabled())
 		_nameCacheBuckets.resize(nameCacheBuckets);
+	if(!device_)
+		deviceMinor_ = getUnnamedDeviceIdAllocator().allocate();
 }
 
 async::result<Error> Superblock::synchronize(protocols::fs::SynchronizeFlags flags) {
@@ -1537,10 +1544,10 @@ async::result<frg::expected<Error, FsStats>> Superblock::getFsStats() {
 } // anonymous namespace
 
 smarter::shared_ptr<FsLink, LinkRc> createRoot(helix::UniqueLane sb_lane, helix::UniqueLane lane,
-		std::shared_ptr<UnixDevice> device, uint64_t mountCaps) {
-	auto sb = new Superblock{std::move(sb_lane), device, mountCaps};
-	// FIXME: 2 is the ext2fs root inode.
-	return sb->internalizeRoot(2, std::move(lane));
+		std::shared_ptr<UnixDevice> device, uint64_t mountCaps, std::string fs_type,
+		uint64_t root_inode) {
+	auto sb = new Superblock{std::move(sb_lane), device, mountCaps, std::move(fs_type)};
+	return sb->internalizeRoot(root_inode, std::move(lane));
 }
 
 smarter::shared_ptr<File, FileHandle>
