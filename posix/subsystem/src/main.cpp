@@ -1,4 +1,5 @@
 #include <memory>
+#include <vector>
 
 #include <linux/vt.h>
 
@@ -105,6 +106,21 @@ namespace {
 	helix::UniqueLane kerncfgLane;
 	helix::UniqueLane pmLane;
 	size_t affinityMaskSize = 0;
+	size_t procfsCpuCount = 0;
+	std::vector<ProcfsCpuInfo> procfsCpuInfo;
+
+#if defined(__x86_64__)
+	using CpuInfoRequest = managarm::kerncfg::GetX86CpuInfoRequest;
+	using CpuInfoResponse = managarm::kerncfg::GetX86CpuInfoResponse;
+#elif defined(__aarch64__)
+	using CpuInfoRequest = managarm::kerncfg::GetAarch64CpuInfoRequest;
+	using CpuInfoResponse = managarm::kerncfg::GetAarch64CpuInfoResponse;
+#elif defined(__riscv) && __riscv_xlen == 64
+	using CpuInfoRequest = managarm::kerncfg::GetRiscv64CpuInfoRequest;
+	using CpuInfoResponse = managarm::kerncfg::GetRiscv64CpuInfoResponse;
+#else
+	#error "Unknown architecture"
+#endif
 };
 
 helix::UniqueLane &getKerncfgLane() {
@@ -118,6 +134,16 @@ helix::UniqueLane &getPmLane() {
 size_t getAffinityMaskSize() {
 	assert(affinityMaskSize);
 	return affinityMaskSize;
+}
+
+size_t getProcfsCpuCount() {
+	assert(procfsCpuCount);
+	return procfsCpuCount;
+}
+
+const ProcfsCpuInfo &getProcfsCpuInfo(size_t cpu) {
+	assert(cpu < procfsCpuInfo.size());
+	return procfsCpuInfo[cpu];
 }
 
 struct CmdlineNode final : public procfs::RegularNode {
@@ -171,20 +197,45 @@ async::result<void> enumerateKerncfg() {
 	kerncfgLane = (co_await entity.getRemoteLane()).unwrap();
 
 	// Determine the size of the affinity masks that thor accepts, i.e., one bit per CPU.
-	managarm::kerncfg::GetNumCpuRequest numCpuReq;
-	auto [offer, sendReq, recvResp] = co_await helix_ng::exchangeMsgs(
-		kerncfgLane,
-		helix_ng::offer(
-			helix_ng::sendBragiHeadOnly(numCpuReq, frg::stl_allocator{}),
-			helix_ng::recvInline()
-		)
-	);
-	HEL_CHECK(offer.error());
-	HEL_CHECK(sendReq.error());
-	HEL_CHECK(recvResp.error());
+	for(size_t cpu = 0; ; ++cpu) {
+		CpuInfoRequest cpuInfoReq;
+		cpuInfoReq.set_cpu(cpu);
+		auto [offer, sendReq, recvResp] = co_await helix_ng::exchangeMsgs(
+			kerncfgLane,
+			helix_ng::offer(
+					helix_ng::sendBragiHeadOnly(cpuInfoReq, frg::stl_allocator{}),
+					helix_ng::recvInline()
+			)
+		);
+		HEL_CHECK(offer.error());
+		HEL_CHECK(sendReq.error());
+		HEL_CHECK(recvResp.error());
 
-	auto numCpuResp = bragi::parse_head_only<managarm::kerncfg::GetNumCpuResponse>(recvResp);
-	affinityMaskSize = (numCpuResp->num_cpu() + 7) / 8;
+		auto cpuInfoResp = bragi::parse_head_only<CpuInfoResponse>(recvResp);
+		recvResp.reset();
+		assert(cpuInfoResp->error() == managarm::kerncfg::Error::SUCCESS);
+		assert(cpuInfoResp->cpu() == cpu);
+
+		if(cpu == 0) {
+			procfsCpuCount = cpuInfoResp->num_cpu();
+			assert(procfsCpuCount);
+			procfsCpuInfo.resize(procfsCpuCount);
+		} else {
+			assert(cpuInfoResp->num_cpu() == procfsCpuCount);
+		}
+
+		procfsCpuInfo[cpu].features = cpuInfoResp->features();
+		procfsCpuInfo[cpu].bugs = cpuInfoResp->bugs();
+#if defined(__aarch64__)
+		procfsCpuInfo[cpu].midr = cpuInfoResp->midr();
+#else
+		procfsCpuInfo[cpu].midr = 0;
+#endif
+
+		if(cpu + 1 == procfsCpuCount)
+			break;
+	}
+	affinityMaskSize = (procfsCpuCount + 7) / 8;
 
 	auto procfsRoot = smarter::static_pointer_cast<procfs::DirectoryNode>(getProcfs()->getTarget());
 	procfsRoot->directMkregular(getProcfs().get(), "cmdline", makeFsShared<CmdlineNode>());

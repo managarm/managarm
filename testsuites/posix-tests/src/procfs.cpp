@@ -6,10 +6,93 @@
 #include <fstream>
 #include <pthread.h>
 #include <stdio.h>
+#include <string.h>
 #include <sys/wait.h>
 #include <unistd.h>
+#include <vector>
+#include <string_view>
+
+#if defined(__x86_64__)
+#include <cpuid.h>
+#endif
 
 #include "testsuite.hpp"
+
+DEFINE_TEST(procfs_cpuinfo, ([] {
+	std::ifstream stream{"/proc/cpuinfo"};
+	assert(stream.good());
+
+	std::vector<std::string> records;
+	std::string record;
+	for (std::string line; std::getline(stream, line); ) {
+		if (line.empty()) {
+			if (!record.empty()) {
+				records.push_back(std::move(record));
+				record = {};
+			}
+		} else {
+			record += line + '\n';
+		}
+	}
+	if (!record.empty())
+		records.push_back(std::move(record));
+
+	long cpu_count = sysconf(_SC_NPROCESSORS_ONLN);
+	assert(cpu_count > 0);
+	assert(records.size() == static_cast<size_t>(cpu_count));
+
+	auto has_field = [] (const std::string &record, std::string_view expected) {
+		size_t offset = 0;
+		while(offset < record.size()) {
+			auto end = record.find('\n', offset);
+			if(end == std::string::npos)
+				end = record.size();
+
+			auto line = std::string_view{record}.substr(offset, end - offset);
+			auto colon = line.find(':');
+			if(colon != std::string_view::npos) {
+				auto key = line.substr(0, colon);
+				while(!key.empty() && (key.front() == ' ' || key.front() == '\t'))
+					key.remove_prefix(1);
+				while(!key.empty() && (key.back() == ' ' || key.back() == '\t'))
+					key.remove_suffix(1);
+				if(key == expected)
+					return true;
+			}
+
+			offset = end + (end < record.size());
+		}
+		return false;
+	};
+
+	for (size_t i = 0; i < records.size(); ++i) {
+		auto processor = "processor\t: " + std::to_string(i) + '\n';
+		assert(records[i].find(processor) != std::string::npos);
+
+#if defined(__x86_64__)
+		assert(has_field(records[i], "vendor_id"));
+		assert(has_field(records[i], "cpu family"));
+		assert(has_field(records[i], "model"));
+		assert(has_field(records[i], "model name"));
+		assert(has_field(records[i], "stepping"));
+
+		unsigned int eax, ebx, ecx, edx;
+		__cpuid(0, eax, ebx, ecx, edx);
+		char vendor[13] = {};
+		memcpy(vendor + 0, &ebx, sizeof(ebx));
+		memcpy(vendor + 4, &edx, sizeof(edx));
+		memcpy(vendor + 8, &ecx, sizeof(ecx));
+		assert(records[i].find(std::string{"vendor_id\t: "} + vendor + '\n') != std::string::npos);
+#elif defined(__aarch64__)
+		assert(has_field(records[i], "CPU implementer"));
+		assert(has_field(records[i], "CPU architecture"));
+		assert(has_field(records[i], "CPU variant"));
+		assert(has_field(records[i], "CPU part"));
+		assert(has_field(records[i], "CPU revision"));
+		assert(records[i].find("CPU architecture: 8\n") != std::string::npos);
+#endif
+	}
+}))
 
 DEFINE_TEST(procfs_status_after_wait, ([] {
 	pid_t pid = fork();

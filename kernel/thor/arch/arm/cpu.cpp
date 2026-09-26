@@ -1,6 +1,7 @@
 #include <thor-internal/arch/system.hpp>
 #include <thor-internal/arch-generic/cpu.hpp>
 #include <thor-internal/cpu-data.hpp>
+#include <thor-internal/cpu-info.hpp>
 #include <thor-internal/cpu-state.hpp>
 #include <thor-internal/ipl.hpp>
 #include <frg/manual_box.hpp>
@@ -267,6 +268,7 @@ void initializeThisProcessor() {
 	uint64_t mpidr;
 	asm volatile("mrs %0, mpidr_el1" : "=r"(mpidr));
 	cpu_data->affinity = affinityFromMpidr(mpidr);
+	asm volatile("mrs %0, midr_el1" : "=r"(cpuInfo.get().midr));
 
 	cpu_data->detachedStack = UniqueKernelStack::make();
 	cpu_data->idleStack = UniqueKernelStack::make();

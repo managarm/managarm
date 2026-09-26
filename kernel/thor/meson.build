@@ -85,6 +85,7 @@ src = files(
 	'generic/work-queue.cpp',
 	'generic/asid.cpp',
 	'generic/cpu-data.cpp',
+	'generic/cpu-info.cpp',
 	'generic/cpu-state.cpp',
 	'generic/iommu.cpp',
 	'system/framebuffer/boot-screen.cpp',

@@ -20,6 +20,7 @@
 #include "kerncfg.frigg_bragi.hpp"
 
 #include <thor-internal/ring-buffer.hpp>
+#include <thor-internal/cpu-info.hpp>
 
 namespace thor {
 
@@ -107,6 +108,88 @@ private:
 			managarm::kerncfg::GetNumCpuResponse<KernelAlloc> resp(*kernelAlloc);
 			resp.set_error(managarm::kerncfg::Error::SUCCESS);
 			resp.set_num_cpu(getCpuCount());
+
+			frg::unique_memory<KernelAlloc> respBuffer{*kernelAlloc, resp.size_of_head()};
+			bragi::write_head_only(resp, respBuffer);
+			auto respError = co_await sendBuffer(lane, std::move(respBuffer));
+			if(respError != Error::success) {
+				co_return respError;
+			}
+		}else if(preamble.id() == bragi::message_id<managarm::kerncfg::GetX86CpuInfoRequest>) {
+			auto req = bragi::parse_head_only<managarm::kerncfg::GetX86CpuInfoRequest>(reqBuffer, *kernelAlloc);
+
+			if (!req) {
+				co_return Error::protocolViolation;
+			}
+
+			managarm::kerncfg::GetX86CpuInfoResponse<KernelAlloc> resp(*kernelAlloc);
+			resp.set_num_cpu(getCpuCount());
+			resp.set_cpu(req->cpu());
+			resp.set_features(0);
+			resp.set_bugs(0);
+			if(req->cpu() >= getCpuCount()) {
+				resp.set_error(managarm::kerncfg::Error::ILLEGAL_REQUEST);
+			} else {
+				resp.set_error(managarm::kerncfg::Error::SUCCESS);
+				resp.set_features(cpuInfo.getFor(req->cpu()).features);
+				resp.set_bugs(cpuInfo.getFor(req->cpu()).bugs);
+			}
+
+			frg::unique_memory<KernelAlloc> respBuffer{*kernelAlloc, resp.size_of_head()};
+			bragi::write_head_only(resp, respBuffer);
+			auto respError = co_await sendBuffer(lane, std::move(respBuffer));
+			if(respError != Error::success) {
+				co_return respError;
+			}
+		}else if(preamble.id() == bragi::message_id<managarm::kerncfg::GetAarch64CpuInfoRequest>) {
+			auto req = bragi::parse_head_only<managarm::kerncfg::GetAarch64CpuInfoRequest>(reqBuffer, *kernelAlloc);
+
+			if (!req) {
+				co_return Error::protocolViolation;
+			}
+
+			managarm::kerncfg::GetAarch64CpuInfoResponse<KernelAlloc> resp(*kernelAlloc);
+			resp.set_num_cpu(getCpuCount());
+			resp.set_cpu(req->cpu());
+			resp.set_features(0);
+			resp.set_bugs(0);
+			resp.set_midr(0);
+			if(req->cpu() >= getCpuCount()) {
+				resp.set_error(managarm::kerncfg::Error::ILLEGAL_REQUEST);
+			} else {
+				resp.set_error(managarm::kerncfg::Error::SUCCESS);
+				resp.set_features(cpuInfo.getFor(req->cpu()).features);
+				resp.set_bugs(cpuInfo.getFor(req->cpu()).bugs);
+#if defined(__aarch64__)
+				resp.set_midr(cpuInfo.getFor(req->cpu()).midr);
+#endif
+			}
+
+			frg::unique_memory<KernelAlloc> respBuffer{*kernelAlloc, resp.size_of_head()};
+			bragi::write_head_only(resp, respBuffer);
+			auto respError = co_await sendBuffer(lane, std::move(respBuffer));
+			if(respError != Error::success) {
+				co_return respError;
+			}
+		}else if(preamble.id() == bragi::message_id<managarm::kerncfg::GetRiscv64CpuInfoRequest>) {
+			auto req = bragi::parse_head_only<managarm::kerncfg::GetRiscv64CpuInfoRequest>(reqBuffer, *kernelAlloc);
+
+			if (!req) {
+				co_return Error::protocolViolation;
+			}
+
+			managarm::kerncfg::GetRiscv64CpuInfoResponse<KernelAlloc> resp(*kernelAlloc);
+			resp.set_num_cpu(getCpuCount());
+			resp.set_cpu(req->cpu());
+			resp.set_features(0);
+			resp.set_bugs(0);
+			if(req->cpu() >= getCpuCount()) {
+				resp.set_error(managarm::kerncfg::Error::ILLEGAL_REQUEST);
+			} else {
+				resp.set_error(managarm::kerncfg::Error::SUCCESS);
+				resp.set_features(cpuInfo.getFor(req->cpu()).features);
+				resp.set_bugs(cpuInfo.getFor(req->cpu()).bugs);
+			}
 
 			frg::unique_memory<KernelAlloc> respBuffer{*kernelAlloc, resp.size_of_head()};
 			bragi::write_head_only(resp, respBuffer);
