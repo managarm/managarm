@@ -4,11 +4,13 @@
 #include <expected>
 
 #include <frg/container_of.hpp>
+#include <frg/seqlock.hpp>
 #include <thor-internal/arch-generic/cpu.hpp>
 #include <thor-internal/credentials.hpp>
 #include <thor-internal/cpu-data.hpp>
 #include <thor-internal/error.hpp>
 #include <thor-internal/load-balancing.hpp>
+#include <thor-internal/load-tracking.hpp>
 #include <thor-internal/rcu.hpp>
 #include <thor-internal/schedule.hpp>
 #include <thor-internal/universe.hpp>
@@ -63,9 +65,6 @@ struct AsyncBlockCurrentNormalTag {};
 
 template <typename T>
 concept AnyTag = (std::same_as<T, AsyncBlockCurrentNormalTag> || std::same_as<T, AsyncBlockCurrentInterruptibleTag>);
-
-// Shift for fixed point numbers that represent the load level.
-constexpr int loadShift = 10;
 
 struct Thread;
 struct LbThreadState;
@@ -417,6 +416,7 @@ private:
 	void raiseCondition_(Condition c);
 
 	void _updateRunTime();
+	void _publishLoad();
 	void _uninvoke();
 
 public:
@@ -458,6 +458,8 @@ private:
 		inInterrupt,
 		resumeFromInterrupt,
 	};
+
+	void _setRunState(RunState state);
 
 	// Used by the AssociatedWorkQueues below so must be initialized before.
 	ExecutorContext *_executorContext{ExecutorContext::create()};
@@ -511,20 +513,21 @@ private:
 public:
 	// Timestamp at which _updateRunTime() was last called.
 	uint64_t _lastRunTimeUpdate{0};
-	// Contributions to the load factor due to time during which the thread was (not) runnable.
+	// Decaying averages of the time during which the thread was runnable and running.
 	// The thread is runnable if it is either running or waiting in a scheduler queue
 	// (i.e., not blocked).
-	uint64_t _loadRunnable{0};
-	uint64_t _loadNotRunnable{0};
-	// Load level of the thread.
-	std::atomic<uint64_t> _loadLevel{0};
+	// Fixed point numbers with (loadShift + loadFractionShift) fractional bits.
+	// New threads start at full runnable load (as on Linux) such that they are spread
+	// before their average converges.
+	uint64_t _runnableAverage{UINT64_C(1) << (loadShift + loadFractionShift)};
+	uint64_t _runningAverage{0};
+	// Snapshot of the averages for readers that do not take _mutex. Written under _mutex.
+	frg::seqlock_cell<ThreadLoad> _publishedLoad;
 
-	// Update the load factor and optionally decay its history.
-	void updateLoad(bool applyDecay, uint64_t decayFactor, int decayScale);
-
-	// Return the load factor.
-	uint64_t loadLevel() {
-		return _loadLevel.load(std::memory_order_relaxed);
+	// Return the load as of the last change of the thread's run state.
+	// Use ThreadLoad::at() to extrapolate it to the current time.
+	ThreadLoad load() {
+		return _publishedLoad.load();
 	}
 
 	LbThreadState _lbState;
