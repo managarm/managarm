@@ -6,6 +6,7 @@
 
 #include "net.hpp"
 #include <core/clock.hpp>
+#include "devserver.hpp"
 #include "drvcore.hpp"
 #include "netlink/nl-socket.hpp"
 #include "devices/full.hpp"
@@ -210,6 +211,8 @@ async::result<void> enumeratePm() {
 async::detached runInit() {
 	co_await posix::ostContext.create();
 	co_await enumerateKerncfg();
+	if(devserver::useDevserver)
+		co_await devserver::enumerate();
 	async::detach(enumeratePm());
 	async::detach(net::enumerateNetserver());
 	co_await populateRootView();
@@ -223,9 +226,13 @@ int main() {
 
 //	HEL_CHECK(helSetPriority(kHelThisThread, 1));
 
+	if(devserver::useDevserver)
+		std::cout << "posix: Using posix-devserver device model" << std::endl;
+
 	netlink::nl_socket::setupProtocols();
 
-	drvcore::initialize();
+	if(!devserver::useDevserver)
+		drvcore::initialize();
 
 	charRegistry.install(createHeloutDevice());
 	charRegistry.install(pts::createMasterDevice());
@@ -240,28 +247,30 @@ int main() {
 	for(int i = 1; i <= MAX_NR_CONSOLES; i++)
 		charRegistry.install(createTTYNDevice(i));
 
-	acpi_subsystem::run();
-	drm_subsystem::run();
-	input_subsystem::run();
-	net_subsystem::run();
-	nvme_subsystem::run();
-	tty_subsystem::run();
-	usbmisc_subsystem::run();
-	power_supply_subsystem::run();
-	sound_subsystem::run();
-	graphics_subsystem::run();
+	if(!devserver::useDevserver) {
+		acpi_subsystem::run();
+		drm_subsystem::run();
+		input_subsystem::run();
+		net_subsystem::run();
+		nvme_subsystem::run();
+		tty_subsystem::run();
+		usbmisc_subsystem::run();
+		power_supply_subsystem::run();
+		sound_subsystem::run();
+		graphics_subsystem::run();
 
-	block_subsystem::run();
-	generic_subsystem::run();
+		block_subsystem::run();
+		generic_subsystem::run();
 
-	pci_subsystem::run();
-	usb_subsystem::run();
+		pci_subsystem::run();
+		usb_subsystem::run();
 
-	firmware_dmi::run();
+		firmware_dmi::run();
 
 #if defined(__aarch64__) || defined(__riscv)
-	firmware_dt::run();
+		firmware_dt::run();
 #endif
+	}
 
 	runInit();
 
