@@ -354,6 +354,7 @@ extern "C" void thorMain() {
 		KernelFiber::asyncBlockCurrent(runServerFromInitrd("usr/lib/managarm/server/sif.bin"));
 		KernelFiber::asyncBlockCurrent(runServerFromInitrd("usr/lib/managarm/server/kernletcc.bin"));
 		KernelFiber::asyncBlockCurrent(runServerFromInitrd("usr/lib/managarm/server/clocktracker.bin"));
+		KernelFiber::asyncBlockCurrent(runServerFromInitrd("usr/lib/managarm/server/netserver.bin"));
 		KernelFiber::asyncBlockCurrent(runServerFromInitrd("usr/lib/managarm/server/posix-subsystem.bin"));
 		KernelFiber::asyncBlockCurrent(runServerFromInitrd("usr/lib/managarm/server/tty-virtio-console.bin"));
 	});

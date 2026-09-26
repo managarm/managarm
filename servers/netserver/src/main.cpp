@@ -510,6 +510,8 @@ async::result<protocols::svrctl::Error> bindDevice(int64_t base_id) {
 		ip4Router().addRoute(std::move(default_route));
 	}
 
+	nl::broadcastNewLink(device);
+
 	co_return protocols::svrctl::Error::success;
 }
 
