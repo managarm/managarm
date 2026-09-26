@@ -1227,7 +1227,11 @@ Superblock::Superblock(helix::UniqueLane lane, std::shared_ptr<UnixDevice> devic
 }
 
 async::result<Error> Superblock::synchronize(protocols::fs::SynchronizeFlags flags) {
-	co_return (co_await protocols::fs::synchronize(_lane, flags)) | toPosixError;
+	auto e = co_await protocols::fs::synchronize(_lane, flags);
+	// Like FsSuperblock::synchronize(), file systems without a sync operation have nothing to flush.
+	if(e == protocols::fs::Error::notSupported)
+		co_return Error::success;
+	co_return e | toPosixError;
 }
 
 FutureMaybe<smarter::shared_ptr<FsNode>> Superblock::createRegular(Process *process) {
