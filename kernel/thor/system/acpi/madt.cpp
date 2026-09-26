@@ -551,7 +551,10 @@ static initgraph::Task bootApsTask{
 };
 
 static initgraph::Task initPmInterfaceTask{
-    &globalInitEngine, "acpi.init-pm-interface", initgraph::Requires{&loadAcpiNamespaceTask}, [] {
+    &globalInitEngine,
+    "acpi.init-pm-interface",
+    initgraph::Requires{&loadAcpiNamespaceTask, getAcpiFiberAvailableStage()},
+    [] {
 	    if (!acpiRsdpNote->rsdp)
 		    return;
 	    if (debugOptionsNote->useSif)
