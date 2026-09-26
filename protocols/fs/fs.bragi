@@ -951,6 +951,7 @@ message MountResponse 52 {
 head(128):
 	Errors error;
 	uint64 caps;
+	uint64 root_inode;
 }
 
 message VtSetModeRequest 53 {

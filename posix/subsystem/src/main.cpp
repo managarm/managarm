@@ -7,6 +7,7 @@
 #include "net.hpp"
 #include <core/clock.hpp>
 #include "drvcore.hpp"
+#include "netlink/nl-socket.hpp"
 #include "devices/full.hpp"
 #include "devices/helout.hpp"
 #include "devices/kmsg.hpp"
@@ -221,6 +222,8 @@ int main() {
 	async::run(clk::enumerateTracker(), helix::currentDispatcher);
 
 //	HEL_CHECK(helSetPriority(kHelThisThread, 1));
+
+	netlink::nl_socket::setupProtocols();
 
 	drvcore::initialize();
 

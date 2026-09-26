@@ -175,15 +175,17 @@ struct HandlePartition {
 			co_return {};
 		}
 
+		auto root = fs->accessRoot();
 		helix::UniqueLane local_lane, remote_lane;
 		std::tie(local_lane, remote_lane) = helix::createStream();
-		protocols::fs::serveNode(std::move(local_lane), fs->accessRoot(),
+		protocols::fs::serveNode(std::move(local_lane), root,
 				fs->nodeOps());
 
 		managarm::fs::MountResponse resp;
 		resp.set_error(managarm::fs::Errors::SUCCESS);
 		resp.set_caps(managarm::fs::MountCaps::MC_CLIENT_EXCLUSIVE_NAMESPACE
 				| managarm::fs::MountCaps::MC_TRAVERSE_LINKS);
+		resp.set_root_inode(root->number);
 
 		auto ser = resp.SerializeAsString();
 		auto [send_resp, push_node] = co_await helix_ng::exchangeMsgs(

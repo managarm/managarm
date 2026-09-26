@@ -6,7 +6,8 @@
 namespace extern_fs {
 
 smarter::shared_ptr<FsLink, LinkRc> createRoot(helix::UniqueLane sb_lane, helix::UniqueLane lane,
-		std::shared_ptr<UnixDevice> device, uint64_t mountCaps);
+		std::shared_ptr<UnixDevice> device, uint64_t mountCaps, std::string fs_type,
+		uint64_t root_inode);
 
 smarter::shared_ptr<File, FileHandle>
 createFile(helix::UniqueLane lane, std::shared_ptr<MountView> mount, smarter::shared_ptr<FsLink, LinkRc> link);
