@@ -137,7 +137,8 @@ void publishIoChannel(smarter::shared_ptr<KernelIoChannel> channel);
 smarter::shared_ptr<KernelIoChannel> solicitIoChannel(frg::string_view tag);
 
 // Helper function to drain a ring buffer to an I/O channel.
+// Records larger than maxRecordSize are truncated.
 coroutine<void> dumpRingToChannel(LogRingBuffer *ringBuffer,
-		smarter::shared_ptr<KernelIoChannel> channel, size_t packetSize);
+		smarter::shared_ptr<KernelIoChannel> channel, size_t maxRecordSize);
 
 } // namespace thor
