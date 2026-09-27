@@ -4,6 +4,7 @@
 #include <stddef.h>
 
 #include <async/recurring-event.hpp>
+#include <frg/span.hpp>
 #include <frg/tuple.hpp>
 #include <frg/utility.hpp>
 #include <thor-internal/cpu-data.hpp>
@@ -22,12 +23,16 @@ struct LogRingBuffer {
 		});
 	}
 
-	void enqueue(const void *data, size_t recordSize, bool suppressWakeup = false) {
+	// Enqueues a single record that consists of the concatenation of the pieces.
+	void enqueue(frg::span<const frg::span<const char>> pieces, bool suppressWakeup = false) {
+		size_t recordSize = 0;
+		for(size_t i = 0; i < pieces.size(); ++i)
+			recordSize += pieces[i].size();
+
 		{
 			auto irqLock = frg::guard(&thor::irqMutex());
 			auto lock = frg::guard(&mutex_);
 
-			auto p = reinterpret_cast<const char *>(data);
 			assert(effectiveSize(recordSize) <= ringSize_);
 
 			auto enqPtr = headPtr_.load(std::memory_order_relaxed);
@@ -57,9 +62,15 @@ struct LogRingBuffer {
 			assert(!(recordOffset > ringSize_ - headerSize));
 
 			memcpy(buffer_ + recordOffset, &recordSize, sizeof(size_t));
-			auto preWrapSize = frg::min(ringSize_ - (recordOffset + headerSize), recordSize);
-			memcpy(buffer_ + recordOffset + sizeof(size_t), p, preWrapSize);
-			memcpy(buffer_, p + preWrapSize, recordSize - preWrapSize);
+			auto offset = recordOffset + headerSize;
+			for(size_t i = 0; i < pieces.size(); ++i) {
+				auto p = pieces[i].data();
+				auto pieceSize = pieces[i].size();
+				auto preWrapSize = frg::min(ringSize_ - offset, pieceSize);
+				memcpy(buffer_ + offset, p, preWrapSize);
+				memcpy(buffer_, p + preWrapSize, pieceSize - preWrapSize);
+				offset = (offset + pieceSize) & (ringSize_ - 1);
+			}
 
 			// Commit the operation *after* writing to the ring.
 			auto commitPtr = enqPtr + effectiveSize(recordSize);
@@ -68,6 +79,11 @@ struct LogRingBuffer {
 
 		if(!suppressWakeup)
 			event_.raise();
+	}
+
+	void enqueue(const void *data, size_t recordSize, bool suppressWakeup = false) {
+		frg::span<const char> piece{reinterpret_cast<const char *>(data), recordSize};
+		enqueue({&piece, 1}, suppressWakeup);
 	}
 
 	void enqueue(char c) {
