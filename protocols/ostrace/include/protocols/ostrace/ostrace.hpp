@@ -5,10 +5,10 @@
 #include <string>
 
 #include <async/mutex.hpp>
-#include <async/queue.hpp>
 #include <async/result.hpp>
+#include <bragi/helpers-all.hpp>
+#include <frg/functional.hpp>
 #include <helix/clock.hpp>
-#include <helix/ipc.hpp>
 #include <ostrace.bragi.hpp>
 
 namespace protocols::ostrace {
@@ -37,10 +37,16 @@ struct Term {
 		return name_;
 	}
 
+	// Serialized Definition record of the term.
+	std::span<const char> definition() const {
+		return definition_;
+	}
+
 private:
 	Context *ctx_{nullptr};
 	ItemId id_{static_cast<ItemId>(0)};
 	const char *name_;
+	std::span<const char> definition_;
 };
 
 // Collection of many Terms.
@@ -100,6 +106,16 @@ struct BragiAttribute : Term {
 	}
 };
 
+namespace detail {
+
+// Writes an event into the calling thread's active page.
+// Emits the definitions of all terms that the page does not define yet, and then calls write()
+// on a span of exactly size bytes.
+void writeEvent(std::span<const Term *const> terms, size_t size,
+		frg::function_ref<void(std::span<char>)> write);
+
+} // namespace detail
+
 // Lifetime:
 //   * The Vocabulary needs to outlive the Context.
 struct Context {
@@ -116,13 +132,6 @@ struct Context {
 	// Whether ostrace is currently active or not.
 	inline bool isActive() {
 		return enabled_.load(std::memory_order_acquire);
-	}
-
-	async::result<void> define(Term *term) {
-		assert(!term->ctx_);
-		auto id = co_await announceItem_(term->name());
-		term->ctx_ = this;
-		term->id_ = id;
 	}
 
 	template<typename... Args>
@@ -151,24 +160,24 @@ struct Context {
 		(determineSize(args.second), ...);
 		determineSize(endOfRecord);
 
-		std::vector<char> buffer;
-		buffer.resize(size);
-
-		// Emit all records to the buffer.
-		size_t offset = 0;
-		auto emitMsg = [&] (auto &msg) {
-			auto ts = msg.size_of_tail();
-			bool encodeSuccess = bragi::write_head_tail(msg,
-					std::span<char>(buffer.data() + offset, 8),
-					std::span<char>(buffer.data() + offset + 8, ts));
-			assert(encodeSuccess);
-			offset += 8 + ts;
+		// Emit all records to the page.
+		auto write = [&] (std::span<char> buffer) {
+			size_t offset = 0;
+			auto emitMsg = [&] (auto &msg) {
+				auto ts = msg.size_of_tail();
+				bool encodeSuccess = bragi::write_head_tail(msg,
+						buffer.subspan(offset, 8),
+						buffer.subspan(offset + 8, ts));
+				assert(encodeSuccess);
+				offset += 8 + ts;
+			};
+			emitMsg(eventRecord);
+			(emitMsg(args.second), ...);
+			emitMsg(endOfRecord);
 		};
-		emitMsg(eventRecord);
-		(emitMsg(args.second), ...);
-		emitMsg(endOfRecord);
 
-		queue_.put(std::move(buffer));
+		const Term *terms[] = {&event, args.first...};
+		detail::writeEvent(terms, size, write);
 	}
 
 	template<typename... Args>
@@ -180,15 +189,12 @@ struct Context {
 	}
 
 private:
-	async::result<ItemId> announceItem_(std::string_view name);
-	async::result<void> run_();
+	void define_(Term *term);
 
 	Vocabulary *vocabulary_;
 	async::mutex initMutex_;
 	std::atomic<bool> initialized_ = false;
-	helix::UniqueLane lane_;
 	std::atomic<bool> enabled_ = false;
-	async::queue<std::vector<char>, frg::stl_allocator> queue_;
 };
 
 struct Timer {
