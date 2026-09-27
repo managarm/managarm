@@ -1,3 +1,5 @@
+#include <array>
+
 #include <bragi/helpers-all.hpp>
 #include <bragi/helpers-frigg.hpp>
 #include <frg/scope_exit.hpp>
@@ -17,6 +19,8 @@ namespace thor {
 namespace ostrace {
 
 std::atomic<bool> available{false};
+
+uint64_t metricsInterval = 1000;
 
 namespace {
 
@@ -181,7 +185,194 @@ coroutine<void> flush() {
 
 constinit ItemId nextId = 1;
 
+constinit size_t nextCounterSlot = 0;
+constinit const Counter *counterList = nullptr;
+constinit const CounterArray *counterArrayList = nullptr;
+
+size_t allocateCounterSlots(size_t size) {
+	// setup() sizes the snapshots of the metrics sampler by the number of slots.
+	assert(!available.load(std::memory_order_relaxed));
+	assert(nextCounterSlot + size <= maxCounterSlots);
+	auto slot = nextCounterSlot;
+	nextCounterSlot += size;
+	return slot;
+}
+
+// Like emit() but with a number of attributes that is only known at runtime.
+// terms[0] is the event, terms[i] is a UintAttribute with the value values[i - 1].
+// Must not be inlined into sampleMetrics(): otherwise, clang can keep a function_ref to a closure
+// on the native stack across a co_await (llvm/llvm-project#149604, fixed in LLVM 22).
+[[gnu::noinline]] void emitUints(frg::span<const Term *const> terms, const uint64_t *values) {
+	if(!available.load(std::memory_order_acquire))
+		return;
+
+	managarm::ostrace::EventRecord<NullAllocator> eventRecord;
+	eventRecord.set_id(static_cast<uint64_t>(terms[0]->id()));
+	eventRecord.set_ts(getClockNanos());
+
+	managarm::ostrace::EndOfRecord<NullAllocator> endOfRecord;
+
+	auto attributeRecord = [&] (size_t i) {
+		UintAttribute::Record record;
+		record.set_id(static_cast<uint64_t>(terms[i]->id()));
+		record.set_v(values[i - 1]);
+		return record;
+	};
+
+	size_t size = recordSize(eventRecord) + recordSize(endOfRecord);
+	for(size_t i = 1; i < terms.size(); ++i) {
+		auto record = attributeRecord(i);
+		size += recordSize(record);
+	}
+
+	writeEvent(terms, size, [&] (frg::span<char> buffer) {
+		size_t offset = 0;
+		writeRecord(eventRecord, buffer, offset);
+		for(size_t i = 1; i < terms.size(); ++i) {
+			auto record = attributeRecord(i);
+			writeRecord(record, buffer, offset);
+		}
+		writeRecord(endOfRecord, buffer, offset);
+	});
+}
+
+// Upper bounds on the space that emitUints() takes in a page for an event without attributes
+// and for each of its attributes. Both include the Definition of the term.
+size_t maxEventSpace(const Term *event) {
+	managarm::ostrace::EventRecord<NullAllocator> eventRecord;
+	eventRecord.set_id(static_cast<uint64_t>(event->id()));
+	eventRecord.set_ts(UINT64_MAX);
+
+	managarm::ostrace::EndOfRecord<NullAllocator> endOfRecord;
+
+	return event->definition().size() + recordSize(eventRecord) + recordSize(endOfRecord);
+}
+
+size_t maxUintSpace(const Term *term) {
+	UintAttribute::Record record;
+	record.set_id(static_cast<uint64_t>(term->id()));
+	record.set_v(UINT64_MAX);
+	return term->definition().size() + recordSize(record);
+}
+
+Event metricsEvent{"thor.metrics"};
+UintAttribute cpuAttribute{"cpu"};
+// Time (in nanoseconds) that the counts of an event cover.
+UintAttribute intervalAttribute{"interval"};
+
+// Attributes that name the indices of CounterArrays.
+frg::manual_box<Term> indexTerms[maxCounterArraySize];
+
+// Array of counter attribute names, built at compile time.
+constexpr auto indexNames = [] {
+	std::array<std::array<char, 3>, maxCounterArraySize> names{};
+	for(size_t i = 0; i < maxCounterArraySize; ++i) {
+		if(i < 10) {
+			names[i][0] = '0' + i;
+		}else{
+			names[i][0] = '0' + i / 10;
+			names[i][1] = '0' + i % 10;
+		}
+	}
+	return names;
+}();
+static_assert(maxCounterArraySize <= 100);
+
+// Reports the counts that accumulated since the previous interval.
+// Counters are reported as attributes of one thor.metrics event per CPU,
+// CounterArrays as one event per CPU that only has attributes for non-zero indices.
+// Events that do not fit into a page are split, since writeEvent() would drop them.
+coroutine<void> sampleMetrics() {
+	auto numCpus = getCpuCount();
+	auto numSlots = nextCounterSlot;
+
+	// Values of the slots at the end of the previous interval.
+	auto *previous = static_cast<uint64_t *>(
+			kernelAlloc->allocate(numCpus * numSlots * sizeof(uint64_t)));
+	for(size_t cpu = 0; cpu < numCpus; ++cpu) {
+		for(size_t slot = 0; slot < numSlots; ++slot)
+			previous[cpu * numSlots + slot] = counterSlots.getFor(cpu).slots[slot].load(
+					std::memory_order_relaxed);
+	}
+
+	size_t numCounters = 0;
+	for(auto *counter = counterList; counter; counter = counter->next())
+		++numCounters;
+	auto maxTerms = 3 + frg::max(numCounters, maxCounterArraySize);
+	auto *terms = static_cast<const Term **>(kernelAlloc->allocate(maxTerms * sizeof(const Term *)));
+	auto *values = static_cast<uint64_t *>(kernelAlloc->allocate(maxTerms * sizeof(uint64_t)));
+
+	auto last = getClockNanos();
+	auto deadline = last;
+	while(true) {
+		deadline += metricsInterval * 1'000'000;
+		co_await generalTimerEngine()->sleep(deadline);
+		auto now = getClockNanos();
+
+		for(size_t cpu = 0; cpu < numCpus; ++cpu) {
+			auto delta = [&] (size_t slot) -> uint64_t {
+				auto &prev = previous[cpu * numSlots + slot];
+				auto current = counterSlots.getFor(cpu).slots[slot].load(std::memory_order_relaxed);
+				auto d = current - prev;
+				prev = current;
+				return d;
+			};
+
+			size_t n = 0;
+			// Upper bound on the space that the event takes in a page.
+			size_t space = 0;
+			auto push = [&] (const Term *term, uint64_t value) {
+				assert(n < maxTerms);
+				terms[n] = term;
+				// values[] is offset by one since terms[0] is the event.
+				if(n)
+					values[n - 1] = value;
+				space += n ? maxUintSpace(term) : maxEventSpace(term);
+				++n;
+			};
+			auto begin = [&] (const Term *event) {
+				n = 0;
+				space = 0;
+				push(event, 0);
+				push(&cpuAttribute, cpu);
+				push(&intervalAttribute, now - last);
+			};
+			auto pushCount = [&] (const Term *term, uint64_t count) {
+				if(space + maxUintSpace(term) > pageSize) {
+					emitUints({terms, n}, values);
+					begin(terms[0]);
+				}
+				push(term, count);
+			};
+
+			// thor.metrics is emitted even without counts, such that readers see all intervals.
+			begin(&metricsEvent);
+			for(auto *counter = counterList; counter; counter = counter->next()) {
+				auto d = delta(counter->slot());
+				if(d)
+					pushCount(counter, d);
+			}
+			emitUints({terms, n}, values);
+
+			for(auto *array = counterArrayList; array; array = array->next()) {
+				begin(array);
+				for(size_t i = 0; i < array->size(); ++i) {
+					auto d = delta(array->slot() + i);
+					if(d)
+						pushCount(indexTerms[i].get(), d);
+				}
+				if(n > 3)
+					emitUints({terms, n}, values);
+			}
+		}
+
+		last = now;
+	}
+}
+
 } // anonymous namespace
+
+THOR_DEFINE_PERCPU(counterSlots);
 
 Term::Term(const char *name)
 : name_{name} {
@@ -202,7 +393,21 @@ Term::Term(const char *name)
 	definition_ = {buffer, 8 + tailSize};
 }
 
+Counter::Counter(const char *name)
+: Term{name}, slot_{allocateCounterSlots(1)}, next_{counterList} {
+	counterList = this;
+}
+
+CounterArray::CounterArray(const char *name, size_t size)
+: Term{name}, slot_{allocateCounterSlots(size)}, size_{size}, next_{counterArrayList} {
+	assert(size <= maxCounterArraySize);
+	counterArrayList = this;
+}
+
 void setup() {
+	for(size_t i = 0; i < maxCounterArraySize; ++i)
+		indexTerms[i].initialize(indexNames[i].data());
+
 	definedWords = (nextId + 63) / 64;
 
 	// Pages are allocated upfront since emit() cannot allocate.
@@ -216,6 +421,9 @@ void setup() {
 
 	KernelFiber::run([] {
 		spawnOnWorkQueue(*kernelAlloc, thisFiber()->associatedWorkQueue().lock(), sealExpired());
+		if(metricsInterval)
+			spawnOnWorkQueue(*kernelAlloc, thisFiber()->associatedWorkQueue().lock(),
+					sampleMetrics());
 		KernelFiber::asyncBlockCurrent(flush());
 	});
 

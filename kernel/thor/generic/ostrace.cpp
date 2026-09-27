@@ -45,6 +45,7 @@ initgraph::Task initOsTraceCore{&globalInitEngine, "generic.init-ostrace-core",
 	[] {
 		frg::array args = {
 			frg::option{"ostrace", frg::store_true(wantOsTrace)},
+			frg::option{"ostrace.metrics-interval", frg::as_number(ostrace::metricsInterval)},
 		};
 		frg::parse_arguments(getKernelCmdline(), args);
 
