@@ -4,6 +4,11 @@
 #include <sys/stat.h>
 #include <unistd.h>
 
+#include <algorithm>
+#include <map>
+#include <queue>
+#include <variant>
+
 #include <bragi/helpers-std.hpp>
 #include <CLI/App.hpp>
 #include <CLI/Formatter.hpp>
@@ -18,8 +23,8 @@ void FRG_INTF(panic)(const char *cstring) {
 namespace {
 
 template<typename T>
-concept Policy = requires(T &a, managarm::ostrace::EventRecord &event, managarm::ostrace::Definition &def, managarm::ostrace::UintAttribute &uintAttr, managarm::ostrace::BufferAttribute &bufferAttr, size_t pass) {
-	{ a.onEvent(event, pass) } -> std::same_as<bool>;
+concept Policy = requires(T &a, managarm::ostrace::EventRecord &event, managarm::ostrace::Definition &def, managarm::ostrace::UintAttribute &uintAttr, managarm::ostrace::BufferAttribute &bufferAttr, uint64_t source, size_t pass) {
+	{ a.onEvent(event, source, pass) } -> std::same_as<bool>;
 	{ a.onDefinition(def, pass) } -> std::same_as<bool>;
 	{ a.onEndOfRecord(pass) } -> std::same_as<bool>;
 
@@ -28,14 +33,16 @@ concept Policy = requires(T &a, managarm::ostrace::EventRecord &event, managarm:
 
 	{ a.passes() } -> std::same_as<size_t>;
 	{ a.reset() } -> std::same_as<void>;
+	{ a.finish() } -> std::same_as<void>;
 
 	requires std::is_same_v<decltype(a.parsedRecords), size_t>;
-	requires std::is_same_v<decltype(a.terms), std::unordered_map<uint64_t, std::string>>;
+	requires std::is_same_v<decltype(a.terms), const std::unordered_map<uint64_t, std::string> *>;
 };
 
 struct JsonPolicy {
-	bool onEvent(managarm::ostrace::EventRecord &record, size_t) {
-		std::cout << "{\"_event\":\"" << terms.at(record.id()) << "\",\"_ts\":" << record.ts();
+	bool onEvent(managarm::ostrace::EventRecord &record, uint64_t source, size_t) {
+		std::cout << "{\"_event\":\"" << terms->at(record.id()) << "\",\"_ts\":" << record.ts()
+			<< ",\"_source\":" << source;
 		return true;
 	}
 
@@ -49,12 +56,12 @@ struct JsonPolicy {
 	}
 
 	bool onUintAttribute(managarm::ostrace::UintAttribute &record, size_t) {
-		std::cout << ",\"" << terms.at(record.id()) << "\":" << record.v();
+		std::cout << ",\"" << terms->at(record.id()) << "\":" << record.v();
 		return true;
 	}
 
 	bool onBufferAttribute(managarm::ostrace::BufferAttribute &record, size_t) {
-		std::cout << ",\"" << terms.at(record.id()) << "\": \"<buffer of size " << record.buffer().size() << ">\"";
+		std::cout << ",\"" << terms->at(record.id()) << "\": \"<buffer of size " << record.buffer().size() << ">\"";
 		return true;
 	}
 
@@ -66,7 +73,11 @@ struct JsonPolicy {
 
 	}
 
-	std::unordered_map<uint64_t, std::string> terms;
+	void finish() {
+
+	}
+
+	const std::unordered_map<uint64_t, std::string> *terms = nullptr;
 	size_t parsedRecords;
 };
 
@@ -102,8 +113,8 @@ struct WiresharkPolicy {
 		"fs.request",
 	};
 
-	bool onEvent(managarm::ostrace::EventRecord &record, size_t) {
-		if(requests.contains(terms.at(record.id())))
+	bool onEvent(managarm::ostrace::EventRecord &record, uint64_t, size_t) {
+		if(requests.contains(terms->at(record.id())))
 			state_.ts = record.ts();
 		return true;
 	}
@@ -118,18 +129,18 @@ struct WiresharkPolicy {
 	}
 
 	bool onUintAttribute(managarm::ostrace::UintAttribute &record, size_t) {
-		if(terms.at(record.id()) == "pid") {
+		if(terms->at(record.id()) == "pid") {
 			state_.last_pid = record.v();
-		} else if(terms.at(record.id()) == "time") {
+		} else if(terms->at(record.id()) == "time") {
 			state_.last_request_ts = record.v();
-		} else if(terms.at(record.id()) == "request") {
+		} else if(terms->at(record.id()) == "request") {
 			state_.last_request = record.v();
 		}
 		return true;
 	}
 
 	bool onBufferAttribute(managarm::ostrace::BufferAttribute &record, size_t pass) {
-		auto name = terms.at(record.id());
+		auto name = terms->at(record.id());
 
 		if(!name.starts_with("0x") || name.size() > 10)
 			return true;
@@ -145,22 +156,25 @@ struct WiresharkPolicy {
 			metadata.last_request_ts = state_.ts;
 		}
 
+		// Frame IDs are indices into the pcap, starting at 1.
 		if(pass == 0) {
 			if(state_.last_request) {
-				if(requests_.contains(metadata)) {
-					auto &convo = requests_.at(metadata);
-					convo.second = frame_id;
+				// Replies whose request was lost cannot be part of a conversation.
+				auto it = requests_.find(metadata);
+				if(it == requests_.end()) {
+					++orphans_;
+					return true;
 				}
+				it->second.second = frame_id;
 			} else {
 				requests_.insert({metadata, {frame_id, 0}});
 			}
 		} else {
-			if(!requests_.contains(metadata)) {
-				printf("No metadata found for PID %u Request %u TS %zu\n",
-					metadata.last_pid, metadata.last_request, metadata.last_request_ts);
-				exit(1);
-			}
-			auto convo = requests_.at(metadata);
+			auto it = requests_.find(metadata);
+			// Pass 0 dropped replies that precede their request.
+			if(state_.last_request && (it == requests_.end() || it->second.first >= frame_id))
+				return true;
+			auto convo = it->second;
 			size_t request_time = 0;
 			if(state_.ts > metadata.last_request_ts)
 				request_time = state_.ts - metadata.last_request_ts;
@@ -202,12 +216,18 @@ struct WiresharkPolicy {
 		frame_id = 1;
 	}
 
+	void finish() {
+		if(orphans_)
+			warnx("dropped %zu replies without a request", orphans_);
+	}
+
 	size_t parsedRecords;
-	std::unordered_map<uint64_t, std::string> terms;
+	const std::unordered_map<uint64_t, std::string> *terms = nullptr;
 
 private:
 	int pcapfd_;
 	size_t frame_id = 1;
+	size_t orphans_ = 0;
 
 	struct pcap_packet_state {
 		pid_t last_pid = 0;
@@ -260,130 +280,305 @@ int main(int argc, char **argv) {
 	frg::span<const char> fileBuffer{reinterpret_cast<const char *>(ptr),
 			static_cast<size_t>(st.st_size)};
 
-	auto handleMessage = []<Policy T>(T &policy, frg::span<const char> &buffer, size_t pass) -> bool {
+	// A page of a writer. The page contains the events first_event to first_event + num_events - 1
+	// of the writer.
+	struct Page {
+		uint64_t firstEvent;
+		uint64_t numEvents;
+		frg::span<const char> buffer;
+	};
+
+	struct Writer {
+		uint64_t source;
+		// Sorted by firstEvent.
+		std::vector<Page> pages;
+	};
+
+	// Gaps in the sequence numbers of frames and in the event numbers of writers show where
+	// data was lost.
+	struct LossStats {
+		std::vector<uint64_t> frameSeqs;
+		size_t brokenPages = 0;
+		size_t unorderedEvents = 0;
+
+		static uint64_t countGaps(std::vector<uint64_t> &seqs) {
+			std::ranges::sort(seqs);
+			auto [first, last] = std::ranges::unique(seqs);
+			seqs.erase(first, last);
+			// Sequence numbers start at zero.
+			return seqs.empty() ? 0 : seqs.back() + 1 - seqs.size();
+		}
+
+		static uint64_t countLostEvents(const std::vector<Page> &pages) {
+			// Event numbers start at zero.
+			uint64_t lost = 0;
+			uint64_t next = 0;
+			for(auto &page : pages) {
+				if(page.firstEvent > next)
+					lost += page.firstEvent - next;
+				next = std::max(next, page.firstEvent + page.numEvents);
+			}
+			return lost;
+		}
+
+		void report(const std::vector<Writer> &writers) {
+			std::cerr << "lost " << countGaps(frameSeqs) << " frames in the kernel" << std::endl;
+			std::map<uint64_t, uint64_t> lostEvents;
+			for(auto &writer : writers)
+				lostEvents[writer.source] += countLostEvents(writer.pages);
+			for(auto &[source, lost] : lostEvents)
+				std::cerr << "lost " << lost << " events of source " << source << std::endl;
+			std::cerr << "skipped " << brokenPages << " broken pages" << std::endl;
+			if(unorderedEvents)
+				std::cerr << "merged " << unorderedEvents << " events out of timestamp order"
+					<< std::endl;
+		}
+	};
+
+	using Record = std::variant<managarm::ostrace::Definition, managarm::ostrace::EndOfRecord,
+			managarm::ostrace::EventRecord, managarm::ostrace::UintAttribute,
+			managarm::ostrace::BufferAttribute>;
+
+	auto parseRecord = [] (frg::span<const char> &buffer) -> std::optional<Record> {
 		auto preamble = bragi::read_preamble(buffer);
 		if(preamble.error()) {
-			warnx("halting due to broken preamble");
-			return false;
+			warnx("broken preamble");
+			return std::nullopt;
 		}
 
 		// All records have a head size of 8.
 		auto head_span = buffer.subspan(0, 8);
 		if(buffer.size() < 8 + preamble.tail_size()) {
-			warnx("halting due to truncated record head");
-			return false;
+			warnx("truncated record");
+			return std::nullopt;
 		}
 		auto tail_span = buffer.subspan(8, preamble.tail_size());
 
-		switch (preamble.id()) {
-		case bragi::message_id<managarm::ostrace::Definition>: {
-			auto maybeRecord = bragi::parse_head_tail<managarm::ostrace::Definition>(
-					head_span, tail_span);
-			assert(maybeRecord);
-			auto &record = maybeRecord.value();
-
-			policy.terms[record.id()] = record.name();
-			if(!policy.onDefinition(record, pass)) {
-				warnx("failed to parse Definition");
-				return false;
-			}
-		} break;
-		case bragi::message_id<managarm::ostrace::EndOfRecord>:
-			if(!policy.onEndOfRecord(pass)) {
-				warnx("failed to parse EndOfRecord");
-				return false;
-			}
-			break;
-		case bragi::message_id<managarm::ostrace::EventRecord>: {
-			auto maybeRecord = bragi::parse_head_tail<managarm::ostrace::EventRecord>(
-					head_span, tail_span);
+		auto parse = [&]<typename R>() -> std::optional<Record> {
+			auto maybeRecord = bragi::parse_head_tail<R>(head_span, tail_span);
 			if(!maybeRecord) {
-				warnx("halting due to broken record");
-				return false;
+				warnx("broken record");
+				return std::nullopt;
 			}
-			auto &record = maybeRecord.value();
-
-			if(!policy.onEvent(record, pass)) {
-				warnx("failed to parse EventRecord");
-				return false;
-			}
-		} break;
-		case bragi::message_id<managarm::ostrace::UintAttribute>: {
-			auto maybeRecord = bragi::parse_head_tail<managarm::ostrace::UintAttribute>(
-					head_span, tail_span);
-			assert(maybeRecord);
-			auto &record = maybeRecord.value();
-
-			if(!policy.onUintAttribute(record, pass)) {
-				warnx("failed to parse UintAttribute");
-				return false;
-			}
-		} break;
-		case bragi::message_id<managarm::ostrace::BufferAttribute>: {
-			auto maybeRecord = bragi::parse_head_tail<managarm::ostrace::BufferAttribute>(
-					head_span, tail_span);
-			assert(maybeRecord);
-			auto &record = maybeRecord.value();
-
-			if(!policy.onBufferAttribute(record, pass)) {
-				warnx("failed to parse BufferAttribute");
-				return false;
-			}
-		} break;
-		default:
-			warnx("halting due to unexpected message ID %u", preamble.id());
-			return false;
-		}
-
-		if(buffer.size() >= 8 + preamble.tail_size()) {
 			buffer = buffer.subspan(8 + preamble.tail_size());
-			return true;
-		}
-
-		return false;
-	};
-
-	auto extractRecords = [&handleMessage]<Policy T>(T &policy, frg::span<const char> &bufferView, size_t pass) -> bool {
-		struct Header {
-			uint32_t size;
+			return std::move(*maybeRecord);
 		};
 
-		if (bufferView.size() < sizeof(Header)) {
-			std::cerr << "failed to extract header" << std::endl;
-			return false;
+		switch (preamble.id()) {
+		case bragi::message_id<managarm::ostrace::Definition>:
+			return parse.template operator()<managarm::ostrace::Definition>();
+		case bragi::message_id<managarm::ostrace::EndOfRecord>:
+			return parse.template operator()<managarm::ostrace::EndOfRecord>();
+		case bragi::message_id<managarm::ostrace::EventRecord>:
+			return parse.template operator()<managarm::ostrace::EventRecord>();
+		case bragi::message_id<managarm::ostrace::UintAttribute>:
+			return parse.template operator()<managarm::ostrace::UintAttribute>();
+		case bragi::message_id<managarm::ostrace::BufferAttribute>:
+			return parse.template operator()<managarm::ostrace::BufferAttribute>();
+		default:
+			warnx("unexpected message ID %u", preamble.id());
+			return std::nullopt;
 		}
-		Header hdr;
-		memcpy(&hdr, bufferView.data(), sizeof(Header));
-
-		auto buffer = bufferView.subspan(sizeof(Header), hdr.size);
-		while (buffer.size()) {
-			if(!handleMessage(policy, buffer, pass)) {
-				return false;
-			}
-			++policy.parsedRecords;
-		}
-
-		bufferView = bufferView.subspan(sizeof(Header) + hdr.size);
-		return true;
 	};
 
-	auto parseWithPolicy = [&extractRecords]<Policy T>(T &policy, frg::span<const char> &fileBuffer) {
+	// Only parses the Frames; the pages are parsed while merging.
+	// Frames are written by the kernel, so a broken page does not affect the following frames.
+	auto indexFrames = [] (frg::span<const char> &buffer, LossStats &stats) -> std::vector<Writer> {
+		constexpr size_t frameHeadSize = bragi::head_size<managarm::ostrace::Frame>;
+
+		// Indexed by source and writer.
+		std::map<std::pair<uint64_t, uint64_t>, Writer> writers;
+		while (buffer.size()) {
+			if(buffer.size() < frameHeadSize) {
+				warnx("halting due to truncated frame");
+				break;
+			}
+			auto frame = bragi::parse_head_only<managarm::ostrace::Frame>(
+					buffer.subspan(0, frameHeadSize));
+			if(!frame) {
+				warnx("halting due to broken frame");
+				break;
+			}
+			if(buffer.size() - frameHeadSize < frame->size()) {
+				warnx("halting due to truncated frame");
+				break;
+			}
+
+			stats.frameSeqs.push_back(frame->seq());
+			auto &writer = writers[{frame->source(), frame->writer()}];
+			writer.source = frame->source();
+			writer.pages.push_back({frame->first_event(), frame->num_events(),
+					buffer.subspan(frameHeadSize, frame->size())});
+
+			buffer = buffer.subspan(frameHeadSize + frame->size());
+		}
+
+		std::vector<Writer> result;
+		for(auto &[key, writer] : writers) {
+			// Stable, such that pages without event numbers stay in the order of their frames.
+			std::ranges::stable_sort(writer.pages, {}, &Page::firstEvent);
+			result.push_back(std::move(writer));
+		}
+		return result;
+	};
+
+	// Reads the pages of a writer event by event.
+	struct Cursor {
+		const Writer *writer;
+		size_t nextPage = 0;
+		// Records of the current page that were not read yet.
+		frg::span<const char> rest;
+		// IDs are local to each page.
+		std::unordered_map<uint64_t, std::string> terms;
+		// Records of the current event, including the Definitions that precede it.
+		std::vector<Record> event;
+		uint64_t ts = 0;
+	};
+
+	// Reads the next complete event of the writer, skipping broken pages.
+	// Returns false if the writer has no more events.
+	auto advance = [&parseRecord] (Cursor &cursor, LossStats *stats) -> bool {
+		bool inEvent = false;
+
+		// Pages define all IDs before using them.
+		auto isDefined = [&] (uint64_t id) -> bool {
+			if(!cursor.terms.contains(id)) {
+				warnx("use of undefined ID %lu", id);
+				return false;
+			}
+			return true;
+		};
+
+		// Returns false if the record breaks the page.
+		auto accept = [&] (Record &record) -> bool {
+			if(auto def = std::get_if<managarm::ostrace::Definition>(&record)) {
+				cursor.terms[def->id()] = def->name();
+				return true;
+			}
+			if(auto event = std::get_if<managarm::ostrace::EventRecord>(&record)) {
+				if(inEvent) {
+					warnx("missing EndOfRecord");
+					return false;
+				}
+				if(!isDefined(event->id()))
+					return false;
+				if(stats && event->ts() < cursor.ts)
+					++stats->unorderedEvents;
+				inEvent = true;
+				cursor.ts = event->ts();
+				return true;
+			}
+			if(!inEvent) {
+				warnx("record outside of an event");
+				return false;
+			}
+			if(auto attr = std::get_if<managarm::ostrace::UintAttribute>(&record))
+				return isDefined(attr->id());
+			if(auto attr = std::get_if<managarm::ostrace::BufferAttribute>(&record))
+				return isDefined(attr->id());
+			return true;
+		};
+
+		auto skipPage = [&] {
+			warnx("skipping broken page of source %lu", cursor.writer->source);
+			if(stats)
+				++stats->brokenPages;
+			cursor.rest = {};
+			inEvent = false;
+		};
+
+		cursor.event.clear();
+		while (true) {
+			if(!cursor.rest.size()) {
+				if(inEvent) {
+					warnx("truncated event");
+					skipPage();
+				}
+				if(cursor.nextPage == cursor.writer->pages.size())
+					return false;
+				cursor.rest = cursor.writer->pages[cursor.nextPage++].buffer;
+				cursor.terms.clear();
+				cursor.event.clear();
+				continue;
+			}
+
+			auto record = parseRecord(cursor.rest);
+			if(!record || !accept(*record)) {
+				skipPage();
+				continue;
+			}
+			bool isEnd = std::holds_alternative<managarm::ostrace::EndOfRecord>(*record);
+			cursor.event.push_back(std::move(*record));
+			if(isEnd)
+				return true;
+		}
+	};
+
+	auto dispatch = []<Policy T>(T &policy, Record &record, uint64_t source, size_t pass) -> bool {
+		return std::visit([&] (auto &r) -> bool {
+			using R = std::remove_cvref_t<decltype(r)>;
+			if constexpr (std::is_same_v<R, managarm::ostrace::Definition>)
+				return policy.onDefinition(r, pass);
+			else if constexpr (std::is_same_v<R, managarm::ostrace::EndOfRecord>)
+				return policy.onEndOfRecord(pass);
+			else if constexpr (std::is_same_v<R, managarm::ostrace::EventRecord>)
+				return policy.onEvent(r, source, pass);
+			else if constexpr (std::is_same_v<R, managarm::ostrace::UintAttribute>)
+				return policy.onUintAttribute(r, pass);
+			else
+				return policy.onBufferAttribute(r, pass);
+		}, record);
+	};
+
+	// The events of each writer are in timestamp order, so a k-way merge of the writers orders
+	// all events while holding only one event per writer in memory.
+	auto merge = [&advance, &dispatch]<Policy T>(T &policy, const std::vector<Writer> &writers,
+			size_t pass, LossStats *stats) {
+		std::vector<Cursor> cursors;
+		for(auto &writer : writers)
+			cursors.push_back({.writer = &writer});
+
+		// Min-heap of the timestamps of the cursors' events. The cursor index breaks ties.
+		using Entry = std::pair<uint64_t, size_t>;
+		std::priority_queue<Entry, std::vector<Entry>, std::greater<>> heap;
+		for(size_t i = 0; i < cursors.size(); ++i) {
+			if(advance(cursors[i], stats))
+				heap.push({cursors[i].ts, i});
+		}
+
+		while (!heap.empty()) {
+			auto i = heap.top().second;
+			heap.pop();
+			auto &cursor = cursors[i];
+
+			policy.terms = &cursor.terms;
+			for(auto &record : cursor.event) {
+				if(!dispatch(policy, record, cursor.writer->source, pass))
+					warnx("failed to handle record");
+				++policy.parsedRecords;
+			}
+			policy.terms = nullptr;
+
+			if(advance(cursor, stats))
+				heap.push({cursor.ts, i});
+		}
+	};
+
+	auto parseWithPolicy = [&indexFrames, &merge]<Policy T>(T &policy,
+			frg::span<const char> &fileBuffer) {
+		LossStats stats;
+		auto writers = indexFrames(fileBuffer, stats);
 		for(size_t pass = 0; pass < policy.passes(); pass++) {
-			auto bufferView = fileBuffer.subspan(0);
 			policy.parsedRecords = 0;
 			policy.reset();
 
-			while (bufferView.size()) {
-				if (!extractRecords(policy, bufferView, pass))
-					break;
-			}
-
-			if(pass == policy.passes() - 1)
-				fileBuffer = bufferView;
+			merge(policy, writers, pass, pass ? nullptr : &stats);
 		}
+		policy.finish();
 
 		std::cerr << "extracted " << policy.parsedRecords << " records"
 			<< " (" << fileBuffer.size() << " bytes remain)" << std::endl;
+		stats.report(writers);
 	};
 
 	if(pcap) {
