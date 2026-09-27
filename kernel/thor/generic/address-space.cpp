@@ -474,6 +474,11 @@ VirtualSpace::map(smarter::borrowed_ptr<MemorySlice> slice,
 	);
 	mapping->selfPtr = mapping;
 
+	// We keep one reference until the detach the observer.
+	// Attach before the mapping becomes faultable, otherwise evictions can miss its PTEs.
+	mapping.policy().increment();
+	mapping->view->addObserver(&mapping->observer);
+
 	{
 		auto irqLock = frg::guard(&irqMutex());
 		auto snapshotLock = frg::guard(&_snapshotMutex);
@@ -484,10 +489,6 @@ VirtualSpace::map(smarter::borrowed_ptr<MemorySlice> slice,
 		assert(mapping->state.load(std::memory_order_relaxed) == MappingState::null);
 		mapping->state.store(MappingState::active, std::memory_order_relaxed);
 	}
-
-	// We keep one reference until the detach the observer.
-	mapping.policy().increment();
-	mapping->view->addObserver(&mapping->observer);
 
 	// Not populating the range is the default.
 	// Populating is quite expensive on CoW memory, mostly due to additional shootdowns
@@ -1029,6 +1030,13 @@ coroutine<frg::tuple<Mapping *, Mapping *>> VirtualSpace::_splitMappings(uintptr
 
 			assert(leftMapping && rightMapping);
 
+			// We keep one reference until the detach the observer.
+			// Attach before the mappings become faultable, otherwise evictions can miss their PTEs.
+			leftMapping.policy().increment();
+			leftMapping->view->addObserver(&leftMapping->observer);
+			rightMapping.policy().increment();
+			rightMapping->view->addObserver(&rightMapping->observer);
+
 			// Now remove the mapping and insert the new mappings.
 			{
 				auto irqLock = frg::guard(&irqMutex());
@@ -1046,20 +1054,17 @@ coroutine<frg::tuple<Mapping *, Mapping *>> VirtualSpace::_splitMappings(uintptr
 			}
 
 			// Retire the old mapping and start using the new ones.
-			// We keep one reference until the detach the observer.
-			leftMapping.policy().increment();
-			leftMapping->view->addObserver(&leftMapping->observer);
 			if (leftMapping->view->canEvictMemory())
 				spawnOnWorkQueue(*kernelAlloc, WorkQueue::generalQueue().lock(), leftMapping->runEvictionLoop());
-
-			// We keep one reference until the detach the observer.
-			rightMapping.policy().increment();
-			rightMapping->view->addObserver(&rightMapping->observer);
 			if (rightMapping->view->canEvictMemory())
 				spawnOnWorkQueue(*kernelAlloc, WorkQueue::generalQueue().lock(), rightMapping->runEvictionLoop());
 
 			assert(mapping->state.load(std::memory_order_relaxed) == MappingState::zombie);
 			mapping->state.store(MappingState::retired, std::memory_order_relaxed);
+
+			// Faults that saw the old mapping as active must finish mapping their pages
+			// before it stops observing evictions; the new mappings do not wait for them.
+			co_await mapping->exposeRcu.barrier();
 
 			if (mapping->view->canEvictMemory()) {
 				mapping->cancelEviction.cancel();
