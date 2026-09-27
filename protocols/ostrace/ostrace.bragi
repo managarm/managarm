@@ -1,6 +1,33 @@
 namespace "managarm::ostrace";
 
-// Records stored in the output file.
+// The output stream is a sequence of frames.
+// Each frame consists of a Frame message that is followed by the contents of one page.
+// Frames are written by the kernel, while pages are written by the sources.
+
+group {
+
+message Frame 64 {
+head(56):
+	// Source that wrote the page. Assigned by the kernel; the kernel itself is source 0.
+	uint64 source;
+	// Kernel-wide frame counter. Gaps indicate frames that were lost in the kernel.
+	uint64 seq;
+	// Size of the page that follows the Frame.
+	uint64 size;
+	// Thread (or CPU, for the kernel) of the source that wrote the page.
+	uint64 writer;
+	// Events of a writer are numbered consecutively, including events that the writer dropped.
+	// The page contains the events first_event to first_event + num_events - 1, so gaps in
+	// the numbers indicate lost events.
+	uint64 first_event;
+	uint64 num_events;
+}
+
+}
+
+// Records stored in pages.
+// Pages are self-contained: a page contains a Definition for each ID that it uses before the
+// ID's first use.
 
 group {
 
@@ -54,6 +81,10 @@ head(128):
 message EmitReq 2 {
 head(128):
 	uint64 size;
+	// Filled into the Frame of the page.
+	uint64 writer;
+	uint64 first_event;
+	uint64 num_events;
 }
 
 // TODO(AvdG): in the future, we want each source to emit its definitions independently
