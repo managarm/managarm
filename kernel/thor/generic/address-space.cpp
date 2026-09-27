@@ -139,57 +139,60 @@ coroutine<void> Mapping::runEvictionLoop() {
 		auto eviction = co_await view->pollEviction(&observer, cancelEviction);
 		if(!eviction)
 			break;
-		if(eviction.offset() + eviction.size() <= viewOffset
-				|| eviction.offset() >= viewOffset + length) {
-			eviction.done();
-			continue;
-		}
-
-		// Begin and end offsets of the region that we need to unmap or clean.
-		auto shootBegin = frg::max(eviction.offset(), viewOffset);
-		auto shootEnd = frg::min(eviction.offset() + eviction.size(),
-				viewOffset + length);
-
-		// Offset from the beginning of the mapping.
-		auto shootOffset = shootBegin - viewOffset;
-		auto shootSize = shootEnd - shootBegin;
-		assert(shootSize);
-		assert(!(shootOffset & (kPageSize - 1)));
-		assert(!(shootSize & (kPageSize - 1)));
-
-		co_await exposeRcu.barrier();
-
-		bool anyRevoked;
-		{
-			LocalRcuEngine::Guard revokeGuard{revokeRcu};
-
-			if(eviction.mode() == EvictMode::cleanRange) {
-				auto cleanOutcome = co_await revokePages(owner->_ops,
-						address + shootOffset, shootSize, tracksDirty(),
-						[&] (VirtualAddr va, size_t size, RevokeBatch &batch) {
-							return owner->_ops->cleanPages(va, size, batch);
-						});
-				assert(cleanOutcome);
-				anyRevoked = cleanOutcome.value().anyRevoked;
-			} else {
-				assert(eviction.mode() == EvictMode::breakRange);
-				auto unmapOutcome = co_await revokePages(owner->_ops,
-						address + shootOffset, shootSize, tracksDirty(),
-						[&] (VirtualAddr va, size_t size, RevokeBatch &batch) {
-							return owner->_ops->unmapPages(va, size, batch);
-						});
-				assert(unmapOutcome);
-				owner->notifyRss_(unmapOutcome.value());
-				anyRevoked = unmapOutcome.value().anyRevoked;
-			}
-		}
-		if(!anyRevoked)
-			co_await revokeRcu.barrier();
-
+		co_await evict(eviction.mode(), eviction.offset(), eviction.size());
 		eviction.done();
 	}
 
 	evictionDoneEvent.raise();
+}
+
+coroutine<void> Mapping::evict(EvictMode mode, uintptr_t offset, size_t size) {
+	assert(currentIpl() == ipl::exceptionalWork);
+
+	if(offset + size <= viewOffset
+			|| offset >= viewOffset + length)
+		co_return;
+
+	// Begin and end offsets of the region that we need to unmap or clean.
+	auto shootBegin = frg::max(offset, viewOffset);
+	auto shootEnd = frg::min(offset + size,
+			viewOffset + length);
+
+	// Offset from the beginning of the mapping.
+	auto shootOffset = shootBegin - viewOffset;
+	auto shootSize = shootEnd - shootBegin;
+	assert(shootSize);
+	assert(!(shootOffset & (kPageSize - 1)));
+	assert(!(shootSize & (kPageSize - 1)));
+
+	co_await exposeRcu.barrier();
+
+	bool anyRevoked;
+	{
+		LocalRcuEngine::Guard revokeGuard{revokeRcu};
+
+		if(mode == EvictMode::cleanRange) {
+			auto cleanOutcome = co_await revokePages(owner->_ops,
+					address + shootOffset, shootSize, tracksDirty(),
+					[&] (VirtualAddr va, size_t size, RevokeBatch &batch) {
+						return owner->_ops->cleanPages(va, size, batch);
+					});
+			assert(cleanOutcome);
+			anyRevoked = cleanOutcome.value().anyRevoked;
+		} else {
+			assert(mode == EvictMode::breakRange);
+			auto unmapOutcome = co_await revokePages(owner->_ops,
+					address + shootOffset, shootSize, tracksDirty(),
+					[&] (VirtualAddr va, size_t size, RevokeBatch &batch) {
+						return owner->_ops->unmapPages(va, size, batch);
+					});
+			assert(unmapOutcome);
+			owner->notifyRss_(unmapOutcome.value());
+			anyRevoked = unmapOutcome.value().anyRevoked;
+		}
+	}
+	if(!anyRevoked)
+		co_await revokeRcu.barrier();
 }
 
 // --------------------------------------------------------

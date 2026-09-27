@@ -651,6 +651,8 @@ struct Mapping {
 
 	coroutine<void> runEvictionLoop();
 
+	coroutine<void> evict(EvictMode mode, uintptr_t offset, size_t size);
+
 	const smarter::shared_ptr<VirtualSpace> owner;
 	const VirtualAddr address;
 	const size_t length;
