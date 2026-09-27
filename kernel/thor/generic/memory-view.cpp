@@ -1,3 +1,4 @@
+#include <async/scope.hpp>
 #include <frg/cmdline.hpp>
 #include <frg/scope_exit.hpp>
 #include <thor-internal/address-space.hpp>
@@ -29,6 +30,53 @@ namespace {
 
 	// Number of page entries that BackingMemory::markDirtyRange() scans per critical section.
 	constexpr size_t markDirtyChunkSize = 512;
+}
+
+// --------------------------------------------------------
+// EvictionQueue
+// --------------------------------------------------------
+
+coroutine<void> EvictionQueue::removeObserver(MemoryObserver *observer) {
+	auto n = observer->inflightEvictions_.fetch_or(MemoryObserver::detachedBit,
+			std::memory_order_acq_rel);
+	assert(!(n & MemoryObserver::detachedBit));
+	// The last endEviction_() raises the event; without in-flight evictions nobody does.
+	if(n)
+		co_await observer->evictionsDrainedEvent_.wait();
+
+	auto irqLock = frg::guard(&irqMutex());
+	auto lock = frg::guard(&mutex_);
+
+	observers_.erase(observer);
+}
+
+coroutine<void> EvictionQueue::dispatch_(EvictMode mode, uintptr_t offset, size_t size) {
+	assert(currentIpl() == ipl::exceptionalWork);
+
+	auto runEviction = [&] (MemoryObserver *observer) {
+		return async::transform(observer->evict(mode, offset, size), [observer] {
+			// End the eviction under the RCU guard: the observer may be freed after an RCU grace
+			// period as soon as removeObserver() sees the last in-flight eviction end.
+			ScheduleGuard rcuGuard;
+			observer->endEviction_();
+		});
+	};
+
+	// Evictions only start once the RCU guard is dropped since evict() must not run under it.
+	co_await async::dynamic_deferred_scope<decltype(runEviction(nullptr))>(Allocator{},
+			[&] (auto &add) {
+		ScheduleGuard rcuGuard;
+
+		for(auto observer : observers_) {
+			if(offset + size <= observer->observedOffset_
+					|| offset >= observer->observedOffset_ + observer->observedSize_)
+				continue;
+			// Observers that are being removed refuse to begin an eviction and can be skipped.
+			if(!observer->tryBeginEviction_())
+				continue;
+			add(runEviction(observer));
+		}
+	});
 }
 
 // --------------------------------------------------------
