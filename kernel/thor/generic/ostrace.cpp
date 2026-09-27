@@ -28,7 +28,15 @@ initgraph::Stage *getOsTraceAvailableStage() {
 
 namespace {
 
+// Upper bound on the size of pages that sources submit.
+constexpr size_t maxPageSize = 64 * 1024;
+constexpr size_t frameHeadSize = managarm::ostrace::Frame<KernelAlloc>::head_size;
+constexpr size_t maxFrameSize = frameHeadSize + maxPageSize;
+
 std::atomic<uint64_t> nextId{1};
+// Source 0 is the kernel itself.
+std::atomic<uint64_t> nextSource{1};
+std::atomic<uint64_t> nextFrameSeq{0};
 frg::manual_box<LogRingBuffer> globalOsTraceRing;
 
 initgraph::Task initOsTraceCore{&globalInitEngine, "generic.init-ostrace-core",
@@ -43,8 +51,9 @@ initgraph::Task initOsTraceCore{&globalInitEngine, "generic.init-ostrace-core",
 		if(!wantOsTrace)
 			return;
 
-		void *osTraceMemory = kernelAlloc->allocate(1 << 20);
-		globalOsTraceRing.initialize(reinterpret_cast<uintptr_t>(osTraceMemory), 1 << 20);
+		// Sources flush whole pages, so the ring needs to absorb bursts of pages.
+		void *osTraceMemory = kernelAlloc->allocate(1 << 22);
+		globalOsTraceRing.initialize(reinterpret_cast<uintptr_t>(osTraceMemory), 1 << 22);
 
 		osTraceInUse.store(true);
 
@@ -52,25 +61,34 @@ initgraph::Task initOsTraceCore{&globalInitEngine, "generic.init-ostrace-core",
 	}
 };
 
-void doEmit(frg::span<char> payload) {
+// Writes a page of the given source to the ring, preceded by a kernel-owned Frame.
+// Frames are not assembled in a heap buffer since allocations of their size bypass the slabs of
+// the kernel heap.
+void commitFrame(uint64_t source, uint64_t writer, uint64_t firstEvent, uint64_t numEvents,
+		frg::span<const char> page) {
 	if(!osTraceInUse.load(std::memory_order_relaxed))
 		return;
 
-	struct Header {
-		uint32_t size;
-	};
+	size_t size = page.size();
+	assert(size <= maxPageSize);
 
-	frg::small_vector<char, 64, KernelAlloc> buffer{*kernelAlloc};
-	buffer.resize(sizeof(Header) + payload.size());
+	managarm::ostrace::Frame<KernelAlloc> frame{*kernelAlloc};
+	frame.set_source(source);
+	frame.set_seq(nextFrameSeq.fetch_add(1, std::memory_order_relaxed));
+	frame.set_size(size);
+	frame.set_writer(writer);
+	frame.set_first_event(firstEvent);
+	frame.set_num_events(numEvents);
 
-	auto hdr = new (buffer.data()) Header;
-	hdr->size = payload.size();
+	char head[frameHeadSize];
+	bool encodeSuccess = bragi::write_head_only(frame, frg::span<char>(head, frameHeadSize));
+	assert(encodeSuccess);
 
-	memcpy(buffer.data() + sizeof(Header), payload.data(), payload.size());
+	frg::span<const char> pieces[2] = {{head, frameHeadSize}, page};
 
 	// We want to be able to call this function from any context, but we cannot wake the waiters
 	// in all contexts. For now, only wake waiters if IRQs are enabled.
-	globalOsTraceRing->enqueue(buffer.data(), buffer.size(), !intsAreEnabled());
+	globalOsTraceRing->enqueue({pieces, 2}, !intsAreEnabled());
 }
 
 template<typename R>
@@ -86,7 +104,7 @@ void commitOsTrace(R record) {
 			frg::span<char>(ser.data() + 8, ts));
 	assert(encodeSuccess);
 
-	doEmit({ser.data(), ser.size()});
+	commitFrame(0, 0, 0, 0, {ser.data(), ser.size()});
 }
 
 } // anonymous namespace
@@ -111,7 +129,24 @@ struct OstraceBusObject : private KernelBusObject {
 	}
 
 private:
-	coroutine<frg::expected<Error>> handleRequest(smarter::shared_ptr<Stream, LanePolicy> boundLane) override {
+	// Each client is a separate source. Since requests of a client are handled sequentially,
+	// the pages of a source reach the ring in the order in which they were submitted.
+	coroutine<void> serveClient(smarter::shared_ptr<Stream, LanePolicy> lane) override {
+		auto source = nextSource.fetch_add(1, std::memory_order_relaxed);
+		while(true) {
+			auto result = co_await handleSourceRequest(lane, source);
+
+			if (!result && result.error() == Error::endOfLane)
+				break;
+
+			if(!result)
+				infoLogger() << "thor: failed to handle ostrace request with error "
+						<< static_cast<int>(result.error()) << frg::endlog;
+		}
+	}
+
+	coroutine<frg::expected<Error>> handleSourceRequest(smarter::shared_ptr<Stream, LanePolicy> boundLane,
+			uint64_t source) {
 		auto [acceptError, lane] = co_await accept(boundLane);
 		if(acceptError == Error::endOfLane)
 			co_return Error::endOfLane;
@@ -161,7 +196,7 @@ private:
 					reqSpan, *kernelAlloc);
 			if(!maybeReq)
 				co_return Error::protocolViolation;
-			//auto &req = maybeReq.value();
+			auto &req = maybeReq.value();
 
 			auto [dataError, dataBuffer] = co_await recvBuffer(lane);
 			if(dataError != Error::success) {
@@ -170,40 +205,15 @@ private:
 			}
 
 			managarm::ostrace::Response<KernelAlloc> resp(*kernelAlloc);
-			if (wantOsTrace) {
-				doEmit({reinterpret_cast<char *>(dataBuffer.data()), dataBuffer.size()});
-				resp.set_error(managarm::ostrace::Error::SUCCESS);
-			}else{
+			if (!wantOsTrace) {
 				resp.set_error(managarm::ostrace::Error::OSTRACE_GLOBALLY_DISABLED);
+			}else if(dataBuffer.size() > maxPageSize) {
+				resp.set_error(managarm::ostrace::Error::ILLEGAL_REQUEST);
+			}else{
+				commitFrame(source, req.writer(), req.first_event(), req.num_events(),
+						{reinterpret_cast<char *>(dataBuffer.data()), dataBuffer.size()});
+				resp.set_error(managarm::ostrace::Error::SUCCESS);
 			}
-
-			frg::string<KernelAlloc> ser(*kernelAlloc);
-			resp.SerializeToString(&ser);
-			frg::unique_memory<KernelAlloc> respBuffer{*kernelAlloc, ser.size()};
-			memcpy(respBuffer.data(), ser.data(), ser.size());
-			auto respError = co_await sendBuffer(lane, std::move(respBuffer));
-			if(respError != Error::success) {
-				assert(isRemoteIpcError(respError));
-				co_return Error::protocolViolation;
-			}
-		} break;
-		case bragi::message_id<managarm::ostrace::AnnounceItemReq>: {
-			auto maybeReq = bragi::parse_head_only<managarm::ostrace::AnnounceItemReq>(
-					reqSpan, *kernelAlloc);
-			if(!maybeReq)
-				co_return Error::protocolViolation;
-			auto &req = maybeReq.value();
-
-			auto id = nextId.fetch_add(1, std::memory_order_relaxed);
-
-			managarm::ostrace::Definition<KernelAlloc> record{*kernelAlloc};
-			record.set_id(id);
-			record.set_name(std::move(req.name()));
-			commitOsTrace(std::move(record));
-
-			managarm::ostrace::Response<KernelAlloc> resp(*kernelAlloc);
-			resp.set_error(managarm::ostrace::Error::SUCCESS);
-			resp.set_id(id);
 
 			frg::string<KernelAlloc> ser(*kernelAlloc);
 			resp.SerializeToString(&ser);
@@ -252,7 +262,7 @@ initgraph::Task initOsTraceMbus{&globalInitEngine, "generic.init-ostrace-sinks",
 				if(channel) {
 					infoLogger() << "thor: Connecting ostrace to I/O channel" << frg::endlog;
 					spawnOnWorkQueue(*kernelAlloc, WorkQueue::generalQueue().lock(),
-							dumpRingToChannel(globalOsTraceRing.get(), std::move(channel), 2048));
+							dumpRingToChannel(globalOsTraceRing.get(), std::move(channel), maxFrameSize));
 				}
 			}
 		});
@@ -286,7 +296,7 @@ void setup() {
 }
 
 void emitBuffer(frg::span<char> payload) {
-	doEmit(payload);
+	commitFrame(0, 0, 0, 0, {payload.data(), payload.size()});
 }
 
 } // namespace ostrace
