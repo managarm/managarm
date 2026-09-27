@@ -87,13 +87,6 @@ head(128):
 	uint64 num_events;
 }
 
-// TODO(AvdG): in the future, we want each source to emit its definitions independently
-//             from other sources. This can be done by adding source IDs to the record header.
-message AnnounceItemReq 3 {
-head(128):
-	string name;
-}
-
 }
 
 group {
@@ -101,7 +94,6 @@ group {
 message Response 1 {
 head(32):
 	Error error;
-	uint64 id;
 }
 
 }
