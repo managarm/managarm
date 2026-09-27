@@ -1279,7 +1279,7 @@ private:
 				smarter::shared_ptr<MemoryView> memory,
 				uintptr_t offset, size_t size, CachingFlags flags)
 		: owner{owner}, slot{slot}, memory{std::move(memory)}, offset{offset},
-			size{size}, flags{flags}, observer{} { }
+			size{size}, flags{flags} { }
 
 		IndirectMemory *owner;
 		size_t slot;
@@ -1287,7 +1287,6 @@ private:
 		uintptr_t offset;
 		size_t size;
 		CachingFlags flags;
-		MemoryObserver observer;
 	};
 
 	frg::ticket_spinlock mutex_;

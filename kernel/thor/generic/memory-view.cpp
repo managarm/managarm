@@ -3172,8 +3172,8 @@ Error IndirectMemory::setIndirection(size_t slot, smarter::shared_ptr<MemoryView
 		return Error::outOfBounds;
 	auto indirection = smarter::allocate_shared<IndirectionSlot>(*kernelAlloc,
 			this, slot, memory, offset, size, flags);
-	// TODO: start a coroutine to observe evictions.
-	memory->addObserver(&indirection->observer);
+	// TODO: Forward evictions of the memory to mappings of this view.
+	//       Until then, we must not observe it: an unserviced observer stalls all of its evictions.
 	indirections_[slot] = std::move(indirection);
 	return Error::success;
 }
