@@ -86,18 +86,26 @@ struct RevokeBatch {
 		return suspendedAt_;
 	}
 
-	// Records a revoked page table entry. Frames that are not cache pages need no notification.
-	void record(PhysicalAddr physical, bool dirty, bool unmapped) {
+	// Records an unmapped page table entry.
+	void recordUnmapped(PhysicalAddr physical, bool dirty) {
 		assert(!full());
-		dirty = dirty && trackDirty_;
-		if(!dirty && !unmapped)
-			return;
 		auto descriptor = globalPfnDb().find(physical);
+		// Frames that are not cache pages need no notification.
 		if(!descriptor || !descriptor->isCachePage())
 			return;
-		auto bits = reinterpret_cast<uintptr_t>(descriptor->cachePagePtr());
-		assert(!(bits & (dirtyBit | unmappedBit)));
-		entries_[count_++] = bits | (dirty ? dirtyBit : 0) | (unmapped ? unmappedBit : 0);
+		append_(descriptor->cachePagePtr(), dirty && trackDirty_, true);
+	}
+
+	// Records the dirty bit of a page table entry that stays mapped.
+	void recordDirty(PhysicalAddr physical) {
+		assert(!full());
+		if(!trackDirty_)
+			return;
+		auto descriptor = globalPfnDb().find(physical);
+		// Frames that are not cache pages need no notification.
+		if(!descriptor || !descriptor->isCachePage())
+			return;
+		append_(descriptor->cachePagePtr(), true, false);
 	}
 
 	// Performs the held back notifications.
@@ -114,6 +122,12 @@ struct RevokeBatch {
 	}
 
 private:
+	void append_(CachePage *page, bool dirty, bool unmapped) {
+		auto bits = reinterpret_cast<uintptr_t>(page);
+		assert(!(bits & (dirtyBit | unmappedBit)));
+		entries_[count_++] = bits | (dirty ? dirtyBit : 0) | (unmapped ? unmappedBit : 0);
+	}
+
 	static constexpr uintptr_t dirtyBit = 1;
 	static constexpr uintptr_t unmappedBit = 2;
 
@@ -175,7 +189,7 @@ frg::expected<Error, PagesAffected> mapPresentPagesByCursor(PageSpace *ps, Virtu
 			determineCachingMode(physicalRange.cachingMode, mode));
 		affected.rssIncrease += kPageSize;
 		if(status & page_status::present) {
-			batch.record(oldPhysical, status & page_status::dirty, true);
+			batch.recordUnmapped(oldPhysical, status & page_status::dirty);
 			affected.rssDecrease += kPageSize;
 			affected.anyRevoked = true;
 		}
@@ -209,7 +223,7 @@ frg::expected<Error, PagesAffected> restrictPagesByCursor(PageSpace *ps, Virtual
 		}
 		auto [status, physical, restricted] = c.restrict4k(flags);
 		if((status & page_status::present) && (status & page_status::dirty)) {
-			batch.record(physical, true, false);
+			batch.recordDirty(physical);
 			affected.anyRevoked = true;
 		}
 		if(restricted)
@@ -251,7 +265,7 @@ frg::expected<Error, PagesAffected> faultPageByCursor(PageSpace *ps, VirtualAddr
 	auto [status, oldPhysical] = c.remap4k(physicalRange.physical, effectiveFlags,
 		determineCachingMode(physicalRange.cachingMode, mode));
 	if(status & page_status::present) {
-		batch.record(oldPhysical, status & page_status::dirty, true);
+		batch.recordUnmapped(oldPhysical, status & page_status::dirty);
 		affected.rssDecrease += kPageSize;
 		affected.anyRevoked = true;
 	}
@@ -283,7 +297,7 @@ frg::expected<Error, PagesAffected> cleanPagesByCursor(PageSpace *ps, VirtualAdd
 		}
 		auto [status, physical] = c.clean4k();
 		if((status & page_status::present) && (status & page_status::dirty)) {
-			batch.record(physical, true, false);
+			batch.recordDirty(physical);
 			affected.anyRevoked = true;
 		}
 		c.advance4k();
@@ -312,7 +326,7 @@ frg::expected<Error, PagesAffected> unmapPagesByCursor(PageSpace *ps, VirtualAdd
 		}
 		auto [status, physical] = c.unmap4k();
 		if(status & page_status::present) {
-			batch.record(physical, status & page_status::dirty, true);
+			batch.recordUnmapped(physical, status & page_status::dirty);
 			affected.rssDecrease += kPageSize;
 			affected.anyRevoked = true;
 		}
@@ -344,7 +358,7 @@ frg::expected<Error, PagesAffected> agePagesByCursor(PageSpace *ps, VirtualAddr 
 		affected.scanned += kPageSize;
 		auto [status, physical, unmapped] = c.age4k(vacate);
 		if(unmapped) {
-			batch.record(physical, status & page_status::dirty, true);
+			batch.recordUnmapped(physical, status & page_status::dirty);
 			affected.rssDecrease += kPageSize;
 			affected.anyRevoked = true;
 		}
