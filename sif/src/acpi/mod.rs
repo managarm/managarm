@@ -1,5 +1,6 @@
 pub mod dmar;
 pub mod glue;
+pub mod object;
 pub mod ps2;
 
 use std::sync::atomic::{AtomicU64, Ordering};
