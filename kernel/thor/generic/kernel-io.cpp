@@ -1,3 +1,4 @@
+#include <frg/allocation.hpp>
 #include <frg/hash_map.hpp>
 #include <thor-internal/kernel-io.hpp>
 #include <thor-internal/main.hpp>
@@ -31,45 +32,53 @@ smarter::shared_ptr<KernelIoChannel> solicitIoChannel(frg::string_view tag) {
 	return *maybeChannel;
 }
 
-// Packets larger than packetSize may be truncated.
 coroutine<void> dumpRingToChannel(LogRingBuffer *ringBuffer,
-		smarter::shared_ptr<KernelIoChannel> channel, size_t packetSize) {
+		smarter::shared_ptr<KernelIoChannel> channel, size_t maxRecordSize) {
+	// One extra byte distinguishes records of exactly maxRecordSize from truncated ones.
+	frg::unique_memory<KernelAlloc> record{*kernelAlloc, maxRecordSize + 1};
 	uint64_t currentPtr = 0;
+	bool unflushed = false;
 	while(true) {
-		auto span = channel->writableSpan();
-		if(span.size() < packetSize) {
-			auto ioOutcome = co_await channel->issueIo(KernelIoChannel::ioProgressOutput);
-			assert(ioOutcome);
+		auto [success, recordPtr, nextPtr, actualSize] = ringBuffer->dequeueAt(
+				currentPtr, record.data(), maxRecordSize + 1);
+		if(!success) {
+			// Do not leave output in the channel while we block on the ring.
+			if(unflushed) {
+				auto ioOutcome = co_await channel->issueIo(KernelIoChannel::ioProgressOutput);
+				assert(ioOutcome);
+				unflushed = false;
+			}
+			co_await ringBuffer->wait(nextPtr);
 			continue;
 		}
+		assert(actualSize); // For now, we do not support size zero records.
+		if(recordPtr != currentPtr)
+			infoLogger() << "thor: Up to " << (recordPtr - currentPtr)
+					<< " lost on I/O channel "
+					<< channel->descriptiveTag() << frg::endlog;
+		if(actualSize > maxRecordSize) {
+			infoLogger() << "thor: Packet truncated on I/O channel "
+					<< channel->descriptiveTag() << frg::endlog;
+			actualSize = maxRecordSize;
+		}
+		currentPtr = nextPtr;
 
+		// Records can be larger than the channel's span, so copy them in chunks.
 		size_t progress = 0;
-		while(progress < span.size()) {
-			auto [success, recordPtr, nextPtr, actualSize] = ringBuffer->dequeueAt(
-					currentPtr, span.data() + progress, span.size() - progress);
-			if(!success) {
-				if(progress)
-					break;
-				co_await ringBuffer->wait(nextPtr);
+		while(progress < actualSize) {
+			auto span = channel->writableSpan();
+			if(!span.size()) {
+				auto ioOutcome = co_await channel->issueIo(KernelIoChannel::ioProgressOutput);
+				assert(ioOutcome);
+				unflushed = false;
 				continue;
 			}
-			assert(actualSize); // For now, we do not support size zero records.
-			if(recordPtr != currentPtr)
-				infoLogger() << "thor: Up to " << (currentPtr - recordPtr)
-						<< " lost on I/O channel "
-						<< channel->descriptiveTag() << frg::endlog;
-			if(actualSize == span.size() - progress) {
-				if(progress)
-					break;
-				infoLogger() << "thor: Packet truncated on I/O channel "
-						<< channel->descriptiveTag() << frg::endlog;
-			}
-
-			currentPtr = nextPtr;
-			progress += actualSize;
+			auto chunk = frg::min(span.size(), actualSize - progress);
+			memcpy(span.data(), static_cast<std::byte *>(record.data()) + progress, chunk);
+			channel->produceOutput(chunk);
+			unflushed = true;
+			progress += chunk;
 		}
-
-		channel->produceOutput(progress);
 	}
 }
 

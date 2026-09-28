@@ -48,21 +48,24 @@ struct KernelBusObject {
 			panicLogger() << "thor: Failed to create stream" << frg::endlog;
 		auto stream = std::move(*streamOutcome);
 
-		spawnOnWorkQueue(*kernelAlloc, WorkQueue::generalQueue().lock(), [] (smarter::shared_ptr<Stream, LanePolicy> lane,
-				KernelBusObject *self) -> coroutine<void> {
-			while(true) {
-				auto result = co_await self->handleRequest(lane);
-
-				if (!result && result.error() == Error::endOfLane)
-					break;
-
-				// TODO(qookie): Improve error handling here.
-				if(!result)
-					infoLogger() << "thor: failed to handle KernelBusObject mbus request with error " << static_cast<int>(result.error()) << frg::endlog;
-			}
-		}(std::move(stream.get<0>()), this));
+		spawnOnWorkQueue(*kernelAlloc, WorkQueue::generalQueue().lock(),
+				serveClient(std::move(stream.get<0>())));
 
 		return stream.get<1>();
+	}
+
+	// Serves the requests of a single client.
+	virtual coroutine<void> serveClient(smarter::shared_ptr<Stream, LanePolicy> lane) {
+		while(true) {
+			auto result = co_await handleRequest(lane);
+
+			if (!result && result.error() == Error::endOfLane)
+				break;
+
+			// TODO(qookie): Improve error handling here.
+			if(!result)
+				infoLogger() << "thor: failed to handle KernelBusObject mbus request with error " << static_cast<int>(result.error()) << frg::endlog;
+		}
 	}
 
 	virtual coroutine<frg::expected<Error>> handleRequest(smarter::shared_ptr<Stream, LanePolicy> lane)  {
