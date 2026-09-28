@@ -1129,7 +1129,6 @@ bool ManagedSpace::ManagedPage::hasMonitor(MonitorType type) {
 
 bool ManagedSpace::ManagedPage::hasUnwrittenData() {
 	return transactionState == TxState::dirty
-			|| transactionState == TxState::pendingWriteback
 			|| transactionState == TxState::wantWriteback
 			|| transactionState == TxState::writeback
 			|| stillDirty;
@@ -1179,16 +1178,6 @@ void ManagedSpace::detachQueue(EvictionQueue *queue) {
 }
 
 coroutine<void> ManagedSpace::_fenceEphemeral() {
-	return _fenceAll(EvictMode::fenceEphemeral);
-}
-
-coroutine<void> ManagedSpace::_fenceDirty() {
-	return _fenceAll(EvictMode::fenceDirty);
-}
-
-coroutine<void> ManagedSpace::_fenceAll(EvictMode mode) {
-	assert(mode == EvictMode::fenceEphemeral || mode == EvictMode::fenceDirty);
-
 	// Snapshot the list under the mutex, the references keep the queues alive
 	// even if their views detach concurrently.
 	frg::vector<frg::intrusive_shared_ptr<EvictionQueue, Allocator>, KernelAlloc>
@@ -1203,12 +1192,8 @@ coroutine<void> ManagedSpace::_fenceAll(EvictMode mode) {
 		}
 	}
 
-	for(auto &queue : snapshot) {
-		if(mode == EvictMode::fenceEphemeral)
-			co_await queue->fenceEphemeral();
-		else
-			co_await queue->fenceDirty();
-	}
+	for(auto &queue : snapshot)
+		co_await queue->fenceEphemeral();
 }
 
 coroutine<void> ManagedSpace::_runReclaimLoop() {
@@ -1446,7 +1431,7 @@ coroutine<void> ManagedSpace::_runDrainLoop() {
 			);
 		}
 
-		CachePagesList pending;
+		ManageList mgmtPending;
 		{
 			auto irqLock = frg::guard(&irqMutex());
 			auto lock = frg::guard(&mutex);
@@ -1456,6 +1441,7 @@ coroutine<void> ManagedSpace::_runDrainLoop() {
 			// However we left the delay, this pass serves the pending expedite request.
 			_writebackExpedited = false;
 
+			bool anyPromoted = false;
 			auto it = _dirtyList.begin();
 			while(it != _dirtyList.end()) {
 				auto *cp = *it++;
@@ -1465,51 +1451,16 @@ coroutine<void> ManagedSpace::_runDrainLoop() {
 				if(!claimSwapBudget(page))
 					continue;
 				_dequeueDirty(page);
-				page->transactionState = TxState::pendingWriteback;
-				pending.push_back(cp);
-			}
-
-			if(pending.empty() && !_dirtyList.empty())
-				_drainBlocked = true;
-		}
-		if (pending.empty())
-			continue;
-
-		co_await _fenceDirty();
-
-		ManageList mgmtPending;
-		MonitorPendingList pendingMonitors;
-		bool anyDiscardQueued = false;
-		{
-			auto irqLock = frg::guard(&irqMutex());
-			auto lock = frg::guard(&mutex);
-
-			while(!pending.empty()) {
-				auto *cp = pending.pop_front();
-				auto *page = frg::container_of(cp, &ManagedPage::cachePage);
-				assert(page->transactionState == TxState::pendingWriteback);
-				if(page->discarded) {
-					if(page->discardMode == DiscardMode::dropDirty) {
-						// The page was discarded while we were waiting for the fence.
-						// Note that claimSwapBudget() already ran for this page - _pageDiscarded() undoes the claim.
-						auto writebackMonitor = page->detachMonitor(MonitorType::writeback);
-						if(writebackMonitor)
-							pendingMonitors.push_back(writebackMonitor.release());
-						page->transactionState = TxState::none;
-						_disposeDiscarded(page, anyDiscardQueued);
-						continue;
-					}
-					assert(page->discardMode == DiscardMode::keepDirty);
-				}
 				page->transactionState = TxState::wantWriteback;
 				_writebackList.push_back(cp);
+				anyPromoted = true;
 			}
 
-			_progressManagement(mgmtPending);
+			if(!anyPromoted && !_dirtyList.empty())
+				_drainBlocked = true;
+			if(anyPromoted)
+				_progressManagement(mgmtPending);
 		}
-		_raiseMonitors(pendingMonitors);
-		if(anyDiscardQueued)
-			_discardEvent.raise();
 
 		while(!mgmtPending.empty()) {
 			auto node = mgmtPending.pop_front();
@@ -1673,10 +1624,6 @@ void ManagedSpace::discardPage(ManagedPage *pit, DiscardMode mode, bool &raiseDi
 		dispose = true;
 		break;
 	}
-	case TxState::pendingWriteback:
-		// The drain coroutine completes the discard, the page is on
-		// its local pending list.
-		break;
 	case TxState::wantInitialization:
 	case TxState::initialization:
 		// Initialization completes normally (e.g., to allow reading from already locked pages).
@@ -2292,7 +2239,6 @@ void ManagedSpace::markDirtyPage(ManagedPage *page, bool &needsEvent, bool &need
 		page->stillDirty = true;
 	} else {
 		assert(page->transactionState == TxState::dirty
-				|| page->transactionState == TxState::pendingWriteback
 				|| page->transactionState == TxState::wantWriteback);
 	}
 }

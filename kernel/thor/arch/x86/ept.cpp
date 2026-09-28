@@ -131,32 +131,35 @@ bool EptOperations::submitShootdown(ShootNode *node) {
 }
 
 frg::expected<Error, PagesAffected> EptOperations::mapPresentPages(VirtualAddr va, MemoryView *view,
-		uintptr_t offset, size_t size, PageFlags flags, CachingMode mode, bool trackDirty) {
+		uintptr_t offset, size_t size, PageFlags flags, CachingMode mode, RevokeBatch &batch) {
 	return mapPresentPagesByCursor<EptCursor>(pageSpace_,
-			va, view, offset, size, flags, mode, trackDirty);
+			va, view, offset, size, flags, mode, batch);
 }
 
 frg::expected<Error, PagesAffected> EptOperations::restrictPages(VirtualAddr va,
-		size_t size, PageFlags flags, bool trackDirty) {
-	return restrictPagesByCursor<EptCursor>(pageSpace_, va, size, flags, trackDirty);
+		size_t size, PageFlags flags, RevokeBatch &batch) {
+	return restrictPagesByCursor<EptCursor>(pageSpace_, va, size, flags, batch);
 }
 
 frg::expected<Error, PagesAffected> EptOperations::faultPage(VirtualAddr va, MemoryView *view,
 		uintptr_t offset, FetchFlags fetchFlags, PageFlags flags, CachingMode mode,
-		bool trackDirty) {
+		RevokeBatch &batch) {
 	return faultPageByCursor<EptCursor>(pageSpace_,
-			va, view, offset, fetchFlags, flags, mode, trackDirty);
+			va, view, offset, fetchFlags, flags, mode, batch);
 }
 
-frg::expected<Error, PagesAffected> EptOperations::cleanPages(VirtualAddr va, size_t size, bool trackDirty) {
-	return cleanPagesByCursor<EptCursor>(pageSpace_, va, size, trackDirty);
+frg::expected<Error, PagesAffected> EptOperations::cleanPages(VirtualAddr va, size_t size,
+		RevokeBatch &batch) {
+	return cleanPagesByCursor<EptCursor>(pageSpace_, va, size, batch);
 }
 
-frg::expected<Error, PagesAffected> EptOperations::unmapPages(VirtualAddr va, size_t size, bool trackDirty) {
-	return unmapPagesByCursor<EptCursor>(pageSpace_, va, size, trackDirty);
+frg::expected<Error, PagesAffected> EptOperations::unmapPages(VirtualAddr va, size_t size,
+		RevokeBatch &batch) {
+	return unmapPagesByCursor<EptCursor>(pageSpace_, va, size, batch);
 }
 
-frg::expected<Error, PagesAffected> EptOperations::agePages(VirtualAddr, size_t, bool, bool) {
+frg::expected<Error, PagesAffected> EptOperations::agePages(VirtualAddr, size_t, bool,
+		RevokeBatch &) {
 	return PagesAffected{};
 }
 

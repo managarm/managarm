@@ -83,6 +83,9 @@ struct CacheBundle {
 	virtual void incrementUses(CachePage *page) = 0;
 	virtual void decrementUses(CachePage *page) = 0;
 
+	// Marks a page as dirty. This may cause writeback to start immediately.
+	// Note that callers who have the page mapped must perform shootdown before calling markDirty()
+	// such that later stores re-dirty the PTE.
 	virtual void markDirty(CachePage *page) = 0;
 
 private:
@@ -237,9 +240,6 @@ enum class EvictMode {
 	// Waits until all temporary references to pages disappear. No range is specified.
 	// CachePages with a useCount of zero can be reclaimed after this fence.
 	fenceEphemeral,
-	// Waits until dirty pages have been marked as clean. No range is specified.
-	// Dirty pages can be written back after this fence.
-	fenceDirty,
 };
 
 struct RangeToEvict {
@@ -312,9 +312,6 @@ struct EvictionQueue final : frg::intrusive_rc {
 	}
 	auto fenceEphemeral() {
 		return mechanism_.post(RangeToEvict{EvictMode::fenceEphemeral, 0, 0});
-	}
-	auto fenceDirty() {
-		return mechanism_.post(RangeToEvict{EvictMode::fenceDirty, 0, 0});
 	}
 
 	frg::default_list_hook<EvictionQueue> attachHook;
@@ -724,10 +721,6 @@ struct ManagedSpace : CacheBundle {
 		// Page is in _dirtyList, waiting to claim swap budget.
 		// Valid in LoadState::present.
 		dirty,
-		// Page is on the drain coroutine's local pending list.
-		// It has claimed swap budget and awaits the fenceDirty() before it's moved to _writebackList.
-		// Valid in LoadState::present.
-		pendingWriteback,
 		// Page is in _writebackList.
 		// Valid in LoadState::present.
 		wantWriteback,
@@ -948,10 +941,8 @@ struct ManagedSpace : CacheBundle {
 	coroutine<void> _runDrainLoop();
 	coroutine<void> _runInvalidationLoop();
 
-	// Post the given fence on every attached queue and await all acknowledgements.
+	// Post a fenceEphemeral on every attached queue and await all acknowledgements.
 	coroutine<void> _fenceEphemeral();
-	coroutine<void> _fenceDirty();
-	coroutine<void> _fenceAll(EvictMode mode);
 
 	Error lockPages(uintptr_t offset, size_t size);
 	void unlockPages(uintptr_t offset, size_t size);

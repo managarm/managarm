@@ -115,11 +115,11 @@ public:
 		    size_t size,
 		    PageFlags flags,
 		    CachingMode mode,
-		    bool trackDirty
+		    RevokeBatch &batch
 		) override;
 
 		frg::expected<Error, PagesAffected>
-		restrictPages(VirtualAddr va, size_t size, PageFlags flags, bool trackDirty) override;
+		restrictPages(VirtualAddr va, size_t size, PageFlags flags, RevokeBatch &batch) override;
 
 		frg::expected<Error, PagesAffected> faultPage(
 		    VirtualAddr va,
@@ -128,17 +128,17 @@ public:
 		    FetchFlags fetchFlags,
 		    PageFlags flags,
 		    CachingMode mode,
-		    bool trackDirty
+		    RevokeBatch &batch
 		) override;
 
 		frg::expected<Error, PagesAffected>
-		cleanPages(VirtualAddr va, size_t size, bool trackDirty) override;
+		cleanPages(VirtualAddr va, size_t size, RevokeBatch &batch) override;
 
 		frg::expected<Error, PagesAffected>
-		unmapPages(VirtualAddr va, size_t size, bool trackDirty) override;
+		unmapPages(VirtualAddr va, size_t size, RevokeBatch &batch) override;
 
 		frg::expected<Error, PagesAffected>
-		agePages(VirtualAddr va, size_t size, bool vacate, bool trackDirty) override;
+		agePages(VirtualAddr va, size_t size, bool vacate, RevokeBatch &batch) override;
 	};
 
 private:

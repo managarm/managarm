@@ -2,6 +2,7 @@
 
 #include <atomic>
 #include <expected>
+#include <optional>
 
 #include <async/basic.hpp>
 #include <async/mutex.hpp>
@@ -53,7 +54,78 @@ struct PagesAffected {
 	// - pages that have their permission restricted
 	// - pages that have their dirty bits cleared
 	bool anyRevoked{false};
+
+	PagesAffected &operator+=(const PagesAffected &other) {
+		rssIncrease += other.rssIncrease;
+		rssDecrease += other.rssDecrease;
+		scanned += other.scanned;
+		anyRevoked |= other.anyRevoked;
+		return *this;
+	}
 };
+
+// Collects pages that are cleaned and/or unmapped and holds them until shootdown completes.
+struct RevokeBatch {
+	RevokeBatch(uintptr_t *entries, size_t capacity, bool trackDirty)
+	: entries_{entries}, capacity_{capacity}, trackDirty_{trackDirty} { }
+
+	bool empty() {
+		return count_ == 0;
+	}
+
+	bool full() {
+		return count_ == capacity_;
+	}
+
+	// Called by page table operations that stop early because the batch is full.
+	void suspendAt(VirtualAddr va) {
+		suspendedAt_ = va;
+	}
+
+	std::optional<VirtualAddr> suspendedAt() {
+		return suspendedAt_;
+	}
+
+	// Records a revoked page table entry. Frames that are not cache pages need no notification.
+	void record(PhysicalAddr physical, bool dirty, bool unmapped) {
+		assert(!full());
+		dirty = dirty && trackDirty_;
+		if(!dirty && !unmapped)
+			return;
+		auto descriptor = globalPfnDb().find(physical);
+		if(!descriptor || !descriptor->isCachePage())
+			return;
+		auto bits = reinterpret_cast<uintptr_t>(descriptor->cachePagePtr());
+		assert(!(bits & (dirtyBit | unmappedBit)));
+		entries_[count_++] = bits | (dirty ? dirtyBit : 0) | (unmapped ? unmappedBit : 0);
+	}
+
+	// Performs the held back notifications.
+	void release() {
+		for(size_t i = 0; i < count_; ++i) {
+			auto page = reinterpret_cast<CachePage *>(entries_[i] & ~(dirtyBit | unmappedBit));
+			if(entries_[i] & dirtyBit)
+				markDirty(PfnDescriptor::cachePage(page));
+			if(entries_[i] & unmappedBit)
+				decrementUses(PfnDescriptor::cachePage(page));
+		}
+		count_ = 0;
+		suspendedAt_ = std::nullopt;
+	}
+
+private:
+	static constexpr uintptr_t dirtyBit = 1;
+	static constexpr uintptr_t unmappedBit = 2;
+
+	uintptr_t *entries_;
+	size_t capacity_;
+	size_t count_ = 0;
+	bool trackDirty_;
+	std::optional<VirtualAddr> suspendedAt_;
+};
+
+// Default number of pages that revokePages() releases per shootdown.
+inline constexpr size_t revokeBatchSize = 512;
 
 inline CachingMode determineCachingMode(CachingMode physicalRangeCaching,
 		CachingMode requested) {
@@ -72,7 +144,7 @@ inline CachingMode determineCachingMode(CachingMode physicalRangeCaching,
 template<typename Cursor, typename PageSpace>
 frg::expected<Error, PagesAffected> mapPresentPagesByCursor(PageSpace *ps, VirtualAddr va,
 		MemoryView *view, uintptr_t offset, size_t size, PageFlags flags, CachingMode mode,
-		bool trackDirty, typename Cursor::PolicyType policy) {
+		RevokeBatch &batch, typename Cursor::PolicyType policy) {
 	assert(!(va & (kPageSize - 1)));
 	assert(!(offset & (kPageSize - 1)));
 	assert(!(size & (kPageSize - 1)));
@@ -82,6 +154,10 @@ frg::expected<Error, PagesAffected> mapPresentPagesByCursor(PageSpace *ps, Virtu
 	PagesAffected affected{};
 	Cursor c{ps, va, policy};
 	while(c.virtualAddress() < va + size) {
+		if(batch.full()) {
+			batch.suspendAt(c.virtualAddress());
+			break;
+		}
 		auto progress = c.virtualAddress() - va;
 		auto physicalRange = view->peekRange(offset + progress, fetchNone);
 		if(physicalRange.physical == PhysicalAddr(-1)) {
@@ -99,11 +175,7 @@ frg::expected<Error, PagesAffected> mapPresentPagesByCursor(PageSpace *ps, Virtu
 			determineCachingMode(physicalRange.cachingMode, mode));
 		affected.rssIncrease += kPageSize;
 		if(status & page_status::present) {
-			if(auto descriptor = globalPfnDb().find(oldPhysical)) {
-				if(trackDirty && (status & page_status::dirty))
-					markDirty(*descriptor);
-				decrementUses(*descriptor);
-			}
+			batch.record(oldPhysical, status & page_status::dirty, true);
 			affected.rssDecrease += kPageSize;
 			affected.anyRevoked = true;
 		}
@@ -115,14 +187,14 @@ frg::expected<Error, PagesAffected> mapPresentPagesByCursor(PageSpace *ps, Virtu
 template<typename Cursor, typename PageSpace>
 frg::expected<Error, PagesAffected> mapPresentPagesByCursor(PageSpace *ps, VirtualAddr va,
 		MemoryView *view, uintptr_t offset, size_t size, PageFlags flags, CachingMode mode,
-		bool trackDirty) {
-	return mapPresentPagesByCursor<Cursor>(ps, va, view, offset, size, flags, mode, trackDirty,
+		RevokeBatch &batch) {
+	return mapPresentPagesByCursor<Cursor>(ps, va, view, offset, size, flags, mode, batch,
 			typename Cursor::PolicyType{});
 }
 
 template<typename Cursor, typename PageSpace>
 frg::expected<Error, PagesAffected> restrictPagesByCursor(PageSpace *ps, VirtualAddr va,
-		size_t size, PageFlags flags, bool trackDirty, typename Cursor::PolicyType policy) {
+		size_t size, PageFlags flags, RevokeBatch &batch, typename Cursor::PolicyType policy) {
 	assert(!(va & (kPageSize - 1)));
 	assert(!(size & (kPageSize - 1)));
 	// At least one access bit is always set; see VirtualOperations.
@@ -131,12 +203,13 @@ frg::expected<Error, PagesAffected> restrictPagesByCursor(PageSpace *ps, Virtual
 	PagesAffected affected{};
 	Cursor c{ps, va, policy};
 	while(c.findPresent(va + size)) {
+		if(batch.full()) {
+			batch.suspendAt(c.virtualAddress());
+			break;
+		}
 		auto [status, physical, restricted] = c.restrict4k(flags);
 		if((status & page_status::present) && (status & page_status::dirty)) {
-			if(trackDirty) {
-				if(auto descriptor = globalPfnDb().find(physical))
-					markDirty(*descriptor);
-			}
+			batch.record(physical, true, false);
 			affected.anyRevoked = true;
 		}
 		if(restricted)
@@ -148,19 +221,20 @@ frg::expected<Error, PagesAffected> restrictPagesByCursor(PageSpace *ps, Virtual
 
 template<typename Cursor, typename PageSpace>
 frg::expected<Error, PagesAffected> restrictPagesByCursor(PageSpace *ps, VirtualAddr va,
-		size_t size, PageFlags flags, bool trackDirty) {
-	return restrictPagesByCursor<Cursor>(ps, va, size, flags, trackDirty,
+		size_t size, PageFlags flags, RevokeBatch &batch) {
+	return restrictPagesByCursor<Cursor>(ps, va, size, flags, batch,
 			typename Cursor::PolicyType{});
 }
 
 template<typename Cursor, typename PageSpace>
 frg::expected<Error, PagesAffected> faultPageByCursor(PageSpace *ps, VirtualAddr va,
 		MemoryView *view, uintptr_t offset, FetchFlags fetchFlags, PageFlags flags, CachingMode mode,
-		bool trackDirty, typename Cursor::PolicyType policy) {
+		RevokeBatch &batch, typename Cursor::PolicyType policy) {
 	assert(!(va & (kPageSize - 1)));
 	assert(!(offset & (kPageSize - 1)));
 	// At least one access bit is always set; see VirtualOperations.
 	assert(flags & (page_access::read | page_access::write | page_access::execute));
+	assert(!batch.full());
 
 	PagesAffected affected{};
 	Cursor c{ps, va, policy};
@@ -177,11 +251,7 @@ frg::expected<Error, PagesAffected> faultPageByCursor(PageSpace *ps, VirtualAddr
 	auto [status, oldPhysical] = c.remap4k(physicalRange.physical, effectiveFlags,
 		determineCachingMode(physicalRange.cachingMode, mode));
 	if(status & page_status::present) {
-		if(auto descriptor = globalPfnDb().find(oldPhysical)) {
-			if(trackDirty && (status & page_status::dirty))
-				markDirty(*descriptor);
-			decrementUses(*descriptor);
-		}
+		batch.record(oldPhysical, status & page_status::dirty, true);
 		affected.rssDecrease += kPageSize;
 		affected.anyRevoked = true;
 	}
@@ -193,26 +263,27 @@ frg::expected<Error, PagesAffected> faultPageByCursor(PageSpace *ps, VirtualAddr
 template<typename Cursor, typename PageSpace>
 frg::expected<Error, PagesAffected> faultPageByCursor(PageSpace *ps, VirtualAddr va,
 		MemoryView *view, uintptr_t offset, FetchFlags fetchFlags, PageFlags flags, CachingMode mode,
-		bool trackDirty) {
-	return faultPageByCursor<Cursor>(ps, va, view, offset, fetchFlags, flags, mode, trackDirty,
+		RevokeBatch &batch) {
+	return faultPageByCursor<Cursor>(ps, va, view, offset, fetchFlags, flags, mode, batch,
 			typename Cursor::PolicyType{});
 }
 
 template<typename Cursor, typename PageSpace>
 frg::expected<Error, PagesAffected> cleanPagesByCursor(PageSpace *ps, VirtualAddr va, size_t size,
-		bool trackDirty, typename Cursor::PolicyType policy) {
+		RevokeBatch &batch, typename Cursor::PolicyType policy) {
 	assert(!(va & (kPageSize - 1)));
 	assert(!(size & (kPageSize - 1)));
 
 	PagesAffected affected{};
 	Cursor c{ps, va, policy};
 	while(c.findDirty(va + size)) {
+		if(batch.full()) {
+			batch.suspendAt(c.virtualAddress());
+			break;
+		}
 		auto [status, physical] = c.clean4k();
 		if((status & page_status::present) && (status & page_status::dirty)) {
-			if(trackDirty) {
-				if(auto descriptor = globalPfnDb().find(physical))
-					markDirty(*descriptor);
-			}
+			batch.record(physical, true, false);
 			affected.anyRevoked = true;
 		}
 		c.advance4k();
@@ -222,26 +293,26 @@ frg::expected<Error, PagesAffected> cleanPagesByCursor(PageSpace *ps, VirtualAdd
 
 template<typename Cursor, typename PageSpace>
 frg::expected<Error, PagesAffected> cleanPagesByCursor(PageSpace *ps, VirtualAddr va, size_t size,
-		bool trackDirty) {
-	return cleanPagesByCursor<Cursor>(ps, va, size, trackDirty, typename Cursor::PolicyType{});
+		RevokeBatch &batch) {
+	return cleanPagesByCursor<Cursor>(ps, va, size, batch, typename Cursor::PolicyType{});
 }
 
 template<typename Cursor, typename PageSpace>
 frg::expected<Error, PagesAffected> unmapPagesByCursor(PageSpace *ps, VirtualAddr va, size_t size,
-		bool trackDirty, typename Cursor::PolicyType policy) {
+		RevokeBatch &batch, typename Cursor::PolicyType policy) {
 	assert(!(va & (kPageSize - 1)));
 	assert(!(size & (kPageSize - 1)));
 
 	PagesAffected affected{};
 	Cursor c{ps, va, policy};
 	while(c.findPresent(va + size)) {
+		if(batch.full()) {
+			batch.suspendAt(c.virtualAddress());
+			break;
+		}
 		auto [status, physical] = c.unmap4k();
 		if(status & page_status::present) {
-			if(auto descriptor = globalPfnDb().find(physical)) {
-				if(trackDirty && (status & page_status::dirty))
-					markDirty(*descriptor);
-				decrementUses(*descriptor);
-			}
+			batch.record(physical, status & page_status::dirty, true);
 			affected.rssDecrease += kPageSize;
 			affected.anyRevoked = true;
 		}
@@ -253,27 +324,27 @@ frg::expected<Error, PagesAffected> unmapPagesByCursor(PageSpace *ps, VirtualAdd
 
 template<typename Cursor, typename PageSpace>
 frg::expected<Error, PagesAffected> unmapPagesByCursor(PageSpace *ps, VirtualAddr va, size_t size,
-		bool trackDirty) {
-	return unmapPagesByCursor<Cursor>(ps, va, size, trackDirty, typename Cursor::PolicyType{});
+		RevokeBatch &batch) {
+	return unmapPagesByCursor<Cursor>(ps, va, size, batch, typename Cursor::PolicyType{});
 }
 
 template<typename Cursor, typename PageSpace>
 frg::expected<Error, PagesAffected> agePagesByCursor(PageSpace *ps, VirtualAddr va, size_t size,
-		bool vacate, bool trackDirty, typename Cursor::PolicyType policy) {
+		bool vacate, RevokeBatch &batch, typename Cursor::PolicyType policy) {
 	assert(!(va & (kPageSize - 1)));
 	assert(!(size & (kPageSize - 1)));
 
 	PagesAffected affected{};
 	Cursor c{ps, va, policy};
 	while(c.findPresent(va + size)) {
+		if(batch.full()) {
+			batch.suspendAt(c.virtualAddress());
+			break;
+		}
 		affected.scanned += kPageSize;
 		auto [status, physical, unmapped] = c.age4k(vacate);
 		if(unmapped) {
-			if(auto descriptor = globalPfnDb().find(physical)) {
-				if(trackDirty && (status & page_status::dirty))
-					markDirty(*descriptor);
-				decrementUses(*descriptor);
-			}
+			batch.record(physical, status & page_status::dirty, true);
 			affected.rssDecrease += kPageSize;
 			affected.anyRevoked = true;
 		}
@@ -284,8 +355,8 @@ frg::expected<Error, PagesAffected> agePagesByCursor(PageSpace *ps, VirtualAddr 
 
 template<typename Cursor, typename PageSpace>
 frg::expected<Error, PagesAffected> agePagesByCursor(PageSpace *ps, VirtualAddr va, size_t size,
-		bool vacate, bool trackDirty) {
-	return agePagesByCursor<Cursor>(ps, va, size, vacate, trackDirty,
+		bool vacate, RevokeBatch &batch) {
+	return agePagesByCursor<Cursor>(ps, va, size, vacate, batch,
 			typename Cursor::PolicyType{});
 }
 
@@ -294,31 +365,33 @@ struct VirtualOperations {
 
 	virtual bool submitShootdown(ShootNode *node) = 0;
 
-	// trackDirty determines whether harvested PTE dirty bits are propagated to the
-	// CacheBundle; it is false for mappings that suppress dirty tracking.
+	// The page table operations below record revoked cache pages in the RevokeBatch
+	// and stop early (see RevokeBatch::suspendAt()) once it is full.
+	// Use revokePages() to drive them.
+
 	// Precondition: flags has at least one access bit (read/write/execute) set.
 	virtual frg::expected<Error, PagesAffected> mapPresentPages(VirtualAddr va, MemoryView *view,
 			uintptr_t offset, size_t size, PageFlags flags, CachingMode mode,
-			bool trackDirty) = 0;
+			RevokeBatch &batch) = 0;
 
 	// Restricts the permissions of present pages; the caching mode of a page is preserved.
 	// Precondition: flags has at least one access bit (read/write/execute) set.
 	virtual frg::expected<Error, PagesAffected> restrictPages(VirtualAddr va,
-			size_t size, PageFlags flags, bool trackDirty) = 0;
+			size_t size, PageFlags flags, RevokeBatch &batch) = 0;
 
 	// Precondition: flags has at least one access bit (read/write/execute) set.
 	virtual frg::expected<Error, PagesAffected> faultPage(VirtualAddr va, MemoryView *view,
 			uintptr_t offset, FetchFlags fetchFlags, PageFlags flags, CachingMode mode,
-			bool trackDirty) = 0;
+			RevokeBatch &batch) = 0;
 
 	virtual frg::expected<Error, PagesAffected> cleanPages(VirtualAddr va, size_t size,
-			bool trackDirty) = 0;
+			RevokeBatch &batch) = 0;
 
 	virtual frg::expected<Error, PagesAffected> unmapPages(VirtualAddr va, size_t size,
-			bool trackDirty) = 0;
+			RevokeBatch &batch) = 0;
 
 	virtual frg::expected<Error, PagesAffected> agePages(VirtualAddr va, size_t size, bool vacate,
-			bool trackDirty) = 0;
+			RevokeBatch &batch) = 0;
 
 	// ----------------------------------------------------------------------------------
 	// Sender boilerplate for retire()
@@ -437,6 +510,34 @@ protected:
 
 	// ----------------------------------------------------------------------------------
 };
+
+// Runs one of the page table operations of VirtualOperations over the given range.
+// Each batch of (at most Capacity) revoked page table entries is shot down before its pages are released.
+// op is invoked as op(VirtualAddr va, size_t size, RevokeBatch &batch).
+template<size_t Capacity = revokeBatchSize, typename F>
+coroutine<frg::expected<Error, PagesAffected>> revokePages(VirtualOperations *ops,
+		VirtualAddr va, size_t size, bool trackDirty, F op) {
+	PagesAffected total{};
+	uintptr_t storage[Capacity];
+	RevokeBatch batch{storage, Capacity, trackDirty};
+	auto end = va + size;
+	VirtualAddr cur = va;
+	while(cur < end) {
+		auto outcome = op(cur, end - cur, batch);
+		if(!outcome) {
+			assert(batch.empty());
+			co_return outcome.error();
+		}
+		auto next = batch.suspendedAt().value_or(end);
+		assert(next > cur);
+		if(outcome.value().anyRevoked)
+			co_await ops->shootdown(cur, next - cur);
+		batch.release();
+		total += outcome.value();
+		cur = next;
+	}
+	co_return total;
+}
 
 struct Hole {
 	Hole(VirtualAddr address, size_t length)
@@ -848,40 +949,40 @@ public:
 
 		frg::expected<Error, PagesAffected> mapPresentPages(VirtualAddr va, MemoryView *view,
 				uintptr_t offset, size_t size, PageFlags flags, CachingMode mode,
-				bool trackDirty) override {
+				RevokeBatch &batch) override {
 			return mapPresentPagesByCursor<ClientPageSpace::Cursor>(&space_->pageSpace_,
-					va, view, offset, size, flags, mode, trackDirty);
+					va, view, offset, size, flags, mode, batch);
 		}
 
 		frg::expected<Error, PagesAffected> restrictPages(VirtualAddr va,
-				size_t size, PageFlags flags, bool trackDirty) override {
+				size_t size, PageFlags flags, RevokeBatch &batch) override {
 			return restrictPagesByCursor<ClientPageSpace::Cursor>(&space_->pageSpace_,
-					va, size, flags, trackDirty);
+					va, size, flags, batch);
 		}
 
 		frg::expected<Error, PagesAffected> faultPage(VirtualAddr va, MemoryView *view,
 				uintptr_t offset, FetchFlags fetchFlags, PageFlags flags, CachingMode mode,
-				bool trackDirty) override {
+				RevokeBatch &batch) override {
 			return faultPageByCursor<ClientPageSpace::Cursor>(&space_->pageSpace_,
-					va, view, offset, fetchFlags, flags, mode, trackDirty);
+					va, view, offset, fetchFlags, flags, mode, batch);
 		}
 
 		frg::expected<Error, PagesAffected> cleanPages(VirtualAddr va, size_t size,
-				bool trackDirty) override {
+				RevokeBatch &batch) override {
 			return cleanPagesByCursor<ClientPageSpace::Cursor>(&space_->pageSpace_,
-					va, size, trackDirty);
+					va, size, batch);
 		}
 
 		frg::expected<Error, PagesAffected> unmapPages(VirtualAddr va, size_t size,
-				bool trackDirty) override {
+				RevokeBatch &batch) override {
 			return unmapPagesByCursor<ClientPageSpace::Cursor>(&space_->pageSpace_,
-					va, size, trackDirty);
+					va, size, batch);
 		}
 
 		frg::expected<Error, PagesAffected> agePages(VirtualAddr va, size_t size, bool vacate,
-				bool trackDirty) override {
+				RevokeBatch &batch) override {
 			return agePagesByCursor<ClientPageSpace::Cursor>(&space_->pageSpace_,
-					va, size, vacate, trackDirty);
+					va, size, vacate, batch);
 		}
 
 	private:
