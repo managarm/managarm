@@ -6,6 +6,7 @@
 #include <assert.h>
 #include <errno.h>
 #include <fcntl.h>
+#include <poll.h>
 #include <stdint.h>
 #include <sys/ioctl.h>
 #include <sys/time.h>
@@ -79,4 +80,37 @@ DEFINE_TEST(timerfd, ([] {
 	ret = read(t, &ev, sizeof(ev));
 	assert(ret == sizeof(ev));
 	assert(ev == 0x1337'0069'0420'DEAD);
+}));
+
+DEFINE_TEST(timerfd_disarm_clears_expirations, ([] {
+	int t = timerfd_create(CLOCK_MONOTONIC, TFD_NONBLOCK);
+	assert(t > 0);
+
+	struct itimerspec arm {
+		.it_interval = {0, 0},
+		.it_value = {0, 1'000'000},
+	};
+	int ret = timerfd_settime(t, 0, &arm, nullptr);
+	assert(ret == 0);
+
+	struct pollfd pfd{.fd = t, .events = POLLIN, .revents = 0};
+	ret = poll(&pfd, 1, 1000);
+	assert(ret == 1);
+	assert(pfd.revents & POLLIN);
+
+	// Disarm without reading the pending expiration.
+	struct itimerspec disarm {};
+	ret = timerfd_settime(t, 0, &disarm, nullptr);
+	assert(ret == 0);
+
+	pfd.revents = 0;
+	ret = poll(&pfd, 1, 0);
+	assert(ret == 0);
+
+	uint64_t ev = 0;
+	ret = read(t, &ev, sizeof(ev));
+	assert(ret == -1);
+	assert(errno == EAGAIN);
+
+	close(t);
 }));

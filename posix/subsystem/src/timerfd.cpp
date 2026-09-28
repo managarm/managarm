@@ -219,9 +219,10 @@ public:
 
 		if(_activeTimer)
 			_activeTimer->cancel();
+		// Pending expirations belong to the old setting, so disarming must drop them too.
+		_expirations = 0;
 		if(initialNanos || intervalNanos) {
 			_activeTimer = std::make_shared<Timer>(weakFile(), initialNanos, intervalNanos);
-			_expirations = 0;
 			Timer::arm(_activeTimer);
 		} else {
 			// disarm timer
