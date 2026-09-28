@@ -65,6 +65,7 @@ struct PagesAffected {
 };
 
 // Collects pages that are cleaned and/or unmapped and holds them until shootdown completes.
+// Each entry owns a use count of its page.
 struct RevokeBatch {
 	RevokeBatch(uintptr_t *entries, size_t capacity, bool trackDirty)
 	: entries_{entries}, capacity_{capacity}, trackDirty_{trackDirty} { }
@@ -86,36 +87,53 @@ struct RevokeBatch {
 		return suspendedAt_;
 	}
 
-	// Records a revoked page table entry. Frames that are not cache pages need no notification.
-	void record(PhysicalAddr physical, bool dirty, bool unmapped) {
+	// Records an unmapped page table entry; the batch takes over its use count.
+	void recordUnmapped(PhysicalAddr physical, bool dirty) {
 		assert(!full());
-		dirty = dirty && trackDirty_;
-		if(!dirty && !unmapped)
-			return;
 		auto descriptor = globalPfnDb().find(physical);
+		// Frames that are not cache pages need no notification.
 		if(!descriptor || !descriptor->isCachePage())
 			return;
-		auto bits = reinterpret_cast<uintptr_t>(descriptor->cachePagePtr());
-		assert(!(bits & (dirtyBit | unmappedBit)));
-		entries_[count_++] = bits | (dirty ? dirtyBit : 0) | (unmapped ? unmappedBit : 0);
+		append_(descriptor->cachePagePtr(), dirty && trackDirty_);
+	}
+
+	// Records the dirty bit of a page table entry that stays mapped.
+	// The batch takes a use count of its own to keep the page alive until release().
+	// Requires the PTE update to happen in the same RCU critical section as recordDirty();
+	// see CachePage::useCount.
+	void recordDirty(PhysicalAddr physical) {
+		assert(currentIpl() >= ipl::noSchedule);
+		assert(!full());
+		if(!trackDirty_)
+			return;
+		auto descriptor = globalPfnDb().find(physical);
+		// Frames that are not cache pages need no notification.
+		if(!descriptor || !descriptor->isCachePage())
+			return;
+		incrementUses(*descriptor);
+		append_(descriptor->cachePagePtr(), true);
 	}
 
 	// Performs the held back notifications.
 	void release() {
 		for(size_t i = 0; i < count_; ++i) {
-			auto page = reinterpret_cast<CachePage *>(entries_[i] & ~(dirtyBit | unmappedBit));
+			auto page = reinterpret_cast<CachePage *>(entries_[i] & ~dirtyBit);
 			if(entries_[i] & dirtyBit)
 				markDirty(PfnDescriptor::cachePage(page));
-			if(entries_[i] & unmappedBit)
-				decrementUses(PfnDescriptor::cachePage(page));
+			decrementUses(PfnDescriptor::cachePage(page));
 		}
 		count_ = 0;
 		suspendedAt_ = std::nullopt;
 	}
 
 private:
+	void append_(CachePage *page, bool dirty) {
+		auto bits = reinterpret_cast<uintptr_t>(page);
+		assert(!(bits & dirtyBit));
+		entries_[count_++] = bits | (dirty ? dirtyBit : 0);
+	}
+
 	static constexpr uintptr_t dirtyBit = 1;
-	static constexpr uintptr_t unmappedBit = 2;
 
 	uintptr_t *entries_;
 	size_t capacity_;
@@ -159,7 +177,17 @@ frg::expected<Error, PagesAffected> mapPresentPagesByCursor(PageSpace *ps, Virtu
 			break;
 		}
 		auto progress = c.virtualAddress() - va;
-		auto physicalRange = view->peekRange(offset + progress, fetchNone);
+		PhysicalRange physicalRange;
+		{
+			// Keeps the page from being reclaimed until we hold a use count;
+			// see CachePage::useCount.
+			ScheduleGuard rcuGuard;
+			physicalRange = view->peekRange(offset + progress, fetchNone);
+			if(physicalRange.physical != PhysicalAddr(-1)) {
+				if(auto descriptor = globalPfnDb().find(physicalRange.physical))
+					incrementUses(*descriptor);
+			}
+		}
 		if(physicalRange.physical == PhysicalAddr(-1)) {
 			c.advance4k();
 			continue;
@@ -169,13 +197,11 @@ frg::expected<Error, PagesAffected> mapPresentPagesByCursor(PageSpace *ps, Virtu
 		auto effectiveFlags = flags;
 		if (!physicalRange.isMutable)
 			effectiveFlags &= ~page_access::write;
-		if(auto descriptor = globalPfnDb().find(physicalRange.physical))
-			incrementUses(*descriptor);
 		auto [status, oldPhysical] = c.map4k(physicalRange.physical, effectiveFlags,
 			determineCachingMode(physicalRange.cachingMode, mode));
 		affected.rssIncrease += kPageSize;
 		if(status & page_status::present) {
-			batch.record(oldPhysical, status & page_status::dirty, true);
+			batch.recordUnmapped(oldPhysical, status & page_status::dirty);
 			affected.rssDecrease += kPageSize;
 			affected.anyRevoked = true;
 		}
@@ -207,9 +233,11 @@ frg::expected<Error, PagesAffected> restrictPagesByCursor(PageSpace *ps, Virtual
 			batch.suspendAt(c.virtualAddress());
 			break;
 		}
+		// The dirty bit is handed to the batch in the same RCU critical section; see RevokeBatch::recordDirty().
+		ScheduleGuard rcuGuard;
 		auto [status, physical, restricted] = c.restrict4k(flags);
 		if((status & page_status::present) && (status & page_status::dirty)) {
-			batch.record(physical, true, false);
+			batch.recordDirty(physical);
 			affected.anyRevoked = true;
 		}
 		if(restricted)
@@ -239,19 +267,25 @@ frg::expected<Error, PagesAffected> faultPageByCursor(PageSpace *ps, VirtualAddr
 	PagesAffected affected{};
 	Cursor c{ps, va, policy};
 
-	auto physicalRange = view->peekRange(offset, fetchFlags);
-	if(physicalRange.physical == PhysicalAddr(-1))
-		return Error::fault;
+	PhysicalRange physicalRange;
+	{
+		// Keeps the page from being reclaimed until we hold a use count;
+		// see CachePage::useCount.
+		ScheduleGuard rcuGuard;
+		physicalRange = view->peekRange(offset, fetchFlags);
+		if(physicalRange.physical == PhysicalAddr(-1))
+			return Error::fault;
+		if(auto descriptor = globalPfnDb().find(physicalRange.physical))
+			incrementUses(*descriptor);
+	}
 
 	auto effectiveFlags = flags;
 	if (!physicalRange.isMutable)
 		effectiveFlags &= ~page_access::write;
-	if(auto descriptor = globalPfnDb().find(physicalRange.physical))
-		incrementUses(*descriptor);
 	auto [status, oldPhysical] = c.remap4k(physicalRange.physical, effectiveFlags,
 		determineCachingMode(physicalRange.cachingMode, mode));
 	if(status & page_status::present) {
-		batch.record(oldPhysical, status & page_status::dirty, true);
+		batch.recordUnmapped(oldPhysical, status & page_status::dirty);
 		affected.rssDecrease += kPageSize;
 		affected.anyRevoked = true;
 	}
@@ -281,9 +315,11 @@ frg::expected<Error, PagesAffected> cleanPagesByCursor(PageSpace *ps, VirtualAdd
 			batch.suspendAt(c.virtualAddress());
 			break;
 		}
+		// The dirty bit is handed to the batch in the same RCU critical section; see RevokeBatch::recordDirty().
+		ScheduleGuard rcuGuard;
 		auto [status, physical] = c.clean4k();
 		if((status & page_status::present) && (status & page_status::dirty)) {
-			batch.record(physical, true, false);
+			batch.recordDirty(physical);
 			affected.anyRevoked = true;
 		}
 		c.advance4k();
@@ -312,7 +348,7 @@ frg::expected<Error, PagesAffected> unmapPagesByCursor(PageSpace *ps, VirtualAdd
 		}
 		auto [status, physical] = c.unmap4k();
 		if(status & page_status::present) {
-			batch.record(physical, status & page_status::dirty, true);
+			batch.recordUnmapped(physical, status & page_status::dirty);
 			affected.rssDecrease += kPageSize;
 			affected.anyRevoked = true;
 		}
@@ -344,7 +380,7 @@ frg::expected<Error, PagesAffected> agePagesByCursor(PageSpace *ps, VirtualAddr 
 		affected.scanned += kPageSize;
 		auto [status, physical, unmapped] = c.age4k(vacate);
 		if(unmapped) {
-			batch.record(physical, status & page_status::dirty, true);
+			batch.recordUnmapped(physical, status & page_status::dirty);
 			affected.rssDecrease += kPageSize;
 			affected.anyRevoked = true;
 		}
@@ -652,6 +688,8 @@ struct Mapping {
 	// to remain valid with permissions determined by the mappings flags that are
 	// read during the exposeRcu critical section.
 	// The same applies for pages that are already mapped into page tables.
+	// However, exposeRcu does not prevent the reclamation of cache pages without use counts:
+	// that requires an RCU critical section; see CachePage::useCount.
 	LocalRcuEngine exposeRcu;
 
 	// The following code paths MUST be protected by a revokeRcu critical section:
@@ -747,6 +785,7 @@ public:
 	coroutine<frg::expected<Error>>
 	handleFault(VirtualAddr address, uint32_t flags);
 
+	// Returns a snapshot. Unless the page is locked, it can be evicted or reclaimed afterwards.
 	coroutine<frg::expected<Error, PhysicalAddr>>
 	retrievePhysical(VirtualAddr address);
 
@@ -825,6 +864,8 @@ public:
 				// Lock exposeRcu to prevent page eviction.
 				{
 					LocalRcuEngine::Guard exposeGuard{mapping->exposeRcu};
+					// Prevents page reclamation; see CachePage::useCount.
+					ScheduleGuard rcuGuard;
 
 					// Complete the operation if the memory page is available.
 					auto physicalRange = mapping->view->peekRange(mapping->viewOffset + alignedOffset, fetchNone);
