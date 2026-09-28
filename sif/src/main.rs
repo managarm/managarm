@@ -45,6 +45,10 @@ fn main() -> Result<()> {
             // Configure the ISA IRQs before the PCI links to match thor's ordering.
             #[cfg(target_arch = "x86_64")]
             isa::configure_isa_irqs();
+
+            if let Err(err) = acpi::ec::init_events() {
+                println!("sif: acpi: failed to initialize EC events: {err}");
+            }
         }
 
         pci::publish_devices().await?;
