@@ -35,6 +35,16 @@ struct Controller final : std::enable_shared_from_this<Controller>, proto::BaseC
 		async::result<frg::expected<proto::UsbError, void>> issueReset(int port) override;
 		async::result<frg::expected<proto::UsbError, proto::DeviceSpeed>> querySpeed(int port) override;
 
+		async::result<frg::expected<proto::UsbError, void>> setPortPower(int port, bool state) override {
+			(void)port;
+			(void)state;
+			co_return proto::UsbError::unsupported;
+		}
+
+		async::detached run() override {
+			co_return;
+		}
+
 		mbus_ng::EntityId mbusEntityId() override {
 			return _controller->_entity.id();
 		}

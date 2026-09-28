@@ -305,8 +305,12 @@ struct RootHub final : proto::Hub {
 
 	size_t numPorts() override;
 	async::result<proto::PortState> pollState(int port) override;
+	async::result<frg::expected<proto::UsbError, void>> setPortPower(int port, bool state) override;
 	async::result<frg::expected<proto::UsbError, void>> issueReset(int port) override;
 	async::result<frg::expected<proto::UsbError, proto::DeviceSpeed>> querySpeed(int port) override;
+	async::detached run() override;
+
+	frg::expected<proto::UsbError, proto::HubCharacteristics> getCharacteristics() override;
 
 	SupportedProtocol *protocol() {
 		return _proto;

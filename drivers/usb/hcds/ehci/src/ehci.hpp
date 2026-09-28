@@ -134,6 +134,16 @@ struct Controller final : proto::BaseController, std::enable_shared_from_this<Co
 		async::result<frg::expected<proto::UsbError, void>> issueReset(int port) override;
 		async::result<frg::expected<proto::UsbError, proto::DeviceSpeed>> querySpeed(int port) override;
 
+		async::result<frg::expected<proto::UsbError, void>> setPortPower(int port, bool state) override {
+			(void)port;
+			(void)state;
+			co_return proto::UsbError::unsupported;
+		}
+
+		async::detached run() override {
+			co_return;
+		}
+
 		Port &port(int portnr) {
 			assert(portnr < _controller->_numPorts);
 			return *_ports[portnr];

@@ -31,6 +31,7 @@ struct PortState {
 
 struct HubCharacteristics {
 	int ttThinkTime; // In FS bit times
+	int powerOnToPowerGood; // In milliseconds
 };
 
 struct Hub {
@@ -43,8 +44,11 @@ public:
 
 	virtual size_t numPorts() = 0;
 	virtual async::result<PortState> pollState(int port) = 0;
+	virtual async::result<frg::expected<UsbError, void>> setPortPower(int port, bool state) = 0;
 	virtual async::result<frg::expected<UsbError, void>> issueReset(int port) = 0;
 	virtual async::result<frg::expected<UsbError, DeviceSpeed>> querySpeed(int port) = 0;
+
+	virtual async::detached run() = 0;
 
 	virtual frg::expected<UsbError, HubCharacteristics> getCharacteristics() {
 		return UsbError::unsupported;
@@ -77,7 +81,7 @@ struct Enumerator {
 	Enumerator(BaseController *controller)
 	: controller_{controller} { }
 
-	void observeHub(std::shared_ptr<Hub> hub);
+	async::detached observeHub(std::shared_ptr<Hub> hub);
 
 private:
 	async::detached observePort_(std::shared_ptr<Hub> hub, int port);

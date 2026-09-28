@@ -696,13 +696,29 @@ async::result<proto::PortState> RootHub::pollState(int port) {
 	co_return co_await _ports[port - 1]->pollState();
 }
 
+async::result<frg::expected<proto::UsbError, void>> RootHub::setPortPower(int port, bool state) {
+	co_await _ports[port - 1]->setPower(state);
+	co_return frg::success;
+}
+
 async::result<frg::expected<proto::UsbError, void>> RootHub::issueReset(int port) {
-        FRG_CO_TRY(co_await _ports[port - 1]->issueReset());
+	FRG_CO_TRY(co_await _ports[port - 1]->issueReset());
 	co_return frg::success;
 }
 
 async::result<frg::expected<proto::UsbError, proto::DeviceSpeed>> RootHub::querySpeed(int port) {
 	co_return FRG_CO_TRY(co_await _ports[port - 1]->querySpeed());
+}
+
+async::detached RootHub::run() {
+	co_return;
+}
+
+frg::expected<proto::UsbError, proto::HubCharacteristics> RootHub::getCharacteristics() {
+	return proto::HubCharacteristics{
+		.ttThinkTime = 0,
+		.powerOnToPowerGood = _proto->major == 3 ? 100 : 20,
+	};
 }
 
 // ------------------------------------------------------------------------
