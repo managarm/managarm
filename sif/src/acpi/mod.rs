@@ -1,3 +1,4 @@
+pub mod battery;
 pub mod dmar;
 pub mod ec;
 pub mod glue;

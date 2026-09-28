@@ -57,6 +57,9 @@ fn main() -> Result<()> {
 
         if acpi::has_rsdp() {
             acpi::ps2::publish().await?;
+            if let Err(err) = acpi::battery::publish().await {
+                println!("sif: acpi: failed to publish batteries: {err}");
+            }
         }
 
         dt::serve::publish_all().await?;
