@@ -1,5 +1,6 @@
 #pragma once
 
+#include <async/recurring-event.hpp>
 #include <thor-internal/arch-generic/ints.hpp>
 #include <thor-internal/cpu-data.hpp>
 
@@ -41,6 +42,44 @@ protected:
 
 private:
 	F f_;
+};
+
+// Event with the raise path wired through SelfIntCall;
+// i.e., it can be raised in all contexts in which we can also call into SelfIntCall.
+// The event stays pending until it is cleared.
+struct SelfIntEvent {
+	// Pre-condition: !intsAreEnabled().
+	void raise() {
+		assert(!intsAreEnabled());
+		if(!pending_.exchange(true, std::memory_order_acq_rel))
+			call_.schedule();
+	}
+
+	// Returns true if the event was pending.
+	bool clear() {
+		return pending_.exchange(false, std::memory_order_acq_rel);
+	}
+
+	// Waits if the event is currently pending.
+	// Callers must be able to deal with spurious wakeups.
+	auto wait() {
+		return event_.async_wait_if([this] {
+			return !pending_.load(std::memory_order_acquire);
+		});
+	}
+
+private:
+	struct Raise {
+		void operator() () {
+			self->event_.raise();
+		}
+
+		SelfIntEvent *self;
+	};
+
+	std::atomic<bool> pending_{false};
+	async::recurring_event event_;
+	SelfIntCall<Raise> call_{Raise{this}};
 };
 
 } // namespace thor

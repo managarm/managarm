@@ -96,32 +96,20 @@ namespace {
 	// ----------------------------------------------------------------------------------
 
 	// Raised whenever new log records are published.
-	constinit async::recurring_event drainEvent;
-
-	constinit SelfIntCall drainWakeup{
-		[] { drainEvent.raise(); }
-	};
+	constinit SelfIntEvent drainEvent;
 
 	// Raised by the drain fiber after each pass over the log ring.
-	// drainEvent itself is unsuitable for other waiters since its wakeups coalesce on drainPending.
+	// Other waiters cannot use drainEvent: its raises coalesce until the drain fiber clears it.
 	constinit async::recurring_event drainedEvent;
 
 	// Whether the log drain fiber has started yet.
 	constinit std::atomic<bool> drainOnline{false};
 
-	// Whether the log drain thread is currently active or not.
-	// We only call drainWakeup if it is not.
-	constinit std::atomic<bool> drainPending{false};
-
 	void runLogDrain() {
 		drainOnline.store(true, std::memory_order_relaxed);
 
 		while(true) {
-			KernelFiber::asyncBlockCurrent(
-				drainEvent.async_wait_if([&] {
-					return !drainPending.load(std::memory_order_acquire);
-				})
-			);
+			KernelFiber::asyncBlockCurrent(drainEvent.wait());
 
 			int sinceFlush = 0;
 			bool mustWake = false;
@@ -155,12 +143,8 @@ namespace {
 					mustWake = true;
 				}
 
-				if (drainPending.load(std::memory_order_relaxed)) {
-					// We need acquire ordering to order this because the check in the next iteration.
-					drainPending.exchange(false, std::memory_order_acquire);
-				} else {
+				if (!drainEvent.clear())
 					break;
-				}
 			}
 
 			drainedEvent.raise();
@@ -196,11 +180,8 @@ void postLogRecord(frg::string_view record, bool expedited) {
 	// We always wake up the logging thread.
 	auto useThreaded = drainOnline.load(std::memory_order_relaxed)
 			&& getCpuData()->cpuState.load(std::memory_order_relaxed) == CpuState::online;
-	if (useThreaded) {
-		bool alreadyPending = drainPending.exchange(true, std::memory_order_release);
-		if (!alreadyPending)
-			drainWakeup.schedule();
-	}
+	if (useThreaded)
+		drainEvent.raise();
 
 	// For expedited logs, we call into log handlers synchronously.
 	if (!useThreaded || expedited) {
