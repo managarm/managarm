@@ -187,11 +187,11 @@ Enumerator::enumerateDevice_(std::shared_ptr<DeviceServerData> device) {
 namespace {
 
 namespace ClassRequests {
-static constexpr uint8_t getStatus = 0x00;
-static constexpr uint8_t clearFeature = 0x01;
-static constexpr uint8_t setFeature = 0x03;
-static constexpr uint8_t getDescriptor = 0x06;
-static constexpr uint8_t setHubDepth = 0x20;
+static constexpr uint8_t getStatus = 0;
+static constexpr uint8_t clearFeature = 1;
+static constexpr uint8_t setFeature = 3;
+static constexpr uint8_t getDescriptor = 6;
+static constexpr uint8_t setHubDepth = 12;
 }
 
 namespace PortBits {
