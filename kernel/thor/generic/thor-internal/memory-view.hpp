@@ -6,7 +6,6 @@
 
 #include <async/algorithm.hpp>
 #include <async/oneshot-event.hpp>
-#include <async/post-ack.hpp>
 #include <async/recurring-event.hpp>
 #include <async/wait-group.hpp>
 #include <frg/list.hpp>
@@ -251,42 +250,58 @@ enum class EvictMode {
 	cleanRange,
 };
 
-struct RangeToEvict {
-	EvictMode mode;
-	uintptr_t offset;
-	size_t size;
-};
-
-struct Eviction {
-	Eviction() = default;
-
-	Eviction(async::post_ack_handle<RangeToEvict> handle)
-	: handle_{std::move(handle)} { }
-
-	explicit operator bool () {
-		return static_cast<bool>(handle_);
-	}
-
-	EvictMode mode() { return handle_->mode; }
-	uintptr_t offset() { return handle_->offset; }
-	uintptr_t size() { return handle_->size; }
-
-	void done() {
-		handle_.ack();
-	}
-
-private:
-	async::post_ack_handle<RangeToEvict> handle_;
-};
-
+// Observes the evictions of a MemoryView (e.g., a Mapping of the view).
+// Observers must only be freed after an RCU grace period has passed since removeObserver()
+// (e.g., by allocating them with allocate_rcu_shared()) since they are traversed under RCU.
+// An observer is attached to at most one view during its lifetime.
 struct MemoryObserver {
-	friend struct MemoryView;
 	friend struct EvictionQueue;
 
-	frg::default_list_hook<MemoryObserver> listHook;
+	// The observer is only called for evictions that intersect [offset, offset + size).
+	MemoryObserver(uintptr_t observedOffset, size_t observedSize)
+	: observedOffset_{observedOffset}, observedSize_{observedSize} { }
+
+	MemoryObserver(const MemoryObserver &) = delete;
+
+	MemoryObserver &operator= (const MemoryObserver &) = delete;
+
+	// Runs at ipl::exceptionalWork on the work queue of the code that initiates the eviction.
+	// Different evictions can call this concurrently.
+	virtual coroutine<void> evict(EvictMode mode, uintptr_t offset, size_t size) = 0;
+
+protected:
+	~MemoryObserver() = default;
 
 private:
-	async::post_ack_agent<RangeToEvict> agent_;
+	static constexpr unsigned int detachedBit = 1u << 31;
+
+	bool tryBeginEviction_() {
+		auto n = inflightEvictions_.load(std::memory_order_relaxed);
+		do {
+			if(n & detachedBit)
+				return false;
+		} while(!inflightEvictions_.compare_exchange_weak(n, n + 1,
+				std::memory_order_acquire, std::memory_order_relaxed));
+		return true;
+	}
+
+	void endEviction_() {
+		auto n = inflightEvictions_.fetch_sub(1, std::memory_order_acq_rel);
+		assert(n & ~detachedBit);
+		if(n == (detachedBit | 1))
+			evictionsDrainedEvent_.raise();
+	}
+
+	const uintptr_t observedOffset_;
+	const size_t observedSize_;
+
+	// Number of in-flight evict() calls, plus detachedBit once removeObserver() started.
+	std::atomic<unsigned int> inflightEvictions_{0};
+	async::oneshot_event evictionsDrainedEvent_;
+
+	// Protected against writes by EvictionQueue::mutex_.
+	// Unlinked only while no eviction is in flight.
+	frg::intrusive_rcu_list_hook<MemoryObserver> hook_;
 };
 
 struct EvictionQueue final : frg::intrusive_rc {
@@ -294,46 +309,35 @@ struct EvictionQueue final : frg::intrusive_rc {
 		auto irqLock = frg::guard(&irqMutex());
 		auto lock = frg::guard(&mutex_);
 
-		observer->agent_.attach(&mechanism_);
+		// Note that this push_back() publishes the observer since traversal does not hold mutex_.
 		observers_.push_back(observer);
-		numObservers_++;
 	}
 
-	void removeObserver(MemoryObserver *observer) {
-		auto irqLock = frg::guard(&irqMutex());
-		auto lock = frg::guard(&mutex_);
+	// Once this completes, no evict() call on the observer is running or will be started.
+	coroutine<void> removeObserver(MemoryObserver *observer);
 
-		observer->agent_.detach();
-		auto it = observers_.iterator_to(observer);
-		observers_.erase(it);
-		numObservers_--;
+	coroutine<void> breakRange(uintptr_t offset, size_t size) {
+		return dispatch_(EvictMode::breakRange, offset, size);
 	}
-
-	auto pollEviction(MemoryObserver *observer, async::cancellation_token ct) {
-		return observer->agent_.poll(std::move(ct));
-	}
-
-	auto breakRange(uintptr_t offset, size_t size) {
-		return mechanism_.post(RangeToEvict{EvictMode::breakRange, offset, size});
-	}
-	auto cleanRange(uintptr_t offset, size_t size) {
-		return mechanism_.post(RangeToEvict{EvictMode::cleanRange, offset, size});
+	coroutine<void> cleanRange(uintptr_t offset, size_t size) {
+		return dispatch_(EvictMode::cleanRange, offset, size);
 	}
 
 private:
+	// Calls evict() on all observers concurrently.
+	coroutine<void> dispatch_(EvictMode mode, uintptr_t offset, size_t size);
+
 	frg::ticket_spinlock mutex_;
 
-	frg::intrusive_list<
+	// Protected against writes by mutex_.
+	frg::intrusive_rcu_list<
 		MemoryObserver,
 		frg::locate_member<
 			MemoryObserver,
-			frg::default_list_hook<MemoryObserver>,
-			&MemoryObserver::listHook
+			frg::intrusive_rcu_list_hook<MemoryObserver>,
+			&MemoryObserver::hook_
 		>
 	> observers_;
-
-	size_t numObservers_ = 0;
-	async::post_ack_mechanism<RangeToEvict> mechanism_;
 };
 
 // Selects how the discard path treats dirty page contents.
@@ -366,9 +370,9 @@ public:
 			evictionQueue_->addObserver(observer);
 	}
 
-	void removeObserver(MemoryObserver *observer) {
+	coroutine<void> removeObserver(MemoryObserver *observer) {
 		if(evictionQueue_)
-			evictionQueue_->removeObserver(observer);
+			co_await evictionQueue_->removeObserver(observer);
 	}
 
 	// Returns the current size of the memory object.
@@ -442,22 +446,6 @@ public:
 
 	coroutine<frg::expected<Error>>
 	touchFullRange(uintptr_t offset, size_t size, FetchFlags flags);
-
-	// ----------------------------------------------------------------------------------
-	// Memory eviction.
-	// ----------------------------------------------------------------------------------
-
-	bool canEvictMemory() {
-		return static_cast<bool>(evictionQueue_);
-	}
-
-	auto pollEviction(MemoryObserver *observer, async::cancellation_token ct) {
-		return async::transform(observer->agent_.poll(std::move(ct)),
-			[] (async::post_ack_handle<RangeToEvict> handle) {
-				return Eviction{std::move(handle)};
-			}
-		);
-	}
 
 private:
 	frg::intrusive_shared_ptr<EvictionQueue, Allocator> evictionQueue_;
@@ -1279,7 +1267,7 @@ private:
 				smarter::shared_ptr<MemoryView> memory,
 				uintptr_t offset, size_t size, CachingFlags flags)
 		: owner{owner}, slot{slot}, memory{std::move(memory)}, offset{offset},
-			size{size}, flags{flags}, observer{} { }
+			size{size}, flags{flags} { }
 
 		IndirectMemory *owner;
 		size_t slot;
@@ -1287,7 +1275,6 @@ private:
 		uintptr_t offset;
 		size_t size;
 		CachingFlags flags;
-		MemoryObserver observer;
 	};
 
 	frg::ticket_spinlock mutex_;

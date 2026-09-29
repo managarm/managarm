@@ -623,7 +623,8 @@ enum class MappingState {
 	retired
 };
 
-struct Mapping {
+// Mappings are freed via RCU since EvictionQueue traverses its observers under RCU.
+struct Mapping final : MemoryObserver {
 	Mapping(
 		smarter::shared_ptr<VirtualSpace> owner,
 		VirtualAddr address,
@@ -649,7 +650,7 @@ struct Mapping {
 
 	uint32_t compilePageFlags();
 
-	coroutine<void> runEvictionLoop();
+	coroutine<void> evict(EvictMode mode, uintptr_t offset, size_t size) override;
 
 	const smarter::shared_ptr<VirtualSpace> owner;
 	const VirtualAddr address;
@@ -668,16 +669,12 @@ struct Mapping {
 	// Protected by _snapshotMutex.
 	frg::rbtree_hook treeNode;
 
-	// Protected against writes by _consistencyMutex.
-	MemoryObserver observer;
-
 	// Code paths MUST perform an exposeRcu barrier() after they cause page
 	// permission to be narrowed (or pages to become invalid) but before this
 	// change is actually committed.
 	// In particular:
-	// * Code that acknowledges an eviction. More precisely, code that calls done() on the handle
-	//   returned by pollEviction() needs to do a barrier() before unmapping the pages
-	//   via unmapPages() (which happens before done()).
+	// * Code that handles an eviction (i.e., evict()) needs to do a barrier() before unmapping
+	//   the pages via unmapPages().
 	// * Code that reduces the permission bits of a mapping.
 	//   This needs to call barrier() before restricting permissions in the page tables
 	//   via restrictPages() or unmapPages().
@@ -701,9 +698,6 @@ struct Mapping {
 	// This guarantees that a revokeRcu barrier() waits for all prior
 	// permission revocation and associated shootdown to complete.
 	LocalRcuEngine revokeRcu;
-
-	async::cancellation_event cancelEviction;
-	async::oneshot_event evictionDoneEvent;
 };
 
 struct HoleLess {

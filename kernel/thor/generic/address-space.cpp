@@ -107,7 +107,8 @@ Mapping::Mapping(
 	smarter::shared_ptr<MemorySlice> sl,
 	uintptr_t viewOffset,
 	MappingFlags flags
-) : owner{std::move(owner)},
+) : MemoryObserver{viewOffset, length},
+		owner{std::move(owner)},
 		address{address},
 		length{length},
 		slice{std::move(sl)},
@@ -132,64 +133,53 @@ void Mapping::protect(MappingFlags protectFlags) {
 	flags.store(static_cast<MappingFlags>(newFlags), std::memory_order_relaxed);
 }
 
-coroutine<void> Mapping::runEvictionLoop() {
+coroutine<void> Mapping::evict(EvictMode mode, uintptr_t offset, size_t size) {
 	assert(currentIpl() == ipl::exceptionalWork);
 
-	while(true) {
-		auto eviction = co_await view->pollEviction(&observer, cancelEviction);
-		if(!eviction)
-			break;
-		if(eviction.offset() + eviction.size() <= viewOffset
-				|| eviction.offset() >= viewOffset + length) {
-			eviction.done();
-			continue;
+	if(offset + size <= viewOffset
+			|| offset >= viewOffset + length)
+		co_return;
+
+	// Begin and end offsets of the region that we need to unmap or clean.
+	auto shootBegin = frg::max(offset, viewOffset);
+	auto shootEnd = frg::min(offset + size,
+			viewOffset + length);
+
+	// Offset from the beginning of the mapping.
+	auto shootOffset = shootBegin - viewOffset;
+	auto shootSize = shootEnd - shootBegin;
+	assert(shootSize);
+	assert(!(shootOffset & (kPageSize - 1)));
+	assert(!(shootSize & (kPageSize - 1)));
+
+	co_await exposeRcu.barrier();
+
+	bool anyRevoked;
+	{
+		LocalRcuEngine::Guard revokeGuard{revokeRcu};
+
+		if(mode == EvictMode::cleanRange) {
+			auto cleanOutcome = co_await revokePages(owner->_ops,
+					address + shootOffset, shootSize, tracksDirty(),
+					[&] (VirtualAddr va, size_t size, RevokeBatch &batch) {
+						return owner->_ops->cleanPages(va, size, batch);
+					});
+			assert(cleanOutcome);
+			anyRevoked = cleanOutcome.value().anyRevoked;
+		} else {
+			assert(mode == EvictMode::breakRange);
+			auto unmapOutcome = co_await revokePages(owner->_ops,
+					address + shootOffset, shootSize, tracksDirty(),
+					[&] (VirtualAddr va, size_t size, RevokeBatch &batch) {
+						return owner->_ops->unmapPages(va, size, batch);
+					});
+			assert(unmapOutcome);
+			owner->notifyRss_(unmapOutcome.value());
+			anyRevoked = unmapOutcome.value().anyRevoked;
 		}
-
-		// Begin and end offsets of the region that we need to unmap or clean.
-		auto shootBegin = frg::max(eviction.offset(), viewOffset);
-		auto shootEnd = frg::min(eviction.offset() + eviction.size(),
-				viewOffset + length);
-
-		// Offset from the beginning of the mapping.
-		auto shootOffset = shootBegin - viewOffset;
-		auto shootSize = shootEnd - shootBegin;
-		assert(shootSize);
-		assert(!(shootOffset & (kPageSize - 1)));
-		assert(!(shootSize & (kPageSize - 1)));
-
-		co_await exposeRcu.barrier();
-
-		bool anyRevoked;
-		{
-			LocalRcuEngine::Guard revokeGuard{revokeRcu};
-
-			if(eviction.mode() == EvictMode::cleanRange) {
-				auto cleanOutcome = co_await revokePages(owner->_ops,
-						address + shootOffset, shootSize, tracksDirty(),
-						[&] (VirtualAddr va, size_t size, RevokeBatch &batch) {
-							return owner->_ops->cleanPages(va, size, batch);
-						});
-				assert(cleanOutcome);
-				anyRevoked = cleanOutcome.value().anyRevoked;
-			} else {
-				assert(eviction.mode() == EvictMode::breakRange);
-				auto unmapOutcome = co_await revokePages(owner->_ops,
-						address + shootOffset, shootSize, tracksDirty(),
-						[&] (VirtualAddr va, size_t size, RevokeBatch &batch) {
-							return owner->_ops->unmapPages(va, size, batch);
-						});
-				assert(unmapOutcome);
-				owner->notifyRss_(unmapOutcome.value());
-				anyRevoked = unmapOutcome.value().anyRevoked;
-			}
-		}
-		if(!anyRevoked)
-			co_await revokeRcu.barrier();
-
-		eviction.done();
 	}
-
-	evictionDoneEvent.raise();
+	if(!anyRevoked)
+		co_await revokeRcu.barrier();
 }
 
 // --------------------------------------------------------
@@ -295,11 +285,7 @@ void VirtualSpace::retire() {
 			assert(mapping->state.load(std::memory_order_relaxed) == MappingState::zombie);
 			mapping->state.store(MappingState::retired, std::memory_order_relaxed);
 
-			if(mapping->view->canEvictMemory()) {
-				mapping->cancelEviction.cancel();
-				co_await mapping->evictionDoneEvent.wait();
-			}
-			mapping->view->removeObserver(&mapping->observer);
+			co_await mapping->view->removeObserver(mapping);
 			mapping->selfPtr.policy().decrement();
 		}
 	}(selfPtr.lock()));
@@ -464,7 +450,7 @@ VirtualSpace::map(smarter::borrowed_ptr<MemorySlice> slice,
 	if(flags & kMapNoDirtyTracking)
 		mappingFlags |= MappingFlags::noDirtyTracking;
 
-	mapping = smarter::allocate_shared<Mapping>(Allocator{},
+	mapping = allocate_rcu_shared<Mapping>(Allocator{},
 		selfPtr.lock(),
 		actualAddress,
 		length,
@@ -473,6 +459,11 @@ VirtualSpace::map(smarter::borrowed_ptr<MemorySlice> slice,
 		static_cast<MappingFlags>(mappingFlags)
 	);
 	mapping->selfPtr = mapping;
+
+	// We keep one reference until the detach the observer.
+	// Attach before the mapping becomes faultable, otherwise evictions can miss its PTEs.
+	mapping.policy().increment();
+	mapping->view->addObserver(mapping.get());
 
 	{
 		auto irqLock = frg::guard(&irqMutex());
@@ -484,10 +475,6 @@ VirtualSpace::map(smarter::borrowed_ptr<MemorySlice> slice,
 		assert(mapping->state.load(std::memory_order_relaxed) == MappingState::null);
 		mapping->state.store(MappingState::active, std::memory_order_relaxed);
 	}
-
-	// We keep one reference until the detach the observer.
-	mapping.policy().increment();
-	mapping->view->addObserver(&mapping->observer);
 
 	// Not populating the range is the default.
 	// Populating is quite expensive on CoW memory, mostly due to additional shootdowns
@@ -525,9 +512,6 @@ VirtualSpace::map(smarter::borrowed_ptr<MemorySlice> slice,
 			}
 		}
 	}
-
-	if(mapping->view->canEvictMemory())
-		spawnOnWorkQueue(*kernelAlloc, WorkQueue::generalQueue().lock(), mapping->runEvictionLoop());
 
 	co_return actualAddress;
 }
@@ -1001,7 +985,7 @@ coroutine<frg::tuple<Mapping *, Mapping *>> VirtualSpace::_splitMappings(uintptr
 
 			{
 				auto leftSize = at - mapping->address;
-				leftMapping = smarter::allocate_shared<Mapping>(
+				leftMapping = allocate_rcu_shared<Mapping>(
 					Allocator{},
 					selfPtr.lock(),
 					mapping->address,
@@ -1015,7 +999,7 @@ coroutine<frg::tuple<Mapping *, Mapping *>> VirtualSpace::_splitMappings(uintptr
 
 			{
 				auto rightOffset = at - mapping->address;
-				rightMapping = smarter::allocate_shared<Mapping>(
+				rightMapping = allocate_rcu_shared<Mapping>(
 					Allocator{},
 					selfPtr.lock(),
 					at,
@@ -1028,6 +1012,13 @@ coroutine<frg::tuple<Mapping *, Mapping *>> VirtualSpace::_splitMappings(uintptr
 			}
 
 			assert(leftMapping && rightMapping);
+
+			// We keep one reference until the detach the observer.
+			// Attach before the mappings become faultable, otherwise evictions can miss their PTEs.
+			leftMapping.policy().increment();
+			leftMapping->view->addObserver(leftMapping.get());
+			rightMapping.policy().increment();
+			rightMapping->view->addObserver(rightMapping.get());
 
 			// Now remove the mapping and insert the new mappings.
 			{
@@ -1046,26 +1037,14 @@ coroutine<frg::tuple<Mapping *, Mapping *>> VirtualSpace::_splitMappings(uintptr
 			}
 
 			// Retire the old mapping and start using the new ones.
-			// We keep one reference until the detach the observer.
-			leftMapping.policy().increment();
-			leftMapping->view->addObserver(&leftMapping->observer);
-			if (leftMapping->view->canEvictMemory())
-				spawnOnWorkQueue(*kernelAlloc, WorkQueue::generalQueue().lock(), leftMapping->runEvictionLoop());
-
-			// We keep one reference until the detach the observer.
-			rightMapping.policy().increment();
-			rightMapping->view->addObserver(&rightMapping->observer);
-			if (rightMapping->view->canEvictMemory())
-				spawnOnWorkQueue(*kernelAlloc, WorkQueue::generalQueue().lock(), rightMapping->runEvictionLoop());
-
 			assert(mapping->state.load(std::memory_order_relaxed) == MappingState::zombie);
 			mapping->state.store(MappingState::retired, std::memory_order_relaxed);
 
-			if (mapping->view->canEvictMemory()) {
-				mapping->cancelEviction.cancel();
-				co_await mapping->evictionDoneEvent.wait();
-			}
-			mapping->view->removeObserver(&mapping->observer);
+			// Faults that saw the old mapping as active must finish mapping their pages
+			// before it stops observing evictions; the new mappings do not wait for them.
+			co_await mapping->exposeRcu.barrier();
+
+			co_await mapping->view->removeObserver(mapping.get());
 			mapping->selfPtr.policy().decrement();
 
 			// If start pointed to the freshly-removed mapping,
@@ -1128,11 +1107,7 @@ coroutine<void> VirtualSpace::_unmapMappings(VirtualAddr address, size_t length,
 			assert(mapping->state.load(std::memory_order_relaxed) == MappingState::zombie);
 			mapping->state.store(MappingState::retired, std::memory_order_relaxed);
 
-			if(mapping->view->canEvictMemory()) {
-				mapping->cancelEviction.cancel();
-				co_await mapping->evictionDoneEvent.wait();
-			}
-			mapping->view->removeObserver(&mapping->observer);
+			co_await mapping->view->removeObserver(mapping.get());
 			mapping->selfPtr.policy().decrement();
 
 			// Finally, coalesce the hole in the hole tree.
