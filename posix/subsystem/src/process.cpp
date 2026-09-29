@@ -4,6 +4,9 @@
 #include <limits>
 #include <print>
 
+#include <async/scope.hpp>
+#include <frg/std_compat.hpp>
+
 #include "common.hpp"
 #include <core/clock.hpp>
 #include "exec.hpp"
@@ -122,39 +125,44 @@ async::result<std::shared_ptr<VmContext>> VmContext::clone(
 	HEL_CHECK(helCreateSpace(&space));
 	context->_space = helix::UniqueDescriptor(space);
 
-	for(const auto &entry : original->_areaTree) {
-		const auto &[address, area] = entry;
+	co_await async::dynamic_scope<async::result<void>>(frg::stl_allocator{}, [&] (auto &spawn) {
+		for(const auto &entry : original->_areaTree) {
+			const auto &[address, area] = entry;
 
-		helix::UniqueDescriptor copyView;
-		if(area.copyOnWrite) {
-			auto forkResult = co_await helix_ng::forkMemory(context->_hierarchy, area.copyView);
-			HEL_CHECK(forkResult.error());
-			copyView = forkResult.descriptor();
+			Area copy;
+			copy.copyOnWrite = area.copyOnWrite;
+			copy.areaSize = area.areaSize;
+			copy.nativeFlags = area.nativeFlags;
+			copy.fileView = area.fileView.dup();
+			copy.file = area.file;
+			copy.offset = area.offset;
+			copy.effectiveOffset = area.effectiveOffset;
+			auto [it, inserted] = context->_areaTree.emplace(address, std::move(copy));
+			assert(inserted);
 
-			auto mapResult = co_await helix_ng::mapMemory(copyView, context->_space,
-					reinterpret_cast<void *>(address),
-					area.effectiveOffset, area.areaSize, area.nativeFlags);
-			if(mapResult.error() != kHelErrNone && mapResult.error() != kHelErrAlreadyExists) {
-				HEL_CHECK(mapResult.error());
-			}
-		}else{
-			auto mapResult = co_await helix_ng::mapMemory(area.fileView, context->_space,
-					reinterpret_cast<void *>(address),
-					area.offset, area.areaSize, area.nativeFlags);
-			HEL_CHECK(mapResult.error());
+			// Areas are independent, so fork and map all of them concurrently.
+			spawn([] (VmContext *context, uintptr_t address,
+					helix::BorrowedDescriptor originalCopyView, Area *copy) -> async::result<void> {
+				if(copy->copyOnWrite) {
+					auto forkResult = co_await helix_ng::forkMemory(context->_hierarchy, originalCopyView);
+					HEL_CHECK(forkResult.error());
+					copy->copyView = forkResult.descriptor();
+
+					auto mapResult = co_await helix_ng::mapMemory(copy->copyView, context->_space,
+							reinterpret_cast<void *>(address),
+							copy->effectiveOffset, copy->areaSize, copy->nativeFlags);
+					if(mapResult.error() != kHelErrNone && mapResult.error() != kHelErrAlreadyExists) {
+						HEL_CHECK(mapResult.error());
+					}
+				}else{
+					auto mapResult = co_await helix_ng::mapMemory(copy->fileView, context->_space,
+							reinterpret_cast<void *>(address),
+							copy->offset, copy->areaSize, copy->nativeFlags);
+					HEL_CHECK(mapResult.error());
+				}
+			}(context.get(), address, area.copyView, &it->second));
 		}
-
-		Area copy;
-		copy.copyOnWrite = area.copyOnWrite;
-		copy.areaSize = area.areaSize;
-		copy.nativeFlags = area.nativeFlags;
-		copy.fileView = area.fileView.dup();
-		copy.copyView = std::move(copyView);
-		copy.file = area.file;
-		copy.offset = area.offset;
-		copy.effectiveOffset = area.effectiveOffset;
-		context->_areaTree.emplace(address, std::move(copy));
-	}
+	});
 
 	co_return context;
 }
