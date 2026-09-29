@@ -129,7 +129,7 @@ apEntryPoint:
 	ldr x0, =0x4404000CFF
 	msr mair_el1, x0
 
-	ldr x0, =0x5a5102510
+	ldr x0, =0x5b5103510
 	msr tcr_el1, x0
 
 	add x0, x1, THOR_AP_STATUS_MAIN
