@@ -105,6 +105,11 @@ impl Io<'_> {
     pub fn maximum(self) -> u16 {
         self.io.maximum
     }
+
+    /// Number of ports of the range.
+    pub fn length(self) -> u8 {
+        self.io.length
+    }
 }
 
 /// A fixed IO port range resource, i.e., a resource of type UACPI_RESOURCE_TYPE_FIXED_IO.

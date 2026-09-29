@@ -45,6 +45,10 @@ fn main() -> Result<()> {
             // Configure the ISA IRQs before the PCI links to match thor's ordering.
             #[cfg(target_arch = "x86_64")]
             isa::configure_isa_irqs();
+
+            if let Err(err) = acpi::ec::init_events() {
+                println!("sif: acpi: failed to initialize EC events: {err}");
+            }
         }
 
         pci::publish_devices().await?;
@@ -53,6 +57,9 @@ fn main() -> Result<()> {
 
         if acpi::has_rsdp() {
             acpi::ps2::publish().await?;
+            if let Err(err) = acpi::battery::publish().await {
+                println!("sif: acpi: failed to publish batteries: {err}");
+            }
         }
 
         dt::serve::publish_all().await?;

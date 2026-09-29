@@ -3,7 +3,10 @@
 //! Wrappers are named after the uacpi_*() functions that they wrap. To keep this module
 //! extractable into a crate of its own, it must not depend on the rest of sif.
 
+pub mod handlers;
+pub mod io;
 pub mod namespace;
+pub mod object;
 pub mod pci;
 pub mod resources;
 pub mod table;

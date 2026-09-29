@@ -5,6 +5,8 @@ edition = "2024"
 
 [dependencies]
 anyhow = "1.0"
+async-channel = "2.5"
+event-listener = "5.4"
 hel.workspace = true
 hel-sys.workspace = true
 lock_api = "0.4"

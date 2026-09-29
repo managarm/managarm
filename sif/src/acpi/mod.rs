@@ -1,5 +1,8 @@
+pub mod battery;
 pub mod dmar;
+pub mod ec;
 pub mod glue;
+pub mod object;
 pub mod ps2;
 
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -89,6 +92,9 @@ pub fn uacpi_init() -> Result<()> {
             uacpi_sys::uacpi_set_interrupt_model(INTERRUPT_MODEL),
             "uacpi_set_interrupt_model",
         )?;
+        if let Err(err) = ec::init() {
+            println!("sif: acpi: failed to initialize the EC: {err}");
+        }
         check(
             uacpi_sys::uacpi_namespace_initialize(),
             "uacpi_namespace_initialize",
