@@ -4,7 +4,7 @@
 #include <protocols/usb/server.hpp>
 #include <protocols/mbus/client.hpp>
 
-#include <async/recurring-event.hpp>
+#include <async/sequenced-event.hpp>
 
 #include <helix/timer.hpp>
 
@@ -134,7 +134,7 @@ Enumerator::enumerateDevice_(std::shared_ptr<DeviceServerData> device) {
 	auto product = std::format("{:04x}", descriptor->idProduct);
 	auto release = std::format("{:04x}", descriptor->bcdDevice);
 
-	if (descriptor->deviceClass == 0x09 && descriptor->deviceSubclass == 0) {
+	if (descriptor->deviceClass == 0x09 && descriptor->deviceSubclass == 0 && device->speed() == DeviceSpeed::superSpeed) {
 		auto hub = FRG_CO_TRY(co_await createHubFromDevice(device));
 
 		FRG_CO_TRY(co_await device->configureAsHub(hub));
@@ -198,8 +198,13 @@ namespace PortBits {
 static constexpr uint16_t connect = 0x01;
 static constexpr uint16_t enable = 0x02;
 static constexpr uint16_t reset = 0x10;
+// LS/FS/HS-specific bits
 static constexpr uint16_t lowSpeed = 0x200;
 static constexpr uint16_t highSpeed = 0x400;
+// SuperSpeed-specific bits
+static constexpr uint16_t bhReset = 0x20;
+static constexpr uint16_t linkState = 0x40;
+static constexpr uint16_t configError = 0x80;
 }
 
 namespace PortFeatures {
@@ -210,6 +215,11 @@ static constexpr uint16_t power = 8;
 static constexpr uint16_t connectChange = 16;
 static constexpr uint16_t enableChange = 17;
 static constexpr uint16_t resetChange = 20;
+// SuperSpeed-specific bits
+static constexpr uint16_t linkStateChange = 25;
+static constexpr uint16_t configErrorChange = 26;
+static constexpr uint16_t bhResetChange = 29;
+
 }
 
 struct StandardHub final : Hub {
@@ -237,8 +247,9 @@ public:
 private:
 	Endpoint endpoint_;
 
-	async::recurring_event doorbell_;
+	async::sequenced_event doorbell_;
 	std::vector<PortState> state_;
+	std::vector<uint64_t> lastPollSeq_;
 };
 
 async::result<frg::expected<UsbError>> StandardHub::initialize() {
@@ -287,6 +298,7 @@ async::result<frg::expected<UsbError>> StandardHub::initialize() {
 			getDescriptor, hubDescriptor.view_buffer()}));
 
 	state_.resize(hubDescriptor->numPorts, PortState{0, 0});
+	lastPollSeq_.resize(hubDescriptor->numPorts, 0);
 
 	auto rawThinkTime = (hubDescriptor->hubCharacteristics >> 5) & 0b11;
 	characteristics_.ttThinkTime = 8 * (1 + rawThinkTime);
@@ -318,15 +330,17 @@ async::result<frg::expected<UsbError>> StandardHub::initialize() {
 }
 
 async::detached StandardHub::run() {
-	std::cout << "usb: Serving standard hub with "
-			<< state_.size() << " ports." << std::endl;
+	if (state()->speed() == DeviceSpeed::superSpeed)
+		std::cout << "usb: Serving standard hub with "
+			  << state_.size() << " ports." << std::endl;
 
 	while(true) {
 		arch::dma_array<uint8_t> report{state()->bufferPool(), (state_.size() + 1 + 7) / 8};
 		(co_await endpoint_.transfer(InterruptTransfer{XferFlags::kXferToHost,
 				report.view_buffer()})).unwrap();
 
-//		std::cout << "usb: Hub report: " << (unsigned int)report[0] << std::endl;
+		if (state()->speed() == DeviceSpeed::superSpeed)
+			std::cout << "usb: Hub report: " << (unsigned int)report[0] << std::endl;
 		for(size_t port = 1; port <= state_.size(); port++) {
 			if(!(report[port / 8] & (1 << (port % 8))))
 				continue;
@@ -343,8 +357,10 @@ async::detached StandardHub::run() {
 			arch::dma_array<uint16_t> result{state()->bufferPool(), 2};
 			(co_await state()->transfer(ControlTransfer{kXferToHost,
 					statusReq, result.view_buffer()})).unwrap();
-//			std::cout << "usb: Port " << port << " status: "
-//					<< result[0] << ", " << result[1] << std::endl;
+
+			if (state()->speed() == DeviceSpeed::superSpeed)
+				std::cout << "usb: Port " << port << " status: "
+					  << result[0] << ", " << result[1] << std::endl;
 
 			state_[port - 1].status = 0;
 			if(result[0] & PortBits::connect)
@@ -354,54 +370,34 @@ async::detached StandardHub::run() {
 			if(result[0] & PortBits::reset)
 				state_[port - 1].status |= HubStatus::reset;
 
+			auto handleChangeBit = [&] (auto portBit, auto feature) -> async::result<void> {
+				if (result[1] & portBit) {
+					doorbell_.raise();
+
+					arch::dma_object<SetupPacket> clearReq{state()->setupPool()};
+					clearReq->type = setup_type::targetOther | setup_type::byClass
+						| setup_type::toDevice;
+					clearReq->request = ClassRequests::clearFeature;
+					clearReq->value = feature;
+					clearReq->index = port;
+					clearReq->length = 0;
+
+					auto res = co_await state()->transfer(ControlTransfer{kXferToDevice,
+								clearReq, arch::dma_buffer_view{}});
+
+					if (!res) {
+						std::println("usb: Failed to clear hub feature {:04x}: {}", feature, (int)res.error());
+					}
+				}
+			};
+
 			// Inspect the status change bits and reset them.
-			if(result[1] & PortBits::connect) {
-				state_[port - 1].changes |= HubStatus::connect;
-				doorbell_.raise();
-
-				arch::dma_object<SetupPacket> clearReq{state()->setupPool()};
-				clearReq->type = setup_type::targetOther | setup_type::byClass
-						| setup_type::toDevice;
-				clearReq->request = ClassRequests::clearFeature;
-				clearReq->value = PortFeatures::connectChange;
-				clearReq->index = port;
-				clearReq->length = 0;
-
-				(co_await state()->transfer(ControlTransfer{kXferToDevice,
-						clearReq, arch::dma_buffer_view{}})).unwrap();
-			}
-
-			if(result[1] & PortBits::enable) {
-				state_[port - 1].changes |= HubStatus::enable;
-				doorbell_.raise();
-
-				arch::dma_object<SetupPacket> clearReq{state()->setupPool()};
-				clearReq->type = setup_type::targetOther | setup_type::byClass
-						| setup_type::toDevice;
-				clearReq->request = ClassRequests::clearFeature;
-				clearReq->value = PortFeatures::enableChange;
-				clearReq->index = port;
-				clearReq->length = 0;
-
-				(co_await state()->transfer(ControlTransfer{kXferToDevice,
-						clearReq, arch::dma_buffer_view{}})).unwrap();
-			}
-
-			if(result[1] & PortBits::reset) {
-				state_[port - 1].changes |= HubStatus::reset;
-				doorbell_.raise();
-
-				arch::dma_object<SetupPacket> clearReq{state()->setupPool()};
-				clearReq->type = setup_type::targetOther | setup_type::byClass
-						| setup_type::toDevice;
-				clearReq->request = ClassRequests::clearFeature;
-				clearReq->value = PortFeatures::resetChange;
-				clearReq->index = port;
-				clearReq->length = 0;
-
-				(co_await state()->transfer(ControlTransfer{kXferToDevice,
-						clearReq, arch::dma_buffer_view{}})).unwrap();
-			}
+			co_await handleChangeBit(PortBits::connect, PortFeatures::connectChange);
+			co_await handleChangeBit(PortBits::enable, PortFeatures::enableChange);
+			co_await handleChangeBit(PortBits::reset, PortFeatures::resetChange);
+			co_await handleChangeBit(PortBits::bhReset, PortFeatures::bhResetChange);
+			co_await handleChangeBit(PortBits::linkState, PortFeatures::linkStateChange);
+			co_await handleChangeBit(PortBits::configError, PortFeatures::configErrorChange);
 		}
 	}
 }
@@ -411,15 +407,8 @@ size_t StandardHub::numPorts() {
 }
 
 async::result<PortState> StandardHub::pollState(int port) {
-	while(true) {
-		auto state = state_[port - 1];
-		if(state.changes) {
-			state_[port - 1].changes = 0;
-			co_return state;
-		}
-
-		co_await doorbell_.async_wait();
-	}
+	lastPollSeq_[port - 1] = co_await doorbell_.async_wait(lastPollSeq_[port - 1]);
+	co_return state_[port - 1];
 }
 
 async::result<frg::expected<UsbError, void>> StandardHub::issueReset(int port) {
