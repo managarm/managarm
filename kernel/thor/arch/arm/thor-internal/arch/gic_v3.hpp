@@ -70,8 +70,9 @@ struct GicV3 : public Gic {
 	GicV3();
 
 	void sendIpi(int cpuId, uint8_t id);
-	void sendIpi(const frg::dyn_bitset<KernelAlloc> &targets, uint8_t id);
-	void sendIpiToOthers(uint8_t id);
+	// Returns the number of CPUs that the SGI is sent to.
+	size_t sendIpi(const frg::dyn_bitset<KernelAlloc> &targets, uint8_t id);
+	size_t sendIpiToOthers(uint8_t id);
 
 	CpuIrq getIrq();
 	void eoi(uint32_t cpuId, uint32_t id);

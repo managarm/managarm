@@ -3,6 +3,7 @@
 #include <thor-internal/cpu-data.hpp>
 #include <thor-internal/cpu-state.hpp>
 #include <thor-internal/debug.hpp>
+#include <thor-internal/metrics.hpp>
 
 namespace thor {
 
@@ -26,8 +27,10 @@ void sendPingIpi(CpuData *dstData) {
 	if (dstData->cpuState.load(std::memory_order_acquire) != CpuState::online)
 		return;
 
-	if (raiseIpiBit(dstData, PlatformCpuData::ipiPing))
+	if (raiseIpiBit(dstData, PlatformCpuData::ipiPing)) {
+		pingIpisSentCounter.add();
 		doSendIpi(dstData);
+	}
 }
 
 void sendShootdownIpi() {
@@ -35,21 +38,26 @@ void sendShootdownIpi() {
 	//       It would be possible to exploit the hart mask to reduce the number of SBI calls.
 	// TODO: It would also be possible to reduce the number of fetch_or calls
 	//       by tracking global counters for broadcast IPIs.
+	size_t numTargets = 0;
 	for (size_t i = 0; i < getCpuCount(); ++i) {
 		auto *dstData = getCpuData(i);
 
 		if (suppressIpiToOfflineCpu(dstData))
 			continue;
 
-		if (raiseIpiBit(dstData, PlatformCpuData::ipiShootdown))
+		if (raiseIpiBit(dstData, PlatformCpuData::ipiShootdown)) {
+			++numTargets;
 			doSendIpi(dstData);
+		}
 	}
+	shootdownIpisSentCounter.add(numTargets);
 }
 
 void sendShootdownIpi(const frg::dyn_bitset<KernelAlloc> &targets) {
 	// One SBI call reaches up to 64 harts whose IDs fall into the same aligned window.
 	uint64_t base = 0;
 	uint64_t hartMask = 0;
+	size_t numTargets = 0;
 	auto flush = [&] {
 		if (!hartMask)
 			return;
@@ -66,6 +74,7 @@ void sendShootdownIpi(const frg::dyn_bitset<KernelAlloc> &targets) {
 
 		if (!raiseIpiBit(dstData, PlatformCpuData::ipiShootdown))
 			continue;
+		++numTargets;
 		auto hartId = dstData->hartId;
 		if (hartMask && (hartId & ~UINT64_C(63)) != base)
 			flush();
@@ -73,12 +82,15 @@ void sendShootdownIpi(const frg::dyn_bitset<KernelAlloc> &targets) {
 		hartMask |= UINT64_C(1) << (hartId & 63);
 	}
 	flush();
+	shootdownIpisSentCounter.add(numTargets);
 }
 
 void sendSelfCallIpi() {
 	auto *selfData = getCpuData();
-	if (raiseIpiBit(selfData, PlatformCpuData::ipiSelfCall))
+	if (raiseIpiBit(selfData, PlatformCpuData::ipiSelfCall)) {
+		selfCallIpisSentCounter.add();
 		doSendIpi(selfData);
+	}
 }
 
 void sendHypervisorIpi(CpuData *dstData) {
