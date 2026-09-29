@@ -273,12 +273,13 @@ async::result<frg::expected<UsbError>> StandardHub::initialize() {
 		uint8_t powerOnToPowerGood;
 	};
 
+	std::println("hub: get hub descriptor");
 	arch::dma_object<SetupPacket> getDescriptor{state()->setupPool()};
 	getDescriptor->type = setup_type::targetDevice | setup_type::byClass
 			| setup_type::toHost;
 	getDescriptor->request = ClassRequests::getDescriptor;
-	getDescriptor->value = 0x29 << 8;
-	getDescriptor->index = intfNumber.value();
+	getDescriptor->value = (state()->speed() == DeviceSpeed::superSpeed ? 0x2A : 0x29) << 8;
+	getDescriptor->index = 0;
 	getDescriptor->length = sizeof(HubDescriptor);
 
 	arch::dma_object<HubDescriptor> hubDescriptor{state()->bufferPool()};
