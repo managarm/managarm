@@ -165,8 +165,8 @@ void enterKernelPaging() {
 	               (1 << 10) |            // TTBR0 Outer WB RW-Allocate
 	               (1 << 24) |            // TTBR1 Inner WB RW-Allocate
 	               (1 << 26) |            // TTBR1 Outer WB RW-Allocate
-	               (2 << 12) |            // TTBR0 Inner shareable
-	               (2 << 28) |            // TTBR1 Inner shareable
+	               (3 << 12) |            // TTBR0 Inner shareable
+	               (3 << 28) |            // TTBR1 Inner shareable
 	               (uint64_t(pa) << 32) | // 48-bit intermediate address
 	               (uint64_t(2) << 30);   // TTBR1 4K granule
 
