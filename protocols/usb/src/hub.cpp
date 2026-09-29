@@ -300,9 +300,10 @@ async::result<frg::expected<UsbError>> StandardHub::initialize() {
 			parent = parent->state()->parent();
 		}
 
+		std::println("hub: set hub depth = {}", depth);
 		// Issue a SetHubDepth request to configure the hub.
 		arch::dma_object<SetupPacket> depthReq{state()->setupPool()};
-		depthReq->type = setup_type::targetOther | setup_type::byClass
+		depthReq->type = setup_type::targetDevice | setup_type::byClass
 			| setup_type::toDevice;
 		depthReq->request = ClassRequests::setHubDepth;
 		depthReq->value = depth;
