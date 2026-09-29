@@ -102,6 +102,10 @@ namespace {
 		[] { drainEvent.raise(); }
 	};
 
+	// Raised by the drain fiber after each pass over the log ring.
+	// drainEvent itself is unsuitable for other waiters since its wakeups coalesce on drainPending.
+	constinit async::recurring_event drainedEvent;
+
 	// Whether the log drain fiber has started yet.
 	constinit std::atomic<bool> drainOnline{false};
 
@@ -120,7 +124,14 @@ namespace {
 			);
 
 			int sinceFlush = 0;
+			bool mustWake = false;
 			while(true) {
+				// Wake waitForLog() even if records keep arriving, but not while holding emitMutex.
+				if (mustWake) {
+					drainedEvent.raise();
+					mustWake = false;
+				}
+
 				StatelessIrqLock irqLock;
 				auto emitLock = frg::guard(&emitMutex);
 
@@ -132,6 +143,7 @@ namespace {
 					if (sinceFlush >= recordsBeforeFlush) {
 						flushLogHandlers();
 						sinceFlush = 0;
+						mustWake = true;
 					}
 					continue;
 				} else {
@@ -140,6 +152,7 @@ namespace {
 						flushLogHandlers();
 						sinceFlush = 0;
 					}
+					mustWake = true;
 				}
 
 				if (drainPending.load(std::memory_order_relaxed)) {
@@ -149,6 +162,8 @@ namespace {
 					break;
 				}
 			}
+
+			drainedEvent.raise();
 		}
 	}
 
@@ -218,11 +233,11 @@ void flushLogHandler(LogHandler *handler) {
 }
 
 coroutine<void> waitForLog(uint64_t deqPtr) {
-	// TODO: Since we simply wait for drainEvent, log records may become available earlier
+	// TODO: Log records that are posted after a drain pass may become available earlier
 	//       to consumers of the asynchronous waitForLog() / retrieveLogRecord() API
 	//       than for synchronous LogHandlers.
-	//       We could add another event to avoid making logs beyond emitSeq available.
-	co_await drainEvent.async_wait_if([=] () -> bool {
+	//       We could wait for emitSeq to avoid making logs beyond emitSeq available.
+	co_await drainedEvent.async_wait_if([=] () -> bool {
 		return logRing.peekHeadPtr() == deqPtr;
 	});
 }
