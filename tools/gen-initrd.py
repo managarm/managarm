@@ -74,6 +74,7 @@ else:
 add_file('usr/bin', 'usr/bin', 'sif')
 add_file('usr/bin', 'usr/bin', 'mbus')
 add_file('usr/bin', 'usr/bin', 'kernletcc')
+add_file('usr/bin', 'usr/bin', 'posix-devserver')
 add_file('usr/bin', 'usr/bin', 'clocktracker')
 add_file('usr/bin', 'usr/bin', 'posix-subsystem')
 add_file('usr/bin', 'usr/bin', 'posix-init')

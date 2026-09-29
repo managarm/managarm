@@ -1,0 +1,4 @@
+name: posix-devserver
+exec: /usr/bin/posix-devserver
+files:
+  - /usr/bin/posix-devserver

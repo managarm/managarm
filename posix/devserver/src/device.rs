@@ -17,11 +17,13 @@ use std::sync::{Arc, Mutex, Weak};
 
 use anyhow::{Context, Result, bail};
 use async_trait::async_trait;
+use bragi::Message;
 use event_listener::Event;
 use hel::Handle;
 use managarm::fs;
 
 use crate::EXPECT_LOCK;
+use crate::proto;
 use crate::sysfs::{Attribute, SysfsNode};
 
 /// ID allocator, for example for dri/card<N> numbers.
@@ -525,6 +527,7 @@ impl Attribute for UeventAttribute {
 // Root struct of the device model.
 // Owns the device registry and the sysfs tree.
 pub struct Model {
+    events_lane: Handle,
     pub root: Arc<SysfsNode>,
     pub devices_dir: Arc<SysfsNode>,
     pub virtual_dir: Arc<SysfsNode>,
@@ -536,6 +539,9 @@ pub struct Model {
     block_root: Arc<SysfsNode>,
     self_ref: Weak<Model>,
 
+    // Serializes uevents.
+    uevent_seqnum: async_lock::Mutex<u64>,
+
     /// Maps memberships to subsystem state.
     subsystems: Mutex<HashMap<Membership, Arc<Subsystem>>>,
     /// Maps `DeviceKey`s to their device state.
@@ -545,7 +551,7 @@ pub struct Model {
 }
 
 impl Model {
-    pub fn new() -> Arc<Self> {
+    pub fn new(events_lane: Handle) -> Arc<Self> {
         let root = SysfsNode::new_root();
         let devices_dir = root.dir("devices").unwrap();
         let virtual_dir = devices_dir.dir("virtual").unwrap();
@@ -560,6 +566,7 @@ impl Model {
         root.dir("fs").unwrap().dir("cgroup").unwrap();
 
         Arc::new_cyclic(|self_ref| Self {
+            events_lane,
             root,
             devices_dir,
             virtual_dir,
@@ -570,6 +577,7 @@ impl Model {
             dev_block_dir,
             block_root,
             self_ref: self_ref.clone(),
+            uevent_seqnum: async_lock::Mutex::new(0u64),
             subsystems: Mutex::new(HashMap::new()),
             registry: Mutex::new(HashMap::new()),
             update: Event::new(),
@@ -767,7 +775,7 @@ impl Model {
             self.wait_announced(&device.dir.sysfs_path(), parent).await;
         }
         if let Some(DevNodeSpec::Managed(node, lane)) = &device.devnode {
-            self.mknod(node, lane).await?;
+            self.install_node(node, lane).await?;
         }
         self.emit_uevent("add", &device).await?;
         device.set_lifecycle(Lifecycle::Announced);
@@ -841,12 +849,18 @@ impl Model {
     }
 
     /// Tells posix-subsystem to create a device node.
-    async fn mknod(&self, node: &DevNode, _lane: &Handle) -> Result<()> {
+    async fn install_node(&self, node: &DevNode, lane: &Handle) -> Result<()> {
         println!(
             "devserver: mknod /dev/{} ({}:{})",
             node.path, node.major, node.minor
         );
-        Ok(())
+        let node_type = match node.node_type {
+            NodeType::Char => proto::NodeType::CharDevice,
+            NodeType::Block => proto::NodeType::BlockDevice,
+        };
+        let req =
+            proto::InstallNodeRequest::new(node_type, node.major, node.minor, node.path.clone());
+        self.events_request_with_lane(&req, lane).await
     }
 
     async fn emit_uevent(&self, action: &str, device: &Device) -> Result<()> {
@@ -860,9 +874,79 @@ impl Model {
         &self,
         action: &str,
         device: &Device,
-        _extra: &[(String, String)],
+        extra: &[(String, String)],
     ) -> Result<()> {
-        println!("devserver: uevent {action}@/{}", device.dir.sysfs_path());
+        let devpath = device.dir.sysfs_path();
+        println!("devserver: uevent {action}@/{devpath}");
+        let env = device.compose_uevent();
+        // Take the seqnum lock until posix-subsystem has processed the uevent.
+        let mut seqnum_guard = self.uevent_seqnum.lock().await;
+        *seqnum_guard += 1;
+        let seqnum = *seqnum_guard;
+
+        // The order follows Linux' kobject_uevent_env().
+        // Note that the extra key/value pairs come before the device's.
+        let mut buffer = format!("{action}@/{devpath}\0");
+        buffer += &format!("ACTION={action}\0");
+        buffer += &format!("DEVPATH=/{devpath}\0");
+        if let Some(subsystem) = device.subsystem_name() {
+            buffer += &format!("SUBSYSTEM={subsystem}\0");
+        }
+        for (name, value) in extra {
+            buffer += &format!("{name}={value}\0");
+        }
+        for (name, value) in &env {
+            buffer += &format!("{name}={value}\0");
+        }
+        buffer += &format!("SEQNUM={seqnum}\0");
+
+        let req = proto::EmitUeventRequest::new(buffer);
+        self.events_request(&req).await
+    }
+
+    async fn events_request<M: Message>(&self, req: &M) -> Result<()> {
+        let (head, tail) = bragi::head_tail_to_bytes(req)?;
+        let (_offer, (send_head, send_tail, recv_resp)) = hel::submit_async(
+            &self.events_lane,
+            hel::Offer::new((
+                hel::SendBuffer::new(&head),
+                hel::SendBuffer::new(&tail),
+                hel::ReceiveInline,
+            )),
+        )
+        .await?;
+        send_head?;
+        send_tail?;
+        let recv_resp = recv_resp?;
+
+        let resp: proto::GenericResponse = bragi::head_from_bytes(&recv_resp)?;
+        if resp.error() != proto::Errors::Success {
+            bail!("posix failed a device events request: {:?}", resp.error());
+        }
+        Ok(())
+    }
+
+    async fn events_request_with_lane<M: Message>(&self, req: &M, lane: &Handle) -> Result<()> {
+        let (head, tail) = bragi::head_tail_to_bytes(req)?;
+        let (_offer, (send_head, send_tail, push_descriptor, recv_resp)) = hel::submit_async(
+            &self.events_lane,
+            hel::Offer::new((
+                hel::SendBuffer::new(&head),
+                hel::SendBuffer::new(&tail),
+                hel::PushDescriptor::new(lane, hel_sys::kHelRightInvoke | hel_sys::kHelRightManage),
+                hel::ReceiveInline,
+            )),
+        )
+        .await?;
+        send_head?;
+        send_tail?;
+        push_descriptor?;
+        let recv_resp = recv_resp?;
+
+        let resp: proto::GenericResponse = bragi::head_from_bytes(&recv_resp)?;
+        if resp.error() != proto::Errors::Success {
+            bail!("posix failed a device events request: {:?}", resp.error());
+        }
         Ok(())
     }
 }

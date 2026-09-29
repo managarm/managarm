@@ -254,6 +254,7 @@ if build_drivers
 
 	# Descriptions for servers whose binaries are built outside of meson.
 	subdir('sif')
+	subdir('posix/devserver')
 	subdir('servers/kernletcc')
 
 	foreach dir : delay

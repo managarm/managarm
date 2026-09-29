@@ -24,6 +24,9 @@ async::result<Error> synchronize(helix::BorrowedDescriptor lane, SynchronizeFlag
 	);
 	HEL_CHECK(offer.error());
 	HEL_CHECK(sendReq.error());
+	// Servers that do not implement synchronization dismiss the request.
+	if(recvResp.error() == kHelErrDismissed)
+		co_return Error::notSupported;
 	HEL_CHECK(recvResp.error());
 
 	auto resp = *bragi::parse_head_only<managarm::fs::SynchronizeResponse>(recvResp);
