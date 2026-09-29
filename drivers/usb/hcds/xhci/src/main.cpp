@@ -601,9 +601,14 @@ async::detached Port::initPort() {
 	_pollEv.raise();
 }
 
-async::result<proto::PortState> Port::pollState() {
-	_pollSeq = co_await _pollEv.async_wait(_pollSeq);
-	co_return _state;
+async::result<proto::PortState> Port::pollUntilState(uint32_t desired) {
+	while (true) {
+		// TODO(qookie): Check for disconnect and errors and return early.
+		if ((_state.status & desired) == desired)
+			co_return _state;
+
+		_pollSeq = co_await _pollEv.async_wait(_pollSeq);
+	}
 }
 
 async::result<frg::expected<proto::UsbError, void>> Port::issueReset() {
@@ -692,8 +697,8 @@ size_t RootHub::numPorts() {
 	return _proto->compatiblePortCount;
 }
 
-async::result<proto::PortState> RootHub::pollState(int port) {
-	co_return co_await _ports[port - 1]->pollState();
+async::result<proto::PortState> RootHub::pollUntilState(int port, uint32_t desired) {
+	co_return co_await _ports[port - 1]->pollUntilState(desired);
 }
 
 async::result<frg::expected<proto::UsbError, void>> RootHub::setPortPower(int port, bool state) {

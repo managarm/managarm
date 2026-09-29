@@ -4,7 +4,7 @@
 #include <protocols/usb/server.hpp>
 #include <protocols/mbus/client.hpp>
 
-#include <async/sequenced-event.hpp>
+#include <async/recurring-event.hpp>
 
 #include <helix/timer.hpp>
 
@@ -43,7 +43,7 @@ async::result<void> Enumerator::observationCycle_(std::shared_ptr<Hub> hub, int 
 
 	// Wait until the device is connected.
 	while (true) {
-		auto s = co_await hub->pollState(port);
+		auto s = co_await hub->pollUntilState(port, HubStatus::connect);
 
 		if (s.status & HubStatus::connect)
 			break;
@@ -66,7 +66,7 @@ async::result<void> Enumerator::observationCycle_(std::shared_ptr<Hub> hub, int 
 
 	// Wait until the device is enabled.
 	while (true) {
-		auto s = co_await hub->pollState(port);
+		auto s = co_await hub->pollUntilState(port, HubStatus::enable);
 
 		// TODO: Handle disconnect here.
 		if (s.status & HubStatus::enable)
@@ -96,7 +96,7 @@ async::result<void> Enumerator::observationCycle_(std::shared_ptr<Hub> hub, int 
 
 	// Wait until the device is disconnected.
 	while(true) {
-		auto s = co_await hub->pollState(port);
+		auto s = co_await hub->pollUntilState(port, 0);
 
 		if(!(s.status & HubStatus::connect))
 			break;
@@ -235,7 +235,7 @@ private:
 
 public:
 	size_t numPorts() override;
-	async::result<PortState> pollState(int port) override;
+	async::result<PortState> pollUntilState(int port, uint32_t desired) override;
 	async::result<frg::expected<UsbError, void>> setPortPower(int port, bool state) override;
 	async::result<frg::expected<UsbError, void>> issueReset(int port) override;
 	async::result<frg::expected<UsbError, DeviceSpeed>> querySpeed(int port) override;
@@ -247,9 +247,8 @@ public:
 private:
 	Endpoint endpoint_;
 
-	async::sequenced_event doorbell_;
+	async::recurring_event doorbell_;
 	std::vector<PortState> state_;
-	std::vector<uint64_t> lastPollSeq_;
 };
 
 async::result<frg::expected<UsbError>> StandardHub::initialize() {
@@ -298,7 +297,6 @@ async::result<frg::expected<UsbError>> StandardHub::initialize() {
 			getDescriptor, hubDescriptor.view_buffer()}));
 
 	state_.resize(hubDescriptor->numPorts, PortState{0, 0});
-	lastPollSeq_.resize(hubDescriptor->numPorts, 0);
 
 	auto rawThinkTime = (hubDescriptor->hubCharacteristics >> 5) & 0b11;
 	characteristics_.ttThinkTime = 8 * (1 + rawThinkTime);
@@ -406,9 +404,14 @@ size_t StandardHub::numPorts() {
 	return state_.size();
 }
 
-async::result<PortState> StandardHub::pollState(int port) {
-	lastPollSeq_[port - 1] = co_await doorbell_.async_wait(lastPollSeq_[port - 1]);
-	co_return state_[port - 1];
+async::result<PortState> StandardHub::pollUntilState(int port, uint32_t desired) {
+	while (true) {
+		// TODO(qookie): Check for disconnect and errors and return early.
+		if ((state_[port - 1].status & desired) == desired)
+			co_return state_[port - 1];
+
+		co_await doorbell_.async_wait();
+	}
 }
 
 async::result<frg::expected<UsbError, void>> StandardHub::issueReset(int port) {

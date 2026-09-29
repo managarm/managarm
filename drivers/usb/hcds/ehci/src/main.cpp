@@ -1107,8 +1107,8 @@ size_t Controller::RootHub::numPorts() {
 	return _ports.size();
 }
 
-async::result<proto::PortState> Controller::RootHub::pollState(int port) {
-	co_return co_await _ports[port - 1]->pollState();
+async::result<proto::PortState> Controller::RootHub::pollUntilState(int port, uint32_t desired) {
+	co_return co_await _ports[port - 1]->pollUntilState(desired);
 }
 
 async::result<frg::expected<proto::UsbError, void>>

@@ -43,7 +43,7 @@ public:
 	: state_{state} { }
 
 	virtual size_t numPorts() = 0;
-	virtual async::result<PortState> pollState(int port) = 0;
+	virtual async::result<PortState> pollUntilState(int port, uint32_t desired) = 0;
 	virtual async::result<frg::expected<UsbError, void>> setPortPower(int port, bool state) = 0;
 	virtual async::result<frg::expected<UsbError, void>> issueReset(int port) = 0;
 	virtual async::result<frg::expected<UsbError, DeviceSpeed>> querySpeed(int port) = 0;

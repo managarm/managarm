@@ -393,13 +393,12 @@ size_t Controller::RootHub::numPorts() {
 	return 2;
 }
 
-async::result<proto::PortState> Controller::RootHub::pollState(int port) {
-	while(true) {
+async::result<proto::PortState> Controller::RootHub::pollUntilState(int port, uint32_t desired) {
+	while (true) {
 		auto state = _controller->_portState[port - 1];
-		if(state.changes) {
-			_controller->_portState[port - 1].changes = 0;
+		// TODO(qookie): Check for disconnect and errors and return early.
+		if ((state.status & desired) == desired)
 			co_return state;
-		}
 
 		co_await _controller->_portDoorbell.async_wait();
 	}

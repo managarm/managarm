@@ -278,7 +278,7 @@ struct Port {
 
 	async::recurring_event _doorbell;
 
-	async::result<proto::PortState> pollState();
+	async::result<proto::PortState> pollUntilState(uint32_t desired);
 	async::result<frg::expected<proto::UsbError, void>> issueReset();
 	async::result<frg::expected<proto::UsbError, proto::DeviceSpeed>> querySpeed();
 
@@ -304,7 +304,7 @@ struct RootHub final : proto::Hub {
 	RootHub(Controller *controller, SupportedProtocol &proto, arch::mem_space portSpace, mbus_ng::EntityManager entity);
 
 	size_t numPorts() override;
-	async::result<proto::PortState> pollState(int port) override;
+	async::result<proto::PortState> pollUntilState(int port, uint32_t desired) override;
 	async::result<frg::expected<proto::UsbError, void>> setPortPower(int port, bool state) override;
 	async::result<frg::expected<proto::UsbError, void>> issueReset(int port) override;
 	async::result<frg::expected<proto::UsbError, proto::DeviceSpeed>> querySpeed(int port) override;
