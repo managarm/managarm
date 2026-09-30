@@ -465,10 +465,11 @@ void GicV3::sendIpi(int cpuId, uint8_t id) {
 	sendSgi_(affinity, 1U << aff0, id);
 }
 
-void GicV3::sendIpi(const frg::dyn_bitset<KernelAlloc> &targets, uint8_t id) {
+size_t GicV3::sendIpi(const frg::dyn_bitset<KernelAlloc> &targets, uint8_t id) {
 	// One SGI register write reaches up to 16 PEs that share affinity levels 1 to 3.
 	uint32_t cluster = 0;
 	uint16_t targetList = 0;
+	size_t numTargets = 0;
 	auto flush = [&] {
 		if (!targetList)
 			return;
@@ -486,23 +487,28 @@ void GicV3::sendIpi(const frg::dyn_bitset<KernelAlloc> &targets, uint8_t id) {
 			flush();
 		cluster = affinity & ~UINT32_C(0xFF);
 		targetList |= 1U << aff0;
+		++numTargets;
 	}
 	flush();
+	return numTargets;
 }
 
-void GicV3::sendIpiToOthers(uint8_t id) {
+size_t GicV3::sendIpiToOthers(uint8_t id) {
 	// The all-excluding-self icc_sgi1r_el1 bit (IRM) is not always implemented correctly when running under a hypervisor
 	// which is why it's not used here.
 	// An example of this is the QCM6490 platform and probably other Qualcomm platforms where an old version of the Gunyah hypervisor is used
 	// which ignores icc_sgi1r_el1 writes that have IRM set.
 	size_t self = getCpuData()->cpuIndex;
+	size_t numTargets = 0;
 	for (size_t i = 0; i < getCpuCount(); ++i) {
 		if (i == self)
 			continue;
 		if (suppressIpiToOfflineCpu(getCpuData(i)))
 			continue;
 		sendIpi(static_cast<int>(i), id);
+		++numTargets;
 	}
+	return numTargets;
 }
 
 Gic::CpuIrq GicV3::getIrq() {

@@ -13,18 +13,18 @@ void SelfIntCallBase::runScheduledCalls() {
 
 		// The call can be re-scheduled immediate after we clear the scheduled flag.
 		// However, re-scheduling it immediate cannot cause reentrancy due to !intsAreEnabled.
+		// Another CPU that re-schedules it overwrites next_, so our write to next_ must be released.
 		assert(current->scheduled_.test(std::memory_order_relaxed));
-		std::atomic_signal_fence(std::memory_order_release);
-		current->scheduled_.clear(std::memory_order_relaxed);
+		current->scheduled_.clear(std::memory_order_release);
 		current->invoke_();
 	}
 }
 
 void SelfIntCallBase::schedule() {
 	auto cpuData = getCpuData();
-	if (scheduled_.test_and_set(std::memory_order_relaxed))
+	// Acquire ordering since the call may have been run by another CPU that wrote to next_.
+	if (scheduled_.test_and_set(std::memory_order_acquire))
 		return;
-	std::atomic_signal_fence(std::memory_order_acquire);
 	// Push this object onto a lock-free singly linked list.
 	next_ = cpuData->selfIntCallPtr.load(std::memory_order_relaxed);
 	while (true) {

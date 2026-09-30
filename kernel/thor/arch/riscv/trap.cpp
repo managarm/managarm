@@ -3,6 +3,7 @@
 #include <thor-internal/arch/fp-state.hpp>
 #include <thor-internal/arch/trap.hpp>
 #include <thor-internal/int-call.hpp>
+#include <thor-internal/metrics.hpp>
 #include <thor-internal/rcu.hpp>
 #include <thor-internal/thread.hpp>
 #include <thor-internal/traps.hpp>
@@ -115,18 +116,23 @@ void handleRiscvIpi(Frame *frame) {
 	// Read the bitmask of pending IPIs and process all of them.
 	auto mask = cpuData->pendingIpis.exchange(0, std::memory_order_acq_rel);
 
-	if (mask & PlatformCpuData::ipiPing)
+	if (mask & PlatformCpuData::ipiPing) {
+		pingIpisReceivedCounter.add();
 		localScheduler.get(cpuData).forcePreemptionCall();
+	}
 
 	if (mask & PlatformCpuData::ipiShootdown) {
+		shootdownIpisReceivedCounter.add();
 		for (auto &binding : asidData.get()->bindings)
 			binding.shootdown();
 
 		asidData.get()->globalBinding.shootdown();
 	}
 
-	if (mask & PlatformCpuData::ipiSelfCall)
+	if (mask & PlatformCpuData::ipiSelfCall) {
+		selfCallIpisReceivedCounter.add();
 		SelfIntCallBase::runScheduledCalls();
+	}
 
 	if (image.inUserMode()) {
 		auto thisThread = getCurrentThread();

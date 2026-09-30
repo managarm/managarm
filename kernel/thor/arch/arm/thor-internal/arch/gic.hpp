@@ -11,17 +11,10 @@
 namespace thor {
 
 struct Gic : dt::IrqController {
-	virtual void sendIpi(int cpuId, uint8_t id) = 0;
-	virtual void sendIpi(const frg::dyn_bitset<KernelAlloc> &targets, uint8_t id) = 0;
-	virtual void sendIpiToOthers(uint8_t id) = 0;
-
 	struct CpuIrq {
 		uint32_t cpu;
 		uint32_t irq;
 	};
-
-	virtual CpuIrq getIrq() = 0;
-	virtual void eoi(uint32_t cpuId, uint32_t id) = 0;
 
 	struct Pin : public IrqPin {
 		virtual ~Pin() = default;

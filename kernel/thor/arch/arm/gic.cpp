@@ -9,6 +9,7 @@
 #include <thor-internal/dtb/dtb.hpp>
 #include <thor-internal/int-call.hpp>
 #include <thor-internal/main.hpp>
+#include <thor-internal/metrics.hpp>
 #include <thor-internal/schedule.hpp>
 #include <thor-internal/thread.hpp>
 #include <thor-internal/traps.hpp>
@@ -184,11 +185,13 @@ void handleGicIrq(IrqImageAccessor image, ClaimedExternalIrq irq) {
 		);
 
 		if (irq.irq == 0) {
+			pingIpisReceivedCounter.add();
 			localScheduler.get(cpuData).forcePreemptionCall();
 		} else if (irq.irq == 1) {
 			assert(!irqMutex().nesting());
 			disableUserAccess();
 
+			shootdownIpisReceivedCounter.add();
 			for (auto &binding : asidData.get()->bindings) {
 				binding.shootdown();
 			}
@@ -198,6 +201,7 @@ void handleGicIrq(IrqImageAccessor image, ClaimedExternalIrq irq) {
 			assert(!irqMutex().nesting());
 			disableUserAccess();
 
+			selfCallIpisReceivedCounter.add();
 			SelfIntCallBase::runScheduledCalls();
 		} else {
 			panicLogger() << "thor: handleGicIrq: Received unexpected SGI " << irq.irq

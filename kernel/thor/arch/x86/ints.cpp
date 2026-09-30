@@ -2,6 +2,7 @@
 #include <thor-internal/cpu-data.hpp>
 #include <thor-internal/int-call.hpp>
 #include <thor-internal/ipl.hpp>
+#include <thor-internal/metrics.hpp>
 #include <thor-internal/profile.hpp>
 #include <thor-internal/rcu.hpp>
 #include <thor-internal/thread.hpp>
@@ -498,6 +499,7 @@ extern "C" void onPlatformShootdown(IrqImageAccessor image) {
 	assert(!irqMutex().nesting());
 	disableUserAccess();
 
+	shootdownIpisReceivedCounter.add();
 	for(auto &binding : asidData.get()->bindings)
 		binding.shootdown();
 
@@ -544,6 +546,7 @@ extern "C" void onPlatformPing(IrqImageAccessor image) {
 
 	acknowledgeIpi();
 
+	pingIpisReceivedCounter.add();
 	auto *scheduler = &localScheduler.get();
 	scheduler->forcePreemptionCall();
 
@@ -586,6 +589,7 @@ extern "C" void onPlatformCall(IrqImageAccessor image) {
 
 	acknowledgeIpi();
 
+	selfCallIpisReceivedCounter.add();
 	SelfIntCallBase::runScheduledCalls();
 
 	if (image.inUserMode()) {

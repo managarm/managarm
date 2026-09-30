@@ -10,6 +10,7 @@
 #include <initgraph.hpp>
 #include <thor-internal/irq.hpp>
 #include <thor-internal/main.hpp>
+#include <thor-internal/metrics.hpp>
 #include <thor-internal/arch-generic/ints.hpp>
 #include <thor-internal/arch-generic/paging.hpp>
 #include <thor-internal/arch-generic/timer.hpp>
@@ -412,6 +413,8 @@ void raiseStartupIpi(uint32_t dest_apic_id, uint32_t page) {
 }
 
 void sendShootdownIpi() {
+	// The shorthand also targets offline CPUs.
+	shootdownIpisSentCounter.add(getCpuCount() - 1);
 	if(picBase.isUsingX2apic()) {
 		picBase.store(lX2ApicIcr, x2apicIcrLowVector(0xF0) | x2apicIcrLowDelivMode(0)
 				| x2apicIcrLowLevel(true) | x2apicIcrLowShorthand(2) | x2apicIcrHighDestField(0));
@@ -422,6 +425,7 @@ void sendShootdownIpi() {
 }
 
 void sendShootdownIpi(const frg::dyn_bitset<KernelAlloc> &targets) {
+	size_t numTargets = 0;
 	if(picBase.isUsingX2apic()) {
 		// In logical destination mode, one ICR write reaches up to 16 CPUs of one cluster.
 		uint32_t cluster = 0;
@@ -438,6 +442,7 @@ void sendShootdownIpi(const frg::dyn_bitset<KernelAlloc> &targets) {
 			auto *dstData = getCpuData(cpu);
 			if(suppressIpiToOfflineCpu(dstData))
 				continue;
+			++numTargets;
 			auto apic = static_cast<uint32_t>(dstData->localApicId);
 			assert(apic < (UINT32_C(1) << 20));
 			if(members && (apic >> 4) != cluster)
@@ -451,13 +456,16 @@ void sendShootdownIpi(const frg::dyn_bitset<KernelAlloc> &targets) {
 			auto *dstData = getCpuData(cpu);
 			if(suppressIpiToOfflineCpu(dstData))
 				continue;
+			++numTargets;
 			sendXapicIpi(dstData->localApicId, apicIcrLowVector(0xF0) | apicIcrLowDelivMode(0)
 					| apicIcrLowLevel(true) | apicIcrLowShorthand(0));
 		}
 	}
+	shootdownIpisSentCounter.add(numTargets);
 }
 
 void sendPingIpi(CpuData *dstData) {
+	pingIpisSentCounter.add();
 	auto apic = dstData->localApicId;
 //	infoLogger() << "thor [CPU" << getLocalApicId() << "]: Sending ping" << frg::endlog;
 	if(picBase.isUsingX2apic()) {
@@ -470,6 +478,7 @@ void sendPingIpi(CpuData *dstData) {
 }
 
 void sendSelfCallIpi() {
+	selfCallIpisSentCounter.add();
 	auto apic = getCpuData()->localApicId;
 	unsigned int vec = 0xF2;
 	if(picBase.isUsingX2apic()) {

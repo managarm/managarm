@@ -1,10 +1,10 @@
 #include <bragi/helpers-all.hpp>
 #include <bragi/helpers-frigg.hpp>
 #include <frg/cmdline.hpp>
-#include <frg/small_vector.hpp>
 #include <frg/span.hpp>
 #include <thor-internal/fiber.hpp>
 #include <thor-internal/kernel-io.hpp>
+#include <thor-internal/kernel-ostrace.hpp>
 #include <thor-internal/main.hpp>
 #include <thor-internal/ostrace.hpp>
 #include <thor-internal/stream.hpp>
@@ -33,17 +33,19 @@ constexpr size_t maxPageSize = 64 * 1024;
 constexpr size_t frameHeadSize = managarm::ostrace::Frame<KernelAlloc>::head_size;
 constexpr size_t maxFrameSize = frameHeadSize + maxPageSize;
 
-std::atomic<uint64_t> nextId{1};
 // Source 0 is the kernel itself.
 std::atomic<uint64_t> nextSource{1};
 std::atomic<uint64_t> nextFrameSeq{0};
 frg::manual_box<LogRingBuffer> globalOsTraceRing;
 
 initgraph::Task initOsTraceCore{&globalInitEngine, "generic.init-ostrace-core",
+	// ostrace::setup() launches a fiber.
+	initgraph::Requires{getFibersAvailableStage()},
 	initgraph::Entails{getOsTraceAvailableStage()},
 	[] {
 		frg::array args = {
 			frg::option{"ostrace", frg::store_true(wantOsTrace)},
+			frg::option{"ostrace.metrics-interval", frg::as_number(ostrace::metricsInterval)},
 		};
 		frg::parse_arguments(getKernelCmdline(), args);
 
@@ -60,6 +62,8 @@ initgraph::Task initOsTraceCore{&globalInitEngine, "generic.init-ostrace-core",
 		ostrace::setup();
 	}
 };
+
+} // anonymous namespace
 
 // Writes a page of the given source to the ring, preceded by a kernel-owned Frame.
 // Frames are not assembled in a heap buffer since allocations of their size bypass the slabs of
@@ -90,24 +94,6 @@ void commitFrame(uint64_t source, uint64_t writer, uint64_t firstEvent, uint64_t
 	// in all contexts. For now, only wake waiters if IRQs are enabled.
 	globalOsTraceRing->enqueue({pieces, 2}, !intsAreEnabled());
 }
-
-template<typename R>
-void commitOsTrace(R record) {
-	if(!osTraceInUse.load(std::memory_order_relaxed))
-		return;
-
-	auto ts = record.size_of_tail();
-	frg::small_vector<char, 64, KernelAlloc> ser(*kernelAlloc);
-	ser.resize(8 + ts);
-	bool encodeSuccess = bragi::write_head_tail(record,
-			frg::span<char>(ser.data(), 8),
-			frg::span<char>(ser.data() + 8, ts));
-	assert(encodeSuccess);
-
-	commitFrame(0, 0, 0, 0, {ser.data(), ser.size()});
-}
-
-} // anonymous namespace
 
 LogRingBuffer *getGlobalOsTraceRing() {
 	return globalOsTraceRing.get();
@@ -270,35 +256,5 @@ initgraph::Task initOsTraceMbus{&globalInitEngine, "generic.init-ostrace-sinks",
 };
 
 } // anonymous namespace
-
-// --------------------------------------------------------------------------------------
-// Kernel ostrace infrastructure.
-// --------------------------------------------------------------------------------------
-
-namespace ostrace {
-
-std::atomic<bool> available{false};
-
-THOR_DEFINE_PERCPU(context);
-
-void setup() {
-	[[maybe_unused]] auto setupTerm = [] (ostrace::Term &term) {
-		assert(!term.id_);
-		term.id_ = nextId.fetch_add(1, std::memory_order_relaxed);
-
-		managarm::ostrace::Definition<KernelAlloc> record{*kernelAlloc};
-		record.set_id(term.id_);
-		record.set_name(frg::string<KernelAlloc>{*kernelAlloc, term.name_});
-		commitOsTrace(std::move(record));
-	};
-
-	available.store(true, std::memory_order_relaxed);
-}
-
-void emitBuffer(frg::span<char> payload) {
-	commitFrame(0, 0, 0, 0, {payload.data(), payload.size()});
-}
-
-} // namespace ostrace
 
 } // namespace thor
