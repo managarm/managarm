@@ -69,12 +69,12 @@ private:
 struct GicV3 : public Gic {
 	GicV3();
 
-	void sendIpi(int cpuId, uint8_t id) override;
-	void sendIpi(const frg::dyn_bitset<KernelAlloc> &targets, uint8_t id) override;
-	void sendIpiToOthers(uint8_t id) override;
+	void sendIpi(int cpuId, uint8_t id);
+	void sendIpi(const frg::dyn_bitset<KernelAlloc> &targets, uint8_t id);
+	void sendIpiToOthers(uint8_t id);
 
-	CpuIrq getIrq() override;
-	void eoi(uint32_t cpuId, uint32_t id) override;
+	CpuIrq getIrq();
+	void eoi(uint32_t cpuId, uint32_t id);
 
 	smarter::shared_ptr<Pin> setupIrq(uint32_t irq, TriggerMode trigger) override;
 	smarter::shared_ptr<Pin> getPin(uint32_t irq) override;
