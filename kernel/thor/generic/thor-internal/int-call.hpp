@@ -28,6 +28,7 @@ private:
 // Note: Do not deallocate this object while it is scheduled.
 // However, it is safe to re-schedule it while it is already scheduled.
 // If this is done, multiple calls to schedule() are coalesced.
+// It is also safe to schedule it on multiple CPUs; the function can then run concurrently.
 template<typename F>
 struct SelfIntCall : SelfIntCallBase {
 	constexpr SelfIntCall(F f)
