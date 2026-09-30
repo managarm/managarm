@@ -61,6 +61,7 @@ src = files(
 	'generic/kernel-io.cpp',
 	'generic/kernel-log.cpp',
 	'generic/kernel-mutexes.cpp',
+	'generic/kernel-ostrace.cpp',
 	'generic/kernel-stack.cpp',
 	'generic/load-balancing.cpp',
 	'generic/main.cpp',
