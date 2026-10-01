@@ -1285,4 +1285,8 @@ MemoryViewLockHandle::~MemoryViewLockHandle() {
 
 NamedMemoryViewLock::~NamedMemoryViewLock() { }
 
+void NamedMemoryViewLock::finalizeBeforeRcu() {
+	_handle = MemoryViewLockHandle{};
+}
+
 } // namespace thor

@@ -1434,6 +1434,10 @@ HEL_C_LINKAGE HelError helCreateManagedMemory(HelHandle hierarchy, size_t size, 
 //! these offsets from disk") and writeback ("write them out") requests
 //! through helSubmitManageMemory()/helUpdateMemory(). The kernel only issues
 //! writeback once a swap budget is set through helSetSwapBudget().
+//!
+//!    The swap daemon can only access swap offsets while it services a request
+//! for them. It must drop its locks and mappings of a range before it completes
+//! the request; otherwise, helUpdateMemory() fails with kHelErrIllegalState.
 //! @param[in] hierarchy
 //!    	Handle to the hierarchy that owns the swap space.
 //!    	The resident frames of all memory backed by the swap space are accounted to this hierarchy node.
