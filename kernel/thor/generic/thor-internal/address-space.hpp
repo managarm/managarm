@@ -1136,6 +1136,9 @@ public:
 
 	NamedMemoryViewLock &operator= (const NamedMemoryViewLock &) = delete;
 
+	// Releases the lock; otherwise, it would stay in place until the RCU grace period ends.
+	void finalizeBeforeRcu();
+
 private:
 	MemoryViewLockHandle _handle;
 };
