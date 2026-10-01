@@ -1918,6 +1918,11 @@ ManagedSpace::ManagedPage *ManagedSpace::findOrInsertPage(uint64_t index) {
 	return *it;
 }
 
+bool ManagedSpace::isHandedToManager(ManagedPage *page) {
+	return page->transactionState == TxState::initialization
+			|| page->transactionState == TxState::writeback;
+}
+
 void ManagedSpace::_erasePage(ManagedPage *page) {
 	pages.erase(page->cachePage.identity);
 	frg::destruct(*kernelAlloc, page);
@@ -1925,15 +1930,29 @@ void ManagedSpace::_erasePage(ManagedPage *page) {
 
 // Note: Neither offset nor size are necessarily multiples of the page size.
 Error ManagedSpace::lockPages(uintptr_t offset, size_t size) {
-	auto irq_lock = frg::guard(&irqMutex());
-	auto lock = frg::guard(&mutex);
+	bool raiseDiscard = false;
+	Error result = Error::success;
+	{
+		auto irq_lock = frg::guard(&irqMutex());
+		auto lock = frg::guard(&mutex);
 
-	for(size_t pg = 0; pg < size; pg += kPageSize) {
-		size_t index = (offset + pg) / kPageSize;
-		auto pit = findOrInsertPage(index);
-		lockPage(pit);
+		for(size_t pg = 0; pg < size; pg += kPageSize) {
+			size_t index = (offset + pg) / kPageSize;
+			// On swap spaces, the daemon may only access pages while it serves their transactions.
+			auto pit = isSwapSpace ? findPage(index) : findOrInsertPage(index);
+			if(!pit || (isSwapSpace && !isHandedToManager(pit))) {
+				// Unwind the locks we already took.
+				for(size_t upg = 0; upg < pg; upg += kPageSize)
+					unlockPage(findPage((offset + upg) / kPageSize), raiseDiscard);
+				result = Error::fault;
+				break;
+			}
+			lockPage(pit);
+		}
 	}
-	return Error::success;
+	if(raiseDiscard)
+		_discardEvent.raise();
+	return result;
 }
 
 // Note: Neither offset nor size are necessarily multiples of the page size.
@@ -2321,7 +2340,7 @@ PhysicalRange BackingMemory::peekRange(uintptr_t offset, FetchFlags) {
 	auto lock = frg::guard(&_managed->mutex);
 
 	auto pit = _managed->findPage(index);
-	if(!pit)
+	if(!pit || (_managed->isSwapSpace && !_managed->isHandedToManager(pit)))
 		return PhysicalRange{};
 
 	if(pit->transactionState == ManagedSpace::TxState::performReclaim) {
@@ -2353,7 +2372,8 @@ std::expected<size_t, Error> BackingMemory::accessRange(uintptr_t offset, size_t
 		auto lock = frg::guard(&_managed->mutex);
 
 		pit = _managed->findPage(index);
-		if(!pit || pit->physical == PhysicalAddr(-1))
+		if(!pit || (_managed->isSwapSpace && !_managed->isHandedToManager(pit))
+				|| pit->physical == PhysicalAddr(-1))
 			return 0;
 		_managed->lockPage(pit);
 		physical = pit->physical;
@@ -2383,8 +2403,12 @@ BackingMemory::touchRange(uintptr_t offset, size_t, FetchFlags) {
 	auto irqLock = frg::guard(&irqMutex());
 	auto lock = frg::guard(&_managed->mutex);
 
-	auto pit = _managed->findOrInsertPage(index);
-	assert(pit);
+	// On swap spaces, the daemon may only access pages while it serves their transactions.
+	auto pit = _managed->isSwapSpace
+			? _managed->findPage(index)
+			: _managed->findOrInsertPage(index);
+	if(!pit || (_managed->isSwapSpace && !_managed->isHandedToManager(pit)))
+		co_return Error::fault;
 
 	if(pit->transactionState == ManagedSpace::TxState::performReclaim) {
 		pit->transactionState = ManagedSpace::TxState::avertReclaim;
@@ -2531,6 +2555,8 @@ Error BackingMemory::updateRange(ManageRequest type, size_t offset, size_t lengt
 }
 
 Error BackingMemory::markDirtyRange(size_t offset, size_t length) {
+	if(_managed->isSwapSpace)
+		return Error::illegalObject;
 	if (offset & (kPageSize - 1))
 		return Error::illegalArgs;
 	if (length & (kPageSize - 1))
@@ -2573,6 +2599,8 @@ Error BackingMemory::markDirtyRange(size_t offset, size_t length) {
 
 coroutine<frg::expected<Error>> BackingMemory::writebackFence(uintptr_t offset, size_t size) {
 	assert(currentIpl() == ipl::exceptionalWork);
+	if(_managed->isSwapSpace)
+		co_return Error::illegalObject;
 	if (offset & (kPageSize - 1))
 		co_return Error::illegalArgs;
 	if (size & (kPageSize - 1))

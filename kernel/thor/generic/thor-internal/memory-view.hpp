@@ -1010,6 +1010,10 @@ struct ManagedSpace : CacheBundle {
 	// Returns the page with the given identity, creating a fresh one if there is none.
 	// Must be called under mutex.
 	ManagedPage *findOrInsertPage(uint64_t index);
+	// Whether the page is in an initialization or writeback transaction.
+	// On swap spaces, the daemon may only reach such pages through BackingMemory.
+	// Must be called under mutex.
+	bool isHandedToManager(ManagedPage *page);
 
 	// Erases the page's entry and frees the page.
 	// The caller must ensure that lockCount == 0, useCount == 0, and that no RCU reader
