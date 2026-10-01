@@ -323,6 +323,10 @@ struct EvictionQueue final : frg::intrusive_rc {
 		return dispatch_(EvictMode::cleanRange, offset, size);
 	}
 
+	// Whether an observer intersects the range, i.e., whether breakRange() would call evict().
+	// Like evictions, this ignores observers that are being removed.
+	bool isObserved(uintptr_t offset, size_t size);
+
 private:
 	// Calls evict() on all observers concurrently.
 	coroutine<void> dispatch_(EvictMode mode, uintptr_t offset, size_t size);
@@ -796,6 +800,13 @@ struct ManagedSpace : CacheBundle {
 		>
 	>;
 
+	// State of a swap slot that the swap daemon accesses through BackingMemory.
+	// An entry exists (keyed by identity) while the slot is locked; updateRange() fails on such slots.
+	struct SlotState {
+		// Locks taken through BackingMemory (lockRange() and in-flight accessRange() calls).
+		unsigned int locks = 0;
+	};
+
 	struct ManagedPage {
 		ManagedPage(ManagedSpace *bundle, uint64_t identity) {
 			cachePage.bundle = bundle;
@@ -943,6 +954,14 @@ struct ManagedSpace : CacheBundle {
 	// Must be called outside of locks.
 	void unlockPageAndRaise(ManagedPage *page, bool dirty);
 
+	// Lock the page's slot for the swap daemon (instead of lockPage()/unlockPage()).
+	// The page must be handed to the manager (see isHandedToManager()) when it is locked.
+	// Must be called under mutex.
+	void _lockSlot(ManagedPage *page);
+	void _unlockSlot(ManagedPage *page);
+	// Must be called outside of locks.
+	void _unlockSlotAndRaise(ManagedPage *page, bool dirty);
+
 	// Per-page counterpart of markDirty().
 	// Sets needsEvent/needsExpedite if _dirtyEvent/_expediteEvent need to be raised.
 	// Must be called under mutex.
@@ -1058,6 +1077,10 @@ struct ManagedSpace : CacheBundle {
 	// Like _discardList, the owning coroutine is woken by _discardEvent.
 	// Protected by mutex.
 	CachePagesList _invalidationList;
+
+	// See SlotState. Only used on swap spaces.
+	// Protected by mutex.
+	frg::rcu_radixtree<SlotState, KernelAlloc, RcuPolicy> _slotStates;
 
 	ManageList _managementQueue;
 

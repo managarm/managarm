@@ -79,6 +79,21 @@ coroutine<void> EvictionQueue::dispatch_(EvictMode mode, uintptr_t offset, size_
 	});
 }
 
+bool EvictionQueue::isObserved(uintptr_t offset, size_t size) {
+	ScheduleGuard rcuGuard;
+
+	for(auto observer : observers_) {
+		if(offset + size <= observer->observedOffset_
+				|| offset >= observer->observedOffset_ + observer->observedSize_)
+			continue;
+		if(observer->inflightEvictions_.load(std::memory_order_acquire)
+				& MemoryObserver::detachedBit)
+			continue;
+		return true;
+	}
+	return false;
+}
+
 // --------------------------------------------------------
 // Reclaim implementation.
 // --------------------------------------------------------
@@ -1200,7 +1215,8 @@ std::expected<smarter::shared_ptr<ManagedSpace>, Error> ManagedSpace::create(
 ManagedSpace::ManagedSpace(smarter::shared_ptr<Hierarchy> hierarchy, size_t length, bool readahead)
 : hierarchy{std::move(hierarchy)}, pages{*kernelAlloc},
 		numPages{length >> kPageShift}, readahead{readahead},
-		_evictQueue{frg::allocate_intrusive_shared<EvictionQueue>(Allocator{})} {
+		_evictQueue{frg::allocate_intrusive_shared<EvictionQueue>(Allocator{})},
+		_slotStates{*kernelAlloc} {
 	assert(!(length & (kPageSize - 1)));
 }
 
@@ -1930,29 +1946,26 @@ void ManagedSpace::_erasePage(ManagedPage *page) {
 
 // Note: Neither offset nor size are necessarily multiples of the page size.
 Error ManagedSpace::lockPages(uintptr_t offset, size_t size) {
-	bool raiseDiscard = false;
-	Error result = Error::success;
-	{
-		auto irq_lock = frg::guard(&irqMutex());
-		auto lock = frg::guard(&mutex);
+	auto irq_lock = frg::guard(&irqMutex());
+	auto lock = frg::guard(&mutex);
 
-		for(size_t pg = 0; pg < size; pg += kPageSize) {
-			size_t index = (offset + pg) / kPageSize;
-			// On swap spaces, the daemon may only access pages while it serves their transactions.
-			auto pit = isSwapSpace ? findPage(index) : findOrInsertPage(index);
-			if(!pit || (isSwapSpace && !isHandedToManager(pit))) {
-				// Unwind the locks we already took.
-				for(size_t upg = 0; upg < pg; upg += kPageSize)
-					unlockPage(findPage((offset + upg) / kPageSize), raiseDiscard);
-				result = Error::fault;
-				break;
-			}
-			lockPage(pit);
+	for(size_t pg = 0; pg < size; pg += kPageSize) {
+		size_t index = (offset + pg) / kPageSize;
+		if(!isSwapSpace) {
+			lockPage(findOrInsertPage(index));
+			continue;
 		}
+		// On swap spaces, the daemon may only access pages while it serves their transactions.
+		auto pit = findPage(index);
+		if(!pit || !isHandedToManager(pit)) {
+			// Unwind the locks we already took.
+			for(size_t upg = 0; upg < pg; upg += kPageSize)
+				_unlockSlot(findPage((offset + upg) / kPageSize));
+			return Error::fault;
+		}
+		_lockSlot(pit);
 	}
-	if(raiseDiscard)
-		_discardEvent.raise();
-	return result;
+	return Error::success;
 }
 
 // Note: Neither offset nor size are necessarily multiples of the page size.
@@ -1966,7 +1979,11 @@ void ManagedSpace::unlockPages(uintptr_t offset, size_t size) {
 			size_t index = (offset + pg) / kPageSize;
 			auto pit = findPage(index);
 			assert(pit);
-			unlockPage(pit, raiseDiscard);
+			if(isSwapSpace) {
+				_unlockSlot(pit);
+			}else{
+				unlockPage(pit, raiseDiscard);
+			}
 		}
 	}
 	if(raiseDiscard)
@@ -2008,6 +2025,39 @@ void ManagedSpace::unlockPageAndRaise(ManagedPage *page, bool dirty) {
 		_expediteEvent.raise();
 	if(raiseDiscard)
 		_discardEvent.raise();
+}
+
+void ManagedSpace::_lockSlot(ManagedPage *page) {
+	assert(isSwapSpace);
+	auto [state, wasInserted] = _slotStates.find_or_insert(page->cachePage.identity);
+	state->locks++;
+}
+
+void ManagedSpace::_unlockSlot(ManagedPage *page) {
+	assert(isSwapSpace);
+	auto identity = page->cachePage.identity;
+	auto state = _slotStates.find(identity);
+	assert(state && state->locks);
+	state->locks--;
+	if(!state->locks)
+		_slotStates.erase(identity);
+}
+
+void ManagedSpace::_unlockSlotAndRaise(ManagedPage *page, bool dirty) {
+	bool needsEvent = false;
+	bool needsExpedite = false;
+	{
+		auto irqLock = frg::guard(&irqMutex());
+		auto lock = frg::guard(&mutex);
+
+		if(dirty)
+			markDirtyPage(page, needsEvent, needsExpedite);
+		_unlockSlot(page);
+	}
+	if(needsEvent)
+		_dirtyEvent.raise();
+	if(needsExpedite)
+		_expediteEvent.raise();
 }
 
 void ManagedSpace::unlockPage(ManagedPage *page, bool &raiseDiscard) {
@@ -2375,7 +2425,11 @@ std::expected<size_t, Error> BackingMemory::accessRange(uintptr_t offset, size_t
 		if(!pit || (_managed->isSwapSpace && !_managed->isHandedToManager(pit))
 				|| pit->physical == PhysicalAddr(-1))
 			return 0;
-		_managed->lockPage(pit);
+		if(_managed->isSwapSpace) {
+			_managed->_lockSlot(pit);
+		}else{
+			_managed->lockPage(pit);
+		}
 		physical = pit->physical;
 	}
 
@@ -2386,7 +2440,11 @@ std::expected<size_t, Error> BackingMemory::accessRange(uintptr_t offset, size_t
 		result = fn(reinterpret_cast<uint8_t *>(accessor.get()) + misalign, chunk);
 	}
 	assert(!result.dirty || (flags & fetchRequireMutable));
-	_managed->unlockPageAndRaise(pit, result.dirty);
+	if(_managed->isSwapSpace) {
+		_managed->_unlockSlotAndRaise(pit, result.dirty);
+	}else{
+		_managed->unlockPageAndRaise(pit, result.dirty);
+	}
 	return chunk;
 }
 
@@ -2471,6 +2529,18 @@ Error BackingMemory::updateRange(ManageRequest type, size_t offset, size_t lengt
 			auto pit = _managed->findPage(index);
 			if(!pit || pit->transactionState != expectedState)
 				return Error::illegalArgs;
+		}
+
+		// On swap spaces, the daemon must not reach the pages once their transactions complete.
+		// Mappings that are attached later cannot fault the pages in: peekRange() takes the mutex.
+		if(_managed->isSwapSpace) {
+			for(size_t pg = 0; pg < length; pg += kPageSize) {
+				size_t index = (offset + pg) / kPageSize;
+				if(_managed->_slotStates.find(index))
+					return Error::illegalState;
+			}
+			if(length && _managed->_evictQueue->isObserved(offset, length))
+				return Error::illegalState;
 		}
 
 		if(type == ManageRequest::initialize) {
