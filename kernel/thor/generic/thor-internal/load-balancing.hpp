@@ -2,7 +2,7 @@
 
 #include <string.h>
 
-#include <async/barrier.hpp>
+#include <async/recurring-event.hpp>
 #include <frg/list.hpp>
 #include <frg/seqlock.hpp>
 #include <frg/span.hpp>
@@ -60,7 +60,7 @@ struct LbThreadState {
 	}
 
 private:
-	// Lock order: mutex_, then the thread's mutex, then LbNode::mutex.
+	// Lock order: LbNode::pullMutex, then mutex_, then the thread's mutex, then LbNode::mutex.
 	frg::ticket_spinlock mutex_;
 
 	// Current control block.
@@ -121,7 +121,12 @@ private:
 
 // Per-CPU load balancing data structure.
 struct LbNode {
+	static constexpr size_t noCpu = static_cast<size_t>(-1);
+
 	CpuData *cpu{nullptr};
+
+	// Set once cpu is valid. Pull requests that arrive before runPullLoop_() runs stay in pullSource.
+	std::atomic<bool> online{false};
 
 	// Serializes writers of tasks and load.
 	frg::ticket_spinlock mutex;
@@ -146,6 +151,21 @@ struct LbNode {
 	NodeLoad currentLoad(uint64_t now) {
 		return load.load().at(now);
 	}
+
+	// Serializes pulls from this node such that pullers see each other's migrations.
+	frg::ticket_spinlock pullMutex;
+
+	// Set when this CPU has more runnable threads than it can run.
+	std::atomic<bool> overloaded{false};
+	// Raised when overloaded is set.
+	async::recurring_event overloadEvent;
+	// Last time at which this CPU asked for a pull.
+	std::atomic<uint64_t> lastRequest{0};
+
+	// CPU that asked this CPU to pull (or noCpu).
+	std::atomic<size_t> pullSource{noCpu};
+	// Raised when pullSource is set.
+	async::recurring_event pullEvent;
 };
 
 extern PerCpu<LbNode> lbNode;
@@ -155,10 +175,15 @@ inline CpuData *LbThreadState::getAssignedCpu() {
 	return cb_.load(std::memory_order_acquire)->node_->cpu;
 }
 
+// Load balancing is driven by the CPUs that are involved in it.
+// * A CPU that has more runnable threads than it can run notices this when it handles preemption.
+//   It asks a less loaded CPU to pull (at most once per interval).
+// * The CPU that pulls decides what to pull (and from where) and performs the migrations.
+//   While its source remains overloaded, it passes the request on to the next CPU.
 struct LoadBalancer {
 	static LoadBalancer &singleton();
 
-	LoadBalancer();
+	LoadBalancer() = default;
 
 	LoadBalancer(const LoadBalancer &) = delete;
 	LoadBalancer &operator= (const LoadBalancer &) = delete;
@@ -183,23 +208,37 @@ struct LoadBalancer {
 	// Precondition: the thread's mutex is held and IRQs are disabled.
 	void updateRunnable(Thread *thread, uint64_t now, bool runnable);
 
+	// Must be called when the current CPU considers preempting a thread,
+	// i.e., at the points in time at which other threads may be waiting for this CPU.
+	// Precondition: IRQs are disabled.
+	void checkOverload();
+
 private:
-	coroutine<void> run_(CpuData *cpu);
+	static constexpr size_t noCpu = LbNode::noCpu;
+
+	coroutine<void> runRequestLoop_(CpuData *cpu);
+	coroutine<void> runPullLoop_(CpuData *cpu);
+
+	// Average load of the online CPUs.
+	uint64_t idealLoad_(uint64_t now);
 
 	// Calls fn(thread, cb) for the threads of a node until fn returns false.
 	// cb is the thread's control block on the node and stays alive during the call.
 	template<typename F>
 	void forEachThread_(LbNode *node, F fn);
 
-	// Move tasks from srcNode to dstNode to balance load.
-	void balanceBetween_(LbNode *srcNode, LbNode *dstNode, uint64_t idealLoad);
+	// Find a CPU that can pull a thread from srcNode and ask it to do so.
+	void requestPull_(LbNode *srcNode);
+
+	// Pull threads to dstNode. The CPU that asked for the pull is tried first.
+	void pull_(LbNode *dstNode, size_t hintIndex);
+
+	// Move up to (approximately) amount load from srcNode to dstNode. Returns the load that was moved.
+	uint64_t pullFrom_(LbNode *srcNode, LbNode *dstNode, uint64_t amount);
 
 	// Replace the current control block of the thread by newCb, linked into dstNode.
 	// Precondition: the thread's LbThreadState::mutex_ is held but not its mutex (which this takes).
 	void doMigration_(Thread *thread, LbNode *dstNode, smarter::shared_ptr<LbControlBlock> newCb);
-
-	async::barrier barrier_;
-	uint64_t systemLoad_{0};
 };
 
 } // namespace thor

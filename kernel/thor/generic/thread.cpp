@@ -628,6 +628,9 @@ void Thread::handlePreemption() {
 
 	auto *scheduler = &localScheduler.get();
 
+	// Done before the scheduler is updated since this may make the CPU's work queue runnable.
+	LoadBalancer::singleton().checkOverload();
+
 	scheduler->update();
 	if(scheduler->maybeReschedule()) {
 		auto lock = frg::guard(&_mutex);
@@ -667,6 +670,9 @@ void Thread::genericHandlePreemption(ImageAccessor image) {
 	assert(image.iplState()->current < ipl::noPreemption);
 
 	auto *scheduler = &localScheduler.get();
+
+	// Done before the scheduler is updated since this may make the CPU's work queue runnable.
+	LoadBalancer::singleton().checkOverload();
 
 	scheduler->update();
 	if(scheduler->maybeReschedule()) {
