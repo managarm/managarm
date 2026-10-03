@@ -80,6 +80,7 @@ void LoadBalancer::connect(Thread *thread, CpuData *cpu) {
 }
 
 void LoadBalancer::disconnect(Thread *thread) {
+	// If walkers hold references to the control block, the last of them unlinks it.
 	auto cb = std::move(thread->_lbState.cbRef_);
 	if (!cb)
 		return;
@@ -182,7 +183,8 @@ void LoadBalancer::doMigration_(Thread *thread, LbNode *dstNode,
 	newCb->node_ = dstNode;
 
 	// Dropping the last reference unlinks the old control block, which takes srcNode's mutex.
-	// Hence, drop it after the locks below.
+	// Hence, drop it after the locks below (callers still hold mutex_, which precedes LbNode::mutex);
+	// if walkers hold references, the last of them unlinks it.
 	smarter::shared_ptr<LbControlBlock> oldRef;
 	{
 		// The thread cannot change its run state (and thereby the load of its node) during the move.
@@ -274,6 +276,47 @@ coroutine<void> LoadBalancer::run_(CpuData *cpu) {
 	co_return;
 }
 
+template<typename F>
+void LoadBalancer::forEachThread_(LbNode *node, F fn) {
+	// The referenced control block keeps our position in the list across RCU critical sections.
+	smarter::shared_ptr<LbControlBlock> cursor;
+	while (true) {
+		smarter::shared_ptr<LbControlBlock> next;
+		{
+			IplGuard<ipl::noSchedule> rcuGuard;
+
+			auto it = node->tasks.begin();
+			if (cursor) {
+				it = node->tasks.iterator_to(cursor.get());
+				++it;
+			}
+			while (it != node->tasks.end()) {
+				auto *cb = *it;
+				++it;
+				// The control block may be in the process of being unlinked.
+				next = cb->self_.lock();
+				if (next)
+					break;
+			}
+		}
+		// Dropping the old cursor may unlink it, hence this is done outside of the RCU critical section.
+		cursor = std::move(next);
+		if (!cursor)
+			return;
+
+		// The thread may be in the process of being destructed.
+		auto thread = cursor->thread_.lock();
+		if (!thread)
+			continue;
+		// Skip control blocks of threads that moved away from this node.
+		if (thread->_lbState.cb_.load(std::memory_order_acquire) != cursor.get())
+			continue;
+
+		if (!fn(thread, cursor.get()))
+			return;
+	}
+}
+
 void LoadBalancer::balanceBetween_(LbNode *srcNode, LbNode *dstNode, uint64_t idealLoad) {
 	auto improvesBalance = [] (uint64_t srcLoad, uint64_t dstLoad, uint64_t stolenLoad) -> bool {
 		// The thread's load and the node's sum are rounded separately.
@@ -289,67 +332,61 @@ void LoadBalancer::balanceBetween_(LbNode *srcNode, LbNode *dstNode, uint64_t id
 
 	// Replacement control block for the next migration, allocated outside of all locks.
 	smarter::shared_ptr<LbControlBlock> spare;
-	{
-		IplGuard<ipl::noSchedule> rcuGuard;
+	auto now = getClockNanos();
+	forEachThread_(srcNode, [&] (smarter::shared_ptr<Thread> &thread, LbControlBlock *cb) -> bool {
+		auto srcLoad = srcNode->currentLoad(now).load();
+		auto dstLoad = dstNode->currentLoad(now).load();
 
-		auto now = getClockNanos();
-		for (auto *cb : srcNode->tasks) {
-			auto srcLoad = srcNode->currentLoad(now).load();
-			auto dstLoad = dstNode->currentLoad(now).load();
+		// Do not attempt to do load balancing if source and destination are both
+		// undersubscribed. While it may still be possible to improve the balance,
+		// it is probably not worth it in terms of effort and cache degradation.
+		if (srcLoad < idealLoad && dstLoad < idealLoad)
+			return false;
 
-			// Do not attempt to do load balancing if source and destination are both
-			// undersubscribed. While it may still be possible to improve the balance,
-			// it is probably not worth it in terms of effort and cache degradation.
-			if (srcLoad < idealLoad && dstLoad < idealLoad)
-				break;
+		// Pulling from a less loaded CPU can never improve the balance.
+		if (srcLoad <= dstLoad)
+			return false;
 
-			// Pulling from a less loaded CPU can never improve the balance.
-			if (srcLoad <= dstLoad)
-				break;
+		// Do not pull beyond the ideal load, other CPUs would have to pull the excess again.
+		if (dstLoad >= idealLoad)
+			return false;
 
-			// Do not pull beyond the ideal load, other CPUs would have to pull the excess again.
-			if (dstLoad >= idealLoad)
-				break;
+		auto *state = &thread->_lbState;
 
-			auto thread = cb->thread_.lock();
-			if (!thread)
-				continue;
-			auto *state = &thread->_lbState;
+		// Do not move threads with tiny contributions to the total load.
+		auto load = thread->load().at(now).runnable;
+		if (!load)
+			return true;
 
-			// Do not move threads with tiny contributions to the total load.
-			auto load = thread->load().at(now).runnable;
-			if (!load)
-				continue;
+		if (!improvesBalance(srcLoad, dstLoad, load))
+			return true;
 
-			if (!improvesBalance(srcLoad, dstLoad, load))
-				continue;
+		if (!spare)
+			spare = LbControlBlock::create();
 
-			if (!spare)
-				spare = LbControlBlock::create();
+		bool moved = false;
+		{
+			auto irqLock = frg::guard(&irqMutex());
+			auto lock = frg::guard(&state->mutex_);
 
-			bool moved = false;
-			{
-				auto irqLock = frg::guard(&irqMutex());
-				auto lock = frg::guard(&state->mutex_);
+			// Skip control blocks that a concurrent migration already replaced.
+			if (state->cb_.load(std::memory_order_relaxed) == cb
+					&& state->inAffinityMask_(dstNode->cpu->cpuIndex)) {
+				if (debugLb)
+					infoLogger() << "Moving thread with load " << load
+							<< " from CPU " << srcNode->cpu->cpuIndex
+							<< " to CPU " << dstNode->cpu->cpuIndex << frg::endlog;
 
-				// Skip control blocks that a concurrent migration already replaced.
-				if (state->cb_.load(std::memory_order_relaxed) == cb
-						&& state->inAffinityMask_(dstNode->cpu->cpuIndex)) {
-					if (debugLb)
-						infoLogger() << "Moving thread with load " << load
-								<< " from CPU " << srcNode->cpu->cpuIndex
-								<< " to CPU " << dstNode->cpu->cpuIndex << frg::endlog;
-
-					doMigration_(thread.get(), dstNode, std::move(spare));
-					moved = true;
-				}
-			}
-			if (moved) {
-				// Notify the thread such that it eventually moves to its assigned CPU.
-				Thread::migrateOther(thread);
+				doMigration_(thread.get(), dstNode, std::move(spare));
+				moved = true;
 			}
 		}
-	}
+		if (moved) {
+			// Notify the thread such that it eventually moves to its assigned CPU.
+			Thread::migrateOther(thread);
+		}
+		return true;
+	});
 }
 
 } // namespace thor

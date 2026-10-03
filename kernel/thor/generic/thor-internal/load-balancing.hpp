@@ -186,6 +186,11 @@ struct LoadBalancer {
 private:
 	coroutine<void> run_(CpuData *cpu);
 
+	// Calls fn(thread, cb) for the threads of a node until fn returns false.
+	// cb is the thread's control block on the node and stays alive during the call.
+	template<typename F>
+	void forEachThread_(LbNode *node, F fn);
+
 	// Move tasks from srcNode to dstNode to balance load.
 	void balanceBetween_(LbNode *srcNode, LbNode *dstNode, uint64_t idealLoad);
 
