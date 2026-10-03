@@ -143,8 +143,14 @@ DEFINE_TEST(kill_null_signal, ([] {
 	assert(pid >= 0);
 
 	if(!pid) {
-		_exit(0);
+		pause();
 	}
+
+	ret = kill(-1, 0);
+	assert(ret == 0);
+
+	ret = kill(pid, SIGKILL);
+	assert(ret == 0);
 
 	int status;
 	ret = waitpid(pid, &status, 0);
