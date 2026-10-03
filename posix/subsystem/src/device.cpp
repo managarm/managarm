@@ -37,11 +37,17 @@ void UnixDeviceRegistry::install(std::shared_ptr<UnixDevice> device) {
 	// TODO: Ensure that the insert succeeded.
 	_devices.insert(device);
 
-	// TODO: Make createDeviceNode() synchronous and get rid of the post_awaitable().
+	// Create the node synchronously such that it exists once install() returns.
+	// Like Linux, we do not fail the device if its node cannot be created
+	// (e.g., because userspace created a conflicting file in /dev).
 	auto node_path = device->nodePath();
-	if(!node_path.empty())
-		async::detach(createDeviceNode(std::move(node_path),
-				device->type(), device->getId()));
+	if(node_path.empty())
+		return;
+	auto result = tmp_fs::createDevtmpfsNode(getDevtmpfs().get(), node_path,
+			device->type(), device->getId());
+	if(!result)
+		std::cout << "posix: Failed to create device node /dev/" << node_path
+				<< ": " << result.error() << std::endl;
 }
 
 std::shared_ptr<UnixDevice> UnixDeviceRegistry::get(DeviceId id) {
@@ -77,39 +83,6 @@ openDevice(Process *process, VfsType type, DeviceId id, std::shared_ptr<MountVie
 smarter::shared_ptr<FsLink, LinkRc> getDevtmpfs() {
 	static smarter::shared_ptr<FsLink, LinkRc> devtmpfs = tmp_fs::createDevTmpFsRoot();
 	return devtmpfs;
-}
-
-async::result<void> createDeviceNode(std::string path, VfsType type, DeviceId id) {
-	size_t k = 0;
-	auto dirLink = getDevtmpfs();
-	while(true) {
-		size_t s = path.find('/', k);
-		if(s == std::string::npos) {
-			auto result = co_await dirLink->getTarget()->mkdev(dirLink.get(), path.substr(k), type, id);
-			assert(result);
-			break;
-		}else{
-			assert(s > k);
-			auto name = path.substr(k, s - k);
-			smarter::shared_ptr<FsLink, LinkRc> link;
-			while(true) {
-				auto linkResult = co_await dirLink->getTarget()->getLink(dirLink.get(), name);
-				if(linkResult) {
-					link = linkResult.value();
-					break;
-				}
-				auto mkdirResult = co_await dirLink->getTarget()->mkdir(dirLink.get(), nullptr, name, 0755);
-				if(auto linkp = std::get_if<smarter::shared_ptr<FsLink, LinkRc>>(&mkdirResult)) {
-					link = std::move(*linkp);
-					break;
-				}
-				// Another createDeviceNode() raced us to create the directory; retry the lookup.
-				assert(std::get<Error>(mkdirResult) == Error::alreadyExists);
-			}
-			k = s + 1;
-			dirLink = std::move(link);
-		}
-	}
 }
 
 // --------------------------------------------------------

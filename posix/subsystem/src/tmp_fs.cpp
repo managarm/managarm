@@ -342,9 +342,8 @@ private:
 			bool exclusive) override;
 
 	async::result<frg::expected<Error, smarter::shared_ptr<FsLink, LinkRc>>> getLink(FsLink *, std::string name) override {
-		auto it = _entries.find(name);
-		if(it != _entries.end())
-			co_return *it;
+		if(auto link = lookup(name); link)
+			co_return link;
 		co_return Error::noSuchFile;
 	}
 
@@ -413,6 +412,16 @@ private:
 
 public:
 	DirectoryNode(Superblock *superblock, int mode, uid_t uid, gid_t gid);
+
+	// Synchronous operations for posix-internal users (e.g., devtmpfs).
+	// Returns nullptr if the entry does not exist.
+	smarter::shared_ptr<Link, LinkRc> lookup(const std::string &name);
+
+	std::expected<smarter::shared_ptr<Link, LinkRc>, Error>
+	createDirectory(FsLink *parent, std::string name, int mode, uid_t uid, gid_t gid);
+
+	std::expected<smarter::shared_ptr<Link, LinkRc>, Error>
+	createDevice(FsLink *parent, std::string name, VfsType type, DeviceId id);
 
 private:
 	// TODO: This creates a circular reference -- fix this.
@@ -959,20 +968,14 @@ DirectoryNode::getLinkOrCreate(FsLink *parent, Process *, std::string name, mode
 
 async::result<std::variant<Error, smarter::shared_ptr<FsLink, LinkRc>>>
 DirectoryNode::mkdir(FsLink *parent, Process *proc, std::string name, mode_t mode) {
-	if(!(_entries.find(name) == _entries.end()))
-		co_return Error::alreadyExists;
-
 	auto umask = proc ? proc->fsContext()->getUmask() : 0;
 	auto uid = proc ? proc->threadGroup()->uid() : 0;
 	auto gid = proc ? proc->threadGroup()->gid() : 0;
 
-	auto node = makeFsShared<DirectoryNode>(static_cast<Superblock *>(superblock()), mode & ~umask, uid, gid);
-	auto link = makeFsShared<Link>(parent->sharedFromThis(), name, std::move(node));
-	_entries.insert(link);
-	// Account for the new subdirectory's '..' backlink.
-	adjustLinkCount(1);
-	notifyObservers(FsObserver::createEvent, name, 0, true);
-	co_return link;
+	auto result = createDirectory(parent, std::move(name), mode & ~umask, uid, gid);
+	if(!result)
+		co_return result.error();
+	co_return smarter::shared_ptr<FsLink, LinkRc>{std::move(*result)};
 }
 
 async::result<std::variant<Error, smarter::shared_ptr<FsLink, LinkRc>>>
@@ -988,14 +991,43 @@ DirectoryNode::symlink(FsLink *parent, std::string name, std::string path) {
 
 async::result<frg::expected<Error, smarter::shared_ptr<FsLink, LinkRc>>>
 DirectoryNode::mkdev(FsLink *parent, std::string name, VfsType type, DeviceId id) {
+	auto result = createDevice(parent, std::move(name), type, id);
+	if(!result)
+		co_return result.error();
+	co_return smarter::shared_ptr<FsLink, LinkRc>{std::move(*result)};
+}
+
+smarter::shared_ptr<Link, LinkRc> DirectoryNode::lookup(const std::string &name) {
+	auto it = _entries.find(name);
+	if(it == _entries.end())
+		return nullptr;
+	return *it;
+}
+
+std::expected<smarter::shared_ptr<Link, LinkRc>, Error>
+DirectoryNode::createDirectory(FsLink *parent, std::string name, int mode, uid_t uid, gid_t gid) {
 	if(!(_entries.find(name) == _entries.end()))
-		co_return Error::alreadyExists;
+		return std::unexpected{Error::alreadyExists};
+
+	auto node = makeFsShared<DirectoryNode>(static_cast<Superblock *>(superblock()), mode, uid, gid);
+	auto link = makeFsShared<Link>(parent->sharedFromThis(), name, std::move(node));
+	_entries.insert(link);
+	// Account for the new subdirectory's '..' backlink.
+	adjustLinkCount(1);
+	notifyObservers(FsObserver::createEvent, name, 0, true);
+	return link;
+}
+
+std::expected<smarter::shared_ptr<Link, LinkRc>, Error>
+DirectoryNode::createDevice(FsLink *parent, std::string name, VfsType type, DeviceId id) {
+	if(!(_entries.find(name) == _entries.end()))
+		return std::unexpected{Error::alreadyExists};
 	auto node = makeFsShared<DeviceNode>(static_cast<Superblock *>(superblock()),
 			type, id);
 	auto link = makeFsShared<Link>(parent->sharedFromThis(), name, std::move(node));
 	_entries.insert(link);
 	notifyObservers(FsObserver::createEvent, name, 0);
-	co_return link;
+	return link;
 }
 
 async::result<frg::expected<Error, smarter::shared_ptr<FsLink, LinkRc>>>
@@ -1020,6 +1052,37 @@ async::result<frg::expected<Error, smarter::shared_ptr<FsLink, LinkRc>>> Directo
 }
 
 } // anonymous namespace
+
+std::expected<void, Error>
+createDevtmpfsNode(FsLink *root, std::string_view path, VfsType type, DeviceId id) {
+	auto dirLink = root->sharedFromThis();
+	size_t k = 0;
+	while(true) {
+		auto dir = static_cast<DirectoryNode *>(dirLink->getTarget().get());
+		size_t s = path.find('/', k);
+		if(s == std::string_view::npos) {
+			auto result = dir->createDevice(dirLink.get(), std::string{path.substr(k)}, type, id);
+			if(!result)
+				return std::unexpected{result.error()};
+			return {};
+		}
+
+		assert(s > k);
+		std::string name{path.substr(k, s - k)};
+		smarter::shared_ptr<FsLink, LinkRc> link = dir->lookup(name);
+		if(!link) {
+			auto result = dir->createDirectory(dirLink.get(), name, 0755, 0, 0);
+			if(!result)
+				return std::unexpected{result.error()};
+			link = std::move(*result);
+		}
+		// devtmpfs is writable, hence userspace may have put non-directories (incl. symlinks) here.
+		if(link->getTarget()->getType() != VfsType::directory)
+			return std::unexpected{Error::notDirectory};
+		dirLink = std::move(link);
+		k = s + 1;
+	}
+}
 
 // Ironically, this function does not create a MemoryNode.
 smarter::shared_ptr<FsNode> createMemoryNode(std::string path) {
