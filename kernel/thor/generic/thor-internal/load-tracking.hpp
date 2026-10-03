@@ -109,6 +109,11 @@ constexpr uint64_t advanceLoad(uint64_t load, uint64_t signal, LoadDecayFactor f
 	);
 }
 
+// Rounds an average with loadFractionShift extra fractional bits to units of 2^(-loadShift) CPUs.
+constexpr uint64_t dropLoadFraction(uint64_t average) {
+	return (average + (UINT64_C(1) << (loadFractionShift - 1))) >> loadFractionShift;
+}
+
 namespace load_detail {
 
 constexpr uint64_t halfLife = UINT64_C(1) << loadHalfLifeShift;
