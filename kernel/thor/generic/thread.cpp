@@ -691,9 +691,12 @@ void Thread::genericHandlePreemption(ImageAccessor image) {
 }
 
 void Thread::_setRunState(RunState state) {
+	bool wasRunnable = _isRunnable();
 	_updateRunTime();
 	_runState = state;
 	_publishLoad();
+	if (_isRunnable() != wasRunnable)
+		LoadBalancer::singleton().updateRunnable(this, _lastRunTimeUpdate, !wasRunnable);
 }
 
 void Thread::_updateRunTime() {

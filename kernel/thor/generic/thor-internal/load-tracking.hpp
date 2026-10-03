@@ -169,4 +169,33 @@ struct ThreadLoad {
 	uint8_t padding[6]{};
 };
 
+// Sum of the runnable averages of all threads of a CPU at a point in time.
+struct NodeLoad {
+	// Extrapolates the sum. All averages decay at the same rate, so this only needs the number of
+	// runnable threads. It is exact (up to rounding) since numRunnable is adjusted whenever a thread
+	// starts or stops being runnable.
+	NodeLoad at(uint64_t now) const {
+		// Updates from different CPUs are not necessarily ordered by their timestamps.
+		if (now <= timestamp)
+			return *this;
+		return {
+			.timestamp = now,
+			.runnable = advanceLoad(runnable,
+					numRunnable << (loadShift + loadFractionShift), loadDecayFactor(now - timestamp)),
+			.numRunnable = numRunnable,
+		};
+	}
+
+	// Load in units of 2^(-loadShift) CPUs.
+	uint64_t load() const {
+		return dropLoadFraction(runnable);
+	}
+
+	uint64_t timestamp{0};
+	// Like the averages of threads, this has loadFractionShift extra fractional bits.
+	uint64_t runnable{0};
+	// Number of threads that contribute to the growth of the sum.
+	uint64_t numRunnable{0};
+};
+
 } // namespace thor

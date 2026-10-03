@@ -72,6 +72,9 @@ struct LbThreadState;
 smarter::borrowed_ptr<Thread> getCurrentThread();
 
 struct Thread final : ScheduleEntity, Credentials, RcuProtected {
+	// The load balancer accounts the load of threads per CPU; this is tied to their run state.
+	friend struct LoadBalancer;
+
 private:
 	struct CtorToken {};
 
