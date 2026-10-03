@@ -309,8 +309,10 @@ pub struct Subsystem {
 enum Lifecycle {
     /// Device is visible in sysfs but no uevent has been emitted yet.
     Created,
-    /// announce() waits for the parent or is emitting the add uevent.
+    /// announce() waits for the parent or installs the device node.
     Announcing,
+    /// The device node exists and announce() is emitting the add uevent.
+    Emitting,
     /// Device is visible in sysfs, its device node exists and the add uevent has been emitted.
     Announced,
 }
@@ -510,6 +512,17 @@ impl Attribute for UeventAttribute {
             .model
             .upgrade()
             .ok_or(fs::server::Error::InternalError)?;
+
+        // Suppress synthetic uevents until the device is (being) announced:
+        // before that, its device node may not exist yet and the real add uevent is still to come.
+        // Since we allow synthetic uevents while the add uevent is emitted,
+        // consumers may see both the real and the synthetic add uevent.
+        // Linux has a similar mechanism (i.e., uevent_suppress()) but only some devices opt into it
+        // (e.g., disks, partitions, ACPI devices, ttys and netdevs).
+        // We are more general and suppress synthetic uevents for all devices.
+        if matches!(device.lifecycle(), Lifecycle::Created | Lifecycle::Announcing) {
+            return Ok(());
+        }
 
         let text = String::from_utf8_lossy(data);
         let action = match text.split_whitespace().next() {
@@ -777,6 +790,10 @@ impl Model {
         if let Some(DevNodeSpec::Managed(node, lane)) = &device.devnode {
             self.install_node(node, lane).await?;
         }
+        // Allow synthetic uevents before emitting the add uevent.
+        // Otherwise, a synthetic uevent that races with the add uevent is suppressed,
+        // although the add uevent may be broadcast before the listener that triggered it exists.
+        device.set_lifecycle(Lifecycle::Emitting);
         self.emit_uevent("add", &device).await?;
         device.set_lifecycle(Lifecycle::Announced);
         self.update.notify(usize::MAX);
