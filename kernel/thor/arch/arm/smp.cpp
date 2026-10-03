@@ -265,7 +265,8 @@ bool bootSecondary(uint64_t id, size_t cpuIndex, EnableInfo enable) {
 
 			arch::scalar_store<uintptr_t>(space, offset, codePhysPtr);
 
-			asm volatile ("sev" ::: "memory");
+			// The store must complete before the event, otherwise the AP can re-read the old value and sleep again.
+			asm volatile ("dsb st; sev" ::: "memory");
 
 			KernelPageSpace::global().unmapSingle4k(VirtualAddr(virtPtr));
 
@@ -303,6 +304,8 @@ bool bootSecondary(uint64_t id, size_t cpuIndex, EnableInfo enable) {
 						codePhysPtr);
 				arch::scalar_store<uint32_t>(space, offset + parkingMailboxCpuId,
 						enable.cpuInterfaceNumber);
+				// The protocol requires a DSB after each write, libarch only issues one before it.
+				asm volatile ("dsb st" ::: "memory");
 			}
 
 			KernelPageSpace::global().unmapSingle4k(VirtualAddr(virtPtr));
