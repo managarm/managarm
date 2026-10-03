@@ -16,6 +16,8 @@
 
 namespace {
 
+constexpr bool logDiscards = false;
+
 id_allocator<int> _allocator;
 
 std::unordered_map<std::string, id_allocator<int>> prefixedNames_;
@@ -116,7 +118,7 @@ Link::AllocatedBuffer Link::allocateFrame(MacAddress to, EtherType type,
 		size_t payloadSize) {
 	// default implementation assume an Ethernet II frame
 	using namespace arch;
-	auto buf = allocateFrame(14 + payloadSize);
+	auto buf = allocateFrame(ethernetHeaderSize + payloadSize);
 
 	uint16_t et = static_cast<uint16_t>(type);
 	et = convert_endian<endian::big>(et);
@@ -125,7 +127,7 @@ Link::AllocatedBuffer Link::allocateFrame(MacAddress to, EtherType type,
 		sizeof(MacAddress));
 	std::memcpy(buf.frame.subview(12).data(), &et, sizeof(et));
 
-	buf.payload = buf.frame.subview(14);
+	buf.payload = buf.frame.subview(ethernetHeaderSize);
 	return buf;
 }
 
@@ -152,8 +154,20 @@ async::detached runDevice(std::shared_ptr<nic::Link> dev) {
 		dma_buffer frameBuffer { dev->dmaPool(), 1514 };
 		auto len = co_await dev->receive(frameBuffer);
 
+		// Guard against drivers that report more bytes than the buffer can hold.
+		if(len > frameBuffer.size()) {
+			std::println("netserver: Discarding frame exceeding the receive buffer");
+			continue;
+		}
+
 		if(!dev->rawIp()) {
-			auto capsule = frameBuffer.subview(14, len - 14);
+			if(len < ethernetHeaderSize) {
+				if(logDiscards)
+					std::println("netserver: Discarding Ethernet frame smaller than the header");
+				continue;
+			}
+
+			auto capsule = frameBuffer.subview(ethernetHeaderSize, len - ethernetHeaderSize);
 			auto data = reinterpret_cast<uint8_t*>(frameBuffer.data());
 			uint16_t ethertype = data[12] << 8 | data[13];
 			nic::MacAddress dstsrc[2];
@@ -173,7 +187,7 @@ async::detached runDevice(std::shared_ptr<nic::Link> dev) {
 				break;
 			}
 		} else {
-			dma_buffer_view capsule = frameBuffer;
+			auto capsule = frameBuffer.subview(0, len);
 			ip4().feedPacket({}, {}, std::move(frameBuffer), capsule, dev);
 		}
 	}

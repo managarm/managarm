@@ -26,11 +26,23 @@ using namespace protocols::fs;
 namespace {
 
 constexpr bool debugIcmp = false;
+constexpr bool logDiscards = false;
 
 } // namespace
 
 bool IcmpPacket::parse(smarter::shared_ptr<const Ip4Packet> packet) {
 	if (packet->payload().size() < sizeof(header)) {
+		if (logDiscards)
+			std::println("netserver: Discarding ICMP packet smaller than the header");
+		return false;
+	}
+
+	Checksum csum;
+	csum.update(packet->payload());
+	auto sum = csum.finalize();
+	if (sum != 0 && sum != 0xFFFF) {
+		if (logDiscards)
+			std::println("netserver: Discarding ICMP packet with invalid checksum");
 		return false;
 	}
 
@@ -344,7 +356,6 @@ async::result<void> Icmp::dispatchIcmp_() {
 void Icmp::feedDatagram(smarter::shared_ptr<const Ip4Packet> packet, std::weak_ptr<nic::Link> link) {
 	IcmpPacket icmp{ .link = link };
 	if (!icmp.parse(std::move(packet))) {
-		std::cout << "netserver: broken icmp received" << std::endl;
 		return;
 	}
 

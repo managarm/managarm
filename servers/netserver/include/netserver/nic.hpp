@@ -51,6 +51,8 @@ enum EtherType : uint16_t {
 	ETHER_TYPE_ARP = 0x0806,
 };
 
+constexpr size_t ethernetHeaderSize = 14;
+
 // TODO(arsen): Expose interface for csum offloading, constructing frames, and
 // other features of NICs
 struct Link {
