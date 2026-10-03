@@ -4,7 +4,6 @@
 #include "../devserver.hpp"
 #include "../device.hpp"
 #include "../pts.hpp"
-#include "../sysfs.hpp"
 #include "../tmp_fs.hpp"
 #include "../cgroupfs.hpp"
 #include <unistd.h>
@@ -85,10 +84,7 @@ HandleRequest::operator()(managarm::posix::MountRequest &&req,
 	if(req.fs_type() == "procfs" || req.fs_type() == "proc") {
 		co_await target.first->mount(target.second, getProcfs());
 	}else if(req.fs_type() == "sysfs") {
-		if(devserver::useDevserver)
-			co_await target.first->mount(target.second, co_await devserver::getSysfsRoot());
-		else
-			co_await target.first->mount(target.second, getSysfs());
+		co_await target.first->mount(target.second, co_await devserver::getSysfsRoot());
 	}else if(req.fs_type() == "devtmpfs") {
 		co_await target.first->mount(target.second, getDevtmpfs());
 	}else if(req.fs_type() == "tmpfs") {

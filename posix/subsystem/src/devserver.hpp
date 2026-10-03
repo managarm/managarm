@@ -7,10 +7,6 @@
 
 namespace devserver {
 
-// Switch between posix-subsystem's device model and posix-devserver.
-// TODO: Remove this together with the old posix-subsystem infrastructure.
-inline constexpr bool useDevserver = true;
-
 // Enumerates posix-devserver via mbus.
 async::result<void> enumerate();
 
