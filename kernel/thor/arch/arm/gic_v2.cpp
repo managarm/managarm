@@ -126,11 +126,11 @@ void GicDistributorV2::sendIpi(uint8_t ifaceNo, uint8_t id) {
 }
 
 void GicDistributorV2::sendIpiToTargets(uint8_t targetList, uint8_t id) {
-	space_.store_relaxed(dist_reg::sgi, dist_sgi::sgiNo(id) | dist_sgi::cpuTargetList(targetList) | dist_sgi::targetListFilter(0));
+	space_.store(dist_reg::sgi, dist_sgi::sgiNo(id) | dist_sgi::cpuTargetList(targetList) | dist_sgi::targetListFilter(0));
 }
 
 void GicDistributorV2::sendIpiToOthers(uint8_t id) {
-	space_.store_relaxed(dist_reg::sgi, dist_sgi::sgiNo(id) | dist_sgi::targetListFilter(1));
+	space_.store(dist_reg::sgi, dist_sgi::sgiNo(id) | dist_sgi::targetListFilter(1));
 }
 
 frg::string<KernelAlloc> GicDistributorV2::buildPinName(uint32_t irq) {
