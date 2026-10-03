@@ -3,19 +3,190 @@
 #include <linux/magic.h>
 #include <print>
 #include <string.h>
+#include <array>
 #include <sstream>
 #include <iomanip>
+#include <vector>
 
 #include <core/clock.hpp>
+#include <hel-syscalls.h>
 #include "common.hpp"
 #include "procfs.hpp"
 #include "process.hpp"
+#include "requests.hpp"
 #include "protocols/fs/common.hpp"
 
 #include <bitset>
 #include <sys/epoll.h>
 
+#if defined(__x86_64__)
+#include <cpuid.h>
+#endif
+
 namespace procfs {
+
+namespace {
+
+#if defined(__x86_64__)
+
+struct CpuidRegisters {
+	unsigned int eax;
+	unsigned int ebx;
+	unsigned int ecx;
+	unsigned int edx;
+};
+
+CpuidRegisters queryCpuid(unsigned int leaf, unsigned int subleaf = 0) {
+	CpuidRegisters result;
+	__cpuid_count(leaf, subleaf, result.eax, result.ebx, result.ecx, result.edx);
+	return result;
+}
+
+struct CpuinfoData {
+	std::string vendorId;
+	unsigned int family;
+	unsigned int model;
+	unsigned int stepping;
+	std::string modelName;
+	bool fpu;
+	unsigned int cpuidLevel;
+	bool haveClflushSize;
+	unsigned int clflushSize;
+	bool haveAddressSizes;
+	unsigned int physicalAddressBits;
+	unsigned int virtualAddressBits;
+};
+
+CpuinfoData queryCpuinfoData() {
+	CpuinfoData result{};
+	unsigned int extendedMax = __get_cpuid_max(0x80000000, nullptr);
+	unsigned int basicMax = __get_cpuid_max(0, nullptr);
+
+	{
+		auto leaf0 = queryCpuid(0);
+		std::array<char, 13> vendor{};
+		memcpy(vendor.data() + 0, &leaf0.ebx, sizeof(leaf0.ebx));
+		memcpy(vendor.data() + 4, &leaf0.edx, sizeof(leaf0.edx));
+		memcpy(vendor.data() + 8, &leaf0.ecx, sizeof(leaf0.ecx));
+		result.vendorId = vendor.data();
+		result.cpuidLevel = leaf0.eax;
+	}
+
+	if(basicMax >= 1) {
+		auto leaf1 = queryCpuid(1);
+		unsigned int baseFamily = (leaf1.eax >> 8) & 0xF;
+		unsigned int extendedFamily = (leaf1.eax >> 20) & 0xFF;
+		unsigned int baseModel = (leaf1.eax >> 4) & 0xF;
+		unsigned int extendedModel = (leaf1.eax >> 16) & 0xF;
+
+		result.family = baseFamily == 0xF ? baseFamily + extendedFamily : baseFamily;
+		result.model = (baseFamily == 0x6 || baseFamily == 0xF)
+				? baseModel | (extendedModel << 4) : baseModel;
+		result.stepping = leaf1.eax & 0xF;
+		result.fpu = leaf1.edx & (1U << 0);
+		if(leaf1.edx & (1U << 19)) {
+			result.haveClflushSize = true;
+			result.clflushSize = ((leaf1.ebx >> 8) & 0xFF) * 8;
+		}
+	}
+
+	if(extendedMax >= 0x80000004) {
+		std::array<char, 49> modelName{};
+		for(unsigned int leaf = 0; leaf < 3; ++leaf) {
+			auto registers = queryCpuid(0x80000002 + leaf);
+			memcpy(modelName.data() + leaf * 16 + 0, &registers.eax, sizeof(registers.eax));
+			memcpy(modelName.data() + leaf * 16 + 4, &registers.ebx, sizeof(registers.ebx));
+			memcpy(modelName.data() + leaf * 16 + 8, &registers.ecx, sizeof(registers.ecx));
+			memcpy(modelName.data() + leaf * 16 + 12, &registers.edx, sizeof(registers.edx));
+		}
+		result.modelName = modelName.data();
+		while(!result.modelName.empty() && result.modelName.back() == ' ')
+			result.modelName.pop_back();
+	}
+
+	if(extendedMax >= 0x80000008) {
+		auto leaf8 = queryCpuid(0x80000008);
+		result.haveAddressSizes = true;
+		result.physicalAddressBits = leaf8.eax & 0xFF;
+		result.virtualAddressBits = (leaf8.eax >> 8) & 0xFF;
+	}
+
+	return result;
+}
+
+#endif
+
+struct CpuinfoNode final : RegularNode {
+	CpuinfoNode() {
+#if defined(__x86_64__)
+		data_.reserve(getProcfsCpuCount());
+
+		std::vector<uint8_t> originalAffinity(getAffinityMaskSize());
+		size_t actualAffinitySize = 0;
+		HEL_CHECK(helGetAffinity(kHelThisThread, originalAffinity.data(),
+				originalAffinity.size(), &actualAffinitySize));
+
+		for(size_t cpu = 0; cpu < getProcfsCpuCount(); ++cpu) {
+			std::vector<uint8_t> affinity(getAffinityMaskSize());
+			affinity[cpu / 8] |= uint8_t{1} << (cpu % 8);
+			HEL_CHECK(helSetAffinity(kHelThisThread, affinity.data(), affinity.size()));
+			data_.push_back(queryCpuinfoData());
+		}
+
+		HEL_CHECK(helSetAffinity(kHelThisThread, originalAffinity.data(), actualAffinitySize));
+#endif
+	}
+
+	async::result<std::expected<std::string, Error>> show(Process *) override {
+		std::stringstream stream;
+		for(uint64_t processor = 0; processor < getProcfsCpuCount(); ++processor) {
+			auto &cpuInfo = getProcfsCpuInfo(processor);
+			stream << "processor\t: " << processor << '\n';
+#if defined(__x86_64__)
+			auto &data = data_[processor];
+			stream << "vendor_id\t: " << data.vendorId << '\n';
+			stream << "cpu family\t: " << data.family << '\n';
+			stream << "model\t\t: " << data.model << '\n';
+			stream << "model name\t: " << data.modelName << '\n';
+			stream << "stepping\t: " << data.stepping << '\n';
+			stream << "fpu\t\t: " << (data.fpu ? "yes" : "no") << '\n';
+			stream << "fpu_exception\t: " << (data.fpu ? "yes" : "no") << '\n';
+			stream << "cpuid level\t: " << data.cpuidLevel << '\n';
+			if(data.haveClflushSize) {
+				stream << "clflush size\t: " << data.clflushSize << '\n';
+				stream << "cache_alignment\t: " << data.clflushSize << '\n';
+			}
+			if(data.haveAddressSizes)
+				stream << "address sizes\t: " << data.physicalAddressBits
+						<< " bits physical, " << data.virtualAddressBits << " bits virtual\n";
+
+			// This first pass intentionally uses only unprivileged CPUID. In particular,
+			// flags and bugs are deferred, and fields requiring MSRs, kernel state,
+			// topology, or frequency calibration are not fabricated here.
+#elif defined(__aarch64__)
+			if(cpuInfo.midr) {
+				stream << std::format("CPU implementer\t: 0x{:02x}\n", (cpuInfo.midr >> 24) & 0xFF);
+				stream << "CPU architecture: 8\n";
+				stream << std::format("CPU variant\t: 0x{:x}\n", (cpuInfo.midr >> 20) & 0xF);
+				stream << std::format("CPU part\t: 0x{:03x}\n", (cpuInfo.midr >> 4) & 0xFFF);
+				stream << std::format("CPU revision\t: {}\n", cpuInfo.midr & 0xF);
+			}
+#endif
+			stream << '\n';
+		}
+		co_return stream.str();
+	}
+
+	async::result<void> store(std::string) override {
+		throw std::runtime_error("Cannot store to /proc/cpuinfo");
+	}
+
+#if defined(__x86_64__)
+	std::vector<CpuinfoData> data_;
+#endif
+};
+
+} // namespace
 
 SuperBlock procfsSuperblock;
 
@@ -304,6 +475,7 @@ smarter::shared_ptr<Link, LinkRc> DirectoryNode::createRootDirectory() {
 	auto self_thread_link = makeFsShared<Link>(link, "thread-self", makeFsShared<SelfThreadLink>());
 	the_node->_entries.insert(std::move(self_thread_link));
 
+	the_node->directMkregular(link.get(), "cpuinfo", makeFsShared<CpuinfoNode>());
 	the_node->directMkregular(link.get(), "uptime", makeFsShared<UptimeNode>());
 	the_node->directMknode(link.get(), "mounts", makeFsShared<MountsLink>());
 
