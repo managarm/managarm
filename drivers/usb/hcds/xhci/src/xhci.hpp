@@ -2,7 +2,6 @@
 #include <arch/dma_pool.hpp>
 #include <arch/barrier.hpp>
 #include <async/recurring-event.hpp>
-#include <async/sequenced-event.hpp>
 #include <async/mutex.hpp>
 #include <async/result.hpp>
 #include <helix/memory.hpp>
@@ -295,8 +294,7 @@ private:
 	SupportedProtocol *_proto;
 	arch::mem_space _space;
 
-	async::sequenced_event _pollEv;
-	uint64_t _pollSeq = 0;
+	async::recurring_event _pollEv;
 	proto::PortState _state{};
 };
 

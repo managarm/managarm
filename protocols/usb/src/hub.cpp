@@ -42,12 +42,7 @@ async::result<void> Enumerator::observationCycle_(std::shared_ptr<Hub> hub, int 
 	std::unique_lock<async::mutex> enumerateLock;
 
 	// Wait until the device is connected.
-	while (true) {
-		auto s = co_await hub->pollUntilState(port, HubStatus::connect);
-
-		if (s.status & HubStatus::connect)
-			break;
-	}
+	co_await hub->pollUntilState(port, HubStatus::connect);
 
 	co_await enumerateMutex_.async_lock();
 	enumerateLock = std::unique_lock<async::mutex>{enumerateMutex_, std::adopt_lock};
@@ -65,13 +60,7 @@ async::result<void> Enumerator::observationCycle_(std::shared_ptr<Hub> hub, int 
 	std::cout << "usb: Waiting for device to become enabled on port " << port << std::endl;
 
 	// Wait until the device is enabled.
-	while (true) {
-		auto s = co_await hub->pollUntilState(port, HubStatus::enable);
-
-		// TODO: Handle disconnect here.
-		if (s.status & HubStatus::enable)
-			break;
-	}
+	co_await hub->pollUntilState(port, HubStatus::enable);
 
 	std::cout << "usb: Enumerating device on port " << port << std::endl;
 
@@ -94,13 +83,8 @@ async::result<void> Enumerator::observationCycle_(std::shared_ptr<Hub> hub, int 
 
 	enumerateLock.unlock();
 
-	// Wait until the device is disconnected.
-	while(true) {
-		auto s = co_await hub->pollUntilState(port, 0);
-
-		if(!(s.status & HubStatus::connect))
-			break;
-	}
+	// TODO: Wait until the device is disconnected.
+	co_await std::suspend_always{};
 }
 
 async::result<frg::expected<UsbError>>

@@ -607,7 +607,7 @@ async::result<proto::PortState> Port::pollUntilState(uint32_t desired) {
 		if ((_state.status & desired) == desired)
 			co_return _state;
 
-		_pollSeq = co_await _pollEv.async_wait(_pollSeq);
+		co_await _pollEv.async_wait();
 	}
 }
 
