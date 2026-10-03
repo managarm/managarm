@@ -451,9 +451,6 @@ struct Tcp4Socket {
 		auto self = static_cast<Tcp4Socket *>(object);
 		auto p = reinterpret_cast<char *>(data);
 
-		if(self->remoteClosed_)
-			co_return protocols::fs::RecvData{{}, 0, sizeof(struct sockaddr_in), 0};
-
 		if(flags & ~MSG_PEEK)
 			std::cout << "\e[31m" "netserver/tcp: Encountered unexpected recvMsg() flags: "
 					<< flags << "\e[39m" << std::endl;
@@ -1114,7 +1111,9 @@ void Tcp4Socket::handleInPacket_(TcpPacket packet) {
 				gotUpdate = true;
 			}
 
-			if(packet.header.flags.load() & TcpHeader::finFlag) {
+			// The FIN only applies once we accepted the segment in its entirety.
+			if(chunk == payload.size()
+					&& (packet.header.flags.load() & TcpHeader::finFlag)) {
 				++remoteKnownSn_; // FIN counts as one byte.
 				remoteClosed_ = true;
 
