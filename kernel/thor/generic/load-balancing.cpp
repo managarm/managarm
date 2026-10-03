@@ -20,8 +20,21 @@ frg::eternal<LoadBalancer> loadBalancer;
 
 THOR_DEFINE_PERCPU(lbNode);
 
-void LbControlBlock::retire_(RcuCallable *base) {
-	frg::destruct(*kernelAlloc, static_cast<LbControlBlock *>(base));
+smarter::shared_ptr<LbControlBlock> LbControlBlock::create() {
+	auto ptr = allocate_rcu_shared<LbControlBlock>(*kernelAlloc, CtorToken{});
+	ptr->self_ = ptr;
+	return ptr;
+}
+
+void LbControlBlock::finalizeBeforeRcu() {
+	// Spare control blocks are never linked.
+	if (!node_)
+		return;
+
+	auto irqLock = frg::guard(&irqMutex());
+	auto lock = frg::guard(&node_->mutex);
+
+	node_->tasks.erase(this);
 }
 
 LoadBalancer &LoadBalancer::singleton() {
@@ -41,7 +54,8 @@ void LoadBalancer::connect(Thread *thread, CpuData *cpu) {
 	assert(!thread->_lbState.cb_.load(std::memory_order_relaxed));
 	auto *node = &lbNode.get(cpu);
 
-	auto cb = frg::construct<LbControlBlock>(*kernelAlloc, thread->self.lock());
+	auto cb = LbControlBlock::create();
+	cb->thread_ = thread->self.lock();
 	cb->node_ = node;
 
 	{
@@ -53,19 +67,20 @@ void LoadBalancer::connect(Thread *thread, CpuData *cpu) {
 		{
 			auto lock = frg::guard(&node->mutex);
 
-			node->tasks.push_back(cb);
+			node->tasks.push_back(cb.get());
 			auto nodeLoad = node->currentLoad(now);
 			nodeLoad.runnable += thread->_averagesAt(nodeLoad.timestamp).runnable;
 			if (thread->_isRunnable())
 				++nodeLoad.numRunnable;
 			node->load.store(nodeLoad);
 		}
-		thread->_lbState.cb_.store(cb, std::memory_order_release);
+		thread->_lbState.cb_.store(cb.get(), std::memory_order_release);
+		thread->_lbState.cbRef_ = std::move(cb);
 	}
 }
 
 void LoadBalancer::disconnect(Thread *thread) {
-	auto *cb = thread->_lbState.cb_.load(std::memory_order_relaxed);
+	auto cb = std::move(thread->_lbState.cbRef_);
 	if (!cb)
 		return;
 	auto *node = cb->node_;
@@ -80,7 +95,6 @@ void LoadBalancer::disconnect(Thread *thread) {
 		{
 			auto lock = frg::guard(&node->mutex);
 
-			node->tasks.erase(cb);
 			// The sum is only exact up to rounding.
 			auto nodeLoad = node->currentLoad(now);
 			auto load = thread->_averagesAt(nodeLoad.timestamp).runnable;
@@ -88,7 +102,6 @@ void LoadBalancer::disconnect(Thread *thread) {
 			node->load.store(nodeLoad);
 		}
 	}
-	submitRcu(cb, &LbControlBlock::retire_);
 }
 
 void LoadBalancer::setAffinity(Thread *thread, frg::span<const uint8_t> mask) {
@@ -98,8 +111,7 @@ void LoadBalancer::setAffinity(Thread *thread, frg::span<const uint8_t> mask) {
 	auto *state = &thread->_lbState;
 	// Whether the thread has to move is only known under the lock.
 	// Allocate the replacement control block up front instead of allocating there.
-	auto *newCb = frg::construct<LbControlBlock>(*kernelAlloc);
-	bool moved = false;
+	auto newCb = LbControlBlock::create();
 	{
 		auto irqLock = frg::guard(&irqMutex());
 		auto lock = frg::guard(&state->mutex_);
@@ -121,12 +133,9 @@ void LoadBalancer::setAffinity(Thread *thread, frg::span<const uint8_t> mask) {
 					bestLoad = load;
 				}
 			}
-			doMigration_(thread, &lbNode.getFor(bestIndex), newCb);
-			moved = true;
+			doMigration_(thread, &lbNode.getFor(bestIndex), std::move(newCb));
 		}
 	}
-	if (!moved)
-		frg::destruct(*kernelAlloc, newCb);
 
 	// Also raise the condition if only the mask changed:
 	// the thread may still be on its way to the assigned CPU from an earlier migration.
@@ -162,7 +171,8 @@ void LoadBalancer::updateRunnable(Thread *thread, uint64_t now, bool runnable) {
 	node->load.store(nodeLoad);
 }
 
-void LoadBalancer::doMigration_(Thread *thread, LbNode *dstNode, LbControlBlock *newCb) {
+void LoadBalancer::doMigration_(Thread *thread, LbNode *dstNode,
+		smarter::shared_ptr<LbControlBlock> newCb) {
 	auto *state = &thread->_lbState;
 	auto *cb = state->cb_.load(std::memory_order_relaxed);
 	auto *srcNode = cb->node_;
@@ -171,6 +181,9 @@ void LoadBalancer::doMigration_(Thread *thread, LbNode *dstNode, LbControlBlock 
 	newCb->thread_ = cb->thread_;
 	newCb->node_ = dstNode;
 
+	// Dropping the last reference unlinks the old control block, which takes srcNode's mutex.
+	// Hence, drop it after the locks below.
+	smarter::shared_ptr<LbControlBlock> oldRef;
 	{
 		// The thread cannot change its run state (and thereby the load of its node) during the move.
 		auto threadLock = frg::guard(&thread->_mutex);
@@ -183,18 +196,18 @@ void LoadBalancer::doMigration_(Thread *thread, LbNode *dstNode, LbControlBlock 
 		{
 			auto lock = frg::guard(&dstNode->mutex);
 
-			dstNode->tasks.push_back(newCb);
+			dstNode->tasks.push_back(newCb.get());
 			auto nodeLoad = dstNode->currentLoad(now);
 			nodeLoad.runnable += thread->_averagesAt(nodeLoad.timestamp).runnable;
 			if (runnable)
 				++nodeLoad.numRunnable;
 			dstNode->load.store(nodeLoad);
 		}
-		state->cb_.store(newCb, std::memory_order_release);
+		state->cb_.store(newCb.get(), std::memory_order_release);
+		oldRef = std::exchange(state->cbRef_, std::move(newCb));
 		{
 			auto lock = frg::guard(&srcNode->mutex);
 
-			srcNode->tasks.erase(cb);
 			// The sum is only exact up to rounding.
 			auto nodeLoad = srcNode->currentLoad(now);
 			auto load = thread->_averagesAt(nodeLoad.timestamp).runnable;
@@ -206,7 +219,6 @@ void LoadBalancer::doMigration_(Thread *thread, LbNode *dstNode, LbControlBlock 
 			srcNode->load.store(nodeLoad);
 		}
 	}
-	submitRcu(cb, &LbControlBlock::retire_);
 }
 
 coroutine<void> LoadBalancer::run_(CpuData *cpu) {
@@ -276,7 +288,7 @@ void LoadBalancer::balanceBetween_(LbNode *srcNode, LbNode *dstNode, uint64_t id
 	};
 
 	// Replacement control block for the next migration, allocated outside of all locks.
-	LbControlBlock *spare = nullptr;
+	smarter::shared_ptr<LbControlBlock> spare;
 	{
 		IplGuard<ipl::noSchedule> rcuGuard;
 
@@ -313,7 +325,7 @@ void LoadBalancer::balanceBetween_(LbNode *srcNode, LbNode *dstNode, uint64_t id
 				continue;
 
 			if (!spare)
-				spare = frg::construct<LbControlBlock>(*kernelAlloc);
+				spare = LbControlBlock::create();
 
 			bool moved = false;
 			{
@@ -328,19 +340,16 @@ void LoadBalancer::balanceBetween_(LbNode *srcNode, LbNode *dstNode, uint64_t id
 								<< " from CPU " << srcNode->cpu->cpuIndex
 								<< " to CPU " << dstNode->cpu->cpuIndex << frg::endlog;
 
-					doMigration_(thread.get(), dstNode, spare);
+					doMigration_(thread.get(), dstNode, std::move(spare));
 					moved = true;
 				}
 			}
 			if (moved) {
-				spare = nullptr;
 				// Notify the thread such that it eventually moves to its assigned CPU.
 				Thread::migrateOther(thread);
 			}
 		}
 	}
-	if (spare)
-		frg::destruct(*kernelAlloc, spare);
 }
 
 } // namespace thor
