@@ -111,20 +111,17 @@ public:
 				cur += line.size() + 1;
 			}
 
-			const auto &action = uevent.at("ACTION");
-			const auto &devpath = uevent.at("DEVPATH");
-			if (action != "add")
+			// Devices can be reported more than once (e.g., a device that is announced
+			// while trigger() runs gets both its real and a synthetic add uevent).
+			// Hence, consumers of the uevents need to be idempotent.
+			if (uevent.at("ACTION") != "add")
 				continue;
-			if (knownDevices_.contains(devpath))
-				continue;
-			knownDevices_.insert(devpath);
 			return uevent;
 		}
 	}
 
 private:
 	int nlFd_{-1};
-	std::unordered_set<std::string> knownDevices_;
 };
 
 std::optional<std::string> checkRootDevice(std::string device) {
@@ -166,10 +163,10 @@ std::optional<std::string> checkRootDevice(std::string device) {
 		}
 	}
 
-	// This major:minor is not in /dev? Bail out...
-	std::cout << "init: Device " << device << " (maj:min " << major << ":" << minor << ")"
-		<< "is the root filesystem, but has no corresponding /dev node?" << std::endl;
-	return "";
+	// Device nodes are created before the device's uevents are emitted.
+	// Hence, if the node is missing, it will not appear later.
+	throw std::runtime_error(std::format("init: Device {} (maj:min {}:{}) is the root filesystem,"
+			" but has no corresponding /dev node", device, major, minor));
 }
 
 int main() {
@@ -257,6 +254,8 @@ int main() {
 	}
 
 	std::optional<std::string> rootPath;
+	// MBUS_IDs of the PCI devices that we already launched block-nvme for.
+	std::unordered_set<std::string> nvmeDevices;
 	// TODO(qookie): Query /proc/cmdline to see if the user
 	// requested a different device.
 
@@ -284,7 +283,9 @@ int main() {
 		const auto &devpath = uevent->at("DEVPATH");
 		auto subsystemIt = uevent->find("SUBSYSTEM");
 
-		if(subsystemIt != uevent->end() && subsystemIt->second == "pci" && uevent->contains("PCI_CLASS") && uevent->at("PCI_CLASS") == "10802") {
+		// Only launch one block-nvme per device, even if the device is reported more than once.
+		if(subsystemIt != uevent->end() && subsystemIt->second == "pci" && uevent->contains("PCI_CLASS") && uevent->at("PCI_CLASS") == "10802"
+				&& nvmeDevices.insert(uevent->at("MBUS_ID")).second) {
 			auto nvme_server = fork();
 			if(!nvme_server) {
 				setenv("MBUS_ID", uevent->at("MBUS_ID").c_str(), 1);
@@ -325,9 +326,6 @@ int main() {
 			}
 		}
 	}
-
-	if (!rootPath->size())
-		throw std::runtime_error("Can't determine root device");
 
 #if defined (__x86_64__)
 	// Hack: Start UHCI only after EHCI devices are ready.
