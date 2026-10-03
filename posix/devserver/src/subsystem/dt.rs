@@ -5,7 +5,7 @@
 
 use std::sync::Arc;
 
-use anyhow::Result;
+use anyhow::{Result, bail};
 use managarm::hw;
 use managarm::mbus;
 
@@ -32,11 +32,16 @@ async fn install_node(
         event.entity_id()
     );
 
-    let slash = path.rfind('/').unwrap_or(0);
-    let name = path[slash + 1..].to_string();
+    // DT paths are absolute (e.g., /soc/serial@1000); the last component names the node.
+    let (dirname, name) = path.rsplit_once('/').unwrap_or(("", path.as_str()));
+    if name.is_empty() {
+        bail!("DT node has no name in its path '{path}'");
+    }
     // Children of the root node have no parent device; they go into base/.
     let (parent, placement) = match mbus_parent(event.properties()) {
-        Some(parent) if slash != 0 => (Parent::Key(DeviceKey::primary(parent)), Placement::Default),
+        Some(parent) if !dirname.is_empty() => {
+            (Parent::Key(DeviceKey::primary(parent)), Placement::Default)
+        }
         _ => (Parent::None, Placement::Under(base)),
     };
     let mut spec = DeviceSpec::new(name, parent, Membership::None)
