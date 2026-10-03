@@ -28,6 +28,20 @@ enum class IpProto : uint16_t {
 	udp = 17,
 };
 
+constexpr uint32_t ipv4Broadcast = 0xFFFFFFFF;
+
+inline bool isIpv4Multicast(uint32_t ip) {
+	return (ip & 0xF0000000) == 0xE0000000;
+}
+
+inline bool isIpv4Loopback(uint32_t ip) {
+	return (ip & 0xFF000000) == 0x7F000000;
+}
+
+inline bool isIpv4Zeronet(uint32_t ip) {
+	return (ip & 0xFF000000) == 0x00000000;
+}
+
 struct CidrAddress {
 	uint32_t ip;
 	uint8_t prefix;
@@ -139,6 +153,13 @@ struct Ip4TargetInfo {
 struct Ip4Socket;
 
 struct Ip4 {
+	enum class AddressType {
+		foreign,
+		unicast,
+		broadcast,
+		multicast
+	};
+
 	Ip4();
 
 	managarm::fs::Errors serveSocket(helix::UniqueLane ctrlLane, helix::UniqueLane ptLane, int type, int proto, int flags);
@@ -147,6 +168,7 @@ struct Ip4 {
 		arch::dma_buffer owner, arch::dma_buffer_view frame, std::weak_ptr<nic::Link> link);
 
 	bool hasIp(uint32_t ip);
+	AddressType classifyAddress(uint32_t ip);
 	std::shared_ptr<nic::Link> getLink(uint32_t ip);
 	std::optional<CidrAddress> getCidrByIndex(int index);
 	bool deleteLink(CidrAddress addr);

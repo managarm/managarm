@@ -173,7 +173,14 @@ async::detached runDevice(std::shared_ptr<nic::Link> dev) {
 			nic::MacAddress dstsrc[2];
 			std::memcpy(dstsrc, data, sizeof(dstsrc));
 
+			// Packet sockets observe all frames that the device hands to us.
 			raw().feedPacket(frameBuffer.subview(0, len));
+
+			if(dstsrc[0] != dev->deviceMac() && !isGroupMac(dstsrc[0])) {
+				if(logDiscards)
+					std::println("netserver: Discarding Ethernet frame with foreign destination MAC");
+				continue;
+			}
 
 			switch (ethertype) {
 			case ETHER_TYPE_IP4:

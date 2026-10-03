@@ -372,7 +372,10 @@ void Icmp::feedDatagram(smarter::shared_ptr<const Ip4Packet> packet, std::weak_p
 
 	switch (header.type) {
 		case ICMP_ECHO:
-			this->queue_.emplace(icmp);
+			// Like Linux' icmp_echo_ignore_broadcasts, so that we cannot act as a smurf amplifier.
+			if (ip4().classifyAddress(icmp.packet->header.destination)
+					== Ip4::AddressType::unicast)
+				this->queue_.emplace(icmp);
 			break;
 		default:
 			// Do nothing.

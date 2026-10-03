@@ -53,6 +53,11 @@ enum EtherType : uint16_t {
 
 constexpr size_t ethernetHeaderSize = 14;
 
+// The I/G bit of the first octet marks group (i.e. multicast and broadcast) addresses.
+inline bool isGroupMac(const MacAddress &mac) {
+	return mac[0] & 0x01;
+}
+
 // TODO(arsen): Expose interface for csum offloading, constructing frames, and
 // other features of NICs
 struct Link {

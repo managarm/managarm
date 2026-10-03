@@ -1165,6 +1165,13 @@ void Tcp4::feedDatagram(smarter::shared_ptr<const Ip4Packet> packet) {
 		return;
 	}
 
+	// RFC 1122 4.2.3.10: connections can only ever involve unicast addresses.
+	if (ip4().classifyAddress(tcp.packet->header.destination) != Ip4::AddressType::unicast) {
+		if (logDiscards)
+			std::println("netserver: Discarding TCP segment addressed to a broadcast or multicast address");
+		return;
+	}
+
 	if(debugTcp)
 		std::cout << "netserver: Received TCP packet at port " << tcp.header.destPort.load()
 				<< " (" << tcp.payload().size() << " bytes)" << std::endl;
