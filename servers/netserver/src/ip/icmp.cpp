@@ -131,6 +131,9 @@ struct IcmpSocket {
 			co_return Error::illegalArguments;
 		}
 
+		if(len < sizeof(IcmpPacket::Header))
+			co_return Error::illegalArguments;
+
 		IcmpPacket::Header header{};
 		memcpy(&header, data, sizeof(header));
 
@@ -147,8 +150,18 @@ struct IcmpSocket {
 		if (!ti)
 			co_return protocols::fs::Error::netUnreachable;
 
+		// Linux fills in the checksum for ping sockets, so callers may leave it zero.
+		std::vector<char> message(len);
+		memcpy(message.data(), data, len);
+		auto messageHeader = reinterpret_cast<IcmpPacket::Header *>(message.data());
+		messageHeader->checksum = 0;
+
+		Checksum csum;
+		csum.update(message.data(), message.size());
+		messageHeader->checksum = htons(csum.finalize());
+
 		auto error = co_await ip4().sendFrame(std::move(*ti),
-			data, len,
+			message.data(), message.size(),
 			static_cast<uint16_t>(IpProto::icmp));
 
 		if (error != protocols::fs::Error::none)

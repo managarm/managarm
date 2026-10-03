@@ -56,9 +56,12 @@ void Raw::feedPacket(arch::dma_buffer_view frame) {
 				continue;
 		}
 
-		RawSocket::PacketInfo info{frame.size(), frame.subview(0, std::min(frame.size(), accept_bytes))};
+		// The frame is only borrowed for the duration of this call, so we have to copy it.
+		auto snapLen = std::min(frame.size(), accept_bytes);
+		arch::dma_buffer snapshot{nullptr, snapLen};
+		memcpy(snapshot.data(), frame.data(), snapLen);
 
-		(*s)->queue_.emplace(info);
+		(*s)->queue_.emplace(RawSocket::PacketInfo{frame.size(), std::move(snapshot)});
 		(*s)->_inSeq = ++(*s)->_currentSeq;
 		(*s)->_statusBell.raise();
 	}
@@ -128,8 +131,8 @@ async::result<protocols::fs::RecvResult> RawSocket::recvmsg(void *obj,
 	auto element = co_await self->queue_.async_get();
 	assert(element);
 
-	size_t data_len = std::min(len, element->view.size());
-	memcpy(data, element->view.byte_data(), data_len);
+	size_t data_len = std::min(len, element->buffer.size());
+	memcpy(data, element->buffer.data(), data_len);
 
 	protocols::fs::CtrlBuilder ctrl{max_ctrl_len};
 
@@ -139,7 +142,7 @@ async::result<protocols::fs::RecvResult> RawSocket::recvmsg(void *obj,
 			ctrl.write<struct tpacket_auxdata>({
 				.tp_status = (TP_STATUS_USER | TP_STATUS_CSUM_VALID),
 				.tp_len = static_cast<uint32_t>(element->len),
-				.tp_snaplen = static_cast<uint32_t>(element->view.size()),
+				.tp_snaplen = static_cast<uint32_t>(element->buffer.size()),
 			});
 	}
 

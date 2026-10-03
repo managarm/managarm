@@ -69,7 +69,7 @@ private:
 
 	struct PacketInfo {
 		size_t len;
-		arch::dma_buffer_view view;
+		arch::dma_buffer buffer;
 	};
 
 	async::queue<PacketInfo, frg::stl_allocator> queue_;
