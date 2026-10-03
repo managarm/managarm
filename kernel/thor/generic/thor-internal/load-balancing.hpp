@@ -21,7 +21,8 @@ struct LbNode;
 struct Thread;
 
 // Per-thread load balancer state, embedded into Thread.
-// The load balancer only reaches it through a strong reference to the thread.
+// The load balancer only reaches it through a strong reference to the thread,
+// except for disconnect(), which runs from the thread's destructor.
 struct LbThreadState {
 	friend struct LoadBalancer;
 
@@ -61,6 +62,7 @@ private:
 
 	// Current control block.
 	// Protected against writes by mutex_, read under RCU.
+	// disconnect() reads it without locks since no other reference to the thread exists anymore.
 	std::atomic<LbControlBlock *> cb_{nullptr};
 
 	// Protected by mutex_.
@@ -105,10 +107,6 @@ private:
 
 	// Protected against writes by LbNode::mutex, traversed under RCU.
 	frg::intrusive_rcu_list_hook<LbControlBlock> listHook_;
-
-	// Whether the LbNode has been unlinked. Set before its retired via RCU.
-	// Protected by LbNode::mutex.
-	bool unlinked_{false};
 
 	// Load of the thread as of the last accounting pass of node_.
 	std::atomic<uint64_t> load_{0};
@@ -160,8 +158,10 @@ struct LoadBalancer {
 
 	// Attaches a thread to the load balancer.
 	// The load balancer keeps a weak reference to the thread.
-	// The thread is detached from the load balancer when the weak reference goes out of scope.
 	void connect(Thread *thread, CpuData *cpu);
+
+	// Detaches a thread from the load balancer. Must be called before the thread is destructed.
+	void disconnect(Thread *thread);
 
 	// Synchronously commit the affinity mask and the assignment,
 	// then request an asynchronous migration of the thread.

@@ -53,6 +53,21 @@ void LoadBalancer::connect(Thread *thread, CpuData *cpu) {
 	thread->_lbState.cb_.store(cb, std::memory_order_release);
 }
 
+void LoadBalancer::disconnect(Thread *thread) {
+	auto *cb = thread->_lbState.cb_.load(std::memory_order_relaxed);
+	if (!cb)
+		return;
+	auto *node = cb->node_;
+
+	{
+		auto irqLock = frg::guard(&irqMutex());
+		auto lock = frg::guard(&node->mutex);
+
+		node->tasks.erase(cb);
+	}
+	submitRcu(cb, &LbControlBlock::retire_);
+}
+
 void LoadBalancer::setAffinity(Thread *thread, frg::span<const uint8_t> mask) {
 	assert(mask.size() == LbThreadState::affinityMaskSize());
 	assert(LbThreadState::findFirstCpu(mask) != static_cast<size_t>(-1));
@@ -115,9 +130,7 @@ void LoadBalancer::doMigration_(LbThreadState *state, LbNode *dstNode, LbControl
 	{
 		auto lock = frg::guard(&srcNode->mutex);
 
-		assert(!cb->unlinked_);
 		srcNode->tasks.erase(cb);
-		cb->unlinked_ = true;
 		// A concurrent accounting pass may have published a sum that already
 		// excludes the control block.
 		auto current = srcNode->currentLoad.load(std::memory_order_relaxed);
@@ -157,25 +170,10 @@ coroutine<void> LoadBalancer::run_(CpuData *cpu) {
 				auto *cb = *it;
 				++it;
 
-				// Control blocks of destroyed threads are unlinked here
-				// (unless a migration already did so) and deallocated after the grace period.
+				// Control blocks of threads that are being destructed are unlinked by disconnect().
 				auto thread = cb->thread_.lock();
-				if (!thread) {
-					bool unlink;
-					{
-						auto irqLock = frg::guard(&irqMutex());
-						auto lock = frg::guard(&thisNode->mutex);
-
-						unlink = !cb->unlinked_;
-						if (unlink) {
-							thisNode->tasks.erase(cb);
-							cb->unlinked_ = true;
-						}
-					}
-					if (unlink)
-						submitRcu(cb, &LbControlBlock::retire_);
+				if (!thread)
 					continue;
-				}
 
 				auto threadLoad = thread->load().at(now).runnable;
 				cb->load_.store(threadLoad, std::memory_order_relaxed);

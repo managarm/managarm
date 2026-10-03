@@ -542,6 +542,7 @@ Thread::~Thread() {
 		infoLogger() << "thor: Thread is destructed" << frg::endlog;
 	assert(_runState == kRunTerminated);
 	assert(_observeQueue.empty());
+	LoadBalancer::singleton().disconnect(this);
 	ExecutorContext::retire(_executorContext);
 }
 
