@@ -55,7 +55,7 @@ void LoadBalancer::connect(Thread *thread, CpuData *cpu) {
 
 			node->tasks.push_back(cb);
 			auto nodeLoad = node->currentLoad(now);
-			nodeLoad.runnable += thread->_averagesAt(now).runnable;
+			nodeLoad.runnable += thread->_averagesAt(nodeLoad.timestamp).runnable;
 			if (thread->_isRunnable())
 				++nodeLoad.numRunnable;
 			node->load.store(nodeLoad);
@@ -77,13 +77,13 @@ void LoadBalancer::disconnect(Thread *thread) {
 		// The thread is not runnable anymore; only its remaining average leaves the node.
 		// Otherwise, the node would carry load that no thread in its tasks accounts for.
 		auto now = getClockNanos();
-		auto load = thread->_averagesAt(now).runnable;
 		{
 			auto lock = frg::guard(&node->mutex);
 
 			node->tasks.erase(cb);
 			// The sum is only exact up to rounding.
 			auto nodeLoad = node->currentLoad(now);
+			auto load = thread->_averagesAt(nodeLoad.timestamp).runnable;
 			nodeLoad.runnable -= frg::min(nodeLoad.runnable, load);
 			node->load.store(nodeLoad);
 		}
@@ -145,11 +145,19 @@ void LoadBalancer::updateRunnable(Thread *thread, uint64_t now, bool runnable) {
 	auto lock = frg::guard(&node->mutex);
 
 	auto nodeLoad = node->currentLoad(now);
+	// If the sum is already past now, it lacks the change of the signal during [now, nodeLoad.timestamp].
+	// By linearity, that contribution does not depend on the updates in between.
+	uint64_t late = 0;
+	if (nodeLoad.timestamp > now)
+		late = advanceLoad(0, UINT64_C(1) << (loadShift + loadFractionShift),
+				loadDecayFactor(nodeLoad.timestamp - now));
 	if (runnable) {
 		++nodeLoad.numRunnable;
+		nodeLoad.runnable += late;
 	} else {
 		assert(nodeLoad.numRunnable);
 		--nodeLoad.numRunnable;
+		nodeLoad.runnable -= frg::min(nodeLoad.runnable, late);
 	}
 	node->load.store(nodeLoad);
 }
@@ -168,7 +176,6 @@ void LoadBalancer::doMigration_(Thread *thread, LbNode *dstNode, LbControlBlock 
 		auto threadLock = frg::guard(&thread->_mutex);
 
 		auto now = getClockNanos();
-		auto load = thread->_averagesAt(now).runnable;
 		bool runnable = thread->_isRunnable();
 
 		// Link the replacement before unlinking the old control block.
@@ -178,7 +185,7 @@ void LoadBalancer::doMigration_(Thread *thread, LbNode *dstNode, LbControlBlock 
 
 			dstNode->tasks.push_back(newCb);
 			auto nodeLoad = dstNode->currentLoad(now);
-			nodeLoad.runnable += load;
+			nodeLoad.runnable += thread->_averagesAt(nodeLoad.timestamp).runnable;
 			if (runnable)
 				++nodeLoad.numRunnable;
 			dstNode->load.store(nodeLoad);
@@ -190,6 +197,7 @@ void LoadBalancer::doMigration_(Thread *thread, LbNode *dstNode, LbControlBlock 
 			srcNode->tasks.erase(cb);
 			// The sum is only exact up to rounding.
 			auto nodeLoad = srcNode->currentLoad(now);
+			auto load = thread->_averagesAt(nodeLoad.timestamp).runnable;
 			nodeLoad.runnable -= frg::min(nodeLoad.runnable, load);
 			if (runnable) {
 				assert(nodeLoad.numRunnable);

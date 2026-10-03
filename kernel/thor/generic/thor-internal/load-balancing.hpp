@@ -134,6 +134,8 @@ struct LbNode {
 	// Modified under mutex, read without it (e.g., for placement decisions).
 	frg::seqlock_cell<NodeLoad> load;
 
+	// The result can be ahead of now if updates from other CPUs overtook the caller.
+	// Callers apply their changes as of the result's timestamp.
 	NodeLoad currentLoad(uint64_t now) {
 		return load.load().at(now);
 	}
