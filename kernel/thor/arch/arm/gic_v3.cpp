@@ -455,7 +455,8 @@ void GicV3::sendSgi_(uint32_t affinity, uint16_t targetList, uint8_t id) {
 		cpu_sgi1r::aff2(aff2) |
 		cpu_sgi1r::aff3(aff3) |
 		cpu_sgi1r::intId(id);
-	asm volatile("msr icc_sgi1r_el1, %0; isb" : : "r"(v));
+	// Unlike memory accesses, the SGI register write is only ordered after prior stores by a DSB.
+	asm volatile("dsb ishst; msr icc_sgi1r_el1, %0; isb" : : "r"(v) : "memory");
 }
 
 void GicV3::sendIpi(int cpuId, uint8_t id) {
