@@ -542,6 +542,7 @@ Thread::~Thread() {
 		infoLogger() << "thor: Thread is destructed" << frg::endlog;
 	assert(_runState == kRunTerminated);
 	assert(_observeQueue.empty());
+	LoadBalancer::singleton().disconnect(this);
 	ExecutorContext::retire(_executorContext);
 }
 
@@ -690,37 +691,33 @@ void Thread::genericHandlePreemption(ImageAccessor image) {
 }
 
 void Thread::_setRunState(RunState state) {
+	bool wasRunnable = _isRunnable();
 	_updateRunTime();
 	_runState = state;
 	_publishLoad();
+	if (_isRunnable() != wasRunnable)
+		LoadBalancer::singleton().updateRunnable(this, _lastRunTimeUpdate, !wasRunnable);
 }
 
 void Thread::_updateRunTime() {
 	auto now = getClockNanos();
 	assert(now >= _lastRunTimeUpdate);
-	auto elapsed = now - _lastRunTimeUpdate;
 
 	// TODO: Terminated counts as not runnable; we may want to revisit this.
 	assert(_runState == kRunActive || _runState == kRunDeferred
 			|| _runState == kRunBlocked || _runState == kRunTerminated);
-	constexpr uint64_t full = UINT64_C(1) << (loadShift + loadFractionShift);
-	bool isRunning = _runState == kRunActive;
-	bool isRunnable = isRunning || _runState == kRunDeferred;
-	auto factor = loadDecayFactor(elapsed);
-	_runnableAverage = advanceLoad(_runnableAverage, isRunnable ? full : 0, factor);
-	_runningAverage = advanceLoad(_runningAverage, isRunning ? full : 0, factor);
+	auto averages = _averagesAt(now);
+	_runnableAverage = averages.runnable;
+	_runningAverage = averages.running;
 	_lastRunTimeUpdate = now;
 }
 
 void Thread::_publishLoad() {
-	auto dropFraction = [] (uint64_t average) -> uint64_t {
-		return (average + (UINT64_C(1) << (loadFractionShift - 1))) >> loadFractionShift;
-	};
 	ThreadLoad load{
 		.timestamp = _lastRunTimeUpdate,
-		.runnable = dropFraction(_runnableAverage),
-		.running = dropFraction(_runningAverage),
-		.isRunnable = _runState == kRunActive || _runState == kRunDeferred,
+		.runnable = dropLoadFraction(_runnableAverage),
+		.running = dropLoadFraction(_runningAverage),
+		.isRunnable = _isRunnable(),
 		.isRunning = _runState == kRunActive,
 	};
 	_publishedLoad.store(load);
