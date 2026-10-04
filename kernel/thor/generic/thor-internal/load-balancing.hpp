@@ -4,6 +4,7 @@
 
 #include <async/barrier.hpp>
 #include <frg/list.hpp>
+#include <frg/seqlock.hpp>
 #include <frg/span.hpp>
 #include <frg/spinlock.hpp>
 #include <frg/vector.hpp>
@@ -12,6 +13,7 @@
 #include <thor-internal/cpu-data.hpp>
 #include <thor-internal/ipl.hpp>
 #include <thor-internal/kernel-heap.hpp>
+#include <thor-internal/load-tracking.hpp>
 #include <thor-internal/rcu-base.hpp>
 
 namespace thor {
@@ -21,7 +23,8 @@ struct LbNode;
 struct Thread;
 
 // Per-thread load balancer state, embedded into Thread.
-// The load balancer only reaches it through a strong reference to the thread.
+// The load balancer only reaches it through a strong reference to the thread,
+// except for disconnect(), which runs from the thread's destructor.
 struct LbThreadState {
 	friend struct LoadBalancer;
 
@@ -57,10 +60,12 @@ struct LbThreadState {
 	}
 
 private:
+	// Lock order: mutex_, then the thread's mutex, then LbNode::mutex.
 	frg::ticket_spinlock mutex_;
 
 	// Current control block.
-	// Protected against writes by mutex_, read under RCU.
+	// Writers hold both mutex_ and the thread's mutex; it is read under either of them or under RCU.
+	// disconnect() reads it without locks since no other reference to the thread exists anymore.
 	std::atomic<LbControlBlock *> cb_{nullptr};
 
 	// Protected by mutex_.
@@ -81,7 +86,7 @@ private:
 	}
 };
 
-// Accounting record of one thread on one node. It is bound to its node for its whole
+// Membership record of one thread on one node. It is bound to its node for its whole
 // life: migrating the thread links a new control block into the destination node and retires
 // this one via RCU, so node task lists can be traversed without their mutex.
 struct LbControlBlock : RcuCallable {
@@ -105,20 +110,13 @@ private:
 
 	// Protected against writes by LbNode::mutex, traversed under RCU.
 	frg::intrusive_rcu_list_hook<LbControlBlock> listHook_;
-
-	// Whether the LbNode has been unlinked. Set before its retired via RCU.
-	// Protected by LbNode::mutex.
-	bool unlinked_{false};
-
-	// Load of the thread as of the last accounting pass of node_.
-	std::atomic<uint64_t> load_{0};
 };
 
 // Per-CPU load balancing data structure.
 struct LbNode {
 	CpuData *cpu{nullptr};
 
-	// Serializes writers of tasks and protects currentLoad.
+	// Serializes writers of tasks and load.
 	frg::ticket_spinlock mutex;
 
 	// Protected against writes by mutex, traversed under RCU.
@@ -131,13 +129,16 @@ struct LbNode {
 		>
 	> tasks;
 
-	// Accounting snapshot used to derive the ideal load.
-	// Written under mutex, also read cross-CPU without the mutex (e.g., for placement decisions).
-	std::atomic<uint64_t> totalLoad{0};
+	// Sum of the loads of the threads in tasks.
+	// The sum is adjusted whenever one of the threads starts or stops being runnable and whenever a thread is added or moved.
+	// Modified under mutex, read without it (e.g., for placement decisions).
+	frg::seqlock_cell<NodeLoad> load;
 
-	// Equal to totalLoad before load balancing but updated during load balancing.
-	// Modified under mutex, read without it.
-	std::atomic<uint64_t> currentLoad{0};
+	// The result can be ahead of now if updates from other CPUs overtook the caller.
+	// Callers apply their changes as of the result's timestamp.
+	NodeLoad currentLoad(uint64_t now) {
+		return load.load().at(now);
+	}
 };
 
 extern PerCpu<LbNode> lbNode;
@@ -160,8 +161,10 @@ struct LoadBalancer {
 
 	// Attaches a thread to the load balancer.
 	// The load balancer keeps a weak reference to the thread.
-	// The thread is detached from the load balancer when the weak reference goes out of scope.
 	void connect(Thread *thread, CpuData *cpu);
+
+	// Detaches a thread from the load balancer. Must be called before the thread is destructed.
+	void disconnect(Thread *thread);
 
 	// Synchronously commit the affinity mask and the assignment,
 	// then request an asynchronous migration of the thread.
@@ -169,15 +172,19 @@ struct LoadBalancer {
 	// Precondition: at least one bit of mask is set.
 	void setAffinity(Thread *thread, frg::span<const uint8_t> mask);
 
+	// Must be called when a thread starts or stops being runnable, at time now.
+	// Precondition: the thread's mutex is held and IRQs are disabled.
+	void updateRunnable(Thread *thread, uint64_t now, bool runnable);
+
 private:
 	coroutine<void> run_(CpuData *cpu);
 
 	// Move tasks from srcNode to dstNode to balance load.
 	void balanceBetween_(LbNode *srcNode, LbNode *dstNode, uint64_t idealLoad);
 
-	// Replace the current control block of state by newCb, linked into dstNode.
-	// Precondition: state->mutex_ is held.
-	void doMigration_(LbThreadState *state, LbNode *dstNode, LbControlBlock *newCb);
+	// Replace the current control block of the thread by newCb, linked into dstNode.
+	// Precondition: the thread's LbThreadState::mutex_ is held but not its mutex (which this takes).
+	void doMigration_(Thread *thread, LbNode *dstNode, LbControlBlock *newCb);
 
 	async::barrier barrier_;
 	uint64_t systemLoad_{0};

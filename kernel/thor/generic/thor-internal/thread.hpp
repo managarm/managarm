@@ -72,6 +72,9 @@ struct LbThreadState;
 smarter::borrowed_ptr<Thread> getCurrentThread();
 
 struct Thread final : ScheduleEntity, Credentials, RcuProtected {
+	// The load balancer accounts the load of threads per CPU; this is tied to their run state.
+	friend struct LoadBalancer;
+
 private:
 	struct CtorToken {};
 
@@ -460,6 +463,30 @@ private:
 	};
 
 	void _setRunState(RunState state);
+
+	// Precondition: _mutex is held.
+	bool _isRunnable() {
+		return _runState == kRunActive || _runState == kRunDeferred;
+	}
+
+	// Like _runnableAverage and _runningAverage, with their fractional bits.
+	struct Averages {
+		uint64_t runnable;
+		uint64_t running;
+	};
+
+	// Exact variant of load(): extrapolates the averages to the given time
+	// under the assumption that the run state did not change since _lastRunTimeUpdate.
+	// Precondition: _mutex is held.
+	Averages _averagesAt(uint64_t now) {
+		constexpr uint64_t full = UINT64_C(1) << (loadShift + loadFractionShift);
+		uint64_t elapsed = now > _lastRunTimeUpdate ? now - _lastRunTimeUpdate : 0;
+		auto factor = loadDecayFactor(elapsed);
+		return {
+			.runnable = advanceLoad(_runnableAverage, _isRunnable() ? full : 0, factor),
+			.running = advanceLoad(_runningAverage, _runState == kRunActive ? full : 0, factor),
+		};
+	}
 
 	// Used by the AssociatedWorkQueues below so must be initialized before.
 	ExecutorContext *_executorContext{ExecutorContext::create()};

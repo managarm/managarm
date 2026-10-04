@@ -46,11 +46,49 @@ void LoadBalancer::connect(Thread *thread, CpuData *cpu) {
 
 	{
 		auto irqLock = frg::guard(&irqMutex());
-		auto lock = frg::guard(&node->mutex);
+		auto stateLock = frg::guard(&thread->_lbState.mutex_);
+		auto threadLock = frg::guard(&thread->_mutex);
 
-		node->tasks.push_back(cb);
+		auto now = getClockNanos();
+		{
+			auto lock = frg::guard(&node->mutex);
+
+			node->tasks.push_back(cb);
+			auto nodeLoad = node->currentLoad(now);
+			nodeLoad.runnable += thread->_averagesAt(nodeLoad.timestamp).runnable;
+			if (thread->_isRunnable())
+				++nodeLoad.numRunnable;
+			node->load.store(nodeLoad);
+		}
+		thread->_lbState.cb_.store(cb, std::memory_order_release);
 	}
-	thread->_lbState.cb_.store(cb, std::memory_order_release);
+}
+
+void LoadBalancer::disconnect(Thread *thread) {
+	auto *cb = thread->_lbState.cb_.load(std::memory_order_relaxed);
+	if (!cb)
+		return;
+	auto *node = cb->node_;
+
+	{
+		auto irqLock = frg::guard(&irqMutex());
+		auto threadLock = frg::guard(&thread->_mutex);
+
+		// The thread is not runnable anymore; only its remaining average leaves the node.
+		// Otherwise, the node would carry load that no thread in its tasks accounts for.
+		auto now = getClockNanos();
+		{
+			auto lock = frg::guard(&node->mutex);
+
+			node->tasks.erase(cb);
+			// The sum is only exact up to rounding.
+			auto nodeLoad = node->currentLoad(now);
+			auto load = thread->_averagesAt(nodeLoad.timestamp).runnable;
+			nodeLoad.runnable -= frg::min(nodeLoad.runnable, load);
+			node->load.store(nodeLoad);
+		}
+	}
+	submitRcu(cb, &LbControlBlock::retire_);
 }
 
 void LoadBalancer::setAffinity(Thread *thread, frg::span<const uint8_t> mask) {
@@ -69,20 +107,21 @@ void LoadBalancer::setAffinity(Thread *thread, frg::span<const uint8_t> mask) {
 		state->setAffinityMask_(mask);
 		auto *cb = state->cb_.load(std::memory_order_relaxed);
 		if (!state->inAffinityMask_(cb->node_->cpu->cpuIndex)) {
-			// Pick the least-loaded allowed CPU (by the last accounting snapshot)
-			// so that shrinking a mask does not herd threads onto its first CPU.
+			// Pick the least-loaded allowed CPU so that shrinking a mask
+			// does not herd threads onto its first CPU.
+			auto now = getClockNanos();
 			size_t bestIndex = static_cast<size_t>(-1);
 			uint64_t bestLoad = 0;
 			for (size_t i = 0; i < getCpuCount(); ++i) {
 				if (!state->inAffinityMask_(i))
 					continue;
-				auto load = lbNode.getFor(i).totalLoad.load(std::memory_order_relaxed);
+				auto load = lbNode.getFor(i).currentLoad(now).load();
 				if (bestIndex == static_cast<size_t>(-1) || load < bestLoad) {
 					bestIndex = i;
 					bestLoad = load;
 				}
 			}
-			doMigration_(state, &lbNode.getFor(bestIndex), newCb);
+			doMigration_(thread, &lbNode.getFor(bestIndex), newCb);
 			moved = true;
 		}
 	}
@@ -94,34 +133,78 @@ void LoadBalancer::setAffinity(Thread *thread, frg::span<const uint8_t> mask) {
 	Thread::migrateOther(thread->self);
 }
 
-void LoadBalancer::doMigration_(LbThreadState *state, LbNode *dstNode, LbControlBlock *newCb) {
+void LoadBalancer::updateRunnable(Thread *thread, uint64_t now, bool runnable) {
+	// Threads are runnable before they are connected; connect() accounts for that.
+	auto *cb = thread->_lbState.cb_.load(std::memory_order_relaxed);
+	if (!cb)
+		return;
+	auto *node = cb->node_;
+
+	// Unlike the other users of LbNode::mutex, this relies on the caller to disable IRQs.
+	assert(!intsAreEnabled());
+	auto lock = frg::guard(&node->mutex);
+
+	auto nodeLoad = node->currentLoad(now);
+	// If the sum is already past now, it lacks the change of the signal during [now, nodeLoad.timestamp].
+	// By linearity, that contribution does not depend on the updates in between.
+	uint64_t late = 0;
+	if (nodeLoad.timestamp > now)
+		late = advanceLoad(0, UINT64_C(1) << (loadShift + loadFractionShift),
+				loadDecayFactor(nodeLoad.timestamp - now));
+	if (runnable) {
+		++nodeLoad.numRunnable;
+		nodeLoad.runnable += late;
+	} else {
+		assert(nodeLoad.numRunnable);
+		--nodeLoad.numRunnable;
+		nodeLoad.runnable -= frg::min(nodeLoad.runnable, late);
+	}
+	node->load.store(nodeLoad);
+}
+
+void LoadBalancer::doMigration_(Thread *thread, LbNode *dstNode, LbControlBlock *newCb) {
+	auto *state = &thread->_lbState;
 	auto *cb = state->cb_.load(std::memory_order_relaxed);
 	auto *srcNode = cb->node_;
 	assert(srcNode != dstNode);
-	auto load = cb->load_.load(std::memory_order_relaxed);
 
-	// Link the replacement before unlinking the old control block.
-	// The thread is counted on both nodes in between rather than on neither.
 	newCb->thread_ = cb->thread_;
 	newCb->node_ = dstNode;
-	newCb->load_.store(load, std::memory_order_relaxed);
-	{
-		auto lock = frg::guard(&dstNode->mutex);
 
-		dstNode->tasks.push_back(newCb);
-		dstNode->currentLoad.fetch_add(load, std::memory_order_relaxed);
-	}
-	state->cb_.store(newCb, std::memory_order_release);
 	{
-		auto lock = frg::guard(&srcNode->mutex);
+		// The thread cannot change its run state (and thereby the load of its node) during the move.
+		auto threadLock = frg::guard(&thread->_mutex);
 
-		assert(!cb->unlinked_);
-		srcNode->tasks.erase(cb);
-		cb->unlinked_ = true;
-		// A concurrent accounting pass may have published a sum that already
-		// excludes the control block.
-		auto current = srcNode->currentLoad.load(std::memory_order_relaxed);
-		srcNode->currentLoad.store(current - frg::min(current, load), std::memory_order_relaxed);
+		auto now = getClockNanos();
+		bool runnable = thread->_isRunnable();
+
+		// Link the replacement before unlinking the old control block.
+		// The thread is counted on both nodes in between rather than on neither.
+		{
+			auto lock = frg::guard(&dstNode->mutex);
+
+			dstNode->tasks.push_back(newCb);
+			auto nodeLoad = dstNode->currentLoad(now);
+			nodeLoad.runnable += thread->_averagesAt(nodeLoad.timestamp).runnable;
+			if (runnable)
+				++nodeLoad.numRunnable;
+			dstNode->load.store(nodeLoad);
+		}
+		state->cb_.store(newCb, std::memory_order_release);
+		{
+			auto lock = frg::guard(&srcNode->mutex);
+
+			srcNode->tasks.erase(cb);
+			// The sum is only exact up to rounding.
+			auto nodeLoad = srcNode->currentLoad(now);
+			auto load = thread->_averagesAt(nodeLoad.timestamp).runnable;
+			nodeLoad.runnable -= frg::min(nodeLoad.runnable, load);
+			if (runnable) {
+				assert(nodeLoad.numRunnable);
+				--nodeLoad.numRunnable;
+			}
+			srcNode->load.store(nodeLoad);
+		}
 	}
 	submitRcu(cb, &LbControlBlock::retire_);
 }
@@ -145,63 +228,12 @@ coroutine<void> LoadBalancer::run_(CpuData *cpu) {
 		if (debugLb)
 			infoLogger() << "CPU #" << cpu->cpuIndex << " enters load balancing" << frg::endlog;
 
-		auto now = getClockNanos();
-
-		// On this CPU, estimate the load.
-		uint64_t load = 0;
-		{
-			IplGuard<ipl::noSchedule> rcuGuard;
-
-			auto it = thisNode->tasks.begin();
-			while (it != thisNode->tasks.end()) {
-				auto *cb = *it;
-				++it;
-
-				// Control blocks of destroyed threads are unlinked here
-				// (unless a migration already did so) and deallocated after the grace period.
-				auto thread = cb->thread_.lock();
-				if (!thread) {
-					bool unlink;
-					{
-						auto irqLock = frg::guard(&irqMutex());
-						auto lock = frg::guard(&thisNode->mutex);
-
-						unlink = !cb->unlinked_;
-						if (unlink) {
-							thisNode->tasks.erase(cb);
-							cb->unlinked_ = true;
-						}
-					}
-					if (unlink)
-						submitRcu(cb, &LbControlBlock::retire_);
-					continue;
-				}
-
-				auto threadLoad = thread->load().at(now).runnable;
-				cb->load_.store(threadLoad, std::memory_order_relaxed);
-				load += threadLoad;
-			}
-		}
-
-		{
-			auto irqLock = frg::guard(&irqMutex());
-			auto lock = frg::guard(&thisNode->mutex);
-
-			thisNode->totalLoad.store(load, std::memory_order_relaxed);
-			thisNode->currentLoad.store(load, std::memory_order_relaxed);
-		}
-
-		if (debugLb)
-			infoLogger() << "CPU #" << cpu->cpuIndex << " has load " << load << frg::endlog;
-
-		// Global barrier to wait until all CPUs know their load level.
-		co_await barrier_.async_wait(barrier_.arrive());
-
 		// Sum load once, then publish it to all CPUs through the barrier.
 		if (!cpu->cpuIndex) {
+			auto now = getClockNanos();
 			systemLoad_ = 0;
 			for (size_t i = 0; i < getCpuCount(); ++i)
-				systemLoad_ += lbNode.getFor(i).totalLoad.load(std::memory_order_relaxed);
+				systemLoad_ += lbNode.getFor(i).currentLoad(now).load();
 		}
 		co_await barrier_.async_wait(barrier_.arrive());
 
@@ -232,6 +264,9 @@ coroutine<void> LoadBalancer::run_(CpuData *cpu) {
 
 void LoadBalancer::balanceBetween_(LbNode *srcNode, LbNode *dstNode, uint64_t idealLoad) {
 	auto improvesBalance = [] (uint64_t srcLoad, uint64_t dstLoad, uint64_t stolenLoad) -> bool {
+		// The thread's load and the node's sum are rounded separately.
+		if (stolenLoad >= srcLoad)
+			return false;
 		uint64_t srcLoadPostMove = srcLoad - stolenLoad;
 		uint64_t dstLoadPostMove = dstLoad + stolenLoad;
 
@@ -245,9 +280,10 @@ void LoadBalancer::balanceBetween_(LbNode *srcNode, LbNode *dstNode, uint64_t id
 	{
 		IplGuard<ipl::noSchedule> rcuGuard;
 
+		auto now = getClockNanos();
 		for (auto *cb : srcNode->tasks) {
-			auto srcLoad = srcNode->currentLoad.load(std::memory_order_relaxed);
-			auto dstLoad = dstNode->currentLoad.load(std::memory_order_relaxed);
+			auto srcLoad = srcNode->currentLoad(now).load();
+			auto dstLoad = dstNode->currentLoad(now).load();
 
 			// Do not attempt to do load balancing if source and destination are both
 			// undersubscribed. While it may still be possible to improve the balance,
@@ -263,18 +299,18 @@ void LoadBalancer::balanceBetween_(LbNode *srcNode, LbNode *dstNode, uint64_t id
 			if (dstLoad >= idealLoad)
 				break;
 
+			auto thread = cb->thread_.lock();
+			if (!thread)
+				continue;
+			auto *state = &thread->_lbState;
+
 			// Do not move threads with tiny contributions to the total load.
-			auto load = cb->load_.load(std::memory_order_relaxed);
+			auto load = thread->load().at(now).runnable;
 			if (!load)
 				continue;
 
 			if (!improvesBalance(srcLoad, dstLoad, load))
 				continue;
-
-			auto thread = cb->thread_.lock();
-			if (!thread)
-				continue;
-			auto *state = &thread->_lbState;
 
 			if (!spare)
 				spare = frg::construct<LbControlBlock>(*kernelAlloc);
@@ -292,7 +328,7 @@ void LoadBalancer::balanceBetween_(LbNode *srcNode, LbNode *dstNode, uint64_t id
 								<< " from CPU " << srcNode->cpu->cpuIndex
 								<< " to CPU " << dstNode->cpu->cpuIndex << frg::endlog;
 
-					doMigration_(state, dstNode, spare);
+					doMigration_(thread.get(), dstNode, spare);
 					moved = true;
 				}
 			}
