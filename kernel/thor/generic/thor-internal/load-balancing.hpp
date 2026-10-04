@@ -65,8 +65,10 @@ private:
 
 	// Current control block.
 	// Writers hold both mutex_ and the thread's mutex; it is read under either of them or under RCU.
-	// disconnect() reads it without locks since no other reference to the thread exists anymore.
 	std::atomic<LbControlBlock *> cb_{nullptr};
+	// Reference to cb_ that keeps it linked into its node. Protected like cb_ but not read under RCU.
+	// disconnect() takes it without locks since no other reference to the thread exists anymore.
+	smarter::shared_ptr<LbControlBlock> cbRef_;
 
 	// Protected by mutex_.
 	frg::vector<uint8_t, KernelAlloc> affinityMask_;
@@ -86,21 +88,26 @@ private:
 	}
 };
 
-// Membership record of one thread on one node. It is bound to its node for its whole
-// life: migrating the thread links a new control block into the destination node and retires
-// this one via RCU, so node task lists can be traversed without their mutex.
-struct LbControlBlock : RcuCallable {
+// Membership record of one thread on one node. It is bound to its node for its whole lifetime:
+// migrating the thread links a new control block into the destination node and drops this one.
+struct LbControlBlock : RcuProtected {
 	friend struct LbNode;
 	friend struct LbThreadState;
 	friend struct LoadBalancer;
 
-	LbControlBlock(smarter::weak_ptr<Thread> thread)
-	: thread_{std::move(thread)} { }
+private:
+	struct CtorToken {};
 
-	LbControlBlock() = default;
+public:
+	static smarter::shared_ptr<LbControlBlock> create();
+
+	LbControlBlock(CtorToken) { }
+
+	// Unlinks this control block from its node; RCU keeps it traversable until the grace period ends.
+	void finalizeBeforeRcu();
 
 private:
-	static void retire_(RcuCallable *base);
+	smarter::weak_ptr<LbControlBlock> self_;
 
 	// Set before the control block is linked into the node's list, immutable afterwards.
 	smarter::weak_ptr<Thread> thread_;
@@ -179,12 +186,17 @@ struct LoadBalancer {
 private:
 	coroutine<void> run_(CpuData *cpu);
 
+	// Calls fn(thread, cb) for the threads of a node until fn returns false.
+	// cb is the thread's control block on the node and stays alive during the call.
+	template<typename F>
+	void forEachThread_(LbNode *node, F fn);
+
 	// Move tasks from srcNode to dstNode to balance load.
 	void balanceBetween_(LbNode *srcNode, LbNode *dstNode, uint64_t idealLoad);
 
 	// Replace the current control block of the thread by newCb, linked into dstNode.
 	// Precondition: the thread's LbThreadState::mutex_ is held but not its mutex (which this takes).
-	void doMigration_(Thread *thread, LbNode *dstNode, LbControlBlock *newCb);
+	void doMigration_(Thread *thread, LbNode *dstNode, smarter::shared_ptr<LbControlBlock> newCb);
 
 	async::barrier barrier_;
 	uint64_t systemLoad_{0};
