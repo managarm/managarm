@@ -12,7 +12,20 @@ constexpr bool debugLb = false;
 
 // Basic settings.
 constexpr bool enableLb = true;
+// Overloaded CPUs ask for pulls at most once per interval.
 constexpr uint64_t lbInterval = 100'000'000;
+
+// Differences in load below this margin are not worth acting on.
+// This also applies to threads: moving a thread with less load does not change the balance.
+constexpr uint64_t lbMargin = (UINT64_C(1) << loadShift) / 16;
+// Number of CPUs that a CPU tries to pull from before it gives up.
+constexpr size_t lbMaxSources = 4;
+
+// A move must lower the larger of the two loads by at least a fraction of the moved load.
+// This prevents threads from bouncing between CPUs due to small fluctuations in load.
+bool improvesBalance(uint64_t srcLoad, uint64_t dstLoad, uint64_t movedLoad) {
+	return dstLoad + movedLoad + movedLoad / 8 <= srcLoad;
+}
 
 frg::eternal<LoadBalancer> loadBalancer;
 
@@ -41,13 +54,12 @@ LoadBalancer &LoadBalancer::singleton() {
 	return loadBalancer.get();
 }
 
-LoadBalancer::LoadBalancer()
-: barrier_{0} {}
-
 void LoadBalancer::setOnline(CpuData *cpu) {
 	auto *node = &lbNode.get(cpu);
 	node->cpu = cpu;
-	spawnOnWorkQueue(*kernelAlloc, cpu->generalWorkQueue, loadBalancer->run_(cpu));
+	node->online.store(true, std::memory_order_release);
+	spawnOnWorkQueue(*kernelAlloc, cpu->generalWorkQueue, loadBalancer->runRequestLoop_(cpu));
+	spawnOnWorkQueue(*kernelAlloc, cpu->generalWorkQueue, loadBalancer->runPullLoop_(cpu));
 }
 
 void LoadBalancer::connect(Thread *thread, CpuData *cpu) {
@@ -172,6 +184,26 @@ void LoadBalancer::updateRunnable(Thread *thread, uint64_t now, bool runnable) {
 	node->load.store(nodeLoad);
 }
 
+void LoadBalancer::checkOverload() {
+	assert(!intsAreEnabled());
+	if (!enableLb || getCpuCount() < 2)
+		return;
+	auto *node = &lbNode.get();
+
+	// Threads only wait for this CPU if more than one of them is runnable.
+	if (node->load.load().numRunnable < 2)
+		return;
+
+	auto now = getClockNanos();
+	if (now < node->lastRequest.load(std::memory_order_relaxed) + lbInterval)
+		return;
+	node->lastRequest.store(now, std::memory_order_relaxed);
+
+	// This is called from contexts that cannot walk the threads of this CPU.
+	node->overloaded.store(true, std::memory_order_release);
+	node->overloadEvent.raise();
+}
+
 void LoadBalancer::doMigration_(Thread *thread, LbNode *dstNode,
 		smarter::shared_ptr<LbControlBlock> newCb) {
 	auto *state = &thread->_lbState;
@@ -223,57 +255,49 @@ void LoadBalancer::doMigration_(Thread *thread, LbNode *dstNode,
 	}
 }
 
-coroutine<void> LoadBalancer::run_(CpuData *cpu) {
+coroutine<void> LoadBalancer::runRequestLoop_(CpuData *cpu) {
 	auto *thisNode = &lbNode.get(cpu);
 
-	bool joined = false;
-
-	while(true) {
-		// Global barrier to wait for initiation of load balancing.
-		async::barrier::arrival_token token;
-		if (!joined) {
-			token = barrier_.arrive_and_join();
-			joined = true;
-		} else {
-			token = barrier_.arrive();
-		}
-		co_await barrier_.async_wait(token);
-
-		if (debugLb)
-			infoLogger() << "CPU #" << cpu->cpuIndex << " enters load balancing" << frg::endlog;
-
-		// Sum load once, then publish it to all CPUs through the barrier.
-		if (!cpu->cpuIndex) {
-			auto now = getClockNanos();
-			systemLoad_ = 0;
-			for (size_t i = 0; i < getCpuCount(); ++i)
-				systemLoad_ += lbNode.getFor(i).currentLoad(now).load();
-		}
-		co_await barrier_.async_wait(barrier_.arrive());
-
-		auto systemLoad = systemLoad_;
-		uint64_t idealLoad = systemLoad / getCpuCount();
-		if (debugLb && cpu == getCpuData(0))
-			infoLogger() << "Total system load is " << systemLoad
-					<< " (ideal load: " << idealLoad << ")" << frg::endlog;
-
-		if (enableLb) {
-			// Distribute load from other CPUs to this CPU.
-			// Start at the next CPU such that the CPUs do not visit the sources in the same order.
-			auto numCpus = getCpuCount();
-			for (size_t k = 1; k < numCpus; ++k) {
-				auto sourceIndex = (cpu->cpuIndex + k) % numCpus;
-				balanceBetween_(&lbNode.getFor(sourceIndex), thisNode, idealLoad);
-			}
+	while (true) {
+		if (!thisNode->overloaded.exchange(false, std::memory_order_acq_rel)) {
+			co_await thisNode->overloadEvent.async_wait_if([&] {
+				return !thisNode->overloaded.load(std::memory_order_relaxed);
+			});
+			continue;
 		}
 
-		// Balance load again after some time has passed.
-		// Note that we only wait on CPU zero. All other CPUs wait on the barrier instead.
-		if (!cpu->cpuIndex)
-			co_await generalTimerEngine()->sleep(getClockNanos() + lbInterval);
+		requestPull_(thisNode);
 	}
+}
 
-	co_return;
+coroutine<void> LoadBalancer::runPullLoop_(CpuData *cpu) {
+	auto *thisNode = &lbNode.get(cpu);
+
+	while (true) {
+		auto hintIndex = thisNode->pullSource.exchange(noCpu, std::memory_order_acq_rel);
+		if (hintIndex == noCpu) {
+			co_await thisNode->pullEvent.async_wait_if([&] {
+				return thisNode->pullSource.load(std::memory_order_relaxed) == noCpu;
+			});
+			continue;
+		}
+
+		pull_(thisNode, hintIndex);
+	}
+}
+
+uint64_t LoadBalancer::idealLoad_(uint64_t now) {
+	uint64_t systemLoad = 0;
+	size_t numOnline = 0;
+	for (size_t i = 0; i < getCpuCount(); ++i) {
+		auto *node = &lbNode.getFor(i);
+		if (!node->online.load(std::memory_order_acquire))
+			continue;
+		systemLoad += node->currentLoad(now).load();
+		++numOnline;
+	}
+	assert(numOnline);
+	return systemLoad / numOnline;
 }
 
 template<typename F>
@@ -317,49 +341,150 @@ void LoadBalancer::forEachThread_(LbNode *node, F fn) {
 	}
 }
 
-void LoadBalancer::balanceBetween_(LbNode *srcNode, LbNode *dstNode, uint64_t idealLoad) {
-	auto improvesBalance = [] (uint64_t srcLoad, uint64_t dstLoad, uint64_t stolenLoad) -> bool {
-		// The thread's load and the node's sum are rounded separately.
-		if (stolenLoad >= srcLoad)
-			return false;
-		uint64_t srcLoadPostMove = srcLoad - stolenLoad;
-		uint64_t dstLoadPostMove = dstLoad + stolenLoad;
+void LoadBalancer::requestPull_(LbNode *srcNode) {
+	auto numCpus = getCpuCount();
+	size_t srcIndex = srcNode->cpu->cpuIndex;
 
-		uint64_t maxLoad = frg::max(srcLoad, dstLoad);
-		uint64_t maxLoadPostMove = frg::max(srcLoadPostMove, dstLoadPostMove);
-		return maxLoadPostMove < maxLoad;
-	};
-
-	// Replacement control block for the next migration, allocated outside of all locks.
-	smarter::shared_ptr<LbControlBlock> spare;
 	auto now = getClockNanos();
-	forEachThread_(srcNode, [&] (smarter::shared_ptr<Thread> &thread, LbControlBlock *cb) -> bool {
-		auto srcLoad = srcNode->currentLoad(now).load();
-		auto dstLoad = dstNode->currentLoad(now).load();
+	auto idealLoad = idealLoad_(now);
+	auto srcLoad = srcNode->currentLoad(now).load();
+	if (srcLoad <= idealLoad + lbMargin)
+		return;
 
-		// Do not attempt to do load balancing if source and destination are both
-		// undersubscribed. While it may still be possible to improve the balance,
-		// it is probably not worth it in terms of effort and cache degradation.
-		if (srcLoad < idealLoad && dstLoad < idealLoad)
-			return false;
-
-		// Pulling from a less loaded CPU can never improve the balance.
-		if (srcLoad <= dstLoad)
-			return false;
-
-		// Do not pull beyond the ideal load, other CPUs would have to pull the excess again.
-		if (dstLoad >= idealLoad)
-			return false;
-
+	// Only wake up a CPU if there is a thread that it can pull. Take the first such thread;
+	// the CPU that pulls decides on its own which threads it moves.
+	size_t dstIndex = noCpu;
+	forEachThread_(srcNode, [&] (smarter::shared_ptr<Thread> &thread, LbControlBlock *) -> bool {
+		auto load = thread->load().at(now).runnable;
+		if (load < lbMargin)
+			return true;
 		auto *state = &thread->_lbState;
 
-		// Do not move threads with tiny contributions to the total load.
-		auto load = thread->load().at(now).runnable;
-		if (!load)
+		auto irqLock = frg::guard(&irqMutex());
+		auto lock = frg::guard(&state->mutex_);
+
+		// Among the CPUs that the thread may run on, prefer the least loaded one.
+		// Start at the next CPU such that the CPUs do not all favor the ones with small indices.
+		uint64_t bestLoad = 0;
+		for (size_t k = 1; k < numCpus; ++k) {
+			auto i = (srcIndex + k) % numCpus;
+			auto *node = &lbNode.getFor(i);
+			if (!node->online.load(std::memory_order_acquire) || !state->inAffinityMask_(i))
+				continue;
+			auto dstLoad = node->currentLoad(now).load();
+			if (dstLoad + lbMargin >= idealLoad)
+				continue;
+			if (!improvesBalance(srcLoad, dstLoad, load))
+				continue;
+			if (dstIndex == noCpu || dstLoad < bestLoad) {
+				dstIndex = i;
+				bestLoad = dstLoad;
+			}
+		}
+		return dstIndex == noCpu;
+	});
+	if (dstIndex == noCpu)
+		return;
+
+	if (debugLb)
+		infoLogger() << "CPU #" << dstIndex << " is asked to pull from CPU #"
+				<< srcIndex << frg::endlog;
+
+	// Requests are only hints: if another request overwrites this one, the CPU still pulls.
+	auto *dstNode = &lbNode.getFor(dstIndex);
+	dstNode->pullSource.store(srcIndex, std::memory_order_release);
+	dstNode->pullEvent.raise();
+}
+
+void LoadBalancer::pull_(LbNode *dstNode, size_t hintIndex) {
+	auto numCpus = getCpuCount();
+	size_t dstIndex = dstNode->cpu->cpuIndex;
+
+	size_t tried[lbMaxSources];
+	size_t numTried = 0;
+	while (numTried < lbMaxSources) {
+		auto now = getClockNanos();
+		auto idealLoad = idealLoad_(now);
+		auto dstLoad = dstNode->currentLoad(now).load();
+		if (dstLoad + lbMargin >= idealLoad)
+			break;
+
+		// The CPU that asked us to pull found a thread that we can take. If that thread is gone,
+		// try the most loaded CPUs instead of going back to sleep.
+		bool isHint = !numTried;
+		size_t srcIndex = noCpu;
+		uint64_t srcLoad = 0;
+		if (isHint) {
+			srcIndex = hintIndex;
+			srcLoad = lbNode.getFor(hintIndex).currentLoad(now).load();
+		} else {
+			for (size_t i = 0; i < numCpus; ++i) {
+				auto *node = &lbNode.getFor(i);
+				if (i == dstIndex || !node->online.load(std::memory_order_acquire))
+					continue;
+				bool wasTried = false;
+				for (size_t j = 0; j < numTried; ++j)
+					wasTried = wasTried || tried[j] == i;
+				if (wasTried)
+					continue;
+				auto load = node->currentLoad(now).load();
+				if (srcIndex == noCpu || load > srcLoad) {
+					srcIndex = i;
+					srcLoad = load;
+				}
+			}
+			if (srcIndex == noCpu)
+				break;
+		}
+		tried[numTried++] = srcIndex;
+
+		if (srcLoad <= idealLoad + lbMargin) {
+			if (isHint)
+				continue;
+			// All remaining CPUs have even less load.
+			break;
+		}
+		auto *srcNode = &lbNode.getFor(srcIndex);
+
+		auto amount = frg::min(srcLoad - idealLoad, idealLoad - dstLoad);
+		if (debugLb)
+			infoLogger() << "CPU #" << dstIndex << " pulls " << amount
+					<< " from CPU #" << srcIndex << frg::endlog;
+
+		if (pullFrom_(srcNode, dstNode, amount)) {
+			// Other CPUs may be able to pull even more.
+			// Pass the request on instead of waiting until the source asks again.
+			// This may ask this CPU again if it is still the least loaded one; it then pulls once more.
+			requestPull_(srcNode);
+			break;
+		}
+	}
+}
+
+uint64_t LoadBalancer::pullFrom_(LbNode *srcNode, LbNode *dstNode, uint64_t amount) {
+	// Replacement control block for the next migration, allocated outside of all locks.
+	smarter::shared_ptr<LbControlBlock> spare;
+	uint64_t movedLoad = 0;
+	auto visit = [&] (smarter::shared_ptr<Thread> &thread, LbControlBlock *cb, bool onlyWaiting) -> bool {
+		if (movedLoad >= amount)
+			return false;
+
+		auto now = getClockNanos();
+		auto threadLoad = thread->load().at(now);
+		if (onlyWaiting && (!threadLoad.isRunnable || threadLoad.isRunning))
+			return true;
+		auto load = threadLoad.runnable;
+		if (load < lbMargin)
 			return true;
 
-		if (!improvesBalance(srcLoad, dstLoad, load))
+		// Except for the first thread, do not overshoot the amount by more than we undershoot.
+		if (movedLoad && load >= 2 * (amount - movedLoad))
 			return true;
+
+		if (!improvesBalance(srcNode->currentLoad(now).load(),
+				dstNode->currentLoad(now).load(), load))
+			return true;
+		auto *state = &thread->_lbState;
 
 		if (!spare)
 			spare = LbControlBlock::create();
@@ -367,26 +492,45 @@ void LoadBalancer::balanceBetween_(LbNode *srcNode, LbNode *dstNode, uint64_t id
 		bool moved = false;
 		{
 			auto irqLock = frg::guard(&irqMutex());
-			auto lock = frg::guard(&state->mutex_);
+			auto pullLock = frg::guard(&srcNode->pullMutex);
 
-			// Skip control blocks that a concurrent migration already replaced.
-			if (state->cb_.load(std::memory_order_relaxed) == cb
-					&& state->inAffinityMask_(dstNode->cpu->cpuIndex)) {
-				if (debugLb)
-					infoLogger() << "Moving thread with load " << load
-							<< " from CPU " << srcNode->cpu->cpuIndex
-							<< " to CPU " << dstNode->cpu->cpuIndex << frg::endlog;
+			// Other CPUs may have pulled from srcNode since the check above.
+			if (improvesBalance(srcNode->currentLoad(now).load(),
+					dstNode->currentLoad(now).load(), load)) {
+				auto lock = frg::guard(&state->mutex_);
 
-				doMigration_(thread.get(), dstNode, std::move(spare));
-				moved = true;
+				// Skip control blocks that a concurrent migration already replaced.
+				if (state->cb_.load(std::memory_order_relaxed) == cb
+						&& state->inAffinityMask_(dstNode->cpu->cpuIndex)) {
+					if (debugLb)
+						infoLogger() << "Moving thread with load " << load
+								<< " from CPU " << srcNode->cpu->cpuIndex
+								<< " to CPU " << dstNode->cpu->cpuIndex << frg::endlog;
+
+					doMigration_(thread.get(), dstNode, std::move(spare));
+					moved = true;
+				}
 			}
 		}
 		if (moved) {
+			movedLoad += load;
 			// Notify the thread such that it eventually moves to its assigned CPU.
 			Thread::migrateOther(thread);
 		}
 		return true;
+	};
+
+	// Prefer threads that wait for the source CPU; these are the threads that gain from the move.
+	// Other threads are only moved to even out the load that they cause when they run again.
+	forEachThread_(srcNode, [&] (smarter::shared_ptr<Thread> &thread, LbControlBlock *cb) -> bool {
+		return visit(thread, cb, true);
 	});
+	if (!movedLoad) {
+		forEachThread_(srcNode, [&] (smarter::shared_ptr<Thread> &thread, LbControlBlock *cb) -> bool {
+			return visit(thread, cb, false);
+		});
+	}
+	return movedLoad;
 }
 
 } // namespace thor
