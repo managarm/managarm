@@ -156,6 +156,20 @@ namespace {
 		);
 	}
 
+	void unmapBootPage(void *virtPtr) {
+		KernelPageSpace::global().unmapSingle4k(VirtualAddr(virtPtr));
+		KernelFiber::asyncBlockCurrent(
+			shootdown(
+				&KernelPageSpace::global(),
+				VirtualAddr(virtPtr),
+				kPageSize,
+				WorkQueue::generalQueue().get()
+			)
+		);
+		// Only after the shootdown no TLB maps the old page, so the VA can be handed out again.
+		KernelVirtualMemory::global().deallocate(virtPtr, kPageSize);
+	}
+
 	void secondaryMain(StatusBlock *statusBlock) {
 		initializeIrqVectors();
 
@@ -265,11 +279,10 @@ bool bootSecondary(uint64_t id, size_t cpuIndex, EnableInfo enable) {
 
 			arch::scalar_store<uintptr_t>(space, offset, codePhysPtr);
 
-			asm volatile ("sev" ::: "memory");
+			// The store must complete before the event, otherwise the AP can re-read the old value and sleep again.
+			asm volatile ("dsb st; sev" ::: "memory");
 
-			KernelPageSpace::global().unmapSingle4k(VirtualAddr(virtPtr));
-
-			KernelVirtualMemory::global().deallocate(virtPtr, kPageSize);
+			unmapBootPage(virtPtr);
 
 			break;
 		}
@@ -303,15 +316,16 @@ bool bootSecondary(uint64_t id, size_t cpuIndex, EnableInfo enable) {
 						codePhysPtr);
 				arch::scalar_store<uint32_t>(space, offset + parkingMailboxCpuId,
 						enable.cpuInterfaceNumber);
+				// The protocol requires a DSB after each write, libarch only issues one before it.
+				asm volatile ("dsb st" ::: "memory");
 			}
-
-			KernelPageSpace::global().unmapSingle4k(VirtualAddr(virtPtr));
-
-			KernelVirtualMemory::global().deallocate(virtPtr, kPageSize);
 
 			// The AP waits in WFI, hence it needs an interrupt to leave the parked state.
 			if (!dontWait)
 				sendParkingWakeupIpi(cpuIndex, enable.cpuInterfaceNumber);
+
+			// The shootdown waits for the AP to come online, hence it must follow the wakeup.
+			unmapBootPage(virtPtr);
 
 			break;
 		}
@@ -354,16 +368,7 @@ bool bootSecondary(uint64_t id, size_t cpuIndex, EnableInfo enable) {
 			;
 	}
 
-	KernelPageSpace::global().unmapSingle4k(VirtualAddr(codeVirtPtr));
-	KernelVirtualMemory::global().deallocate(codeVirtPtr, kPageSize);
-	KernelFiber::asyncBlockCurrent(
-		shootdown(
-			&KernelPageSpace::global(),
-			VirtualAddr(codeVirtPtr),
-			kPageSize,
-			WorkQueue::generalQueue().get()
-		)
-	);
+	unmapBootPage(codeVirtPtr);
 	physicalAllocator->free(codePhysPtr, kPageSize);
 
 	if (dontWait) {
