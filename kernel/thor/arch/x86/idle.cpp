@@ -8,6 +8,7 @@
 #include <thor-internal/cpu-data.hpp>
 #include <thor-internal/debug.hpp>
 #include <thor-internal/main.hpp>
+#include <thor-internal/metrics.hpp>
 #include <x86/machine.hpp>
 
 namespace thor {
@@ -21,11 +22,16 @@ namespace {
 		.method = {.instruction = IdleInstruction::hlt}
 	};
 
+	// Set in monitorWord while the CPU mwaits.
+	constexpr uint32_t monitorArmed = 1;
+	// tryPingIdle() sets monitorPing if monitorArmed is already set.
+	constexpr uint32_t monitorPing = 2;
+
 	struct IdleCpuData {
 		IdleState states[maxIdleStates];
 		size_t numStates = 0;
 		// Target of the monitor instruction. Stores to this cache line terminate mwait.
-		alignas(64) uint64_t monitorWord = 0;
+		alignas(64) std::atomic<uint32_t> monitorWord{0};
 	};
 
 	extern PerCpu<IdleCpuData> idleCpuData;
@@ -153,9 +159,17 @@ void idleUntilInterrupt(const IdleMethod &method) {
 	}
 
 	// An interrupt that becomes pending after monitor makes mwait fall through.
+	// tryPingIdle() ends mwait by a store to monitorWord instead of an IPI.
 	auto *word = &idleCpuData.get().monitorWord;
+	// No locked RMW needed: consumeIdlePing() cleared the word and tryPingIdle() only stores while it is armed.
+	// If the waker misses the arming store, it falls back to an IPI.
+	assert(!word->load(std::memory_order_relaxed));
+	word->store(monitorArmed, std::memory_order_relaxed);
 	uint32_t zero = 0;
 	asm volatile ("monitor" :: "a"(word), "c"(zero), "d"(zero) : "memory");
+	// mwait only falls through for stores after monitor, so check for earlier ones.
+	if(word->load(std::memory_order_relaxed) & monitorPing)
+		return;
 	// As above, sti only takes effect after mwait.
 	asm volatile (
 		"sti\n"
@@ -163,6 +177,30 @@ void idleUntilInterrupt(const IdleMethod &method) {
 		"\tcli"
 		:: "a"(method.mwaitHint), "c"(zero) : "memory"
 	);
+}
+
+bool tryPingIdle(CpuData *cpu) {
+	auto *word = &idleCpuData.get(cpu).monitorWord;
+	auto state = word->load(std::memory_order_relaxed);
+	while(state & monitorArmed) {
+		// The RMW stores to the monitored cache line, which ends mwait on cpu.
+		// Even if monitorPing is already set, the release RMW is needed to order the caller's prior stores.
+		auto success = word->compare_exchange_weak(state, state | monitorPing,
+				std::memory_order_release, std::memory_order_relaxed);
+		if(success) {
+			pingIpisElidedCounter.add();
+			return true;
+		}
+	}
+	return false;
+}
+
+bool consumeIdlePing() {
+	auto *word = &idleCpuData.get().monitorWord;
+	// Avoids the locked RMW: only this CPU sets monitorArmed and tryPingIdle() only stores while it is set.
+	if(!word->load(std::memory_order_relaxed))
+		return false;
+	return word->exchange(0, std::memory_order_acquire) & monitorPing;
 }
 
 } // namespace thor

@@ -21,4 +21,8 @@ void idleUntilInterrupt(const IdleMethod &) {
 	disableInts();
 }
 
+bool tryPingIdle(CpuData *) { return false; }
+
+bool consumeIdlePing() { return false; }
+
 } // namespace thor
