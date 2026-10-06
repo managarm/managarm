@@ -424,14 +424,16 @@ void unpoisonKasanShadow(address_t base, size_t size) {
 void mapRegionsAndStructs() {
 	const auto &ml = getMemoryLayout();
 
+#if defined(__i386__) || defined(__x86_64__)
 	// This region should be available RAM on every PC.
 	for (size_t page = 0x8000; page < 0x80000; page += pageSize) {
 		mapSingle4kPage(ml.directPhysical + page, page, PageFlags::write | PageFlags::global);
 		mapSingle4kPage(page, page, PageFlags::write | PageFlags::global | PageFlags::execute);
 	}
 
-	mapKasanShadow(ml.directPhysical + 0x8000, 0x80000);
-	unpoisonKasanShadow(ml.directPhysical + 0x8000, 0x80000);
+	mapKasanShadow(ml.directPhysical + 0x8000, 0x80000 - 0x8000);
+	unpoisonKasanShadow(ml.directPhysical + 0x8000, 0x80000 - 0x8000);
+#endif
 
 	for (size_t i = 0; i < eirMaxMemoryRegions; ++i) {
 		if (regions[i].regionType != RegionType::allocatable)
