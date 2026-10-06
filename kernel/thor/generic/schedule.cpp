@@ -44,6 +44,13 @@ namespace {
 					idleUntilInterrupt(method);
 					rcuClearQuiescent();
 					iplRaise(ipl::interrupt);
+					if(consumeIdlePing()) {
+						auto *scheduler = &localScheduler.get();
+						scheduler->forcePreemptionCall();
+						scheduler->checkPreemption();
+					}
+					// If we re-schedule in checkPreemption() above, we do not return here.
+					// In that case, noteIdleWakeup(false) is skipped here and handlePreemption() does noteIdleWakeup(true).
 					noteIdleWakeup(false);
 				}
 			}, getCpuData()->idleStack.base());
@@ -52,6 +59,7 @@ namespace {
 
 		void handlePreemption(IrqImageAccessor image) override {
 			assert(!image.inUserMode());
+			consumeIdlePing();
 			auto *scheduler = &localScheduler.get();
 			scheduler->update();
 			if(scheduler->maybeReschedule()) {
@@ -67,6 +75,7 @@ namespace {
 
 		void handlePreemption() override {
 			StatelessIrqLock irqLock;
+			consumeIdlePing();
 			auto *scheduler = &localScheduler.get();
 			scheduler->update();
 			if(scheduler->maybeReschedule()) {
@@ -177,7 +186,8 @@ void Scheduler::resume(ScheduleEntity *entity) {
 			//       to ensure that a higher priority thread gets to run as soon as possible.
 			self->_mustCallPreemption = true;
 		}else{
-			sendPingIpi(self->_cpuContext);
+			if(!tryPingIdle(self->_cpuContext))
+				sendPingIpi(self->_cpuContext);
 		}
 	}
 }

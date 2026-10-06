@@ -12,5 +12,7 @@ inline ostrace::Counter shootdownIpisSentCounter{"thor.ipi.shootdown.sent"};
 inline ostrace::Counter shootdownIpisReceivedCounter{"thor.ipi.shootdown.received"};
 inline ostrace::Counter selfCallIpisSentCounter{"thor.ipi.self-call.sent"};
 inline ostrace::Counter selfCallIpisReceivedCounter{"thor.ipi.self-call.received"};
+// Pings delivered by tryPingIdle() instead of an IPI.
+inline ostrace::Counter pingIpisElidedCounter{"thor.ipi.ping.elided"};
 
 } // namespace thor

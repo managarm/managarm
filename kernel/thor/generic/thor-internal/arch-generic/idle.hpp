@@ -8,6 +8,8 @@
 
 namespace thor {
 
+struct CpuData;
+
 struct IdleState {
 	// Name of the state in the vendor's terminology (e.g., C1E), for logging.
 	const char *name;
@@ -28,7 +30,20 @@ inline constexpr size_t maxIdleStates = 8;
 frg::span<const IdleState> getIdleStates();
 
 // Enters an idle state of the current CPU. Must be called with interrupts disabled.
-// Returns with interrupts disabled after an interrupt was taken.
+// Returns with interrupts disabled after an interrupt was taken, after tryPingIdle() succeeded, or spuriously.
 void idleUntilInterrupt(const IdleMethod &method);
+
+// Wakes up cpu without an IPI if it idles in a state that supports this (e.g., mwait on x86).
+// Returns false if cpu does not idle in such a state. The caller must send an IPI in this case.
+// On success, the next consumeIdlePing() on the target CPU returns true.
+// Stores that precede a successful tryPingIdle() on the caller CPU
+// are ordered before loads that follow consumeIdlePing() on the target CPU.
+bool tryPingIdle(CpuData *cpu);
+
+// Returns (and clears) whether tryPingIdle() woke up the current CPU.
+// Afterwards, tryPingIdle() fails until the next idleUntilInterrupt().
+// The idle task must call this before it drains the scheduler's pending queue and before it is scheduled away
+// (otherwise, tryPingIdle() keeps eliding IPIs while a thread runs on the CPU).
+bool consumeIdlePing();
 
 } // namespace thor
