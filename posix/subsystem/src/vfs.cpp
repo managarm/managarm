@@ -16,7 +16,6 @@
 #include "tmp_fs.hpp"
 #include "extern_fs.hpp"
 #include "process.hpp"
-#include "sysfs.hpp"
 
 namespace {
 
@@ -84,10 +83,7 @@ async::result<void> populateRootView() {
 	co_await rootView->mount(std::move(dev), getDevtmpfs());
 
 	auto sys = std::get<smarter::shared_ptr<FsLink, LinkRc>>(co_await tree->getTarget()->mkdir(tree.get(), nullptr, "sys", 0755));
-	if(devserver::useDevserver)
-		co_await rootView->mount(std::move(sys), co_await devserver::getSysfsRoot());
-	else
-		co_await rootView->mount(std::move(sys), getSysfs());
+	co_await rootView->mount(std::move(sys), co_await devserver::getSysfsRoot());
 
 	// Populate the tmpfs from the fs we are running on.
 	std::vector<

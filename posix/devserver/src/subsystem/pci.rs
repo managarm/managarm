@@ -56,19 +56,22 @@ impl Attribute for ResourceAttribute {
         let mut out = String::new();
         for bar in info.bar_info() {
             let flags = match bar.host_type() {
-                hw::pci::IoType::None => {
-                    out += "0x0000000000000000 0x0000000000000000 0x0000000000000000\n";
-                    continue;
-                }
-                hw::pci::IoType::Memory => IORESOURCE_MEM,
-                hw::pci::IoType::Port => IORESOURCE_IO,
+                hw::pci::IoType::None => None,
+                hw::pci::IoType::Memory => Some(IORESOURCE_MEM),
+                hw::pci::IoType::Port => Some(IORESOURCE_IO),
             };
-            out += &format!(
-                "0x{:016x} 0x{:016x} 0x{:016x}\n",
-                bar.address(),
-                bar.address() + bar.length() - 1,
-                flags
-            );
+            // Empty BARs are reported like unused ones; their end address would underflow.
+            match flags {
+                Some(flags) if bar.length() != 0 => {
+                    out += &format!(
+                        "0x{:016x} 0x{:016x} 0x{:016x}\n",
+                        bar.address(),
+                        bar.address() + bar.length() - 1,
+                        flags
+                    );
+                }
+                _ => out += "0x0000000000000000 0x0000000000000000 0x0000000000000000\n",
+            }
         }
         Ok(out.into_bytes())
     }

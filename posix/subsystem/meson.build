@@ -17,9 +17,6 @@ src = [
 	'src/devices/ttyn.cpp',
 	'src/devices/urandom.cpp',
 	'src/devices/zero.cpp',
-	'src/firmware/dmi.cpp',
-	'src/firmware/dt.cpp',
-	'src/drvcore.cpp',
 	'src/epoll.cpp',
 	'src/eventfd.cpp',
 	'src/exec.cpp',
@@ -56,22 +53,6 @@ src = [
 	'src/requests/fd.cpp',
 	'src/requests/uid-gid.cpp',
 	'src/signalfd.cpp',
-	'src/subsystem/acpi.cpp',
-	'src/subsystem/block.cpp',
-	'src/subsystem/drm.cpp',
-	'src/subsystem/generic.cpp',
-	'src/subsystem/input.cpp',
-	'src/subsystem/net.cpp',
-	'src/subsystem/nvme.cpp',
-	'src/subsystem/pci.cpp',
-	'src/subsystem/power_supply.cpp',
-	'src/subsystem/sound.cpp',
-	'src/subsystem/tty.cpp',
-	'src/subsystem/usbmisc.cpp',
-	'src/subsystem/usb/attributes.cpp',
-	'src/subsystem/usb/usb.cpp',
-	'src/subsystem/graphics.cpp',
-	'src/sysfs.cpp',
 	'src/timerfd.cpp',
 	'src/tmp_fs.cpp',
 	'src/un-socket.cpp',
@@ -82,7 +63,7 @@ src = [
 ]
 
 executable('posix-subsystem', src,
-	dependencies : [ mbus_proto_dep, fs_proto_dep, posix_extra_dep, clock_proto_dep, kerncfg_proto_dep, hw_proto_dep, ostrace_proto_dep, usb_proto_dep, frigg, core_dep ],
+	dependencies : [ mbus_proto_dep, fs_proto_dep, posix_extra_dep, clock_proto_dep, kerncfg_proto_dep, hw_proto_dep, ostrace_proto_dep, frigg, core_dep ],
 	install : true
 )
 

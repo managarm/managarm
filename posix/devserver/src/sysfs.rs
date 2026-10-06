@@ -362,14 +362,23 @@ impl fs::server::Node for SysfsNode {
     ) -> Result<Arc<dyn fs::server::File>, fs::server::Error> {
         match &self.kind {
             NodeKind::Directory { entries, .. } => {
-                let entries = entries
-                    .lock()
-                    .expect(EXPECT_LOCK)
-                    .iter()
-                    .map(|(name, child)| (name.clone(), child.ino as u64, child.file_type()))
-                    .collect();
+                // '.' and '..' are not stored in the tree; synthesize them in front of the entries.
+                // The root has no parent within sysfs, so its '..' refers to itself.
+                let parent_ino = self.parent().map_or(self.ino, |parent| parent.ino);
+                let dir = fs::server::FileType::DIRECTORY;
+                let mut listing = vec![
+                    (".".to_string(), self.ino as u64, dir),
+                    ("..".to_string(), parent_ino as u64, dir),
+                ];
+                listing.extend(
+                    entries
+                        .lock()
+                        .expect(EXPECT_LOCK)
+                        .iter()
+                        .map(|(name, child)| (name.clone(), child.ino as u64, child.file_type())),
+                );
                 Ok(Arc::new(DirectoryFile {
-                    entries,
+                    entries: listing,
                     cursor: Mutex::new(0),
                 }))
             }

@@ -82,8 +82,6 @@ openDevice(Process *, VfsType type, DeviceId id, std::shared_ptr<MountView> mont
 
 smarter::shared_ptr<FsLink, LinkRc> getDevtmpfs();
 
-async::result<void> createDeviceNode(std::string path, VfsType type, DeviceId id);
-
 // --------------------------------------------------------
 // External device helpers.
 // --------------------------------------------------------
