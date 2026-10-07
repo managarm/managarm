@@ -326,7 +326,7 @@ pub unsafe extern "C" fn uacpi_kernel_io_map(
         let Ok(handle) = hel::access_io(hardware_access_handle(), &ports) else {
             return uacpi_sys::UACPI_STATUS_INVALID_ARGUMENT;
         };
-        let Ok(()) = hel::enable_io(handle) else {
+        let Ok(()) = hel::enable_io(&handle) else {
             return uacpi_sys::UACPI_STATUS_INVALID_ARGUMENT;
         };
     }

@@ -250,7 +250,7 @@ fn add_legacy_config_io() -> anyhow::Result<()> {
     // Unlike thor, we need to be granted access to the config window ports.
     let ports: Vec<usize> = (0xCF8..=0xCFF).collect();
     hel::access_io(hardware_access_handle(), &ports)
-        .and_then(hel::enable_io)
+        .and_then(|io| hel::enable_io(&io))
         .context("failed to enable the legacy PCI config I/O ports")?;
 
     let io: &'static LegacyPciConfigIo = Box::leak(Box::new(LegacyPciConfigIo::new()));
