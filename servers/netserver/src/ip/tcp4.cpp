@@ -5,6 +5,7 @@
 #include <arch/bit.hpp>
 #include <arch/variable.hpp>
 #include <protocols/fs/server.hpp>
+#include <algorithm>
 #include <cstring>
 #include <format>
 #include <iomanip>
@@ -377,10 +378,23 @@ struct Tcp4Socket {
 			co_return protocols::fs::Error::accessDenied;
 		}
 
+		// Like Linux, fix the source address at connect time so that getsockname() and the
+		// demultiplexing in Tcp4::feedDatagram() see the address that the segments carry.
+		auto targetInfo = co_await ip4().targetByRemote(connectEp.ipAddress, self->boundInterface_);
+		if (!targetInfo)
+			co_return protocols::fs::Error::netUnreachable;
+		if (self->connectState_ != ConnectState::none)
+			co_return protocols::fs::Error::illegalArguments;
+
 		// Bind the socket if necessary.
-		if (!self->localEp_.port && !self->bindAvailable(INADDR_ANY, true)) {
-			std::cout << "netserver: No source port" << std::endl;
-			co_return protocols::fs::Error::addressNotAvailable;
+		if (!self->localEp_.port) {
+			if (!self->bindAvailable(targetInfo->source, true)) {
+				std::cout << "netserver: No source port" << std::endl;
+				co_return protocols::fs::Error::addressNotAvailable;
+			}
+		} else if (self->localEp_.ipAddress == INADDR_ANY) {
+			// Narrowing a unique wildcard bind to one address cannot conflict.
+			self->parent_->rebind(self, {targetInfo->source, self->localEp_.port});
 		}
 
 		// Connect to the remote.
@@ -697,6 +711,13 @@ private:
 
 	async::result<void> handleIncomingConnection(PendingConnection c);
 
+	// All segments of a connection must carry the same source address, even if the route's
+	// preferred source changes (e.g., when DHCP adds a second address to the link).
+	void pinSource_(Ip4TargetInfo &targetInfo) {
+		assert(localEp_.ipAddress != INADDR_ANY);
+		targetInfo.source = localEp_.ipAddress;
+	}
+
 	Tcp4 *parent_;
 	bool nonBlock_;
 	TcpEndpoint remoteEp_;
@@ -766,6 +787,7 @@ async::result<void> Tcp4Socket::flushOutPackets_() {
 				std::cout << "netserver: Destination unreachable" << std::endl;
 				co_return;
 			}
+			pinSource_(*targetInfo);
 
 			std::vector<char> buf;
 			buf.resize(sizeof(TcpHeader));
@@ -823,6 +845,7 @@ async::result<void> Tcp4Socket::flushOutPackets_() {
 				std::cout << "netserver: Destination unreachable" << std::endl;
 				co_return;
 			}
+			pinSource_(*targetInfo);
 
 			std::vector<char> buf;
 			buf.resize(sizeof(TcpHeader));
@@ -874,6 +897,7 @@ async::result<void> Tcp4Socket::flushOutPackets_() {
 				std::cout << "netserver: Destination unreachable" << std::endl;
 				co_return;
 			}
+			pinSource_(*targetInfo);
 
 			size_t flushPointer = localFlushedSn_ - localSettledSn_;
 			size_t windowPointer = localWindowSn_ - localSettledSn_;
@@ -1230,6 +1254,16 @@ bool Tcp4::tryBind(smarter::shared_ptr<Tcp4Socket> socket, bool unique, TcpEndpo
 
 bool Tcp4::unbind(TcpEndpoint e) {
 	return binds.erase(e) != 0;
+}
+
+void Tcp4::rebind(Tcp4Socket *socket, TcpEndpoint newEp) {
+	auto [begin, end] = binds.equal_range(socket->localEp_);
+	auto it = std::find_if(begin, end, [&](auto &entry) { return entry.second.get() == socket; });
+	assert(it != end);
+	auto node = binds.extract(it);
+	node.key() = newEp;
+	socket->localEp_ = newEp;
+	binds.insert(std::move(node));
 }
 
 static async::result<void> serveLanes(

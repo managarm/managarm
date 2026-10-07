@@ -1,4 +1,6 @@
+#include <algorithm>
 #include <assert.h>
+#include <charconv>
 #include <format>
 #include <net/if.h>
 #include <netinet/in.h>
@@ -12,11 +14,13 @@
 #include <bragi/helpers-std.hpp>
 #include <core/clock.hpp>
 #include <core/cmdline.hpp>
+#include <core/kernel-logs.hpp>
 #include <core/dispatch.hpp>
 #include <frg/cmdline.hpp>
 #include <hel.h>
 #include <hel-syscalls.h>
 #include <helix/ipc.hpp>
+#include <helix/timer.hpp>
 #include <protocols/mbus/client.hpp>
 #include <protocols/hw/client.hpp>
 #include <protocols/svrctl/server.hpp>
@@ -427,6 +431,61 @@ async::result<protocols::svrctl::Error> doBindDt(mbus_ng::Entity baseEntity) {
 	co_return protocols::svrctl::Error::success;
 }
 
+// Streams the kernel log as UDP datagrams (receive with e.g. `nc -klu <port>`), for machines
+// without a usable serial console.
+async::detached runNetconsole(uint32_t target, uint16_t port) {
+	constexpr size_t headerSize = 8;
+	std::vector<uint8_t> buffer(headerSize + 2048);
+	KernelLogs logs;
+
+	while(true) {
+		auto size = co_await logs.getMessage({buffer.data() + headerSize, buffer.size() - headerSize - 1});
+		if(!size || buffer[headerSize + size - 1] != '\n')
+			buffer[headerSize + size++] = '\n';
+
+		// Ports and length in network byte order; a zero checksum means none for IPv4.
+		uint16_t header[4] = {htons(port), htons(port), htons(headerSize + size), 0};
+		memcpy(buffer.data(), header, headerSize);
+
+		// Retry instead of dropping records that are logged before the link is up. Back off since
+		// each failed attempt logs a line itself.
+		uint64_t delay = 1'000'000'000;
+		while(true) {
+			auto ti = co_await ip4().targetByRemote(target);
+			if(ti && co_await ip4().sendFrame(std::move(*ti), buffer.data(), headerSize + size,
+					static_cast<uint16_t>(IpProto::udp)) == protocols::fs::Error::none)
+				break;
+			co_await helix::sleepFor(delay);
+			delay = std::min(delay * 2, uint64_t{60'000'000'000});
+		}
+	}
+}
+
+// Parses netserver.log=<ip>:<port>.
+void startNetconsole(frg::string_view arg) {
+	static bool netconsoleStarted = false;
+	if(netconsoleStarted)
+		return;
+
+	std::string str{arg.data(), arg.size()};
+	auto colon = str.find(':');
+	in_addr target{};
+	uint16_t port = 0;
+	if(colon == std::string::npos
+			|| inet_pton(AF_INET, str.substr(0, colon).c_str(), &target) != 1) {
+		std::cout << "netserver: invalid netserver.log " << str << std::endl;
+		return;
+	}
+	auto [end, ec] = std::from_chars(str.data() + colon + 1, str.data() + str.size(), port);
+	if(ec != std::errc{} || end != str.data() + str.size() || !port) {
+		std::cout << "netserver: invalid netserver.log " << str << std::endl;
+		return;
+	}
+
+	netconsoleStarted = true;
+	runNetconsole(ntohl(target.s_addr), port);
+}
+
 async::result<protocols::svrctl::Error> bindDevice(int64_t base_id) {
 	std::cout << "netserver: Binding to device " << base_id << std::endl;
 	auto baseEntity = co_await mbus_ng::Instance::global().getEntity(base_id);
@@ -468,13 +527,34 @@ async::result<protocols::svrctl::Error> bindDevice(int64_t base_id) {
 	frg::string_view station = "";
 	frg::string_view subnet = "";
 	frg::string_view gateway = "";
+	frg::string_view mac = "";
+	frg::string_view log = "";
 
 	frg::array args = {
 		frg::option{"netserver.ip", frg::as_string_view(station)},
 		frg::option{"netserver.subnet", frg::as_string_view(subnet)},
 		frg::option{"netserver.gateway", frg::as_string_view(gateway)},
+		frg::option{"netserver.mac", frg::as_string_view(mac)},
+		frg::option{"netserver.log", frg::as_string_view(log)},
 	};
 	frg::parse_arguments(cmdline.c_str(), args);
+
+	// With netserver.mac, only the NIC with that address gets the static configuration.
+	if(mac.size()) {
+		std::array<uint8_t, 6> bytes;
+		std::string macStr{mac.data(), mac.size()};
+		if(sscanf(macStr.c_str(), "%hhx:%hhx:%hhx:%hhx:%hhx:%hhx",
+				&bytes[0], &bytes[1], &bytes[2], &bytes[3], &bytes[4], &bytes[5]) != 6) {
+			std::cout << "netserver: invalid netserver.mac " << macStr << std::endl;
+			station = "";
+			subnet = "";
+			gateway = "";
+		} else if(nic::MacAddress{bytes} != device->deviceMac()) {
+			station = "";
+			subnet = "";
+			gateway = "";
+		}
+	}
 
 	auto convert_ip = [](frg::string_view &str, in_addr *addr) -> bool {
 		std::string strbuf{str.data(), str.size()};
@@ -497,10 +577,12 @@ async::result<protocols::svrctl::Error> bindDevice(int64_t base_id) {
 	if(gateway.size())
 		gateway_valid = convert_ip(gateway, &gateway_ip);
 
+	bool linkConfigured = false;
 	if(~ntohl(subnet_mask.s_addr) && station_valid && subnet_valid) {
 		auto prefix = static_cast<uint8_t>(__builtin_clz(~ntohl(subnet_mask.s_addr)));
 		ip4().setLink({ntohl(station_ip.s_addr), prefix}, device);
 		ip4Router().addRoute({ {ntohl(station_ip.s_addr & subnet_mask.s_addr), prefix}, device });
+		linkConfigured = true;
 	}
 
 	if(gateway_valid) {
@@ -509,6 +591,10 @@ async::result<protocols::svrctl::Error> bindDevice(int64_t base_id) {
 		default_route.source = ntohl(station_ip.s_addr);
 		ip4Router().addRoute(std::move(default_route));
 	}
+
+	// Started after the default route so that an off-link target is reachable right away.
+	if(linkConfigured && log.size())
+		startNetconsole(log);
 
 	nl::broadcastNewLink(device);
 

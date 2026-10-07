@@ -21,6 +21,7 @@ struct Tcp4 {
 	void feedDatagram(smarter::shared_ptr<const Ip4Packet>);
 	bool tryBind(smarter::shared_ptr<Tcp4Socket> socket, bool unique, TcpEndpoint ipAddress);
 	bool unbind(TcpEndpoint remote);
+	void rebind(Tcp4Socket *socket, TcpEndpoint newEp);
 	void serveSocket(int flags, helix::UniqueLane ctrlLane, helix::UniqueLane ptLane);
 
 private:
