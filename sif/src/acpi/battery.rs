@@ -8,7 +8,6 @@ use anyhow::Result;
 use event_listener::Event;
 use managarm::hw::server::{Battery, BatteryState as HwBatteryState, serve_battery};
 use managarm::mbus::create_entity;
-use uacpi_sys::{uacpi_handle, uacpi_u64};
 
 use crate::acpi::object;
 use crate::entity::{decimal, serve_entity_lanes, string};
@@ -237,12 +236,7 @@ impl Battery for BatteryObject {
     }
 }
 
-unsafe extern "C" fn notification(
-    context: uacpi_handle,
-    _node: *mut uacpi_sys::uacpi_namespace_node,
-    value: uacpi_u64,
-) -> uacpi_sys::uacpi_status {
-    let battery = unsafe { &*(context as *const BatteryObject) };
+fn notification(battery: &BatteryObject, value: u64) {
     println!(
         "sif: acpi: battery {} received AML Notify({value})",
         battery.id
@@ -250,8 +244,6 @@ unsafe extern "C" fn notification(
 
     battery.update();
     battery.event.notify(usize::MAX);
-
-    uacpi_sys::UACPI_STATUS_OK
 }
 
 async fn publish_battery(node: NamespaceNode, id: usize) -> Result<()> {
@@ -268,13 +260,8 @@ async fn publish_battery(node: NamespaceNode, id: usize) -> Result<()> {
     props.insert("power_supply.id".into(), string(&id.to_string()));
     props.insert("drvcore.mbus-parent".into(), decimal(parent.id()));
 
-    // We need to leak because uACPI keeps the handler forever.
-    let context: &'static Arc<BatteryObject> = leak(Arc::clone(&battery));
-    handlers::install_notify_handler(
-        node,
-        Some(notification),
-        Arc::as_ptr(context) as uacpi_handle,
-    )?;
+    let notified = Arc::clone(&battery);
+    handlers::install_notify_handler(node, move |_node, value| notification(&notified, value))?;
 
     println!("sif: acpi: publishing battery {id}");
     let manager = leak(create_entity("battery", &props).await?);

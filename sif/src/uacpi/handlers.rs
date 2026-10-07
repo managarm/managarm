@@ -1,4 +1,7 @@
-use uacpi_sys::{uacpi_gpe_handler, uacpi_handle, uacpi_notify_handler, uacpi_region_handler};
+use uacpi_sys::{
+    uacpi_handle, uacpi_interrupt_ret, uacpi_namespace_node, uacpi_region_op, uacpi_region_rw_data,
+    uacpi_status, uacpi_u16, uacpi_u64,
+};
 
 use super::namespace::NamespaceNode;
 use super::{Result, check};
@@ -11,51 +14,180 @@ fn as_gpe_device(device: GpeDevice) -> *mut uacpi_sys::uacpi_namespace_node {
         .unwrap_or(std::ptr::null_mut())
 }
 
-pub fn install_address_space_handler(
+/// Hands a handler to uACPI, which keeps it forever.
+fn leak_handler<F>(handler: F) -> uacpi_handle {
+    Box::into_raw(Box::new(handler)) as uacpi_handle
+}
+
+/// Whether AML reads from or writes to an operation region.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum RegionOp {
+    Read,
+    Write,
+}
+
+/// A read or write of AML to an operation region.
+pub struct RegionRw<'a> {
+    data: &'a mut uacpi_region_rw_data,
+}
+
+impl RegionRw<'_> {
+    /// Returns the offset of the access within the address space.
+    pub fn offset(&self) -> u64 {
+        // SAFETY: the union only holds different names of the same integer.
+        unsafe { self.data.__bindgen_anon_1.offset }
+    }
+
+    pub fn byte_width(&self) -> u8 {
+        self.data.byte_width
+    }
+
+    /// Returns the value that AML writes.
+    pub fn value(&self) -> u64 {
+        self.data.value
+    }
+
+    /// Sets the value that AML reads.
+    pub fn set_value(&mut self, value: u64) {
+        self.data.value = value;
+    }
+}
+
+/// Reasons why a region handler can fail an access.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum RegionError {
+    InvalidArgument,
+    HardwareTimeout,
+}
+
+impl RegionError {
+    fn to_raw(self) -> uacpi_status {
+        match self {
+            RegionError::InvalidArgument => uacpi_sys::UACPI_STATUS_INVALID_ARGUMENT,
+            RegionError::HardwareTimeout => uacpi_sys::UACPI_STATUS_HARDWARE_TIMEOUT,
+        }
+    }
+}
+
+unsafe extern "C" fn region_trampoline<F>(op: uacpi_region_op, data: uacpi_handle) -> uacpi_status
+where
+    F: Fn(RegionOp, &mut RegionRw<'_>) -> std::result::Result<(), RegionError>,
+{
+    let op = match op {
+        uacpi_sys::UACPI_REGION_OP_ATTACH | uacpi_sys::UACPI_REGION_OP_DETACH => {
+            return uacpi_sys::UACPI_STATUS_OK;
+        }
+        uacpi_sys::UACPI_REGION_OP_READ => RegionOp::Read,
+        uacpi_sys::UACPI_REGION_OP_WRITE => RegionOp::Write,
+        _ => return uacpi_sys::UACPI_STATUS_INVALID_ARGUMENT,
+    };
+
+    // SAFETY: uACPI passes a uacpi_region_rw_data for reads and writes.
+    let data = unsafe { &mut *(data as *mut uacpi_region_rw_data) };
+    // SAFETY: the context is the handler that install_address_space_handler() leaked.
+    let handler = unsafe { &*(data.handler_context as *const F) };
+    match handler(op, &mut RegionRw { data }) {
+        Ok(()) => uacpi_sys::UACPI_STATUS_OK,
+        Err(err) => err.to_raw(),
+    }
+}
+
+/// Wraps uacpi_install_address_space_handler(); the handler serves reads and writes.
+pub fn install_address_space_handler<F>(
     device: NamespaceNode,
     space: uacpi_sys::uacpi_address_space,
-    handler: uacpi_region_handler,
-    context: uacpi_handle,
-) -> Result<()> {
+    handler: F,
+) -> Result<()>
+where
+    F: Fn(RegionOp, &mut RegionRw<'_>) -> std::result::Result<(), RegionError>
+        + Send
+        + Sync
+        + 'static,
+{
     unsafe {
         check(
             "uacpi_install_address_space_handler",
             uacpi_sys::uacpi_install_address_space_handler(
                 device.as_raw(),
                 space,
-                handler,
-                context,
+                Some(region_trampoline::<F>),
+                leak_handler(handler),
             ),
         )
     }
 }
 
-pub fn install_notify_handler(
-    node: NamespaceNode,
-    handler: uacpi_notify_handler,
+unsafe extern "C" fn notify_trampoline<F>(
     context: uacpi_handle,
-) -> Result<()> {
+    node: *mut uacpi_namespace_node,
+    value: uacpi_u64,
+) -> uacpi_status
+where
+    F: Fn(NamespaceNode, u64),
+{
+    // SAFETY: the context is the handler that install_notify_handler() leaked.
+    let handler = unsafe { &*(context as *const F) };
+    let node = NamespaceNode::from_raw(node).expect("uACPI notified a null namespace node");
+    handler(node, value);
+    uacpi_sys::UACPI_STATUS_OK
+}
+
+/// Wraps uacpi_install_notify_handler(); the handler receives the value of AML's Notify().
+pub fn install_notify_handler<F>(node: NamespaceNode, handler: F) -> Result<()>
+where
+    F: Fn(NamespaceNode, u64) + Send + Sync + 'static,
+{
     unsafe {
         check(
             "uacpi_install_notify_handler",
-            uacpi_sys::uacpi_install_notify_handler(node.as_raw(), handler, context),
+            uacpi_sys::uacpi_install_notify_handler(
+                node.as_raw(),
+                Some(notify_trampoline::<F>),
+                leak_handler(handler),
+            ),
         )
     }
 }
 
-pub fn install_gpe_handler(
+unsafe extern "C" fn gpe_trampoline<F>(
+    context: uacpi_handle,
+    _gpe_device: *mut uacpi_namespace_node,
+    _index: uacpi_u16,
+) -> uacpi_interrupt_ret
+where
+    F: Fn(),
+{
+    // SAFETY: the context is the handler that install_gpe_handler() leaked.
+    let handler = unsafe { &*(context as *const F) };
+    handler();
+    uacpi_sys::UACPI_INTERRUPT_HANDLED
+}
+
+/// Wraps uacpi_install_gpe_handler().
+///
+/// The handler runs in interrupt context. The GPE stays disabled until
+/// [`finish_handling_gpe`] is called.
+pub fn install_gpe_handler<F>(
     device: GpeDevice,
     index: u16,
     triggering: uacpi_sys::uacpi_gpe_triggering,
-    handler: uacpi_gpe_handler,
-    context: uacpi_handle,
-) -> Result<()> {
+    handler: F,
+) -> Result<()>
+where
+    F: Fn() + Send + Sync + 'static,
+{
     let device = as_gpe_device(device);
 
     unsafe {
         check(
             "uacpi_install_gpe_handler",
-            uacpi_sys::uacpi_install_gpe_handler(device, index, triggering, handler, context),
+            uacpi_sys::uacpi_install_gpe_handler(
+                device,
+                index,
+                triggering,
+                Some(gpe_trampoline::<F>),
+                leak_handler(handler),
+            ),
         )
     }
 }

@@ -4,10 +4,10 @@ use std::sync::atomic::{AtomicBool, Ordering};
 
 use anyhow::{Result, bail};
 use event_listener::Event;
-use uacpi_sys::{acpi_ecdt, uacpi_handle, uacpi_region_rw_data};
+use uacpi_sys::acpi_ecdt;
 
 use crate::leak;
-use crate::uacpi::handlers;
+use crate::uacpi::handlers::{self, RegionError, RegionOp, RegionRw};
 use crate::uacpi::io::Gas;
 use crate::uacpi::namespace::{self, IterationDecision, NamespaceNode};
 use crate::uacpi::resources::Resource;
@@ -117,15 +117,15 @@ impl EcDevice {
         Ok(())
     }
 
-    fn transfer(&self, read: bool, data: &mut uacpi_region_rw_data) -> Result<()> {
-        // SAFETY: uACPI passes the offset of the access in the union of the address.
-        let offset = unsafe { data.__bindgen_anon_1.offset } as u8;
+    fn transfer(&self, op: RegionOp, access: &mut RegionRw<'_>) -> Result<()> {
+        let offset = access.offset() as u8;
 
         self.burst_enable()?;
-        let result = if read {
-            self.read(offset).map(|value| data.value = u64::from(value))
-        } else {
-            self.write(offset, data.value as u8)
+        let result = match op {
+            RegionOp::Read => self
+                .read(offset)
+                .map(|value| access.set_value(u64::from(value))),
+            RegionOp::Write => self.write(offset, access.value() as u8),
         };
         self.burst_disable()?;
 
@@ -133,47 +133,27 @@ impl EcDevice {
     }
 }
 
-unsafe extern "C" fn handle_region(
-    op: uacpi_sys::uacpi_region_op,
-    data: uacpi_handle,
-) -> uacpi_sys::uacpi_status {
-    match op {
-        uacpi_sys::UACPI_REGION_OP_ATTACH | uacpi_sys::UACPI_REGION_OP_DETACH => {
-            return uacpi_sys::UACPI_STATUS_OK;
-        }
-        uacpi_sys::UACPI_REGION_OP_READ | uacpi_sys::UACPI_REGION_OP_WRITE => (),
-        _ => return uacpi_sys::UACPI_STATUS_INVALID_ARGUMENT,
+fn handle_region(
+    device: &EcDevice,
+    op: RegionOp,
+    access: &mut RegionRw<'_>,
+) -> std::result::Result<(), RegionError> {
+    if access.byte_width() != 1 {
+        println!("sif: acpi: invalid EC access width {}", access.byte_width());
+        return Err(RegionError::InvalidArgument);
     }
 
-    // SAFETY: uACPI passes a uacpi_region_rw_data for reads and writes.
-    let data = unsafe { &mut *(data as *mut uacpi_region_rw_data) };
-    if data.byte_width != 1 {
-        println!("sif: acpi: invalid EC access width {}", data.byte_width);
-        return uacpi_sys::UACPI_STATUS_INVALID_ARGUMENT;
-    }
-
-    // SAFETY: uACPI passes back the context that install_handlers() handed to it.
-    let device = unsafe { &*(data.handler_context as *const EcDevice) };
-    match device.transfer(op == uacpi_sys::UACPI_REGION_OP_READ, data) {
-        Ok(()) => uacpi_sys::UACPI_STATUS_OK,
-        Err(err) => {
-            println!("sif: acpi: EC access failed: {err}");
-            uacpi_sys::UACPI_STATUS_HARDWARE_TIMEOUT
-        }
-    }
+    device.transfer(op, access).map_err(|err| {
+        println!("sif: acpi: EC access failed: {err}");
+        RegionError::HardwareTimeout
+    })
 }
 
-unsafe extern "C" fn handle_gpe(
-    _context: uacpi_handle,
-    _gpe_device: *mut uacpi_sys::uacpi_namespace_node,
-    _index: uacpi_sys::uacpi_u16,
-) -> uacpi_sys::uacpi_interrupt_ret {
+fn handle_gpe() {
     // Running AML from the IRQ path is unsafe, hence defer the query to the worker.
     println!("sif: acpi: EC GPE fired");
     EVENT_QUEUED.store(true, Ordering::Release);
     EVENT.notify(1);
-
-    uacpi_sys::UACPI_INTERRUPT_HANDLED
 }
 
 static EVENT_QUEUED: AtomicBool = AtomicBool::new(false);
@@ -215,8 +195,7 @@ fn install_handlers(device: &'static EcDevice) -> Result<()> {
     handlers::install_address_space_handler(
         device.node,
         uacpi_sys::UACPI_ADDRESS_SPACE_EMBEDDED_CONTROLLER,
-        Some(handle_region),
-        device as *const EcDevice as uacpi_handle,
+        move |op, access| handle_region(device, op, access),
     )?;
 
     if device.node.eval_simple_integer(c"_GLK")?.unwrap_or(0) != 0 {
@@ -237,8 +216,7 @@ fn install_handlers(device: &'static EcDevice) -> Result<()> {
         None,
         index,
         uacpi_sys::UACPI_GPE_TRIGGERING_EDGE,
-        Some(handle_gpe),
-        device as *const EcDevice as uacpi_handle,
+        handle_gpe,
     )?;
 
     if !EC_WORKER_SPAWNED.swap(true, Ordering::AcqRel) {
