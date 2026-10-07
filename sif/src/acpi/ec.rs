@@ -1,6 +1,6 @@
 use std::ffi::{CStr, CString};
-use std::sync::OnceLock;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Mutex, OnceLock};
 
 use anyhow::{Result, bail};
 use event_listener::Event;
@@ -28,11 +28,15 @@ const QR_EC: u8 = 0x84;
 
 const BURST_ACK: u8 = 0x90;
 
+const EXPECT_LOCK: &str = "sif: EC transaction mutex was poisoned";
+
 struct EcDevice {
     node: NamespaceNode,
     control: Gas,
     data: Gas,
     gpe_index: OnceLock<u16>,
+    // A transaction consists of several register accesses that must not interleave.
+    transaction: Mutex<()>,
 }
 
 impl EcDevice {
@@ -42,6 +46,7 @@ impl EcDevice {
             control,
             data,
             gpe_index: OnceLock::new(),
+            transaction: Mutex::new(()),
         }
     }
 
@@ -88,6 +93,7 @@ impl EcDevice {
     }
 
     fn check_event(&self) -> Result<Option<u8>> {
+        let _transaction = self.transaction.lock().expect(EXPECT_LOCK);
         let status = self.control.read()? as u8;
 
         // We get an extra EC event when disabling burst, that's ok.
@@ -120,6 +126,7 @@ impl EcDevice {
     fn transfer(&self, op: RegionOp, access: &mut RegionRw<'_>) -> Result<()> {
         let offset = access.offset() as u8;
 
+        let _transaction = self.transaction.lock().expect(EXPECT_LOCK);
         self.burst_enable()?;
         let result = match op {
             RegionOp::Read => self
