@@ -62,6 +62,7 @@ src = files(
 	'generic/kernel-log.cpp',
 	'generic/kernel-mutexes.cpp',
 	'generic/kernel-ostrace.cpp',
+	'generic/kernel-shm.cpp',
 	'generic/kernel-stack.cpp',
 	'generic/load-balancing.cpp',
 	'generic/main.cpp',
@@ -109,6 +110,7 @@ src += frgbragi.process([
 	protos/'clock/clock.bragi',
 	protos/'kernlet/kernlet.bragi',
 	protos/'kerncfg/kerncfg.bragi',
+	protos/'shm/shm.bragi',
 	protos/'svrctl/svrctl.bragi'
 ])
 
@@ -125,6 +127,7 @@ inc += include_directories(
 	'system/smbios',
 	'../common',
 	'../../protocols/posix/include',
+	'../../protocols/shm/include',
 	'../../protocols/svrctl/include',
 )
 
