@@ -190,7 +190,7 @@ using StreamList = frg::intrusive_list<
 	>
 >;
 
-struct Stream final : RcuProtected {
+struct Stream final : RcuProtected, TwoPeerObject {
 private:
 	struct CtorToken {};
 
@@ -209,14 +209,6 @@ public:
 		StreamList _pending;
 	};
 
-	// Breaks the lane after its peer counter reached zero.
-	// Does not drop the reference that the peer counter holds on the Stream.
-	static void onPeersZero(Stream *stream, int lane);
-
-	smarter::counter &peerCounter(int lane) {
-		return _peerCount[lane];
-	}
-
 	Stream(CtorToken, bool withCredentials = false);
 	~Stream();
 
@@ -229,8 +221,6 @@ public:
 
 	void shutdownLane(int lane);
 
-	smarter::borrowed_ptr<Stream> selfPtr;
-
 	Credentials &credentials() {
 		assert(_withCredentials);
 		assert(_creds.has_value());
@@ -238,9 +228,10 @@ public:
 	}
 
 private:
-	static void _cancelItem(StreamNode *item, Error error);
+	// Breaks the lane after its peer counter reached zero.
+	void onPeersZero(int lane) override;
 
-	smarter::counter _peerCount[2];
+	static void _cancelItem(StreamNode *item, Error error);
 
 	frg::optional<Credentials> _creds;
 

@@ -3,17 +3,6 @@
 
 namespace thor {
 
-void LanePolicy::increment() const {
-	stream_->peerCounter(lane_).increment();
-}
-
-void LanePolicy::decrement() const {
-	if(stream_->peerCounter(lane_).decrement_and_check_if_zero()) {
-		Stream::onPeersZero(stream_, lane_);
-		stream_->selfPtr.policy().decrement();
-	}
-}
-
 struct OfferAccept { };
 struct ImbueExtract { };
 struct SendRecvInline { };
@@ -147,16 +136,11 @@ void Stream::Submitter::run() {
 
 		// Do the main work here, after we released the lock.
 		if(u->tag() == kTagOffer && v->tag() == kTagAccept) {
-			// Initially there will be 3 references to the new stream:
-			// * One reference for the original shared pointer.
-			// * One reference for each of the two lanes.
 			auto branch = allocate_rcu_shared<Stream>(*kernelAlloc, CtorToken{});
 			assert(branch.policy().base()->ctr().check_count() == 1);
-			branch->selfPtr = branch;
-			branch.policy().increment();
-			branch.policy().increment();
-			u->_lane = adoptLane(branch, 0);
-			v->_lane = adoptLane(branch, 1);
+			auto lanes = adoptPeers(std::move(branch));
+			u->_lane = std::move(lanes.get<0>());
+			v->_lane = std::move(lanes.get<1>());
 
 			enqueue(u->_lane, u->ancillaryChain);
 			enqueue(v->_lane, v->ancillaryChain);
@@ -239,7 +223,7 @@ void Stream::Submitter::run() {
 	}
 }
 
-void Stream::onPeersZero(Stream *stream, int lane) {
+void Stream::onPeersZero(int lane) {
 	frg::intrusive_list<
 		StreamNode,
 		frg::locate_member<
@@ -251,11 +235,11 @@ void Stream::onPeersZero(Stream *stream, int lane) {
 
 	{
 		auto irq_lock = frg::guard(&irqMutex());
-		auto lock = frg::guard(&stream->_mutex);
-		assert(!stream->_laneBroken[lane]);
+		auto lock = frg::guard(&_mutex);
+		assert(!_laneBroken[lane]);
 
-		stream->_laneBroken[lane] = true;
-		pending.splice(pending.end(), stream->_processQueue[!lane]);
+		_laneBroken[lane] = true;
+		pending.splice(pending.end(), _processQueue[!lane]);
 	}
 
 	while(!pending.empty()) {
@@ -266,8 +250,6 @@ void Stream::onPeersZero(Stream *stream, int lane) {
 
 Stream::Stream(CtorToken, bool withCredentials)
 : _laneBroken{false, false}, _laneShutDown{false, false}, _withCredentials{withCredentials} {
-	_peerCount[0].setup(smarter::adopt_rc, 1);
-	_peerCount[1].setup(smarter::adopt_rc, 1);
 	if(withCredentials)
 		_creds = Credentials{};
 }
@@ -336,12 +318,7 @@ std::expected<
 > createStream(bool withCredentials) {
 	auto stream = allocate_rcu_shared<Stream>(*kernelAlloc, Stream::CtorToken{}, withCredentials);
 	assert(stream.policy().base()->ctr().check_count() == 1);
-	stream->selfPtr = stream;
-	stream.policy().increment();
-	auto handle1 = adoptLane(stream, 0);
-	auto handle2 = adoptLane(stream, 1);
-	stream.release();
-	return frg::make_tuple(std::move(handle1), std::move(handle2));
+	return TwoPeerObject::adoptPeers(std::move(stream));
 }
 
 } // namespace thor
