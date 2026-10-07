@@ -19,6 +19,7 @@ use uacpi_sys::{
 
 use super::{PAGE_MASK, RSDP};
 use crate::pci::config;
+use crate::pio::PioWindow;
 
 const UACPI_MAP_FAILED: *mut c_void = (-1isize) as *mut c_void;
 
@@ -316,35 +317,33 @@ pub unsafe extern "C" fn uacpi_kernel_io_map(
         return uacpi_sys::UACPI_STATUS_INVALID_ARGUMENT;
     }
 
-    #[cfg(target_arch = "x86_64")]
-    {
-        let mut ports = Vec::with_capacity(len);
-        for i in 0..len {
-            ports.push(base as usize + i);
-        }
-
-        let Ok(handle) = hel::access_io(hardware_access_handle(), &ports) else {
-            return uacpi_sys::UACPI_STATUS_INVALID_ARGUMENT;
-        };
-        let Ok(()) = hel::enable_io(&handle) else {
-            return uacpi_sys::UACPI_STATUS_INVALID_ARGUMENT;
-        };
-    }
-    unsafe { *out = base as uacpi_handle };
+    let base = base as usize;
+    let Ok(window) = PioWindow::new(base..base + len) else {
+        return uacpi_sys::UACPI_STATUS_INVALID_ARGUMENT;
+    };
+    unsafe { *out = Box::into_raw(Box::new(window)) as uacpi_handle };
     uacpi_sys::UACPI_STATUS_OK
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn uacpi_kernel_io_unmap(_handle: uacpi_handle) {}
+pub unsafe extern "C" fn uacpi_kernel_io_unmap(handle: uacpi_handle) {
+    drop(unsafe { Box::from_raw(handle as *mut PioWindow) });
+}
 
-/// The handle that `uacpi_kernel_io_map` hands out is the base of the mapped window.
+/// The handle that `uacpi_kernel_io_map` hands out is a leaked [`PioWindow`].
 ///
-/// The offset is named by AML, so it is checked against the port space rather than trusted.
+/// The offset is named by AML, so it is checked against the window rather than trusted.
 fn pio_space<T: PioAccess>(handle: uacpi_handle, offset: uacpi_size) -> Option<PioSpace> {
-    // uacpi_kernel_io_map rejects a base that does not fit, and enables the ports of the window.
-    let space = unsafe { PioSpace::new(handle as usize as u16) };
+    let window = unsafe { &*(handle as *const PioWindow) };
+    let fits = offset
+        .checked_add(size_of::<T>())
+        .is_some_and(|end| end <= window.len());
+    if !fits {
+        return None;
+    }
 
-    space.access_ok::<T>(offset).then_some(space)
+    // The window may have been mapped on a different thread.
+    window.enable().ok()
 }
 
 #[unsafe(no_mangle)]

@@ -8,6 +8,7 @@ mod irq;
 #[cfg(target_arch = "x86_64")]
 mod isa;
 mod pci;
+mod pio;
 mod uacpi;
 
 pub(crate) fn leak<T>(value: T) -> &'static T {
