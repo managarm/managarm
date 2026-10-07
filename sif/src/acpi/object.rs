@@ -60,7 +60,7 @@ fn resolve_irq_to_gsi(irq: u32) -> u32 {
 }
 
 impl AcpiObject for NodeObject {
-    fn resources(&self) -> Option<AcpiResources> {
+    async fn resources(&self) -> Option<AcpiResources> {
         let resources = self.node.current_resources().ok()?;
 
         let mut out = AcpiResources::default();
@@ -83,7 +83,7 @@ impl AcpiObject for NodeObject {
         Some(out)
     }
 
-    fn access_ports(&self, index: usize) -> managarm::hw::Result<hel::Handle> {
+    async fn access_ports(&self, index: usize) -> managarm::hw::Result<hel::Handle> {
         let resources = self
             .node
             .current_resources()
@@ -103,7 +103,7 @@ impl AcpiObject for NodeObject {
         Err(HwError::OutOfBounds)
     }
 
-    fn access_irq(&self, index: usize) -> managarm::hw::Result<&hel::Handle> {
+    async fn access_irq(&self, index: usize) -> managarm::hw::Result<&hel::Handle> {
         let mut objects = self.irq_objects.lock().expect(EXPECT_LOCK);
         if let Some(&object) = objects.get(&index) {
             return Ok(object);
