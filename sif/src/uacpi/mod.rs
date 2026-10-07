@@ -4,6 +4,7 @@
 //! extractable into a crate of its own, it must not depend on the rest of sif.
 
 pub mod handlers;
+pub mod init;
 pub mod io;
 pub mod namespace;
 pub mod object;
