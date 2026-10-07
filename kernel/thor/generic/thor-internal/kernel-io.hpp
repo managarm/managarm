@@ -134,11 +134,12 @@ initgraph::Stage *getIoChannelsDiscoveredStage();
 
 void publishIoChannel(smarter::shared_ptr<KernelIoChannel> channel);
 
-smarter::shared_ptr<KernelIoChannel> solicitIoChannel(frg::string_view tag);
+// Completes once a channel with the given tag is published; parks forever if none ever is.
+coroutine<smarter::shared_ptr<KernelIoChannel>> solicitIoChannel(frg::string_view tag);
 
-// Helper function to drain a ring buffer to an I/O channel.
+// Helper function to drain a ring buffer to the I/O channel with the given tag.
 // Records larger than maxRecordSize are truncated.
 coroutine<void> dumpRingToChannel(LogRingBuffer *ringBuffer,
-		smarter::shared_ptr<KernelIoChannel> channel, size_t maxRecordSize);
+		frg::string_view tag, size_t maxRecordSize);
 
 } // namespace thor

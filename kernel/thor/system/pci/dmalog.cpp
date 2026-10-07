@@ -75,6 +75,12 @@ struct DmalogDevice final : IrqSink, KernelIoChannel {
 		updateReadableSpan({inView_, 0});
 	}
 
+	// The IRQ pin keeps a raw pointer to us and the device keeps DMAing into our rings.
+	~DmalogDevice() {
+		panicLogger() << "thor: Teardown of dmalog device " << descriptiveTag()
+				<< " is not supported" << frg::endlog;
+	}
+
 	void produceOutput(size_t n) override {
 		assert(outHead_ >= outTail_);
 		assert(outHead_ + n <= outTail_ + ringSize);

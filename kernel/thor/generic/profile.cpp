@@ -26,12 +26,8 @@ namespace {
 			if(!ring)
 				return;
 
-			auto channel = solicitIoChannel("kernel-profile");
-			if(channel) {
-				infoLogger() << "thor: Connecting profiling to I/O channel" << frg::endlog;
-				spawnOnWorkQueue(*kernelAlloc, WorkQueue::generalQueue().lock(),
-						dumpRingToChannel(ring, std::move(channel), 2048));
-			}
+			spawnOnWorkQueue(*kernelAlloc, WorkQueue::generalQueue().lock(),
+					dumpRingToChannel(ring, "kernel-profile", 2048));
 		}
 	};
 }

@@ -350,12 +350,8 @@ namespace {
 			spawnOnWorkQueue(*kernelAlloc, WorkQueue::generalQueue().lock(), dumpLogToKmsg());
 
 			// Expose globalKmsgRing as I/O channel.
-			auto channel = solicitIoChannel("kernel-log");
-			if(channel) {
-				infoLogger() << "thor: Connecting logging to I/O channel" << frg::endlog;
-				spawnOnWorkQueue(*kernelAlloc, WorkQueue::generalQueue().lock(),
-						dumpRingToChannel(globalKmsgRing.get(), std::move(channel), 2048));
-			}
+			spawnOnWorkQueue(*kernelAlloc, WorkQueue::generalQueue().lock(),
+					dumpRingToChannel(globalKmsgRing.get(), "kernel-log", 2048));
 		}
 	};
 } // namespace
