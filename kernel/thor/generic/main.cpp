@@ -857,6 +857,13 @@ void handleSyscall(SyscallImageAccessor image) {
 		*image.error() = helCreateBitsetEvent(&handle);
 		*image.out0() = handle;
 	} break;
+	case kHelCallCreateSequencedEvent: {
+		HelHandle waitHandle;
+		HelHandle raiseHandle;
+		*image.error() = helCreateSequencedEvent(&waitHandle, &raiseHandle);
+		*image.out0() = waitHandle;
+		*image.out1() = raiseHandle;
+	} break;
 	case kHelCallRaiseEvent: {
 		*image.error() = helRaiseEvent((HelHandle)arg0);
 	} break;

@@ -100,6 +100,7 @@ enum {
 
 	kHelCallCreateOneshotEvent = 96,
 	kHelCallCreateBitsetEvent = 97,
+	kHelCallCreateSequencedEvent = 15,
 	kHelCallRaiseEvent = 98,
 	kHelCallAccessIrq = 14,
 	kHelCallHandleIrq = 5,
@@ -1820,9 +1821,22 @@ HEL_C_LINKAGE HelError helCreateOneshotEvent(HelHandle *handle);
 //!     Handle to the new event.
 HEL_C_LINKAGE HelError helCreateBitsetEvent(HelHandle *handle);
 
+//! Create an event that counts how often it was raised.
+//! Waiting and raising use different handles. Waiting fails with ::kHelErrEndOfLane once all
+//! handles to the raise end are closed (and all raises were reported).
+//! Likewise, raising fails once all handles to the wait end are closed.
+//! Memory accesses that precede a raise happen before the completion of any wait that
+//! reports the raise's sequence number (or a later one).
+//! @param[out] waitHandle
+//!     Handle to the wait end of the new event. Has ::kHelRightWait but not ::kHelRightSignal.
+//! @param[out] raiseHandle
+//!     Handle to the raise end of the new event. Has ::kHelRightSignal but not ::kHelRightWait.
+HEL_C_LINKAGE HelError helCreateSequencedEvent(HelHandle *waitHandle, HelHandle *raiseHandle);
+
 //! Raise an event.
 //! @param[in] handle
 //!     Handle to the event that will be raised.
+//!     Either a oneshot event or the raise end of a sequenced event.
 HEL_C_LINKAGE HelError helRaiseEvent(HelHandle handle);
 
 //! Access the IRQ pin that an IRQ is attached to.

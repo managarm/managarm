@@ -150,5 +150,70 @@ void BitsetEvent::cancelAwait(AwaitEventNode<BitsetEvent> *node) {
 	node->wq_->post(node->awaited_);
 }
 
+//---------------------------------------------------------------------------------------
+// SequencedEvent implementation.
+//---------------------------------------------------------------------------------------
+
+std::expected<
+	frg::tuple<
+		smarter::shared_ptr<SequencedEvent, TwoPeerPolicy>,
+		smarter::shared_ptr<SequencedEvent, TwoPeerPolicy>
+	>,
+	Error
+> SequencedEvent::create() {
+	auto event = allocate_rcu_shared<SequencedEvent>(*kernelAlloc, CtorToken{});
+	assert(event.policy().base()->ctr().check_count() == 1);
+	return adoptPeers(std::move(event));
+}
+
+void SequencedEvent::onPeersZero(int end) {
+	auto wasGone = endGone_[end].exchange(true, std::memory_order_release);
+	assert(!wasGone);
+
+	if(end == raiseEnd)
+		event_.raise();
+}
+
+uint64_t SequencedEvent::sequence() {
+	return sequence_.load(std::memory_order_relaxed);
+}
+
+std::expected<void, Error> SequencedEvent::raise() {
+	if(endGone_[waitEnd].load(std::memory_order_relaxed))
+		return std::unexpected{Error::endOfLane};
+
+	// Release pairs with the acquire in awaitEvent(); since all writes to sequence_ are RMWs,
+	// they form one release sequence and observing a value synchronizes with all earlier raises.
+	sequence_.fetch_add(1, std::memory_order_release);
+	event_.raise();
+
+	return {};
+}
+
+coroutine<frg::expected<Error, uint64_t>> SequencedEvent::awaitEvent(uint64_t sequence,
+		async::cancellation_token cancelToken) {
+	if(sequence > sequence_.load(std::memory_order_relaxed))
+		co_return Error::illegalArgs;
+
+	// raise() increments before it wakes, so we can be woken by an increment that we already saw.
+	while(true) {
+		auto outcome = co_await event_.async_wait_if([&] () -> bool {
+			return sequence_.load(std::memory_order_relaxed) == sequence
+					&& !endGone_[raiseEnd].load(std::memory_order_relaxed);
+		}, cancelToken);
+		if(!outcome)
+			co_return Error::cancelled;
+
+		// Acquire endGone_ first such that we see all increments of the raise end.
+		// The condition above only decides whether to sleep, so it can use relaxed loads.
+		auto gone = endGone_[raiseEnd].load(std::memory_order_acquire);
+		auto current = sequence_.load(std::memory_order_acquire);
+		if(current != sequence)
+			co_return current;
+		if(gone)
+			co_return Error::endOfLane;
+	}
+}
+
 } // namespace thor
 

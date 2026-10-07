@@ -55,7 +55,8 @@ void AnyDescriptor::releaseOnZero_() {
 		space->selfPtr.policy().decrement();
 		break;
 	}
-	case DescriptorType::lane: {
+	case DescriptorType::lane:
+	case DescriptorType::sequencedEvent: {
 		static_cast<TwoPeerObject *>(object_)->handlePeersZero(static_cast<int>(extra_));
 		break;
 	}

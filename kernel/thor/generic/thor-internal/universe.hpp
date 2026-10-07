@@ -37,6 +37,7 @@ struct IrqPin;
 struct IrqObject;
 struct OneshotEvent;
 struct BitsetEvent;
+struct SequencedEvent;
 struct Hierarchy;
 
 inline bool checkRights(uint32_t rights, uint32_t requiredRights) {
@@ -176,6 +177,7 @@ enum class DescriptorType : uint8_t {
 	irq,
 	oneshotEvent,
 	bitsetEvent,
+	sequencedEvent,
 	io,
 	kernletObject,
 	boundKernlet,
@@ -291,6 +293,12 @@ template<>
 struct DescriptorTraits<DescriptorType::bitsetEvent> {
 	using Object = BitsetEvent;
 	using Policy = smarter::default_rc_policy;
+};
+
+template<>
+struct DescriptorTraits<DescriptorType::sequencedEvent> {
+	using Object = SequencedEvent;
+	using Policy = TwoPeerPolicy;
 };
 
 template<>
@@ -425,6 +433,7 @@ private:
 	DescriptorType type_ = DescriptorType::none;
 	// Extra per-descriptor data for some descriptor types.
 	// - For lane descriptors: the lane index.
+	// - For sequenced event descriptors: waitEnd or raiseEnd.
 	uint8_t extra_ = 0;
 	// Rights associated with the descriptor.
 	uint32_t rights_ = 0;
