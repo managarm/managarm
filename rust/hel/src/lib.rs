@@ -184,7 +184,7 @@ pub fn access_physical(
 }
 
 /// Enables IO access on the given IO port handle.
-pub fn enable_io(handle: Handle) -> Result<()> {
+pub fn enable_io(handle: &Handle) -> Result<()> {
     result::hel_check(unsafe { hel_sys::helEnableIo(handle.handle()) })
 }
 

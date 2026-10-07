@@ -5,6 +5,7 @@ use std::ptr::NonNull;
 use uacpi_sys::{uacpi_object, uacpi_object_array, uacpi_u64};
 
 use super::namespace::NamespaceNode;
+use super::runtime::Aml;
 use super::{Result, check};
 
 pub struct Object {
@@ -56,7 +57,7 @@ impl Package<'_> {
 }
 
 impl NamespaceNode {
-    pub fn eval_package(&self, path: &CStr) -> Result<Object> {
+    pub fn eval_package(&self, _aml: Aml, path: &CStr) -> Result<Object> {
         let mut object: *mut uacpi_object = std::ptr::null_mut();
         unsafe {
             check(

@@ -5,6 +5,7 @@ use uacpi_sys::{
     uacpi_predefined_namespace, uacpi_u32, uacpi_u64,
 };
 
+use super::runtime::Aml;
 use super::{Result, check, check_optional};
 
 /// A node that uACPI predefines, i.e., that always exists.
@@ -80,7 +81,7 @@ impl NamespaceNode {
     }
 
     /// Wraps uacpi_eval_hid(). Returns None if the device has no _HID.
-    pub fn eval_hid(self) -> Result<Option<String>> {
+    pub fn eval_hid(self, _aml: Aml) -> Result<Option<String>> {
         let mut id: *mut uacpi_sys::uacpi_id_string = std::ptr::null_mut();
         // SAFETY: uACPI only writes the pointer to the id string that it allocates.
         let status = unsafe { uacpi_sys::uacpi_eval_hid(self.node, &mut id) };
@@ -97,7 +98,7 @@ impl NamespaceNode {
     }
 
     /// Wraps uacpi_eval_cid(). Returns None if the device has no _CID.
-    pub fn eval_cid(self) -> Result<Option<Vec<String>>> {
+    pub fn eval_cid(self, _aml: Aml) -> Result<Option<Vec<String>>> {
         let mut list: *mut uacpi_sys::uacpi_pnp_id_list = std::ptr::null_mut();
         // SAFETY: uACPI only writes the pointer to the id list that it allocates.
         let status = unsafe { uacpi_sys::uacpi_eval_cid(self.node, &mut list) };
@@ -136,13 +137,13 @@ impl NamespaceNode {
         Ok(NamespaceNode::from_raw(node))
     }
 
-    pub fn execute(self, path: &CStr) -> Result<bool> {
+    pub fn execute(self, _aml: Aml, path: &CStr) -> Result<bool> {
         let status = unsafe { uacpi_sys::uacpi_execute_simple(self.node, path.as_ptr()) };
         check_optional("uacpi_execute_simple", status)
     }
 
     /// Wraps uacpi_eval_simple_integer(). Returns None if the method does not exist.
-    pub fn eval_simple_integer(self, path: &CStr) -> Result<Option<u64>> {
+    pub fn eval_simple_integer(self, _aml: Aml, path: &CStr) -> Result<Option<u64>> {
         let mut value: uacpi_u64 = 0;
         // SAFETY: uACPI only reads the path and only writes to value.
         let status =
@@ -151,7 +152,7 @@ impl NamespaceNode {
     }
 
     /// Wraps uacpi_eval_adr(). Returns None if the device has no _ADR.
-    pub fn eval_adr(self) -> Result<Option<u64>> {
+    pub fn eval_adr(self, _aml: Aml) -> Result<Option<u64>> {
         let mut value: uacpi_u64 = 0;
         // SAFETY: uACPI only writes to value.
         let status = unsafe { uacpi_sys::uacpi_eval_adr(self.node, &mut value) };
@@ -180,8 +181,8 @@ impl NamespaceNode {
 }
 
 /// Wraps uacpi_find_devices_at(), i.e., calls f() for each present device below parent
-/// whose _HID or _CID matches any of hids.
-pub fn find_devices_at<F>(parent: NamespaceNode, hids: &[&CStr], mut f: F) -> Result<()>
+/// whose _HID or _CID matches any of hids. Evaluates _STA of each match.
+pub fn find_devices_at<F>(_aml: Aml, parent: NamespaceNode, hids: &[&CStr], mut f: F) -> Result<()>
 where
     F: FnMut(NamespaceNode) -> IterationDecision,
 {

@@ -1,9 +1,7 @@
 pub mod ecam;
 pub mod legacy;
 
-use managarm::svrctl::hardware_access_handle;
 use std::collections::BTreeMap;
-use std::ptr::addr_of;
 use std::sync::Mutex;
 
 use anyhow::Context;
@@ -11,6 +9,8 @@ use thiserror::Error;
 
 use ecam::EcamPcieConfigIo;
 use legacy::LegacyPciConfigIo;
+
+use crate::uacpi::table::Table;
 
 /// Reasons why an access to PCI configuration space can fail.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Error)]
@@ -247,12 +247,9 @@ pub unsafe fn write_config_word(
 
 fn add_legacy_config_io() -> anyhow::Result<()> {
     // Unlike thor, we need to be granted access to the config window ports.
-    let ports: Vec<usize> = (0xCF8..=0xCFF).collect();
-    hel::access_io(hardware_access_handle(), &ports)
-        .and_then(hel::enable_io)
-        .context("failed to enable the legacy PCI config I/O ports")?;
-
-    let io: &'static LegacyPciConfigIo = Box::leak(Box::new(LegacyPciConfigIo::new()));
+    let io =
+        LegacyPciConfigIo::new().context("failed to access the legacy PCI config I/O ports")?;
+    let io: &'static LegacyPciConfigIo = Box::leak(Box::new(io));
     for bus in 0..=255u8 {
         add_config_space_io(0, bus, io);
     }
@@ -260,45 +257,37 @@ fn add_legacy_config_io() -> anyhow::Result<()> {
 }
 
 pub fn discover_config_spaces() -> anyhow::Result<()> {
-    let mut table = uacpi_sys::uacpi_table::default();
-    let status = unsafe { uacpi_sys::uacpi_table_find_by_signature(c"MCFG".as_ptr(), &mut table) };
-    if status != uacpi_sys::UACPI_STATUS_OK {
-        println!("sif: No MCFG table, assuming legacy PCI");
-        return add_legacy_config_io();
-    }
+    let table = match Table::find_by_signature(c"MCFG") {
+        Ok(Some(table)) => table,
+        Ok(None) | Err(_) => {
+            println!("sif: No MCFG table, assuming legacy PCI");
+            return add_legacy_config_io();
+        }
+    };
 
-    let hdr = unsafe { table.__bindgen_anon_1.hdr };
-    if hdr.is_null() {
-        unsafe { uacpi_sys::uacpi_table_unref(&mut table) };
-        return add_legacy_config_io();
-    }
-    let mcfg = hdr as *const uacpi_sys::acpi_mcfg;
-
-    let length = unsafe { addr_of!((*mcfg).hdr.length).read_unaligned() } as usize;
-    let header_size = size_of::<uacpi_sys::acpi_mcfg>();
-    let entry_size = size_of::<uacpi_sys::acpi_mcfg_allocation>();
-    let count = length.saturating_sub(header_size) / entry_size;
-
-    let entries =
-        unsafe { (mcfg as *const u8).add(header_size) as *const uacpi_sys::acpi_mcfg_allocation };
     struct EcamRegion {
         address: u64,
         segment: u16,
         start_bus: u8,
         end_bus: u8,
     }
-    let mut regions = Vec::with_capacity(count);
-    for i in 0..count {
-        let entry = unsafe { entries.add(i) };
+    let entries = table
+        .bytes()
+        .get(size_of::<uacpi_sys::acpi_mcfg>()..)
+        .unwrap_or_default();
+    let mut regions = Vec::new();
+    for entry in entries.chunks_exact(size_of::<uacpi_sys::acpi_mcfg_allocation>()) {
+        // SAFETY: every byte pattern of the size of a packed structure is a valid value.
+        let entry: uacpi_sys::acpi_mcfg_allocation =
+            unsafe { std::ptr::read_unaligned(entry.as_ptr().cast()) };
         regions.push(EcamRegion {
-            address: unsafe { addr_of!((*entry).address).read_unaligned() },
-            segment: unsafe { addr_of!((*entry).segment).read_unaligned() },
-            start_bus: unsafe { addr_of!((*entry).start_bus).read_unaligned() },
-            end_bus: unsafe { addr_of!((*entry).end_bus).read_unaligned() },
+            address: entry.address,
+            segment: entry.segment,
+            start_bus: entry.start_bus,
+            end_bus: entry.end_bus,
         });
     }
-
-    unsafe { uacpi_sys::uacpi_table_unref(&mut table) };
+    drop(table);
 
     if regions.is_empty() {
         println!("sif: MCFG table has no entries, assuming legacy PCI");

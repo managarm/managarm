@@ -396,11 +396,11 @@ pub struct AcpiResources {
 
 pub trait AcpiObject {
     /// Returns the resources of the object's _CRS, or None if evaluation fails.
-    fn resources(&self) -> Option<AcpiResources>;
+    fn resources(&self) -> impl Future<Output = Option<AcpiResources>>;
     /// Returns an IO-space handle covering the ports of the index-th port resource of _CRS.
-    fn access_ports(&self, index: usize) -> super::Result<Handle>;
+    fn access_ports(&self, index: usize) -> impl Future<Output = super::Result<Handle>>;
     /// Returns the IRQ object for the index-th interrupt of _CRS.
-    fn access_irq(&self, index: usize) -> super::Result<&Handle>;
+    fn access_irq(&self, index: usize) -> impl Future<Output = super::Result<&Handle>>;
 }
 
 async fn handle_one_acpi<D: AcpiObject>(
@@ -416,7 +416,7 @@ async fn handle_one_acpi<D: AcpiObject>(
     match preamble.id() {
         bindings::AcpiGetResourcesRequest::MESSAGE_ID => {
             let mut resp = bindings::AcpiGetResourcesReply::default();
-            match object.resources() {
+            match object.resources().await {
                 Some(resources) => {
                     resp.set_error(Errors::Success);
                     resp.set_io_ports(resources.io_ports);
@@ -431,7 +431,7 @@ async fn handle_one_acpi<D: AcpiObject>(
             let req: bindings::AccessBarRequest =
                 bragi::head_from_bytes(request).map_err(|_| hel::Error::IllegalArgs)?;
             let index = usize::try_from(req.index()).map_err(|_| hel::Error::IllegalArgs)?;
-            match object.access_ports(index) {
+            match object.access_ports(index).await {
                 Ok(handle) => {
                     send_response_with_push(
                         lane,
@@ -452,7 +452,7 @@ async fn handle_one_acpi<D: AcpiObject>(
             let req: bindings::AccessIrqRequest =
                 bragi::head_from_bytes(request).map_err(|_| hel::Error::IllegalArgs)?;
             let index = usize::try_from(req.index()).map_err(|_| hel::Error::IllegalArgs)?;
-            match object.access_irq(index) {
+            match object.access_irq(index).await {
                 Ok(handle) => {
                     send_response_with_push(
                         lane,

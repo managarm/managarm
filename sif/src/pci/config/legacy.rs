@@ -2,6 +2,7 @@ use arch::{PioSpace, scalar_register};
 use std::sync::Mutex;
 
 use super::{ConfigIoError, PciConfigIo, Result, check_offset};
+use crate::pio::PioWindow;
 
 const CONFIG_SPACE_SIZE: u16 = 0x100;
 
@@ -9,17 +10,16 @@ scalar_register!(ConfigAddress @ 0x00: u32);
 const DATA: usize = 4;
 
 pub struct LegacyPciConfigIo {
-    space: PioSpace,
+    window: PioWindow,
     mutex: Mutex<()>,
 }
 
 impl LegacyPciConfigIo {
-    pub const fn new() -> Self {
-        Self {
-            // The ports of the config window are enabled before we are constructed.
-            space: unsafe { PioSpace::new(0xCF8) },
+    pub fn new() -> hel::Result<Self> {
+        Ok(Self {
+            window: PioWindow::new(0xCF8..0xD00)?,
             mutex: Mutex::new(()),
-        }
+        })
     }
 
     fn check_address(seg: u16, bus: u8, slot: u8, function: u8) -> Result<()> {
@@ -32,6 +32,13 @@ impl LegacyPciConfigIo {
             });
         }
         Ok(())
+    }
+
+    /// Enables the config window on the current thread.
+    fn space(&self) -> PioSpace {
+        self.window
+            .enable()
+            .expect("sif: failed to enable the legacy PCI config window")
     }
 
     fn address(bus: u8, slot: u8, function: u8, offset: u16) -> u32 {
@@ -59,9 +66,10 @@ impl PciConfigIo for LegacyPciConfigIo {
             .mutex
             .lock()
             .expect("sif: legacy config space mutex was poisoned");
+        let space = self.space();
         Ok(unsafe {
-            self.space.store(ConfigAddress, address);
-            self.space.scalar_load::<u8>(DATA + (offset & 3) as usize)
+            space.store(ConfigAddress, address);
+            space.scalar_load::<u8>(DATA + (offset & 3) as usize)
         })
     }
 
@@ -80,9 +88,10 @@ impl PciConfigIo for LegacyPciConfigIo {
             .mutex
             .lock()
             .expect("sif: legacy config space mutex was poisoned");
+        let space = self.space();
         Ok(unsafe {
-            self.space.store(ConfigAddress, address);
-            self.space.scalar_load::<u16>(DATA + (offset & 3) as usize)
+            space.store(ConfigAddress, address);
+            space.scalar_load::<u16>(DATA + (offset & 3) as usize)
         })
     }
 
@@ -101,9 +110,10 @@ impl PciConfigIo for LegacyPciConfigIo {
             .mutex
             .lock()
             .expect("sif: legacy config space mutex was poisoned");
+        let space = self.space();
         Ok(unsafe {
-            self.space.store(ConfigAddress, address);
-            self.space.scalar_load::<u32>(DATA)
+            space.store(ConfigAddress, address);
+            space.scalar_load::<u32>(DATA)
         })
     }
 
@@ -123,10 +133,10 @@ impl PciConfigIo for LegacyPciConfigIo {
             .mutex
             .lock()
             .expect("sif: legacy config space mutex was poisoned");
+        let space = self.space();
         unsafe {
-            self.space.store(ConfigAddress, address);
-            self.space
-                .scalar_store::<u8>(DATA + (offset & 3) as usize, value);
+            space.store(ConfigAddress, address);
+            space.scalar_store::<u8>(DATA + (offset & 3) as usize, value);
         }
         Ok(())
     }
@@ -147,10 +157,10 @@ impl PciConfigIo for LegacyPciConfigIo {
             .mutex
             .lock()
             .expect("sif: legacy config space mutex was poisoned");
+        let space = self.space();
         unsafe {
-            self.space.store(ConfigAddress, address);
-            self.space
-                .scalar_store::<u16>(DATA + (offset & 3) as usize, value);
+            space.store(ConfigAddress, address);
+            space.scalar_store::<u16>(DATA + (offset & 3) as usize, value);
         }
         Ok(())
     }
@@ -171,9 +181,10 @@ impl PciConfigIo for LegacyPciConfigIo {
             .mutex
             .lock()
             .expect("sif: legacy config space mutex was poisoned");
+        let space = self.space();
         unsafe {
-            self.space.store(ConfigAddress, address);
-            self.space.scalar_store::<u32>(DATA, value);
+            space.store(ConfigAddress, address);
+            space.scalar_store::<u32>(DATA, value);
         }
         Ok(())
     }

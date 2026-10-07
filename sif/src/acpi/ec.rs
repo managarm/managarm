@@ -1,16 +1,16 @@
 use std::ffi::{CStr, CString};
-use std::sync::OnceLock;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Mutex, OnceLock};
 
 use anyhow::{Result, bail};
-use event_listener::Event;
-use uacpi_sys::{acpi_ecdt, uacpi_handle, uacpi_region_rw_data};
+use uacpi_sys::acpi_ecdt;
 
 use crate::leak;
-use crate::uacpi::handlers;
-use crate::uacpi::io::Gas;
+use crate::uacpi::handlers::{self, RegionError, RegionOp, RegionRw};
+use crate::uacpi::io::{Gas, MappedGas};
 use crate::uacpi::namespace::{self, IterationDecision, NamespaceNode};
 use crate::uacpi::resources::Resource;
+use crate::uacpi::runtime::{self, Aml, AmlThread};
 use crate::uacpi::table::Table;
 
 const HID_EC: &CStr = c"PNP0C09";
@@ -28,35 +28,41 @@ const QR_EC: u8 = 0x84;
 
 const BURST_ACK: u8 = 0x90;
 
+const EXPECT_LOCK: &str = "sif: EC transaction mutex was poisoned";
+
 struct EcDevice {
     node: NamespaceNode,
-    control: Gas,
-    data: Gas,
+    control: MappedGas,
+    data: MappedGas,
     gpe_index: OnceLock<u16>,
+    // A transaction consists of several register accesses that must not interleave.
+    transaction: Mutex<()>,
 }
 
 impl EcDevice {
-    fn new(node: NamespaceNode, control: Gas, data: Gas) -> EcDevice {
-        EcDevice {
+    fn new(node: NamespaceNode, control: Gas, data: Gas) -> Result<EcDevice> {
+        // Transactions poll the registers, hence map them once.
+        Ok(EcDevice {
             node,
-            control,
-            data,
+            control: control.map()?,
+            data: data.map()?,
             gpe_index: OnceLock::new(),
-        }
+            transaction: Mutex::new(()),
+        })
     }
 
-    fn wait_for_bit(&self, register: &Gas, bit: u8, value: bool) -> Result<()> {
+    fn wait_for_bit(&self, register: &MappedGas, bit: u8, value: bool) -> Result<()> {
         while (register.read()? as u8 & bit != 0) != value {}
         Ok(())
     }
 
-    fn write_one(&self, register: &Gas, value: u8) -> Result<()> {
+    fn write_one(&self, register: &MappedGas, value: u8) -> Result<()> {
         self.wait_for_bit(&self.control, EC_IBF, false)?;
         register.write(u64::from(value))?;
         Ok(())
     }
 
-    fn read_one(&self, register: &Gas) -> Result<u8> {
+    fn read_one(&self, register: &MappedGas) -> Result<u8> {
         self.wait_for_bit(&self.control, EC_OBF, true)?;
         Ok(register.read()? as u8)
     }
@@ -88,6 +94,7 @@ impl EcDevice {
     }
 
     fn check_event(&self) -> Result<Option<u8>> {
+        let _transaction = self.transaction.lock().expect(EXPECT_LOCK);
         let status = self.control.read()? as u8;
 
         // We get an extra EC event when disabling burst, that's ok.
@@ -103,7 +110,7 @@ impl EcDevice {
         Ok(Some(index))
     }
 
-    fn handle_event(&self) -> Result<()> {
+    fn handle_event(&self, aml: Aml) -> Result<()> {
         let Some(index) = self.check_event()? else {
             return Ok(());
         };
@@ -113,19 +120,20 @@ impl EcDevice {
 
         let method = CString::new(format!("_Q{index:02X}")).expect("EC query is not a method name");
         println!("sif: acpi: running EC query {method:?}");
-        self.node.execute(&method)?;
+        self.node.execute(aml, &method)?;
         Ok(())
     }
 
-    fn transfer(&self, read: bool, data: &mut uacpi_region_rw_data) -> Result<()> {
-        // SAFETY: uACPI passes the offset of the access in the union of the address.
-        let offset = unsafe { data.__bindgen_anon_1.offset } as u8;
+    fn transfer(&self, op: RegionOp, access: &mut RegionRw<'_>) -> Result<()> {
+        let offset = access.offset() as u8;
 
+        let _transaction = self.transaction.lock().expect(EXPECT_LOCK);
         self.burst_enable()?;
-        let result = if read {
-            self.read(offset).map(|value| data.value = u64::from(value))
-        } else {
-            self.write(offset, data.value as u8)
+        let result = match op {
+            RegionOp::Read => self
+                .read(offset)
+                .map(|value| access.set_value(u64::from(value))),
+            RegionOp::Write => self.write(offset, access.value() as u8),
         };
         self.burst_disable()?;
 
@@ -133,97 +141,62 @@ impl EcDevice {
     }
 }
 
-unsafe extern "C" fn handle_region(
-    op: uacpi_sys::uacpi_region_op,
-    data: uacpi_handle,
-) -> uacpi_sys::uacpi_status {
-    match op {
-        uacpi_sys::UACPI_REGION_OP_ATTACH | uacpi_sys::UACPI_REGION_OP_DETACH => {
-            return uacpi_sys::UACPI_STATUS_OK;
-        }
-        uacpi_sys::UACPI_REGION_OP_READ | uacpi_sys::UACPI_REGION_OP_WRITE => (),
-        _ => return uacpi_sys::UACPI_STATUS_INVALID_ARGUMENT,
+fn handle_region(
+    device: &EcDevice,
+    op: RegionOp,
+    access: &mut RegionRw<'_>,
+) -> std::result::Result<(), RegionError> {
+    if access.byte_width() != 1 {
+        println!("sif: acpi: invalid EC access width {}", access.byte_width());
+        return Err(RegionError::InvalidArgument);
     }
 
-    // SAFETY: uACPI passes a uacpi_region_rw_data for reads and writes.
-    let data = unsafe { &mut *(data as *mut uacpi_region_rw_data) };
-    if data.byte_width != 1 {
-        println!("sif: acpi: invalid EC access width {}", data.byte_width);
-        return uacpi_sys::UACPI_STATUS_INVALID_ARGUMENT;
-    }
-
-    // SAFETY: uACPI passes back the context that install_handlers() handed to it.
-    let device = unsafe { &*(data.handler_context as *const EcDevice) };
-    match device.transfer(op == uacpi_sys::UACPI_REGION_OP_READ, data) {
-        Ok(()) => uacpi_sys::UACPI_STATUS_OK,
-        Err(err) => {
-            println!("sif: acpi: EC access failed: {err}");
-            uacpi_sys::UACPI_STATUS_HARDWARE_TIMEOUT
-        }
-    }
+    device.transfer(op, access).map_err(|err| {
+        println!("sif: acpi: EC access failed: {err}");
+        RegionError::HardwareTimeout
+    })
 }
 
-unsafe extern "C" fn handle_gpe(
-    _context: uacpi_handle,
-    _gpe_device: *mut uacpi_sys::uacpi_namespace_node,
-    _index: uacpi_sys::uacpi_u16,
-) -> uacpi_sys::uacpi_interrupt_ret {
-    // Running AML from the IRQ path is unsafe, hence defer the query to the worker.
+fn handle_gpe(device: &'static EcDevice) {
+    // Running AML from the IRQ path is unsafe, hence defer the query to the EC's AML thread.
     println!("sif: acpi: EC GPE fired");
-    EVENT_QUEUED.store(true, Ordering::Release);
-    EVENT.notify(1);
-
-    uacpi_sys::UACPI_INTERRUPT_HANDLED
+    query_thread().post(move |aml| run_query(aml, device));
 }
 
-static EVENT_QUEUED: AtomicBool = AtomicBool::new(false);
-static EVENT: Event = Event::new();
-static EC_WORKER_SPAWNED: AtomicBool = AtomicBool::new(false);
+/// The thread that runs the _Qxx query methods.
+fn query_thread() -> &'static AmlThread {
+    static THREAD: OnceLock<&'static AmlThread> = OnceLock::new();
+    THREAD.get_or_init(|| AmlThread::spawn("acpi-ec"))
+}
 
-/// Waits until the EC GPE handler queued an event.
-async fn wait_for_event() {
-    loop {
-        // Register before checking the flag to avoid a lost wakeup.
-        let listener = EVENT.listen();
-        if EVENT_QUEUED.swap(false, Ordering::AcqRel) {
-            return;
-        }
-        listener.await;
+/// Handles an EC event, i.e., runs its _Qxx query method.
+fn run_query(aml: Aml, device: &EcDevice) {
+    if let Err(err) = device.handle_event(aml) {
+        println!("sif: acpi: failed to handle an EC event: {err}");
     }
-}
-
-/// Handles EC events in task context, i.e., runs the _Qxx query methods.
-async fn run_ec_events(device: &'static EcDevice) {
-    loop {
-        wait_for_event().await;
-
-        if let Err(err) = device.handle_event() {
-            println!("sif: acpi: failed to handle an EC event: {err}");
-        }
-        if let Some(index) = device.gpe_index.get().copied()
-            && let Err(err) = handlers::finish_handling_gpe(None, index)
-        {
-            println!("sif: acpi: failed to finish handling EC GPE {index}: {err}");
-        }
+    if let Some(index) = device.gpe_index.get().copied()
+        && let Err(err) = handlers::finish_handling_gpe(None, index)
+    {
+        println!("sif: acpi: failed to finish handling EC GPE {index}: {err}");
     }
 }
 
 static EC: OnceLock<&'static EcDevice> = OnceLock::new();
 static HANDLERS_INSTALLED: AtomicBool = AtomicBool::new(false);
 
-fn install_handlers(device: &'static EcDevice) -> Result<()> {
+fn install_handlers(aml: Aml, device: &'static EcDevice) -> Result<()> {
     handlers::install_address_space_handler(
+        aml,
         device.node,
         uacpi_sys::UACPI_ADDRESS_SPACE_EMBEDDED_CONTROLLER,
-        Some(handle_region),
-        device as *const EcDevice as uacpi_handle,
+        move |op, access| handle_region(device, op, access),
     )?;
 
-    if device.node.eval_simple_integer(c"_GLK")?.unwrap_or(0) != 0 {
+    if device.node.eval_simple_integer(aml, c"_GLK")?.unwrap_or(0) != 0 {
         println!("sif: acpi: EC requires locking (this is a TODO)");
     }
 
-    let Some(index) = device.node.eval_simple_integer(c"_GPE")? else {
+    let Some(index) = device.node.eval_simple_integer(aml, c"_GPE")? else {
         println!("sif: acpi: EC has no associated _GPE");
         return Ok(());
     };
@@ -232,18 +205,6 @@ fn install_handlers(device: &'static EcDevice) -> Result<()> {
         .gpe_index
         .set(index)
         .expect("sif: acpi: EC GPE installed twice");
-
-    handlers::install_gpe_handler(
-        None,
-        index,
-        uacpi_sys::UACPI_GPE_TRIGGERING_EDGE,
-        Some(handle_gpe),
-        device as *const EcDevice as uacpi_handle,
-    )?;
-
-    if !EC_WORKER_SPAWNED.swap(true, Ordering::AcqRel) {
-        hel::spawn(run_ec_events(device));
-    }
 
     HANDLERS_INSTALLED.store(true, Ordering::Relaxed);
     Ok(())
@@ -281,14 +242,14 @@ fn init_from_ecdt() -> Result<Option<EcDevice>> {
         node,
         Gas::from_raw(ecdt.ec_control),
         Gas::from_raw(ecdt.ec_data),
-    )))
+    )?))
 }
 
-fn init_from_namespace() -> Result<Option<EcDevice>> {
+fn init_from_namespace(aml: Aml) -> Result<Option<EcDevice>> {
     let mut found = None;
 
-    namespace::find_devices_at(NamespaceNode::root(), &[HID_EC], |node| {
-        let Ok(resources) = node.current_resources() else {
+    namespace::find_devices_at(aml, NamespaceNode::root(), &[HID_EC], |node| {
+        let Ok(resources) = node.current_resources(aml) else {
             return IterationDecision::Continue;
         };
 
@@ -316,20 +277,22 @@ fn init_from_namespace() -> Result<Option<EcDevice>> {
         }
 
         println!("sif: acpi: found an EC@{}", node.absolute_path());
-        found = Some(EcDevice::new(node, registers[1], registers[0]));
+        found = Some((node, registers[1], registers[0]));
         IterationDecision::Break
     })?;
 
-    Ok(found)
+    found
+        .map(|(node, control, data)| EcDevice::new(node, control, data))
+        .transpose()
 }
 
-pub fn init() -> Result<()> {
+pub fn init(aml: Aml) -> Result<()> {
     let mut early_reg = true;
     let device = match init_from_ecdt()? {
         Some(device) => device,
         None => {
             early_reg = false;
-            let Some(device) = init_from_namespace()? else {
+            let Some(device) = init_from_namespace(aml)? else {
                 println!("sif: acpi: no EC devices on the system");
                 return Ok(());
             };
@@ -341,29 +304,48 @@ pub fn init() -> Result<()> {
     assert!(EC.set(device).is_ok(), "sif: acpi: EC initialized twice");
 
     if early_reg {
-        install_handlers(device)?;
+        install_handlers(aml, device)?;
     }
 
     Ok(())
 }
 
-pub fn init_events() -> Result<()> {
-    if let Err(err) = handlers::finalize_gpe_initialization() {
-        println!("sif: acpi: failed to finalize the GPEs: {err}");
-    }
+pub async fn init_events() -> Result<()> {
+    let device = runtime::run(|aml| {
+        if let Err(err) = handlers::finalize_gpe_initialization() {
+            println!("sif: acpi: failed to finalize the GPEs: {err}");
+        }
 
-    let Some(device) = EC.get().copied() else {
+        let Some(device) = EC.get().copied() else {
+            return Ok(None);
+        };
+        if !HANDLERS_INSTALLED.load(Ordering::Relaxed) {
+            install_handlers(aml, device)?;
+        }
+        anyhow::Ok(Some(device))
+    })
+    .await?;
+
+    let Some(device) = device else {
         return Ok(());
     };
-    if !HANDLERS_INSTALLED.load(Ordering::Relaxed) {
-        install_handlers(device)?;
-    }
+    let Some(index) = device.gpe_index.get().copied() else {
+        return Ok(());
+    };
 
-    if let Some(index) = device.gpe_index.get().copied() {
-        println!("sif: acpi: enabling EC GPE {index}");
-        if let Err(err) = handlers::enable_gpe(None, index) {
-            println!("sif: acpi: failed to enable EC GPE {index}: {err}");
-        }
+    handlers::install_gpe_handler(
+        None,
+        index,
+        uacpi_sys::UACPI_GPE_TRIGGERING_EDGE,
+        move || handle_gpe(device),
+    )
+    .await?;
+
+    println!("sif: acpi: enabling EC GPE {index}");
+    // uacpi_enable_gpe() takes the event lock, which uACPI holds while it waits for work.
+    let enabled = runtime::run(move |_aml| handlers::enable_gpe(None, index)).await;
+    if let Err(err) = enabled {
+        println!("sif: acpi: failed to enable EC GPE {index}: {err}");
     }
 
     Ok(())

@@ -1,10 +1,8 @@
 use arch::{PioAccess, PioSpace};
-use async_channel::{Receiver, Sender};
 use managarm::svrctl::hardware_access_handle;
 use std::collections::BTreeMap;
 use std::ffi::{CStr, c_void};
-use std::sync::OnceLock;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::{Duration, Instant};
 
 use lock_api::{RawMutex as _, RawMutexTimed as _};
@@ -19,6 +17,8 @@ use uacpi_sys::{
 
 use super::{PAGE_MASK, RSDP};
 use crate::pci::config;
+use crate::pio::PioWindow;
+use crate::uacpi::runtime;
 
 const UACPI_MAP_FAILED: *mut c_void = (-1isize) as *mut c_void;
 
@@ -34,40 +34,6 @@ struct Mappings {
 static MAPPINGS: Mutex<Mappings> = Mutex::new(Mappings {
     map: BTreeMap::new(),
 });
-
-struct WorkItem {
-    handler: unsafe extern "C" fn(uacpi_handle),
-    ctx: usize,
-}
-
-static WORK_QUEUE: OnceLock<(Sender<WorkItem>, Receiver<WorkItem>)> = OnceLock::new();
-
-fn work_queue() -> &'static (Sender<WorkItem>, Receiver<WorkItem>) {
-    WORK_QUEUE.get_or_init(async_channel::unbounded)
-}
-
-static WORK_WORKER_SPAWNED: AtomicBool = AtomicBool::new(false);
-
-fn drain_work() {
-    let (_, receiver) = work_queue();
-    while let Ok(item) = receiver.try_recv() {
-        unsafe { (item.handler)(item.ctx as uacpi_handle) };
-    }
-}
-
-async fn work_worker() {
-    let (_, receiver) = work_queue();
-    while let Ok(item) = receiver.recv().await {
-        unsafe { (item.handler)(item.ctx as uacpi_handle) };
-    }
-}
-
-fn spawn_work_worker() {
-    if WORK_WORKER_SPAWNED.swap(true, Ordering::AcqRel) {
-        return;
-    }
-    hel::spawn(work_worker());
-}
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn uacpi_kernel_get_rsdp(out: *mut uacpi_phys_addr) -> uacpi_status {
@@ -316,35 +282,33 @@ pub unsafe extern "C" fn uacpi_kernel_io_map(
         return uacpi_sys::UACPI_STATUS_INVALID_ARGUMENT;
     }
 
-    #[cfg(target_arch = "x86_64")]
-    {
-        let mut ports = Vec::with_capacity(len);
-        for i in 0..len {
-            ports.push(base as usize + i);
-        }
-
-        let Ok(handle) = hel::access_io(hardware_access_handle(), &ports) else {
-            return uacpi_sys::UACPI_STATUS_INVALID_ARGUMENT;
-        };
-        let Ok(()) = hel::enable_io(handle) else {
-            return uacpi_sys::UACPI_STATUS_INVALID_ARGUMENT;
-        };
-    }
-    unsafe { *out = base as uacpi_handle };
+    let base = base as usize;
+    let Ok(window) = PioWindow::new(base..base + len) else {
+        return uacpi_sys::UACPI_STATUS_INVALID_ARGUMENT;
+    };
+    unsafe { *out = Box::into_raw(Box::new(window)) as uacpi_handle };
     uacpi_sys::UACPI_STATUS_OK
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn uacpi_kernel_io_unmap(_handle: uacpi_handle) {}
+pub unsafe extern "C" fn uacpi_kernel_io_unmap(handle: uacpi_handle) {
+    drop(unsafe { Box::from_raw(handle as *mut PioWindow) });
+}
 
-/// The handle that `uacpi_kernel_io_map` hands out is the base of the mapped window.
+/// The handle that `uacpi_kernel_io_map` hands out is a leaked [`PioWindow`].
 ///
-/// The offset is named by AML, so it is checked against the port space rather than trusted.
+/// The offset is named by AML, so it is checked against the window rather than trusted.
 fn pio_space<T: PioAccess>(handle: uacpi_handle, offset: uacpi_size) -> Option<PioSpace> {
-    // uacpi_kernel_io_map rejects a base that does not fit, and enables the ports of the window.
-    let space = unsafe { PioSpace::new(handle as usize as u16) };
+    let window = unsafe { &*(handle as *const PioWindow) };
+    let fits = offset
+        .checked_add(size_of::<T>())
+        .is_some_and(|end| end <= window.len());
+    if !fits {
+        return None;
+    }
 
-    space.access_ok::<T>(offset).then_some(space)
+    // The window may have been mapped on a different thread.
+    window.enable().ok()
 }
 
 #[unsafe(no_mangle)]
@@ -450,9 +414,12 @@ pub unsafe extern "C" fn uacpi_kernel_stall(usec: uacpi_u8) {
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn uacpi_kernel_sleep(msec: uacpi_u64) {
-    hel::executor::block_on(hel::sleep_for(Duration::from_millis(msec)))
-        .flatten()
-        .unwrap();
+    // AML only sleeps on AML threads, which may block.
+    assert!(
+        runtime::on_aml_thread(),
+        "sif: uacpi: AML slept outside of an AML thread"
+    );
+    std::thread::sleep(Duration::from_millis(msec));
 }
 
 #[unsafe(no_mangle)]
@@ -559,7 +526,10 @@ pub unsafe extern "C" fn uacpi_kernel_reset_event(handle: uacpi_handle) {
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn uacpi_kernel_get_thread_id() -> uacpi_thread_id {
-    1usize as uacpi_thread_id
+    // AML mutexes are owned by threads, hence every thread needs an ID of its own.
+    static NEXT_ID: AtomicUsize = AtomicUsize::new(1);
+    std::thread_local!(static ID: usize = NEXT_ID.fetch_add(1, Ordering::Relaxed));
+    ID.with(|id| *id) as uacpi_thread_id
 }
 
 #[unsafe(no_mangle)]
@@ -598,28 +568,23 @@ pub unsafe extern "C" fn uacpi_kernel_unlock_spinlock(
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn uacpi_kernel_schedule_work(
-    _type: uacpi_work_type,
+    work_type: uacpi_work_type,
     handler: uacpi_work_handler,
     ctx: uacpi_handle,
 ) -> uacpi_status {
     if let Some(handler) = handler {
-        let (sender, _) = work_queue();
-        if let Err(err) = sender.try_send(WorkItem {
-            handler,
-            ctx: ctx as usize,
-        }) {
-            println!("sif: uacpi: failed to queue work: {err}");
-        }
+        let ctx = ctx as usize;
+        runtime::schedule_work(work_type, move |_aml| unsafe {
+            handler(ctx as uacpi_handle)
+        });
     }
-
-    spawn_work_worker();
 
     uacpi_sys::UACPI_STATUS_OK
 }
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn uacpi_kernel_wait_for_work_completion() -> uacpi_status {
-    drain_work();
+    runtime::wait_for_work_completion();
     uacpi_sys::UACPI_STATUS_OK
 }
 
@@ -637,11 +602,8 @@ fn resolve_irq(irq: uacpi_u32) -> Option<&'static crate::irq::IrqPin> {
     }
 }
 
-async fn run_interrupt_handler(
-    irq: hel::Handle,
-    handler: uacpi_interrupt_handler,
-    ctx: uacpi_handle,
-) {
+async fn run_interrupt_handler(irq: hel::Handle, handler: uacpi_interrupt_handler, ctx: usize) {
+    let ctx = ctx as uacpi_handle;
     if let Err(err) = hel::acknowledge_irq(&irq, hel_sys::kHelAckKick, 0) {
         println!("sif: acpi: failed to kick an IRQ: {err}");
     }
@@ -708,7 +670,8 @@ pub unsafe extern "C" fn uacpi_kernel_install_interrupt_handler(
         pin.name()
     );
 
-    hel::spawn(run_interrupt_handler(object, handler, ctx));
+    let ctx = ctx as usize;
+    runtime::spawn_interrupt_task(move || run_interrupt_handler(object, handler, ctx));
 
     uacpi_sys::UACPI_STATUS_OK
 }

@@ -7,9 +7,10 @@ pub mod ps2;
 
 use std::sync::atomic::{AtomicU64, Ordering};
 
-use anyhow::{Result, anyhow};
+use anyhow::Result;
 
-use uacpi_sys::uacpi_status;
+use crate::uacpi::init;
+use crate::uacpi::runtime::Aml;
 
 pub(crate) const PAGE_SIZE: usize = 0x1000;
 pub(crate) const PAGE_MASK: usize = PAGE_SIZE - 1;
@@ -53,15 +54,7 @@ pub fn configure_log_level(cmdline: &str) {
         return;
     };
 
-    unsafe { uacpi_sys::uacpi_context_set_log_level(level) };
-}
-
-fn check(status: uacpi_status, what: &str) -> Result<()> {
-    if status == uacpi_sys::UACPI_STATUS_OK {
-        Ok(())
-    } else {
-        Err(anyhow!("{what} failed: uacpi status {status:?}"))
-    }
+    init::context_set_log_level(level);
 }
 
 /// The _OSI feature strings that we answer to, which are the ones that Linux advertises.
@@ -77,29 +70,18 @@ const HOST_INTERFACES: &[uacpi_sys::uacpi_host_interface] = &[
     uacpi_sys::UACPI_HOST_INTERFACE_PROCESSOR_AGGREGATOR_DEVICE,
 ];
 
-pub fn uacpi_init() -> Result<()> {
-    unsafe {
-        check(uacpi_sys::uacpi_initialize(0), "uacpi_initialize")?;
-        for &interface in HOST_INTERFACES {
-            check(
-                uacpi_sys::uacpi_enable_host_interface(interface),
-                "uacpi_enable_host_interface",
-            )?;
-        }
-        crate::pci::config::discover_config_spaces()?;
-        check(uacpi_sys::uacpi_namespace_load(), "uacpi_namespace_load")?;
-        check(
-            uacpi_sys::uacpi_set_interrupt_model(INTERRUPT_MODEL),
-            "uacpi_set_interrupt_model",
-        )?;
-        if let Err(err) = ec::init() {
-            println!("sif: acpi: failed to initialize the EC: {err}");
-        }
-        check(
-            uacpi_sys::uacpi_namespace_initialize(),
-            "uacpi_namespace_initialize",
-        )?;
+pub fn uacpi_init(aml: Aml) -> Result<()> {
+    init::initialize()?;
+    for &interface in HOST_INTERFACES {
+        init::enable_host_interface(interface)?;
     }
+    crate::pci::config::discover_config_spaces()?;
+    init::namespace_load(aml)?;
+    init::set_interrupt_model(aml, INTERRUPT_MODEL)?;
+    if let Err(err) = ec::init(aml) {
+        println!("sif: acpi: failed to initialize the EC: {err}");
+    }
+    init::namespace_initialize(aml)?;
 
     Ok(())
 }

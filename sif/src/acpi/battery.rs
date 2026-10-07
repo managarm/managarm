@@ -8,16 +8,16 @@ use anyhow::Result;
 use event_listener::Event;
 use managarm::hw::server::{Battery, BatteryState as HwBatteryState, serve_battery};
 use managarm::mbus::create_entity;
-use uacpi_sys::{uacpi_handle, uacpi_u64};
 
 use crate::acpi::object;
 use crate::entity::{decimal, serve_entity_lanes, string};
 use crate::leak;
 use crate::uacpi::handlers;
 use crate::uacpi::namespace::{self, IterationDecision, NamespaceNode};
+use crate::uacpi::runtime::{self, Aml};
 
 const HID_BATTERY: &CStr = c"PNP0C0A";
-const EXPECT_LOCK: &str = "sif: battery state mutex was poisoned";
+const EXPECT_LOCK: &str = "sif: battery mutex was poisoned";
 const UNKNOWN: u64 = 0xFFFFFFFF;
 
 mod bif {
@@ -59,7 +59,7 @@ fn milliwatthours(units: PowerUnit, capacity: u32, voltage: Option<u32>) -> Opti
     }
 }
 
-#[derive(Default)]
+#[derive(Clone, Default)]
 struct BatteryState {
     units: Option<PowerUnit>,
 
@@ -75,15 +75,21 @@ struct BatteryState {
 }
 
 impl BatteryState {
-    fn update_bif(&mut self, node: NamespaceNode) -> Result<()> {
-        let bif = match node.eval_package(c"_BIF") {
+    fn update_bif(&mut self, aml: Aml, node: NamespaceNode) {
+        let bif = match node.eval_package(aml, c"_BIF") {
             Ok(bif) => bif,
             Err(err) => {
                 println!("sif: acpi: battery _BIF error: {err}");
-                return Ok(());
+                return;
             }
         };
-        let bif = bif.package()?;
+        let bif = match bif.package() {
+            Ok(bif) => bif,
+            Err(err) => {
+                println!("sif: acpi: battery _BIF error: {err}");
+                return;
+            }
+        };
 
         self.units = bif.integer(0).and_then(PowerUnit::from_acpi);
 
@@ -106,19 +112,23 @@ impl BatteryState {
                 }
                 _ => None,
             };
-
-        Ok(())
     }
 
-    fn update_bst(&mut self, node: NamespaceNode) -> Result<()> {
-        let bst = match node.eval_package(c"_BST") {
+    fn update_bst(&mut self, aml: Aml, node: NamespaceNode) {
+        let bst = match node.eval_package(aml, c"_BST") {
             Ok(bst) => bst,
             Err(err) => {
                 println!("sif: acpi: battery _BST error: {err}");
-                return Ok(());
+                return;
             }
         };
-        let bst = bst.package()?;
+        let bst = match bst.package() {
+            Ok(bst) => bst,
+            Err(err) => {
+                println!("sif: acpi: battery _BST error: {err}");
+                return;
+            }
+        };
 
         if let Some(state) = bst.integer(0) {
             if state & bst::state::DISCHARGING != 0 {
@@ -163,13 +173,11 @@ impl BatteryState {
             (Some(units), Some(capacity)) => milliwatthours(units, capacity as u32, self.voltage),
             _ => None,
         };
-
-        Ok(())
     }
 
-    fn update(&mut self, node: NamespaceNode) -> Result<()> {
-        self.update_bif(node)?;
-        self.update_bst(node)
+    fn update(&mut self, aml: Aml, node: NamespaceNode) {
+        self.update_bif(aml, node);
+        self.update_bst(aml, node);
     }
 
     fn to_protocol(&self) -> HwBatteryState {
@@ -192,6 +200,8 @@ struct BatteryObject {
     id: usize,
     node: NamespaceNode,
     state: Mutex<BatteryState>,
+    // Serializes the updates of the acpi and acpi-notify threads, across their AML.
+    updating: Mutex<()>,
     event: Event,
 }
 
@@ -201,16 +211,16 @@ impl BatteryObject {
             id,
             node,
             state: Mutex::new(BatteryState::default()),
+            updating: Mutex::new(()),
             event: Event::new(),
         }
     }
 
-    fn update(&self) {
-        let mut state = self.state.lock().expect(EXPECT_LOCK);
-        if let Err(err) = state.update(self.node) {
-            println!("sif: acpi: battery {} update failed: {err}", self.id);
-            return;
-        }
+    fn update(&self, aml: Aml) {
+        let _updating = self.updating.lock().expect(EXPECT_LOCK);
+        // AML can take long, hence do not hold the lock that serving the battery takes.
+        let mut state = self.state.lock().expect(EXPECT_LOCK).clone();
+        state.update(aml, self.node);
 
         println!(
             "sif: acpi: battery {}: {}, {:?} of {:?} mWh at {:?} mV, {:?} mW",
@@ -225,6 +235,7 @@ impl BatteryObject {
             state.voltage,
             state.rate_milliwatt,
         );
+        *self.state.lock().expect(EXPECT_LOCK) = state;
     }
 }
 
@@ -237,28 +248,28 @@ impl Battery for BatteryObject {
     }
 }
 
-unsafe extern "C" fn notification(
-    context: uacpi_handle,
-    _node: *mut uacpi_sys::uacpi_namespace_node,
-    value: uacpi_u64,
-) -> uacpi_sys::uacpi_status {
-    let battery = unsafe { &*(context as *const BatteryObject) };
+fn notification(aml: Aml, battery: &BatteryObject, value: u64) {
     println!(
         "sif: acpi: battery {} received AML Notify({value})",
         battery.id
     );
 
-    battery.update();
+    battery.update(aml);
     battery.event.notify(usize::MAX);
-
-    uacpi_sys::UACPI_STATUS_OK
 }
 
 async fn publish_battery(node: NamespaceNode, id: usize) -> Result<()> {
-    // sif's tasks are not Send, but neither are the objects that they serve.
-    #[allow(clippy::arc_with_non_send_sync)]
     let battery = Arc::new(BatteryObject::new(node, id));
-    battery.update();
+
+    // Install the handler first, such that no Notify() goes unseen after the initial update.
+    let notified = Arc::clone(&battery);
+    handlers::install_notify_handler(node, move |aml, _node, value| {
+        notification(aml, &notified, value)
+    })
+    .await?;
+
+    let updated = Arc::clone(&battery);
+    runtime::run(move |aml| updated.update(aml)).await;
 
     let parent = object::publish(node, id).await?;
 
@@ -267,14 +278,6 @@ async fn publish_battery(node: NamespaceNode, id: usize) -> Result<()> {
     props.insert("power_supply.type".into(), string("battery"));
     props.insert("power_supply.id".into(), string(&id.to_string()));
     props.insert("drvcore.mbus-parent".into(), decimal(parent.id()));
-
-    // We need to leak because uACPI keeps the handler forever.
-    let context: &'static Arc<BatteryObject> = leak(Arc::clone(&battery));
-    handlers::install_notify_handler(
-        node,
-        Some(notification),
-        Arc::as_ptr(context) as uacpi_handle,
-    )?;
 
     println!("sif: acpi: publishing battery {id}");
     let manager = leak(create_entity("battery", &props).await?);
@@ -285,9 +288,9 @@ async fn publish_battery(node: NamespaceNode, id: usize) -> Result<()> {
     Ok(())
 }
 
-pub async fn publish() -> Result<()> {
+fn find_batteries(aml: Aml) -> Result<Vec<NamespaceNode>> {
     let mut nodes = Vec::new();
-    namespace::find_devices_at(NamespaceNode::root(), &[HID_BATTERY], |node| {
+    namespace::find_devices_at(aml, NamespaceNode::root(), &[HID_BATTERY], |node| {
         if node.find(c"_BIF").ok().flatten().is_some()
             && node.find(c"_BST").ok().flatten().is_some()
         {
@@ -295,6 +298,11 @@ pub async fn publish() -> Result<()> {
         }
         IterationDecision::Continue
     })?;
+    Ok(nodes)
+}
+
+pub async fn publish() -> Result<()> {
+    let nodes = runtime::run(find_batteries).await?;
 
     let count = nodes.len();
     for (id, node) in nodes.into_iter().enumerate() {

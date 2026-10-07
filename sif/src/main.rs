@@ -8,7 +8,10 @@ mod irq;
 #[cfg(target_arch = "x86_64")]
 mod isa;
 mod pci;
+mod pio;
 mod uacpi;
+
+use uacpi::runtime;
 
 pub(crate) fn leak<T>(value: T) -> &'static T {
     Box::leak(Box::new(value))
@@ -38,7 +41,7 @@ fn main() -> Result<()> {
         if rsdp != 0 {
             acpi::set_rsdp(rsdp);
             acpi::configure_log_level(&cmdline);
-            acpi::uacpi_init()?;
+            runtime::run(acpi::uacpi_init).await?;
 
             println!("sif: uACPI initialized");
 
@@ -46,12 +49,14 @@ fn main() -> Result<()> {
             #[cfg(target_arch = "x86_64")]
             isa::configure_isa_irqs();
 
-            if let Err(err) = acpi::ec::init_events() {
+            if let Err(err) = acpi::ec::init_events().await {
                 println!("sif: acpi: failed to initialize EC events: {err}");
             }
         }
 
         pci::publish_devices().await?;
+        // Only PCI enumeration blocks on AML.
+        runtime::forbid_run_blocking();
 
         println!("sif: published PCI devices");
 

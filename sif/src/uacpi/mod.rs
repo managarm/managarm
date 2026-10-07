@@ -2,13 +2,18 @@
 //!
 //! Wrappers are named after the uacpi_*() functions that they wrap. To keep this module
 //! extractable into a crate of its own, it must not depend on the rest of sif.
+//!
+//! All AML runs through this module: code outside of it must not call uacpi_*() functions
+//! directly. Wrappers that may run AML take a [`runtime::Aml`] token, see [`runtime`].
 
 pub mod handlers;
+pub mod init;
 pub mod io;
 pub mod namespace;
 pub mod object;
 pub mod pci;
 pub mod resources;
+pub mod runtime;
 pub mod table;
 
 use std::borrow::Cow;
