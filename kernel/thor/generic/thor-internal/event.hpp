@@ -1,12 +1,18 @@
 #pragma once
 
+#include <atomic>
 #include <expected>
 
 #include <async/cancellation.hpp>
+#include <async/recurring-event.hpp>
+#include <frg/expected.hpp>
 #include <frg/list.hpp>
+#include <frg/tuple.hpp>
 #include <smarter.hpp>
+#include <thor-internal/coroutine.hpp>
 #include <thor-internal/error.hpp>
 #include <thor-internal/rcu-base.hpp>
+#include <thor-internal/universe.hpp>
 #include <thor-internal/work-queue.hpp>
 
 namespace thor {
@@ -249,6 +255,52 @@ private:
 			&AwaitEventNode<BitsetEvent>::_queueNode
 		>
 	> _waitQueue;
+};
+
+// Event that counts how often it was raised.
+// The wait capability and the raise capability refer to different ends (i.e., peers)
+// of the event such that each side notices when the other side is gone.
+// Memory ordering: if awaitEvent() returns n, everything that happened before the raise()
+// calls that produced sequence numbers 1 to n happens before awaitEvent() returns.
+// If it fails with endOfLane, the same holds for all raises.
+struct SequencedEvent final : RcuProtected, TwoPeerObject {
+private:
+	struct CtorToken {};
+
+public:
+	static constexpr int waitEnd = 0;
+	static constexpr int raiseEnd = 1;
+
+	// Returns the wait capability and the raise capability (in this order).
+	static std::expected<
+		frg::tuple<
+			smarter::shared_ptr<SequencedEvent, TwoPeerPolicy>,
+			smarter::shared_ptr<SequencedEvent, TwoPeerPolicy>
+		>,
+		Error
+	> create();
+
+	SequencedEvent(CtorToken) { }
+
+	// Number of times that the event was raised so far.
+	uint64_t sequence();
+
+	// Fails with endOfLane if the wait end is gone.
+	std::expected<void, Error> raise();
+
+	// Completes with the current sequence number once it exceeds the given one.
+	// Fails with endOfLane if that cannot happen anymore since the raise end is gone.
+	coroutine<frg::expected<Error, uint64_t>> awaitEvent(uint64_t sequence,
+			async::cancellation_token cancelToken);
+
+private:
+	// Called after the counter of an end reached zero.
+	void onPeersZero(int end) override;
+
+	std::atomic<uint64_t> sequence_{0};
+	std::atomic<bool> endGone_[2] = {false, false};
+
+	async::recurring_event event_;
 };
 
 } // namespace thor

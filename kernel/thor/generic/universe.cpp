@@ -41,31 +41,6 @@ AnyDescriptor AnyDescriptor::make<DescriptorType::addressSpace>(
 	return descriptor;
 }
 
-template<>
-AnyDescriptor AnyDescriptor::make<DescriptorType::lane>(
-		smarter::shared_ptr<Stream, LanePolicy> ptr, uint32_t rights) {
-	static_assert(IsRcuProtected<Stream>);
-	assert(ptr);
-
-	AnyDescriptor descriptor;
-	descriptor.type_ = DescriptorType::lane;
-	auto stream = ptr.get();
-	descriptor.extra_ = static_cast<uint8_t>(laneOf(ptr));
-	descriptor.rights_ = rights;
-	descriptor.object_ = stream;
-	descriptor.ctr_ = &stream->peerCounter(static_cast<int>(descriptor.extra_));
-	ptr.release();
-	return descriptor;
-}
-
-template<>
-smarter::shared_ptr<Stream, LanePolicy>
-AnyDescriptor::adopt_<DescriptorType::lane>(void *object, uint8_t extra, smarter::counter *) {
-	auto stream = static_cast<Stream *>(object);
-	auto lane = static_cast<int>(extra);
-	return adoptLane(stream->selfPtr, lane);
-}
-
 void AnyDescriptor::releaseOnZero_() {
 	switch(type_) {
 	case DescriptorType::thread: {
@@ -80,10 +55,9 @@ void AnyDescriptor::releaseOnZero_() {
 		space->selfPtr.policy().decrement();
 		break;
 	}
-	case DescriptorType::lane: {
-		auto stream = static_cast<Stream *>(object_);
-		Stream::onPeersZero(stream, static_cast<int>(extra_));
-		stream->selfPtr.policy().decrement();
+	case DescriptorType::lane:
+	case DescriptorType::sequencedEvent: {
+		static_cast<TwoPeerObject *>(object_)->handlePeersZero(static_cast<int>(extra_));
 		break;
 	}
 	default: {

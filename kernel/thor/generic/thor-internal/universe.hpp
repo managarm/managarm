@@ -6,6 +6,7 @@
 #include <type_traits>
 #include <utility>
 #include <frg/optional.hpp>
+#include <frg/tuple.hpp>
 #include <assert.h>
 #include <smarter.hpp>
 #include <thor-internal/error.hpp>
@@ -36,10 +37,107 @@ struct IrqPin;
 struct IrqObject;
 struct OneshotEvent;
 struct BitsetEvent;
+struct SequencedEvent;
 struct Hierarchy;
 
 inline bool checkRights(uint32_t rights, uint32_t requiredRights) {
 	return (rights & requiredRights) == requiredRights;
+}
+
+// --------------------------------------------------------
+// Objects with two peers.
+// --------------------------------------------------------
+
+struct TwoPeerPolicy;
+
+// Base for objects that have two separately counted peers (e.g., the two lanes of a stream)
+// such that each peer notices when the other one is gone.
+// Handles to a peer use TwoPeerPolicy, i.e., they manipulate the peer's counter.
+struct TwoPeerObject {
+	// Takes over the reference to the object and returns handles to both peers (in order).
+	template<typename T>
+	static frg::tuple<
+		smarter::shared_ptr<T, TwoPeerPolicy>,
+		smarter::shared_ptr<T, TwoPeerPolicy>
+	> adoptPeers(smarter::shared_ptr<T> object);
+
+	smarter::counter &peerCounter(int peer) {
+		return peerCount_[peer];
+	}
+
+	// Called after the counter of a peer reached zero.
+	// Drops the reference that the peer holds on the object.
+	void handlePeersZero(int peer) {
+		onPeersZero(peer);
+		objectRef_.decrement();
+	}
+
+protected:
+	TwoPeerObject() {
+		peerCount_[0].setup(smarter::adopt_rc, 1);
+		peerCount_[1].setup(smarter::adopt_rc, 1);
+	}
+
+	~TwoPeerObject() = default;
+
+	virtual void onPeersZero(int peer) = 0;
+
+private:
+	smarter::counter peerCount_[2];
+	// Each peer holds a reference to the object through this policy.
+	smarter::default_rc_policy objectRef_;
+};
+
+// Refcount policy for smarter::shared_ptr.
+// A handle is a TwoPeerObject pointer plus the peer that it refers to.
+// The refcount that it manipulates is the peer's counter.
+struct TwoPeerPolicy {
+	TwoPeerPolicy() = default;
+
+	TwoPeerPolicy(TwoPeerObject *object, int peer)
+	: object_{object}, peer_{peer} { }
+
+	explicit operator bool () const {
+		return object_;
+	}
+
+	void increment() const {
+		object_->peerCounter(peer_).increment();
+	}
+
+	void decrement() const {
+		if(object_->peerCounter(peer_).decrement_and_check_if_zero())
+			object_->handlePeersZero(peer_);
+	}
+
+	TwoPeerObject *object() const {
+		return object_;
+	}
+
+	int peer() const {
+		return peer_;
+	}
+
+private:
+	TwoPeerObject *object_ = nullptr;
+	int peer_ = -1;
+};
+static_assert(smarter::rc_policy<TwoPeerPolicy>);
+
+template<typename T>
+frg::tuple<
+	smarter::shared_ptr<T, TwoPeerPolicy>,
+	smarter::shared_ptr<T, TwoPeerPolicy>
+> TwoPeerObject::adoptPeers(smarter::shared_ptr<T> object) {
+	T *ptr = object.get();
+	TwoPeerObject *base = ptr;
+	base->objectRef_ = object.policy();
+	base->objectRef_.increment();
+	object.release();
+	return frg::make_tuple(
+		smarter::shared_ptr<T, TwoPeerPolicy>{smarter::adopt_rc, ptr, TwoPeerPolicy{ptr, 0}},
+		smarter::shared_ptr<T, TwoPeerPolicy>{smarter::adopt_rc, ptr, TwoPeerPolicy{ptr, 1}}
+	);
 }
 
 // --------------------------------------------------------
@@ -49,46 +147,11 @@ inline bool checkRights(uint32_t rights, uint32_t requiredRights) {
 struct StreamControl;
 struct Stream;
 
-// Refcount policy for smarter::shared_ptr.
-// A lane handle is a Stream pointer plus a lane index.
-// The refcount that it manipulates is the lane's peer counter.
-struct LanePolicy {
-	LanePolicy() = default;
-
-	LanePolicy(Stream *stream, int lane)
-	: stream_{stream}, lane_{lane} { }
-
-	explicit operator bool () const {
-		return stream_;
-	}
-
-	void increment() const;
-	void decrement() const;
-
-	Stream *stream() const {
-		return stream_;
-	}
-
-	int lane() const {
-		return lane_;
-	}
-
-private:
-	Stream *stream_ = nullptr;
-	int lane_ = -1;
-};
-static_assert(smarter::rc_policy<LanePolicy>);
-
-// Constructs a lane handle that adopts an existing peer reference on the stream.
-inline smarter::shared_ptr<Stream, LanePolicy> adoptLane(
-		smarter::borrowed_ptr<Stream> stream, int lane) {
-	return smarter::shared_ptr<Stream, LanePolicy>{
-			smarter::adopt_rc, stream.get(), LanePolicy{stream.get(), lane}};
-}
+using LanePolicy = TwoPeerPolicy;
 
 // Extracts the numeric lane index of a lane handle.
 inline int laneOf(const smarter::shared_ptr<Stream, LanePolicy> &lane) {
-	return lane.policy().lane();
+	return lane.policy().peer();
 }
 
 // --------------------------------------------------------
@@ -114,6 +177,7 @@ enum class DescriptorType : uint8_t {
 	irq,
 	oneshotEvent,
 	bitsetEvent,
+	sequencedEvent,
 	io,
 	kernletObject,
 	boundKernlet,
@@ -229,6 +293,12 @@ template<>
 struct DescriptorTraits<DescriptorType::bitsetEvent> {
 	using Object = BitsetEvent;
 	using Policy = smarter::default_rc_policy;
+};
+
+template<>
+struct DescriptorTraits<DescriptorType::sequencedEvent> {
+	using Object = SequencedEvent;
+	using Policy = TwoPeerPolicy;
 };
 
 template<>
@@ -363,10 +433,12 @@ private:
 	DescriptorType type_ = DescriptorType::none;
 	// Extra per-descriptor data for some descriptor types.
 	// - For lane descriptors: the lane index.
+	// - For sequenced event descriptors: waitEnd or raiseEnd.
 	uint8_t extra_ = 0;
 	// Rights associated with the descriptor.
 	uint32_t rights_ = 0;
 	// Invariant: object_ is non-null if type_ != DescriptorType::none.
+	// For descriptor types that use TwoPeerPolicy, this is a TwoPeerObject pointer.
 	void *object_ = nullptr;
 	// Invariant: ctr_ is non-null if type_ != DescriptorType::none.
 	smarter::counter *ctr_ = nullptr;
@@ -374,7 +446,9 @@ private:
 
 template<DescriptorType K>
 AnyDescriptor AnyDescriptor::make(DescriptorPointer<K> ptr, uint32_t rights) {
-	static_assert(std::same_as<typename DescriptorTraits<K>::Policy, smarter::default_rc_policy>);
+	using Policy = typename DescriptorTraits<K>::Policy;
+	static_assert(std::same_as<Policy, smarter::default_rc_policy>
+			|| std::same_as<Policy, TwoPeerPolicy>);
 	// AnyDescriptor may be stored in RCU protected data structures (e.g., Universe).
 	// Hence, the objects that we store (and their refcount control blocks) must also be RCU protected.
 	static_assert(IsRcuProtected<typename DescriptorTraits<K>::Object>);
@@ -383,8 +457,16 @@ AnyDescriptor AnyDescriptor::make(DescriptorPointer<K> ptr, uint32_t rights) {
 	AnyDescriptor descriptor;
 	descriptor.type_ = K;
 	descriptor.rights_ = rights;
-	descriptor.object_ = ptr.get();
-	descriptor.ctr_ = &ptr.policy().base()->ctr();
+	if constexpr (std::same_as<Policy, TwoPeerPolicy>) {
+		auto object = ptr.policy().object();
+		auto peer = ptr.policy().peer();
+		descriptor.extra_ = static_cast<uint8_t>(peer);
+		descriptor.object_ = object;
+		descriptor.ctr_ = &object->peerCounter(peer);
+	} else {
+		descriptor.object_ = ptr.get();
+		descriptor.ctr_ = &ptr.policy().base()->ctr();
+	}
 	ptr.release();
 	return descriptor;
 }
@@ -397,20 +479,26 @@ template<>
 AnyDescriptor AnyDescriptor::make<DescriptorType::addressSpace>(
 		smarter::shared_ptr<AddressSpace, BindableHandle> ptr, uint32_t rights);
 
-template<>
-AnyDescriptor AnyDescriptor::make<DescriptorType::lane>(
-		smarter::shared_ptr<Stream, LanePolicy> ptr, uint32_t rights);
-
 template<DescriptorType K>
-DescriptorPointer<K> AnyDescriptor::adopt_(void *object, uint8_t, smarter::counter *ctr) {
-	static_assert(std::same_as<typename DescriptorTraits<K>::Policy, smarter::default_rc_policy>);
+DescriptorPointer<K> AnyDescriptor::adopt_(void *object, uint8_t extra, smarter::counter *ctr) {
+	using Policy = typename DescriptorTraits<K>::Policy;
 	using ObjectType = typename DescriptorTraits<K>::Object;
 
-	return smarter::shared_ptr<ObjectType>{
-		smarter::adopt_rc,
-		static_cast<ObjectType *>(object),
-		smarter::default_rc_policy{smarter::meta_object_base::from_ctr(ctr)}
-	};
+	if constexpr (std::same_as<Policy, TwoPeerPolicy>) {
+		auto base = static_cast<TwoPeerObject *>(object);
+		return DescriptorPointer<K>{
+			smarter::adopt_rc,
+			static_cast<ObjectType *>(base),
+			TwoPeerPolicy{base, static_cast<int>(extra)}
+		};
+	} else {
+		static_assert(std::same_as<Policy, smarter::default_rc_policy>);
+		return smarter::shared_ptr<ObjectType>{
+			smarter::adopt_rc,
+			static_cast<ObjectType *>(object),
+			smarter::default_rc_policy{smarter::meta_object_base::from_ctr(ctr)}
+		};
+	}
 }
 
 template<>
@@ -430,10 +518,6 @@ AnyDescriptor::adopt_<DescriptorType::addressSpace>(void *object, uint8_t, smart
 		smarter::adopt_rc, space, BindableHandle{space}
 	};
 }
-
-template<>
-smarter::shared_ptr<Stream, LanePolicy>
-AnyDescriptor::adopt_<DescriptorType::lane>(void *object, uint8_t extra, smarter::counter *ctr);
 
 // --------------------------------------------------------
 // DescriptorView

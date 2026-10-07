@@ -407,6 +407,16 @@ extern inline __attribute__ (( always_inline )) HelError helCreateBitsetEvent(He
 	return error;
 };
 
+extern inline __attribute__ (( always_inline )) HelError helCreateSequencedEvent(
+		HelHandle *waitHandle, HelHandle *raiseHandle) {
+	HelWord out_wait;
+	HelWord out_raise;
+	HelError error = helSyscall0_2(kHelCallCreateSequencedEvent, &out_wait, &out_raise);
+	*waitHandle = (HelHandle)out_wait;
+	*raiseHandle = (HelHandle)out_raise;
+	return error;
+};
+
 extern inline __attribute__ (( always_inline )) HelError helRaiseEvent(HelHandle handle) {
 	return helSyscall1(kHelCallRaiseEvent, (HelWord)handle);
 };

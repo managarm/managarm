@@ -3934,17 +3934,63 @@ HelError helCreateBitsetEvent(HelHandle *handle) {
 	return kHelErrNone;
 }
 
+HelError helCreateSequencedEvent(HelHandle *waitHandle, HelHandle *raiseHandle) {
+	auto this_thread = getCurrentThread();
+	auto this_universe = this_thread->getUniverse();
+
+	auto endsOutcome = SequencedEvent::create();
+	if(!endsOutcome)
+		return translateError(endsOutcome.error());
+
+	*waitHandle = this_universe->attachDescriptor(
+			AnyDescriptor::make<DescriptorType::sequencedEvent>(
+					std::move(endsOutcome->get<0>()), kHelRightWait));
+	*raiseHandle = this_universe->attachDescriptor(
+			AnyDescriptor::make<DescriptorType::sequencedEvent>(
+					std::move(endsOutcome->get<1>()), kHelRightSignal));
+
+	return kHelErrNone;
+}
+
 HelError helRaiseEvent(HelHandle handle) {
 	auto this_thread = getCurrentThread();
 	auto this_universe = this_thread->getUniverse();
 
-	auto eventOutcome = this_universe->resolveObject<DescriptorType::oneshotEvent>(handle, kHelRightSignal);
-	if(!eventOutcome)
-		return translateError(eventOutcome.error());
+	smarter::shared_ptr<OneshotEvent> oneshotEvent;
+	smarter::shared_ptr<SequencedEvent, TwoPeerPolicy> sequencedEvent;
+	auto resolveOutcome = this_universe->inspectDescriptor(handle,
+			[&](const DescriptorView &desc) -> std::expected<void, Error> {
+		if(desc.is<DescriptorType::oneshotEvent>()) {
+			auto eventOutcome = desc.resolveObject<DescriptorType::oneshotEvent>(kHelRightSignal);
+			if(!eventOutcome)
+				return std::unexpected{eventOutcome.error()};
+			oneshotEvent = std::move(*eventOutcome);
+		}else if(desc.is<DescriptorType::sequencedEvent>()) {
+			auto eventOutcome = desc.resolveObject<DescriptorType::sequencedEvent>(kHelRightSignal);
+			if(!eventOutcome)
+				return std::unexpected{eventOutcome.error()};
+			sequencedEvent = std::move(*eventOutcome);
+		}else{
+			return std::unexpected{Error::badDescriptor};
+		}
+		return {};
+	});
+	if(!resolveOutcome)
+		return translateError(resolveOutcome.error());
 
-	auto outcome = (*eventOutcome)->trigger();
-	if(!outcome)
-		return translateError(outcome.error());
+	if(sequencedEvent) {
+		// Only the raise capability ever has kHelRightSignal.
+		assert(sequencedEvent.policy().peer() == SequencedEvent::raiseEnd);
+
+		auto outcome = sequencedEvent->raise();
+		if(!outcome)
+			return translateError(outcome.error());
+	}else{
+		assert(oneshotEvent);
+		auto outcome = oneshotEvent->trigger();
+		if(!outcome)
+			return translateError(outcome.error());
+	}
 
 	return kHelErrNone;
 }
@@ -4132,6 +4178,7 @@ HelError doSubmitAwaitEvent(HelHandle handle, smarter::shared_ptr<IpcQueue> queu
 	smarter::shared_ptr<IrqObject> irq;
 	smarter::shared_ptr<OneshotEvent> oneshotEvent;
 	smarter::shared_ptr<BitsetEvent> bitsetEvent;
+	smarter::shared_ptr<SequencedEvent, TwoPeerPolicy> sequencedEvent;
 	auto outcome = this_universe->inspectDescriptor(handle,
 			[&](const DescriptorView &desc) -> std::expected<void, Error> {
 		if(desc.is<DescriptorType::irq>()) {
@@ -4149,6 +4196,11 @@ HelError doSubmitAwaitEvent(HelHandle handle, smarter::shared_ptr<IpcQueue> queu
 			if(!eventOutcome)
 				return std::unexpected{eventOutcome.error()};
 			bitsetEvent = std::move(*eventOutcome);
+		}else if(desc.is<DescriptorType::sequencedEvent>()) {
+			auto eventOutcome = desc.resolveObject<DescriptorType::sequencedEvent>(kHelRightWait);
+			if(!eventOutcome)
+				return std::unexpected{eventOutcome.error()};
+			sequencedEvent = std::move(*eventOutcome);
 		}else{
 			return std::unexpected{Error::badDescriptor};
 		}
@@ -4200,6 +4252,32 @@ HelError doSubmitAwaitEvent(HelHandle handle, smarter::shared_ptr<IpcQueue> queu
 			QueueSource ipcSource{&helResult, sizeof(HelEventResult), nullptr};
 			co_await queue->submit(&ipcSource, context);
 		}(std::move(oneshotEvent), sequence, std::move(queue), context, std::move(cg),
+				enable_detached_coroutine{this_thread->mainWorkQueue().lock()});
+	}else if(sequencedEvent) {
+		// Only the wait capability ever has kHelRightWait.
+		assert(sequencedEvent.policy().peer() == SequencedEvent::waitEnd);
+
+		[](smarter::shared_ptr<SequencedEvent, TwoPeerPolicy> event, uint64_t sequence,
+				smarter::shared_ptr<IpcQueue> queue, uintptr_t context,
+				CancelGuard cg,
+				enable_detached_coroutine) -> void {
+			auto result = co_await event->awaitEvent(sequence, cg.token());
+
+			queue->unregisterTag(std::move(cg));
+
+			HelEventResult helResult{
+				.error = kHelErrNone,
+				.bitset = 0,
+				.sequence = 0,
+			};
+			if(result) {
+				helResult.sequence = result.value();
+			} else {
+				helResult.error = translateError(result.error());
+			}
+			QueueSource ipcSource{&helResult, sizeof(HelEventResult), nullptr};
+			co_await queue->submit(&ipcSource, context);
+		}(std::move(sequencedEvent), sequence, std::move(queue), context, std::move(cg),
 				enable_detached_coroutine{this_thread->mainWorkQueue().lock()});
 	}else{
 		assert(bitsetEvent);
