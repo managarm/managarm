@@ -7,7 +7,7 @@ use uacpi_sys::acpi_ecdt;
 
 use crate::leak;
 use crate::uacpi::handlers::{self, RegionError, RegionOp, RegionRw};
-use crate::uacpi::io::Gas;
+use crate::uacpi::io::{Gas, MappedGas};
 use crate::uacpi::namespace::{self, IterationDecision, NamespaceNode};
 use crate::uacpi::resources::Resource;
 use crate::uacpi::runtime::{self, Aml, AmlThread};
@@ -32,36 +32,37 @@ const EXPECT_LOCK: &str = "sif: EC transaction mutex was poisoned";
 
 struct EcDevice {
     node: NamespaceNode,
-    control: Gas,
-    data: Gas,
+    control: MappedGas,
+    data: MappedGas,
     gpe_index: OnceLock<u16>,
     // A transaction consists of several register accesses that must not interleave.
     transaction: Mutex<()>,
 }
 
 impl EcDevice {
-    fn new(node: NamespaceNode, control: Gas, data: Gas) -> EcDevice {
-        EcDevice {
+    fn new(node: NamespaceNode, control: Gas, data: Gas) -> Result<EcDevice> {
+        // Transactions poll the registers, hence map them once.
+        Ok(EcDevice {
             node,
-            control,
-            data,
+            control: control.map()?,
+            data: data.map()?,
             gpe_index: OnceLock::new(),
             transaction: Mutex::new(()),
-        }
+        })
     }
 
-    fn wait_for_bit(&self, register: &Gas, bit: u8, value: bool) -> Result<()> {
+    fn wait_for_bit(&self, register: &MappedGas, bit: u8, value: bool) -> Result<()> {
         while (register.read()? as u8 & bit != 0) != value {}
         Ok(())
     }
 
-    fn write_one(&self, register: &Gas, value: u8) -> Result<()> {
+    fn write_one(&self, register: &MappedGas, value: u8) -> Result<()> {
         self.wait_for_bit(&self.control, EC_IBF, false)?;
         register.write(u64::from(value))?;
         Ok(())
     }
 
-    fn read_one(&self, register: &Gas) -> Result<u8> {
+    fn read_one(&self, register: &MappedGas) -> Result<u8> {
         self.wait_for_bit(&self.control, EC_OBF, true)?;
         Ok(register.read()? as u8)
     }
@@ -241,7 +242,7 @@ fn init_from_ecdt() -> Result<Option<EcDevice>> {
         node,
         Gas::from_raw(ecdt.ec_control),
         Gas::from_raw(ecdt.ec_data),
-    )))
+    )?))
 }
 
 fn init_from_namespace(aml: Aml) -> Result<Option<EcDevice>> {
@@ -276,11 +277,13 @@ fn init_from_namespace(aml: Aml) -> Result<Option<EcDevice>> {
         }
 
         println!("sif: acpi: found an EC@{}", node.absolute_path());
-        found = Some(EcDevice::new(node, registers[1], registers[0]));
+        found = Some((node, registers[1], registers[0]));
         IterationDecision::Break
     })?;
 
-    Ok(found)
+    found
+        .map(|(node, control, data)| EcDevice::new(node, control, data))
+        .transpose()
 }
 
 pub fn init(aml: Aml) -> Result<()> {
