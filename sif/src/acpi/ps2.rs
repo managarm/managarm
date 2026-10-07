@@ -9,6 +9,7 @@ use managarm::mbus::create_entity;
 use crate::entity::{dismiss_requests, serve_entity_lanes, string};
 use crate::leak;
 use crate::uacpi::namespace::{self, IterationDecision, NamespaceNode};
+use crate::uacpi::runtime::{self, Aml};
 
 const ACPI_HID_PS2_KEYBOARDS: &[&CStr] = &[
     c"PNP0300", c"PNP0301", c"PNP0302", c"PNP0303", c"PNP0304", c"PNP0305", c"PNP0306", c"PNP0307",
@@ -25,12 +26,17 @@ const ACPI_HID_PS2_MICE: &[&CStr] = &[
     c"PNP0F20", c"PNP0F21", c"PNP0F22", c"PNP0F23", c"PNP0FFC", c"PNP0FFF",
 ];
 
-async fn publish_devices(hids: &[&CStr]) -> Result<()> {
+fn find_devices(aml: Aml, hids: &[&CStr]) -> Result<Vec<NamespaceNode>> {
     let mut nodes = Vec::new();
-    namespace::find_devices_at(NamespaceNode::root(), hids, |node| {
+    namespace::find_devices_at(aml, NamespaceNode::root(), hids, |node| {
         nodes.push(node);
         IterationDecision::Continue
     })?;
+    Ok(nodes)
+}
+
+async fn publish_devices(hids: &'static [&'static CStr]) -> Result<()> {
+    let nodes = runtime::run(move |aml| find_devices(aml, hids)).await?;
 
     for (instance, node) in nodes.into_iter().enumerate() {
         crate::acpi::object::publish(node, instance).await?;

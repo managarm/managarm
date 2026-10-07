@@ -4,6 +4,7 @@ use uacpi_sys::{
 };
 
 use super::namespace::NamespaceNode;
+use super::runtime::{self, Aml};
 use super::{Result, check};
 
 type GpeDevice = Option<NamespaceNode>;
@@ -92,8 +93,10 @@ where
     }
 }
 
-/// Wraps uacpi_install_address_space_handler(); the handler serves reads and writes.
+/// Wraps uacpi_install_address_space_handler(), which runs _REG; the handler serves reads
+/// and writes.
 pub fn install_address_space_handler<F>(
+    _aml: Aml,
     device: NamespaceNode,
     space: uacpi_sys::uacpi_address_space,
     handler: F,
@@ -123,21 +126,26 @@ unsafe extern "C" fn notify_trampoline<F>(
     value: uacpi_u64,
 ) -> uacpi_status
 where
-    F: Fn(NamespaceNode, u64),
+    F: Fn(Aml, NamespaceNode, u64),
 {
+    // uACPI runs Notify() handlers as work, i.e., on an AML thread.
+    let aml = Aml::current().expect("uACPI ran a Notify() handler outside of an AML thread");
     // SAFETY: the context is the handler that install_notify_handler() leaked.
     let handler = unsafe { &*(context as *const F) };
     let node = NamespaceNode::from_raw(node).expect("uACPI notified a null namespace node");
-    handler(node, value);
+    handler(aml, node, value);
     uacpi_sys::UACPI_STATUS_OK
 }
 
 /// Wraps uacpi_install_notify_handler(); the handler receives the value of AML's Notify().
-pub fn install_notify_handler<F>(node: NamespaceNode, handler: F) -> Result<()>
+///
+/// uACPI blocks while AML runs here (on the namespace lock and on GPE and Notify() work), hence
+/// this runs on the acpi thread. A wrapper for uacpi_uninstall_notify_handler() must do the same.
+pub async fn install_notify_handler<F>(node: NamespaceNode, handler: F) -> Result<()>
 where
-    F: Fn(NamespaceNode, u64) + Send + Sync + 'static,
+    F: Fn(Aml, NamespaceNode, u64) + Send + Sync + 'static,
 {
-    unsafe {
+    runtime::run(move |_aml| unsafe {
         check(
             "uacpi_install_notify_handler",
             uacpi_sys::uacpi_install_notify_handler(
@@ -146,7 +154,8 @@ where
                 leak_handler(handler),
             ),
         )
-    }
+    })
+    .await
 }
 
 unsafe extern "C" fn gpe_trampoline<F>(
@@ -165,9 +174,12 @@ where
 
 /// Wraps uacpi_install_gpe_handler().
 ///
-/// The handler runs in interrupt context. The GPE stays disabled until
-/// [`finish_handling_gpe`] is called.
-pub fn install_gpe_handler<F>(
+/// The handler runs in interrupt context, hence it must not run AML. The GPE stays disabled
+/// until [`finish_handling_gpe`] is called.
+///
+/// uACPI waits for GPE and Notify() work here if the GPE is enabled, hence this runs on the
+/// acpi thread. A wrapper for uacpi_uninstall_gpe_handler() must do the same.
+pub async fn install_gpe_handler<F>(
     device: GpeDevice,
     index: u16,
     triggering: uacpi_sys::uacpi_gpe_triggering,
@@ -176,20 +188,23 @@ pub fn install_gpe_handler<F>(
 where
     F: Fn() + Send + Sync + 'static,
 {
-    let device = as_gpe_device(device);
+    runtime::run(move |_aml| {
+        let device = as_gpe_device(device);
 
-    unsafe {
-        check(
-            "uacpi_install_gpe_handler",
-            uacpi_sys::uacpi_install_gpe_handler(
-                device,
-                index,
-                triggering,
-                Some(gpe_trampoline::<F>),
-                leak_handler(handler),
-            ),
-        )
-    }
+        unsafe {
+            check(
+                "uacpi_install_gpe_handler",
+                uacpi_sys::uacpi_install_gpe_handler(
+                    device,
+                    index,
+                    triggering,
+                    Some(gpe_trampoline::<F>),
+                    leak_handler(handler),
+                ),
+            )
+        }
+    })
+    .await
 }
 
 pub fn finish_handling_gpe(device: GpeDevice, index: u16) -> Result<()> {

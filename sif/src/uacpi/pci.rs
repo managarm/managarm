@@ -3,6 +3,7 @@ use std::ptr::NonNull;
 use uacpi_sys::uacpi_pci_routing_table;
 
 use super::namespace::NamespaceNode;
+use super::runtime::Aml;
 use super::{Result, check_optional};
 
 /// An entry of a PCI routing table, i.e., of a _PRT.
@@ -21,7 +22,7 @@ pub struct RoutingTable {
 impl NamespaceNode {
     /// Wraps uacpi_get_pci_routing_table(), i.e., evaluates _PRT.
     /// Returns None if the device has no _PRT.
-    pub fn pci_routing_table(self) -> Result<Option<RoutingTable>> {
+    pub fn pci_routing_table(self, _aml: Aml) -> Result<Option<RoutingTable>> {
         let mut table: *mut uacpi_pci_routing_table = std::ptr::null_mut();
         // SAFETY: uACPI only writes the pointer to the table that it allocates.
         let status = unsafe { uacpi_sys::uacpi_get_pci_routing_table(self.as_raw(), &mut table) };

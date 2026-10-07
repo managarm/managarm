@@ -3,7 +3,6 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Mutex, OnceLock};
 
 use anyhow::{Result, bail};
-use event_listener::Event;
 use uacpi_sys::acpi_ecdt;
 
 use crate::leak;
@@ -11,6 +10,7 @@ use crate::uacpi::handlers::{self, RegionError, RegionOp, RegionRw};
 use crate::uacpi::io::Gas;
 use crate::uacpi::namespace::{self, IterationDecision, NamespaceNode};
 use crate::uacpi::resources::Resource;
+use crate::uacpi::runtime::{self, Aml, AmlThread};
 use crate::uacpi::table::Table;
 
 const HID_EC: &CStr = c"PNP0C09";
@@ -109,7 +109,7 @@ impl EcDevice {
         Ok(Some(index))
     }
 
-    fn handle_event(&self) -> Result<()> {
+    fn handle_event(&self, aml: Aml) -> Result<()> {
         let Some(index) = self.check_event()? else {
             return Ok(());
         };
@@ -119,7 +119,7 @@ impl EcDevice {
 
         let method = CString::new(format!("_Q{index:02X}")).expect("EC query is not a method name");
         println!("sif: acpi: running EC query {method:?}");
-        self.node.execute(&method)?;
+        self.node.execute(aml, &method)?;
         Ok(())
     }
 
@@ -156,60 +156,46 @@ fn handle_region(
     })
 }
 
-fn handle_gpe() {
-    // Running AML from the IRQ path is unsafe, hence defer the query to the worker.
+fn handle_gpe(device: &'static EcDevice) {
+    // Running AML from the IRQ path is unsafe, hence defer the query to the EC's AML thread.
     println!("sif: acpi: EC GPE fired");
-    EVENT_QUEUED.store(true, Ordering::Release);
-    EVENT.notify(1);
+    query_thread().post(move |aml| run_query(aml, device));
 }
 
-static EVENT_QUEUED: AtomicBool = AtomicBool::new(false);
-static EVENT: Event = Event::new();
-static EC_WORKER_SPAWNED: AtomicBool = AtomicBool::new(false);
+/// The thread that runs the _Qxx query methods.
+fn query_thread() -> &'static AmlThread {
+    static THREAD: OnceLock<&'static AmlThread> = OnceLock::new();
+    THREAD.get_or_init(|| AmlThread::spawn("acpi-ec"))
+}
 
-/// Waits until the EC GPE handler queued an event.
-async fn wait_for_event() {
-    loop {
-        // Register before checking the flag to avoid a lost wakeup.
-        let listener = EVENT.listen();
-        if EVENT_QUEUED.swap(false, Ordering::AcqRel) {
-            return;
-        }
-        listener.await;
+/// Handles an EC event, i.e., runs its _Qxx query method.
+fn run_query(aml: Aml, device: &EcDevice) {
+    if let Err(err) = device.handle_event(aml) {
+        println!("sif: acpi: failed to handle an EC event: {err}");
     }
-}
-
-/// Handles EC events in task context, i.e., runs the _Qxx query methods.
-async fn run_ec_events(device: &'static EcDevice) {
-    loop {
-        wait_for_event().await;
-
-        if let Err(err) = device.handle_event() {
-            println!("sif: acpi: failed to handle an EC event: {err}");
-        }
-        if let Some(index) = device.gpe_index.get().copied()
-            && let Err(err) = handlers::finish_handling_gpe(None, index)
-        {
-            println!("sif: acpi: failed to finish handling EC GPE {index}: {err}");
-        }
+    if let Some(index) = device.gpe_index.get().copied()
+        && let Err(err) = handlers::finish_handling_gpe(None, index)
+    {
+        println!("sif: acpi: failed to finish handling EC GPE {index}: {err}");
     }
 }
 
 static EC: OnceLock<&'static EcDevice> = OnceLock::new();
 static HANDLERS_INSTALLED: AtomicBool = AtomicBool::new(false);
 
-fn install_handlers(device: &'static EcDevice) -> Result<()> {
+fn install_handlers(aml: Aml, device: &'static EcDevice) -> Result<()> {
     handlers::install_address_space_handler(
+        aml,
         device.node,
         uacpi_sys::UACPI_ADDRESS_SPACE_EMBEDDED_CONTROLLER,
         move |op, access| handle_region(device, op, access),
     )?;
 
-    if device.node.eval_simple_integer(c"_GLK")?.unwrap_or(0) != 0 {
+    if device.node.eval_simple_integer(aml, c"_GLK")?.unwrap_or(0) != 0 {
         println!("sif: acpi: EC requires locking (this is a TODO)");
     }
 
-    let Some(index) = device.node.eval_simple_integer(c"_GPE")? else {
+    let Some(index) = device.node.eval_simple_integer(aml, c"_GPE")? else {
         println!("sif: acpi: EC has no associated _GPE");
         return Ok(());
     };
@@ -218,17 +204,6 @@ fn install_handlers(device: &'static EcDevice) -> Result<()> {
         .gpe_index
         .set(index)
         .expect("sif: acpi: EC GPE installed twice");
-
-    handlers::install_gpe_handler(
-        None,
-        index,
-        uacpi_sys::UACPI_GPE_TRIGGERING_EDGE,
-        handle_gpe,
-    )?;
-
-    if !EC_WORKER_SPAWNED.swap(true, Ordering::AcqRel) {
-        hel::spawn(run_ec_events(device));
-    }
 
     HANDLERS_INSTALLED.store(true, Ordering::Relaxed);
     Ok(())
@@ -269,11 +244,11 @@ fn init_from_ecdt() -> Result<Option<EcDevice>> {
     )))
 }
 
-fn init_from_namespace() -> Result<Option<EcDevice>> {
+fn init_from_namespace(aml: Aml) -> Result<Option<EcDevice>> {
     let mut found = None;
 
-    namespace::find_devices_at(NamespaceNode::root(), &[HID_EC], |node| {
-        let Ok(resources) = node.current_resources() else {
+    namespace::find_devices_at(aml, NamespaceNode::root(), &[HID_EC], |node| {
+        let Ok(resources) = node.current_resources(aml) else {
             return IterationDecision::Continue;
         };
 
@@ -308,13 +283,13 @@ fn init_from_namespace() -> Result<Option<EcDevice>> {
     Ok(found)
 }
 
-pub fn init() -> Result<()> {
+pub fn init(aml: Aml) -> Result<()> {
     let mut early_reg = true;
     let device = match init_from_ecdt()? {
         Some(device) => device,
         None => {
             early_reg = false;
-            let Some(device) = init_from_namespace()? else {
+            let Some(device) = init_from_namespace(aml)? else {
                 println!("sif: acpi: no EC devices on the system");
                 return Ok(());
             };
@@ -326,29 +301,48 @@ pub fn init() -> Result<()> {
     assert!(EC.set(device).is_ok(), "sif: acpi: EC initialized twice");
 
     if early_reg {
-        install_handlers(device)?;
+        install_handlers(aml, device)?;
     }
 
     Ok(())
 }
 
-pub fn init_events() -> Result<()> {
-    if let Err(err) = handlers::finalize_gpe_initialization() {
-        println!("sif: acpi: failed to finalize the GPEs: {err}");
-    }
+pub async fn init_events() -> Result<()> {
+    let device = runtime::run(|aml| {
+        if let Err(err) = handlers::finalize_gpe_initialization() {
+            println!("sif: acpi: failed to finalize the GPEs: {err}");
+        }
 
-    let Some(device) = EC.get().copied() else {
+        let Some(device) = EC.get().copied() else {
+            return Ok(None);
+        };
+        if !HANDLERS_INSTALLED.load(Ordering::Relaxed) {
+            install_handlers(aml, device)?;
+        }
+        anyhow::Ok(Some(device))
+    })
+    .await?;
+
+    let Some(device) = device else {
         return Ok(());
     };
-    if !HANDLERS_INSTALLED.load(Ordering::Relaxed) {
-        install_handlers(device)?;
-    }
+    let Some(index) = device.gpe_index.get().copied() else {
+        return Ok(());
+    };
 
-    if let Some(index) = device.gpe_index.get().copied() {
-        println!("sif: acpi: enabling EC GPE {index}");
-        if let Err(err) = handlers::enable_gpe(None, index) {
-            println!("sif: acpi: failed to enable EC GPE {index}: {err}");
-        }
+    handlers::install_gpe_handler(
+        None,
+        index,
+        uacpi_sys::UACPI_GPE_TRIGGERING_EDGE,
+        move || handle_gpe(device),
+    )
+    .await?;
+
+    println!("sif: acpi: enabling EC GPE {index}");
+    // uacpi_enable_gpe() takes the event lock, which uACPI holds while it waits for work.
+    let enabled = runtime::run(move |_aml| handlers::enable_gpe(None, index)).await;
+    if let Err(err) = enabled {
+        println!("sif: acpi: failed to enable EC GPE {index}: {err}");
     }
 
     Ok(())

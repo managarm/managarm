@@ -7,6 +7,7 @@ use uacpi_sys::{
 };
 
 use super::namespace::NamespaceNode;
+use super::runtime::Aml;
 use super::{Result, check};
 
 /// Size of the type and length fields that precede every resource.
@@ -145,7 +146,7 @@ pub struct Resources {
 
 impl NamespaceNode {
     /// Wraps uacpi_get_current_resources(), i.e., evaluates _CRS.
-    pub fn current_resources(self) -> Result<Resources> {
+    pub fn current_resources(self, _aml: Aml) -> Result<Resources> {
         let mut resources: *mut uacpi_resources = std::ptr::null_mut();
         // SAFETY: uACPI only writes the pointer to the list that it allocates.
         let status =

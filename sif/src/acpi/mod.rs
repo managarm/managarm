@@ -10,6 +10,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use anyhow::Result;
 
 use crate::uacpi::init;
+use crate::uacpi::runtime::Aml;
 
 pub(crate) const PAGE_SIZE: usize = 0x1000;
 pub(crate) const PAGE_MASK: usize = PAGE_SIZE - 1;
@@ -69,18 +70,18 @@ const HOST_INTERFACES: &[uacpi_sys::uacpi_host_interface] = &[
     uacpi_sys::UACPI_HOST_INTERFACE_PROCESSOR_AGGREGATOR_DEVICE,
 ];
 
-pub fn uacpi_init() -> Result<()> {
+pub fn uacpi_init(aml: Aml) -> Result<()> {
     init::initialize()?;
     for &interface in HOST_INTERFACES {
         init::enable_host_interface(interface)?;
     }
     crate::pci::config::discover_config_spaces()?;
-    init::namespace_load()?;
-    init::set_interrupt_model(INTERRUPT_MODEL)?;
-    if let Err(err) = ec::init() {
+    init::namespace_load(aml)?;
+    init::set_interrupt_model(aml, INTERRUPT_MODEL)?;
+    if let Err(err) = ec::init(aml) {
         println!("sif: acpi: failed to initialize the EC: {err}");
     }
-    init::namespace_initialize()?;
+    init::namespace_initialize(aml)?;
 
     Ok(())
 }
