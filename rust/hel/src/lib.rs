@@ -41,6 +41,31 @@ pub fn create_stream() -> Result<(Handle, Handle)> {
     Ok(unsafe { (Handle::from_raw(lane1), Handle::from_raw(lane2)) })
 }
 
+/// Creates an event that counts how often it was raised.
+/// Returns the wait handle and the raise handle (in this order).
+/// Each side gets [`Error::EndOfLane`] once all handles to the other end are closed.
+pub fn create_sequenced_event() -> Result<(Handle, Handle)> {
+    let mut wait_handle = hel_sys::kHelNullHandle as hel_sys::HelHandle;
+    let mut raise_handle = hel_sys::kHelNullHandle as hel_sys::HelHandle;
+
+    result::hel_check(unsafe {
+        hel_sys::helCreateSequencedEvent(&mut wait_handle, &mut raise_handle)
+    })?;
+
+    // SAFETY: helCreateSequencedEvent returns two freshly created handles in the current universe.
+    Ok(unsafe {
+        (
+            Handle::from_raw(wait_handle),
+            Handle::from_raw(raise_handle),
+        )
+    })
+}
+
+/// Raises a oneshot event or the raise end of a sequenced event.
+pub fn raise_event(event: &Handle) -> Result<()> {
+    result::hel_check(unsafe { hel_sys::helRaiseEvent(event.handle()) })
+}
+
 /// Creates a new, empty address space that threads can run in.
 pub fn create_space() -> Result<Handle> {
     let mut handle = hel_sys::kHelNullHandle as hel_sys::HelHandle;
