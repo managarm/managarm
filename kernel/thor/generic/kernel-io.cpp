@@ -1,3 +1,4 @@
+#include <async/recurring-event.hpp>
 #include <frg/allocation.hpp>
 #include <frg/hash_map.hpp>
 #include <thor-internal/kernel-io.hpp>
@@ -6,6 +7,9 @@
 namespace thor {
 
 namespace {
+	constinit IrqSpinlock globalChannelMutex;
+
+	// Protected by globalChannelMutex.
 	frg::eternal<
 		frg::hash_map<
 			frg::string_view,
@@ -14,6 +18,17 @@ namespace {
 			Allocator
 		>
 	> globalChannelMap{frg::hash<frg::string_view>{}};
+
+	// Raised whenever a channel is published.
+	constinit async::recurring_event globalChannelEvent;
+
+	smarter::shared_ptr<KernelIoChannel> lookupChannel(frg::string_view tag) {
+		auto lock = frg::guard(&globalChannelMutex);
+		auto maybeChannel = globalChannelMap->get(tag);
+		if(!maybeChannel)
+			return nullptr;
+		return *maybeChannel;
+	}
 }
 
 initgraph::Stage *getIoChannelsDiscoveredStage() {
@@ -22,18 +37,35 @@ initgraph::Stage *getIoChannelsDiscoveredStage() {
 }
 
 void publishIoChannel(smarter::shared_ptr<KernelIoChannel> channel) {
-	globalChannelMap->insert(channel->tag(), std::move(channel));
+	{
+		auto lock = frg::guard(&globalChannelMutex);
+		if(globalChannelMap->get(channel->tag())) {
+			warningLogger() << "thor: Ignoring duplicate I/O channel "
+					<< channel->descriptiveTag() << frg::endlog;
+			return;
+		}
+		globalChannelMap->insert(channel->tag(), std::move(channel));
+	}
+	// Waiters resume inline, so raise outside of the lock.
+	globalChannelEvent.raise();
 }
 
-smarter::shared_ptr<KernelIoChannel> solicitIoChannel(frg::string_view tag) {
-	auto maybeChannel = globalChannelMap->get(tag);
-	if(!maybeChannel)
-		return nullptr;
-	return *maybeChannel;
+coroutine<smarter::shared_ptr<KernelIoChannel>> solicitIoChannel(frg::string_view tag) {
+	while(true) {
+		if(auto channel = lookupChannel(tag))
+			co_return channel;
+		co_await globalChannelEvent.async_wait_if([&] () -> bool {
+			return !lookupChannel(tag);
+		});
+	}
 }
 
 coroutine<void> dumpRingToChannel(LogRingBuffer *ringBuffer,
-		smarter::shared_ptr<KernelIoChannel> channel, size_t maxRecordSize) {
+		frg::string_view tag, size_t maxRecordSize) {
+	auto channel = co_await solicitIoChannel(tag);
+	infoLogger() << "thor: Connecting " << tag << " to I/O channel "
+			<< channel->descriptiveTag() << frg::endlog;
+
 	// One extra byte distinguishes records of exactly maxRecordSize from truncated ones.
 	frg::unique_memory<KernelAlloc> record{*kernelAlloc, maxRecordSize + 1};
 	uint64_t currentPtr = 0;
@@ -44,7 +76,8 @@ coroutine<void> dumpRingToChannel(LogRingBuffer *ringBuffer,
 		if(!success) {
 			// Do not leave output in the channel while we block on the ring.
 			if(unflushed) {
-				auto ioOutcome = co_await channel->issueIo(KernelIoChannel::ioProgressOutput);
+				auto ioOutcome = co_await channel->issueIo(
+						KernelIoChannel::ioProgressOutput | KernelIoChannel::ioFlush);
 				assert(ioOutcome);
 				unflushed = false;
 			}
