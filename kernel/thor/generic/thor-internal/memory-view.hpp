@@ -716,7 +716,7 @@ struct ManagedSpace : CacheBundle {
 		// Page is not in a queue but waiting for updateRange() to mark it as initialized.
 		// Valid in LoadState::missing.
 		initialization,
-		// Page is in _dirtyList, waiting to claim swap budget.
+		// Page is in _dirtyList, waiting to obtain a slot.
 		// Valid in LoadState::present.
 		dirty,
 		// Page is in _writebackList.
@@ -800,6 +800,9 @@ struct ManagedSpace : CacheBundle {
 		>
 	>;
 
+	// Identity of a swap page that currently holds no slot.
+	static constexpr uint64_t noSlot = ~uint64_t{0};
+
 	// State of a swap slot that the swap daemon accesses through BackingMemory.
 	// An entry exists (keyed by identity) while the slot is locked; updateRange() fails on such slots.
 	struct SlotState {
@@ -829,6 +832,9 @@ struct ManagedSpace : CacheBundle {
 		bool hasMonitor(MonitorType type);
 		// Whether the page holds data that has not reached the backing store yet.
 		bool hasUnwrittenData();
+		// Whether the page holds a slot of the backing store (i.e., has an identity).
+		// Always true on file-backed spaces; on swap spaces, slots are transient.
+		bool hasSlot() { return cachePage.identity != noSlot; }
 
 		PhysicalAddr physical = PhysicalAddr(-1);
 		LoadState loadState{LoadState::missing};
@@ -846,9 +852,6 @@ struct ManagedSpace : CacheBundle {
 		// How dirty contents are treated during the discard.
 		// DiscardMode::none until discarded is set. Fixed by the first discardPage() call.
 		DiscardMode discardMode{DiscardMode::none};
-		// Whether swap budget was claimed for this page.
-		// Owned by SwapSpace, not used by ManagedSpace.
-		bool swapBudgetClaimed{false};
 		unsigned int lockCount = 0;
 		CachePage cachePage;
 		// Head of the chain of monitors attached to this page's in-flight transactions.
@@ -872,8 +875,14 @@ struct ManagedSpace : CacheBundle {
 	void markDirty(CachePage *page) override;
 
 	// Called under mutex before a dirty page transitions to writeback.
-	// Returning false leaves the page on _dirtyList until swap budget becomes available.
-	virtual bool claimSwapBudget(ManagedPage *page);
+	// Ensures that the page holds a slot of the backing store.
+	// Returning false leaves the page on _dirtyList until a slot becomes available.
+	virtual bool claimSlot(ManagedPage *page);
+
+	// Releases the page's slot (if it holds one) since its disk copy became stale.
+	// Unblocks the drain coroutine if a slot was released; the caller raises _dirtyEvent.
+	// Called under mutex.
+	virtual void _releaseSlot(ManagedPage *page);
 
 	// Installs a frame for a page that is currently missing (and in no transaction):
 	// - registers it in the pfn-db,
@@ -933,7 +942,7 @@ struct ManagedSpace : CacheBundle {
 	// Called under mutex.
 	virtual void _pageDiscarded(ManagedPage *page, bool &raiseDirty);
 
-	// Unblocks the drain coroutine after the swap budget has grown.
+	// Unblocks the drain coroutine after slots became available.
 	void _wakeDrain();
 
 	coroutine<void> _runReclaimLoop();
@@ -1034,7 +1043,7 @@ struct ManagedSpace : CacheBundle {
 	// Must be called under mutex.
 	bool isHandedToManager(ManagedPage *page);
 
-	// Erases the page's entry and frees the page.
+	// Erases the page's entry (if it holds a slot) and frees the page.
 	// The caller must ensure that lockCount == 0, useCount == 0, and that no RCU reader
 	// can still hold a frame it obtained from the page; see CachePage::useCount.
 	// Must be called under mutex.
@@ -1046,7 +1055,8 @@ struct ManagedSpace : CacheBundle {
 
 	frg::ticket_spinlock mutex;
 
-	// Heap-allocated page objects, indexed by identity.
+	// Heap-allocated page objects, indexed by identity. File-backed spaces own their pages;
+	// on swap spaces, the attached views own them and only pages that hold a slot are indexed.
 	frg::rcu_radixtree<ManagedPage *, KernelAlloc, RcuPolicy> pages;
 
 	size_t numPages;
@@ -1088,7 +1098,7 @@ struct ManagedSpace : CacheBundle {
 
 	async::recurring_event _discardEvent;
 
-	// Set by the drain coroutine when dirty pages exist but none of them could claim swap budget.
+	// Set by the drain coroutine when dirty pages exist but none of them could obtain a slot.
 	// While this is set, _dirtyEvent does not wake the drain coroutine.
 	// Protected by mutex.
 	bool _drainBlocked = false;
@@ -1114,21 +1124,27 @@ struct ManagedSpace : CacheBundle {
 };
 static_assert(HasDispose<ManagedSpace>);
 
-// Backing store for swappable anonymous memory].
-// Pages are keyed by swap offset, the kernel allocates offsets lazily on behalf of the attached views.
+// Backing store for swappable anonymous memory.
+// A slot is a page-sized position in the backing store, identified by its swap offset.
+// A page obtains a slot when it is first written back and holds it while its disk copy
+// is valid; a page that is dirtied again releases its slot.
 struct SwapSpace final : ManagedSpace, RcuProtected {
 	static std::expected<smarter::shared_ptr<SwapSpace>, Error> create(
 			smarter::shared_ptr<Hierarchy> hierarchy);
 
 	SwapSpace(smarter::shared_ptr<Hierarchy> hierarchy);
 
-	bool claimSwapBudget(ManagedPage *page) override;
+	bool claimSlot(ManagedPage *page) override;
+	void _releaseSlot(ManagedPage *page) override;
 	void _pageDiscarded(ManagedPage *page, bool &raiseDirty) override;
 
-	void setBudget(size_t numSlots);
+	// Sets the budget to numSlots, i.e., makes the offsets [0, numSlots) available as slots.
+	// Manage requests only ever address offsets below the budget.
+	// Fails if the budget has already been set.
+	Error setBudget(size_t numSlots);
 
-	// Allocates a swap page (at the lowest free swap offset) without a phyiscal page frame.
-	// Returns null if the swap space is exhausted.
+	// Allocates a swap page without a slot or a physical page frame.
+	// Returns null if the page cannot be allocated (which currently never happens).
 	// The page is fresh (missing, unlocked, not discarded, no disk copy, i.e., fit for installPage())
 	// and owned by the caller, who must eventually discard it.
 	// Must be called under mutex.
@@ -1143,14 +1159,13 @@ private:
 	// Must be called under mutex.
 	void _freeOffset(uint64_t offset);
 
+	// Set by the first setBudget() call.
+	std::atomic<bool> _budgetSet{false};
+
+	// Built by setBudget() before _buddyAccessor is set.
 	frg::vector<int8_t, KernelAlloc> _buddyMetadata;
+	// Allocates no slots until setBudget() is called. Protected by mutex.
 	BuddyAccessor _buddyAccessor;
-
-	// Protected by mutex.
-	size_t _budget = 0;
-
-	// Protected by mutex.
-	size_t _budgetClaimed = 0;
 };
 static_assert(HasDispose<SwapSpace>);
 
@@ -1226,9 +1241,10 @@ private:
 };
 
 // Anonymous memory backed by a SwapSpace.
-// The view translates its own page indices to lazily allocated swap offsets.
+// The view translates its own page indices to lazily allocated swap pages.
 // Frames and per-page state are owned by the SwapSpace.
-// The view's hierarchy is charged for the swap slots, the SwapSpace's hierarchy for the frames.
+// The view's hierarchy is charged as swap for each of its swap pages (whether or not the page holds
+// a slot), the SwapSpace's hierarchy for the frames.
 struct SwappableMemory final : MemoryView {
 private:
 	struct CtorToken {};
@@ -1261,7 +1277,7 @@ public:
 
 private:
 	// Returns the swap page backing the given view page index, allocating one on demand.
-	// Returns null if the swap space is exhausted.
+	// Returns null if SwapSpace::allocatePage() does.
 	// Must be called under the SwapSpace mutex.
 	ManagedSpace::ManagedPage *_translate(uint64_t index);
 

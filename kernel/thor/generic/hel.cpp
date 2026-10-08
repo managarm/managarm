@@ -723,9 +723,7 @@ HelError helSetSwapBudget(HelHandle swapSpaceHandle, size_t numPages) {
 	if(!spaceOutcome)
 		return translateError(spaceOutcome.error());
 
-	(*spaceOutcome)->setBudget(numPages);
-
-	return kHelErrNone;
+	return translateError((*spaceOutcome)->setBudget(numPages));
 }
 
 HelError helCopyOnWrite(HelHandle hierarchyHandle, HelHandle swapSpaceHandle, HelHandle memoryHandle,

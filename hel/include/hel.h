@@ -1455,7 +1455,8 @@ HEL_C_LINKAGE HelError helCreateSwapSpace(HelHandle hierarchy, uint32_t flags,
 //! swap space's manage protocol and their frames are reclaimed.
 //! @param[in] hierarchy
 //!    	Handle to the hierarchy that owns the new memory object.
-//!    	The swap slots held by the memory object are accounted to this hierarchy node as swap
+//!    	The pages populated by the memory object are accounted to this hierarchy node as swap,
+//!    	whether or not they currently occupy swap space
 //!    	(their resident frames are accounted to the swap space's hierarchy).
 //! @param[in] swapSpace
 //!    	Handle to the swap space (from helCreateSwapSpace()).
@@ -1468,6 +1469,9 @@ HEL_C_LINKAGE HelError helAllocateSwappableMemory(HelHandle hierarchy, HelHandle
 		size_t size, uint32_t flags, HelHandle *handle);
 
 //! Sets a swap space's budget, which is the number of pages that may be swapped out.
+//! The budget is the range [0, numPages * page size) of the backing memory: manage
+//! requests only ever address offsets in this range. The budget can only be set
+//! once; subsequent calls fail with kHelErrIllegalState.
 //! @param[in] swapSpace
 //!    	Handle to the swap space (from helCreateSwapSpace()).
 //! @param[in] numPages
