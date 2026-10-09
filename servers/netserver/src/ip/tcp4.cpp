@@ -891,7 +891,7 @@ async::result<void> Tcp4Socket::flushOutPackets_() {
 				|| connectState_ == ConnectState::sendFin
 				|| connectState_ == ConnectState::finAcked);
 
-			auto targetInfo = co_await ip4().targetByRemote(remoteEp_.ipAddress);
+			auto targetInfo = co_await ip4().targetByRemote(remoteEp_.ipAddress, boundInterface_);
 			if (!targetInfo) {
 				// TODO: Return an error to users.
 				std::cout << "netserver: Destination unreachable" << std::endl;
