@@ -10,19 +10,10 @@ namespace nvme::fabric {
 
 namespace {
 
-// Size of the PDU header that TcpQueue::run() reads for a given PDU type.
-size_t pduHeaderSize(spec::tcp::PduType type) {
-	switch(type) {
-		case spec::tcp::PduType::CapsuleResp:
-			return sizeof(spec::tcp::CapsuleResp);
-		case spec::tcp::PduType::R2T:
-			return sizeof(spec::tcp::R2T);
-		case spec::tcp::PduType::C2HData:
-			return sizeof(spec::tcp::C2HData);
-		default:
-			return sizeof(spec::tcp::PduCommonHeader);
-	}
-}
+// All PDUs that TcpQueue::run() handles have a header of this size.
+constexpr size_t pduHeaderSize = sizeof(spec::tcp::CapsuleResp);
+static_assert(sizeof(spec::tcp::R2T) == pduHeaderSize);
+static_assert(sizeof(spec::tcp::C2HData) == pduHeaderSize);
 
 // Host Pathing Error, which Linux also reports for commands on a failed transport.
 constexpr Command::Result hostPathError{spec::CompletionStatus{(0x3 << 9) | (0x70 << 1)}, {}};
@@ -163,40 +154,32 @@ async::detached TcpQueue::run() {
 	if(qid_ == 0)
 		keepAlive();
 
-	auto recvbuf = std::vector<std::byte>(65536);
+	alignas(spec::tcp::C2HData) std::byte header[pduHeaderSize];
 
 	while(true) {
-		if(co_await receiveExact(recvbuf.data(), sizeof(spec::tcp::PduCommonHeader)) != protocols::fs::Error::none)
+		if(co_await receiveExact(header, pduHeaderSize) != protocols::fs::Error::none)
 			co_return;
 
-		auto ch = reinterpret_cast<spec::tcp::PduCommonHeader *>(recvbuf.data());
+		auto ch = reinterpret_cast<spec::tcp::PduCommonHeader *>(header);
 
-		if(ch->pduLength < pduHeaderSize(ch->pduType)) {
-			std::cout << std::format("block/nvme: NVMe-oF PDU of type {:#x} is truncated", static_cast<uint8_t>(ch->pduType)) << std::endl;
+		// Only C2HData carries data, which is received directly into the command's buffer.
+		if(ch->headerLength != pduHeaderSize || ch->pduLength < pduHeaderSize
+				|| (ch->pduType != spec::tcp::PduType::C2HData && ch->pduLength != pduHeaderSize)) {
+			std::cout << std::format("block/nvme: NVMe-oF PDU of type {:#x} is malformed", static_cast<uint8_t>(ch->pduType)) << std::endl;
 			fail();
 			co_return;
 		}
 
-		if(ch->pduLength > recvbuf.size())
-			recvbuf.resize(ch->pduLength);
-
-		if(ch->pduLength > sizeof(spec::tcp::PduCommonHeader)
-				&& co_await receiveExact(recvbuf.data() + sizeof(spec::tcp::PduCommonHeader),
-					ch->pduLength - sizeof(spec::tcp::PduCommonHeader)) != protocols::fs::Error::none)
-			co_return;
-
-		ch = reinterpret_cast<spec::tcp::PduCommonHeader *>(recvbuf.data());
-
 		switch(ch->pduType) {
 			case spec::tcp::PduType::CapsuleResp: {
-				auto capsuleResp = reinterpret_cast<spec::tcp::CapsuleResp *>(recvbuf.data());
+				auto capsuleResp = reinterpret_cast<spec::tcp::CapsuleResp *>(header);
 				auto slot = capsuleResp->responseCqe.commandId;
 				if(slot < queuedCmds_.size() && queuedCmds_[slot])
 					resolveSlot(slot, {spec::CompletionStatus{capsuleResp->responseCqe.status}, capsuleResp->responseCqe.result});
 				break;
 			}
 			case spec::tcp::PduType::R2T: {
-				auto r2t = reinterpret_cast<spec::tcp::R2T *>(recvbuf.data());
+				auto r2t = reinterpret_cast<spec::tcp::R2T *>(header);
 				auto slot = r2t->commandCapsuleId;
 				if(slot >= queuedCmds_.size() || !queuedCmds_[slot] || slots_[slot].deferredResult) {
 					std::cout << std::format("block/nvme: R2T for unknown command {}", slot) << std::endl;
@@ -225,10 +208,12 @@ async::detached TcpQueue::run() {
 				break;
 			}
 			case spec::tcp::PduType::C2HData: {
-				auto resp = reinterpret_cast<spec::tcp::C2HData *>(recvbuf.data());
+				auto resp = reinterpret_cast<spec::tcp::C2HData *>(header);
 
-				if(uint64_t{resp->ch.pduDataOffset} + resp->dataLength > resp->ch.pduLength) {
-					std::cout << std::format("block/nvme: NVMe-oF packet requests out-of-bound read") << std::endl;
+				// We negotiate neither digests nor padding, so the data makes up the rest of the PDU.
+				if(resp->dataLength != resp->ch.pduLength - pduHeaderSize
+						|| (resp->dataLength && resp->ch.pduDataOffset != pduHeaderSize)) {
+					std::cout << std::format("block/nvme: NVMe-oF C2HData PDU is malformed") << std::endl;
 					fail();
 					co_return;
 				}
@@ -239,15 +224,26 @@ async::detached TcpQueue::run() {
 					fail();
 					co_return;
 				}
-
-				auto &cmd = queuedCmds_[slot];
-				if(cmd->view().byte_data() && cmd->view().size() >= uint64_t{resp->dataOffset} + resp->dataLength) {
-					memcpy(cmd->view().byte_data() + resp->dataOffset, recvbuf.data() + resp->ch.pduDataOffset, resp->dataLength);
-				} else {
-					std::cout << std::format("block/nvme: NVMe-oF packet requests out-of-bound read") << std::endl;
+				// Like Linux, reject C2HData for writes, i.e., opcodes with bit 0 set (which includes Fabrics).
+				if(queuedCmds_[slot]->getCommandBuffer().common.opcode & 1) {
+					std::cout << std::format("block/nvme: Unexpected C2HData for write command {}", slot) << std::endl;
 					fail();
 					co_return;
 				}
+
+				auto &view = queuedCmds_[slot]->view();
+				if(!view.byte_data() || uint64_t{resp->dataOffset} + resp->dataLength > view.size()) {
+					std::cout << std::format("block/nvme: C2HData exceeds the data of command {}", slot) << std::endl;
+					fail();
+					co_return;
+				}
+
+				// fail() on a concurrent send must not hand the buffer back while we receive into it.
+				slots_[slot].activeTransfers++;
+				auto recv_err = co_await receiveExact(view.byte_data() + resp->dataOffset, resp->dataLength);
+				finishTransfer(slot);
+				if(recv_err != protocols::fs::Error::none)
+					co_return;
 				break;
 			}
 			default: {
@@ -429,7 +425,7 @@ void TcpQueue::fail() {
 
 	// Fail commands that are waiting for completion.
 	for(size_t slot = 0; slot < queuedCmds_.size(); slot++) {
-		// A deferred result is the controller's own and is delivered once H2C data stops.
+		// A deferred result is the controller's own and is delivered once its data transfers finish.
 		if(queuedCmds_[slot] && !slots_[slot].deferredResult)
 			resolveSlot(slot, hostPathError);
 	}
