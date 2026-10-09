@@ -96,12 +96,8 @@ async::result<void> Command::setupBuffer(Controller *controller, arch::dma_buffe
 		command_.common.flags |= 0x40;
 		command_.common.dataPtr.sgl.dataBlock.length = view.size();
 
-		if(view.size() && (command_.common.opcode & 1)) {
-			command_.common.dataPtr.sgl.generic.sglDescriptorType = 0;
-			command_.common.dataPtr.sgl.generic.sglSubType = 1;
-		} else {
-			command_.common.dataPtr.sgl.generic.sglDescriptorType = 0x05;
-			command_.common.dataPtr.sgl.generic.sglSubType = 0x0A;
-		}
+		// The transport turns this into an offset descriptor if it sends the data in-capsule.
+		command_.common.dataPtr.sgl.generic.sglDescriptorType = 0x05;
+		command_.common.dataPtr.sgl.generic.sglSubType = 0x0A;
 	}
 }
