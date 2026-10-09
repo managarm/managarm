@@ -331,6 +331,7 @@ async fn handle_one<D: PciDevice>(lane: &Handle, request: &[u8], device: &D) -> 
         bindings::GetDmaSpaceRequest::MESSAGE_ID => {
             let (iommu_active, space) = device.get_dma_space()?;
             let mut resp = bindings::GetDmaSpaceResponse::default();
+            resp.set_error(Errors::Success);
             resp.set_iommu_active(iommu_active as i8);
             let head = bragi::head_to_bytes(&resp).expect("failed to encode hw response");
             let (head, push) = submit_async(

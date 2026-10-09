@@ -820,6 +820,7 @@ coroutine<frg::expected<Error>> PciEntity::handleRequest(smarter::shared_ptr<Str
 			descriptor = AnyDescriptor::make<DescriptorType::dmaSpace>(dmaSpace, kHelRightGrant | kHelRightProvision);
 
 		managarm::hw::GetDmaSpaceResponse<KernelAlloc> resp{*kernelAlloc};
+		resp.set_error(managarm::hw::Errors::SUCCESS);
 		resp.set_iommu_active(static_cast<bool>(dmaSpace));
 
 		FRG_CO_TRY(co_await sendResponseHead(conversation, std::move(resp)));

@@ -1147,9 +1147,11 @@ async::result<std::pair<bool, helix::UniqueDescriptor>> Device::getDmaSpace() {
 	HEL_CHECK(offer.error());
 	HEL_CHECK(send_req.error());
 	HEL_CHECK(recv_resp.error());
-	HEL_CHECK(recv_desc.error());
 
 	auto resp = *bragi::parse_head_only<managarm::hw::GetDmaSpaceResponse>(recv_resp);
+	assert(resp.error() == managarm::hw::Errors::SUCCESS);
+
+	HEL_CHECK(recv_desc.error());
 
 	co_return {resp.iommu_active(), recv_desc.descriptor()};
 }

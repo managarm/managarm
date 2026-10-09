@@ -272,5 +272,6 @@ head(128):
 
 message GetDmaSpaceResponse 37 {
 head(128):
+	Errors error;
 	int8 iommu_active;
 }
