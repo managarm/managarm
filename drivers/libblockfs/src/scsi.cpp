@@ -41,6 +41,16 @@ struct Write10 {
 };
 static_assert(sizeof(Write10) == 10);
 
+struct SynchronizeCache10 {
+	uint8_t opCode;
+	uint8_t options;
+	uint8_t lba[4];
+	uint8_t groupNumber;
+	uint8_t numberOfBlocks[2];
+	uint8_t control;
+};
+static_assert(sizeof(SynchronizeCache10) == 10);
+
 struct Read12 {
 	uint8_t opCode;
 	uint8_t options;
@@ -270,6 +280,23 @@ async::result<void> StorageDevice::readSectors(uint64_t sector,
 async::result<void> StorageDevice::writeSectors(uint64_t sector,
 		arch::dma_buffer_view view) {
 	co_await performSplitIo(true, sector, view);
+}
+
+async::result<void> StorageDevice::flush() {
+	// SYNCHRONIZE CACHE(10): IMMED=0 waits for durability. LBA=0 and
+	// NUMBER OF BLOCKS=0 synchronize the entire logical unit.
+	SynchronizeCache10 command{.opCode = 0x35};
+	CommandInfo info{
+		.command{nullptr, &command, sizeof(command)},
+		.data = {},
+		.isWrite = false
+	};
+	auto result = co_await sendScsiCommand(info);
+	// TODO: not entirely sure if we should panic here or not. For now, we just
+	//       log it.
+	if (!result)
+		std::println(std::cout, "block-scsi: Flush failed with error {}",
+			result.error().toString());
 }
 
 async::result<size_t> StorageDevice::getSize() {

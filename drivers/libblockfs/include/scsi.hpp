@@ -59,6 +59,8 @@ struct StorageDevice : Interface, blockfs::BlockDevice {
 	async::result<void> writeSectors(uint64_t sector,
 			arch::dma_buffer_view view) final;
 
+	async::result<void> flush() final;
+
 	async::result<size_t> getSize() final;
 
 	size_t storageSize{};
