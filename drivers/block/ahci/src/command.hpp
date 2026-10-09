@@ -8,7 +8,9 @@
 enum class CommandType {
 	read,
 	write,
-	identify
+	identify,
+	flush,
+	flushExt
 };
 
 class Controller;
@@ -53,8 +55,11 @@ constexpr const char *cmdTypeToString(CommandType type) {
 			return "write";
 		case CommandType::identify:
 			return "identify";
+		case CommandType::flush:
+			return "flush";
+		case CommandType::flushExt:
+			return "flush-ext";
 		default:
 			assert(!"unknown command type");
 	}
 }
-

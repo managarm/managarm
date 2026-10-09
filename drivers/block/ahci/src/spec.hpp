@@ -90,9 +90,14 @@ static_assert(alignof(commandTable) >= 128);
 struct identifyDevice {
 	uint16_t _junkA[27];
 	uint16_t model[20];
-	uint16_t _junkB[36];
-	uint16_t capabilities;
-	uint16_t _junkC[16];
+	uint16_t _junkB[35];
+	uint16_t commandSetSupport1;
+	uint16_t commandSetSupport2;
+	uint16_t _reserved84;
+	uint16_t commandSetEnabled1;
+	uint16_t _reserved86;
+	uint16_t commandSetEnabledValidity;
+	uint16_t _junkC[12];
 	uint64_t maxLBA48;
 	uint16_t _junkD[2];
 	uint16_t sectorSizeInfo;
@@ -141,7 +146,21 @@ struct identifyDevice {
 	}
 
 	bool supportsLba48() const {
-		return capabilities & (1 << 10);
+		return commandSetSupport2 & (1 << 10);
+	}
+
+	bool writeCacheKnownDisabled() const {
+		// Words 82/83 report support; words 85/87 report enabled features.
+		return ((commandSetSupport2 & 0xC000) == 0x4000 && !(commandSetSupport1 & (1 << 5)))
+				|| ((commandSetEnabledValidity & 0xC000) == 0x4000 && !(commandSetEnabled1 & (1 << 5)));
+	}
+
+	bool supportsFlush() const {
+		return (commandSetSupport2 & 0xC000) == 0x4000 && (commandSetSupport2 & (1 << 12));
+	}
+
+	bool supportsFlushExt() const {
+		return (commandSetSupport2 & 0xC000) == 0x4000 && (commandSetSupport2 & (1 << 13));
 	}
 };
 static_assert(sizeof(identifyDevice) == 512);

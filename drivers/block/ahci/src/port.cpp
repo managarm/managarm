@@ -200,6 +200,9 @@ async::result<bool> Port::run() {
 	}
 
 	assert(identify->supportsLba48());
+	writeCacheKnownDisabled_ = identify->writeCacheKnownDisabled();
+	supportsFlush_ = identify->supportsFlush();
+	supportsFlushExt_ = identify->supportsFlushExt();
 	auto [logicalSize, physicalSize] = identify->getSectorSize();
 	auto sectorCount = identify->maxLBA48;
 	auto model = identify->getModel();
@@ -342,6 +345,20 @@ async::result<void> Port::readSectors(uint64_t sector, arch::dma_buffer_view vie
 
 async::result<void> Port::writeSectors(uint64_t sector, arch::dma_buffer_view view) {
 	Command cmd{controller_, sector, view.size() >> sectorShift, view, CommandType::write};
+	pendingCmdQueue_.put(&cmd);
+	co_await cmd.getFuture();
+}
+
+async::result<void> Port::flush() {
+	if (writeCacheKnownDisabled_)
+		co_return;
+	// If the device doesn't support flush, we can't really do anything much
+	// about it. Just return here.
+	if (!supportsFlush_ && !supportsFlushExt_)
+		co_return;
+
+	Command cmd{controller_, 0, 0, {},
+			supportsFlushExt_ ? CommandType::flushExt : CommandType::flush};
 	pendingCmdQueue_.put(&cmd);
 	co_await cmd.getFuture();
 }

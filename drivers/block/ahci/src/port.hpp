@@ -29,6 +29,7 @@ public:
 
 	async::result<void> readSectors(uint64_t sector, arch::dma_buffer_view view) override;
 	async::result<void> writeSectors(uint64_t sector, arch::dma_buffer_view view) override;
+	async::result<void> flush() override;
 	async::result<size_t> getSize() override;
 
 	int getIndex() const { return portIndex_; }
@@ -56,6 +57,9 @@ private:
 	size_t commandsInFlight_;
 	int portIndex_;
 	bool staggeredSpinUp_;
+	bool writeCacheKnownDisabled_ = false;
+	bool supportsFlush_ = false;
+	bool supportsFlushExt_ = false;
 
 	arch::dma_object<commandList> commandList_;
 	arch::dma_array<commandTable> commandTables_;
