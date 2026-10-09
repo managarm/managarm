@@ -270,7 +270,7 @@ impl managarm::hw::server::PciDevice for ServedEntity {
         // Obtain an IRQ object for the interrupt.
         let irq = hel::handle_irq(&pin)?;
 
-        device.setup_msi(&msi, index as usize);
+        device.setup_msi(&msi, index as usize)?;
 
         Ok(irq)
     }

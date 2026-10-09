@@ -27,6 +27,18 @@ pub enum PciError {
     #[error("the MSI-X table is in BIR {bir}, which is not a memory BAR")]
     MsixTableNotInMemoryBar { bir: usize },
 
+    #[error("MSI address {address:#x} does not fit into the 32-bit MSI capability")]
+    MsiAddressTooWide { address: u64 },
+
     #[error(transparent)]
     Hel(#[from] hel::Error),
+}
+
+impl From<PciError> for managarm::hw::Error {
+    fn from(err: PciError) -> Self {
+        match err {
+            PciError::Hel(err) => managarm::hw::Error::HelError(err),
+            _ => managarm::hw::Error::DeviceError,
+        }
+    }
 }
