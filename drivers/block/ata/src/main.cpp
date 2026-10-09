@@ -68,6 +68,7 @@ private:
 public:
 	async::result<void> readSectors(uint64_t sector, arch::dma_buffer_view view) override;
 	async::result<void> writeSectors(uint64_t sector, arch::dma_buffer_view view) override;
+	async::result<void> flush() override;
 
 	async::result<size_t> getSize() override;
 
@@ -78,6 +79,8 @@ private:
 		kCommandWriteSectors = 0x30,
 		kCommandWriteSectorsExt = 0x34,
 		kCommandIdentify = 0xEC,
+		kCommandFlush = 0xE7,
+		kCommandFlushExt = 0xEA,
 	};
 
 	enum Flags {
@@ -91,8 +94,10 @@ private:
 		kDeviceLba = 0x40
 	};
 
+	enum class RequestType { read, write, flush };
+
 	struct Request {
-		bool isWrite;
+		RequestType type;
 		uint64_t sector;
 		size_t numSectors;
 		arch::dma_buffer_view view;
@@ -111,6 +116,8 @@ private:
 	arch::io_space _altSpace;
 
 	bool _supportsLBA48;
+	uint8_t _flushCommand = 0;
+	bool _writeCacheKnownDisabled = false;
 
 	uint64_t _irqSequence;
 };
@@ -221,7 +228,7 @@ async::result<void> Controller::readSectors(uint64_t sector, arch::dma_buffer_vi
 	auto numSectors = (view.size() + sectorSize - 1) >> sectorShift;
 
 	Request request{};
-	request.isWrite = false;
+	request.type = RequestType::read;
 	request.sector = sector;
 	request.numSectors = numSectors;
 	request.view = view;
@@ -236,7 +243,7 @@ async::result<void> Controller::writeSectors(uint64_t sector, arch::dma_buffer_v
 	auto numSectors = (view.size() + sectorSize - 1) >> sectorShift;
 
 	Request request{};
-	request.isWrite = true;
+	request.type = RequestType::write;
 	request.sector = sector;
 	request.numSectors = numSectors;
 	request.view = view;
@@ -244,6 +251,21 @@ async::result<void> Controller::writeSectors(uint64_t sector, arch::dma_buffer_v
 	_requestQueue.push(&request);
 	_doorbell.raise();
 
+	co_await request.event.wait();
+}
+
+async::result<void> Controller::flush() {
+	if (_writeCacheKnownDisabled)
+		co_return;
+	if (!_flushCommand) {
+		std::cout << "block/ata: Device does not support cache flush" << std::endl;
+		abort();
+	}
+
+	Request request{};
+	request.type = RequestType::flush;
+	_requestQueue.push(&request);
+	_doorbell.raise();
 	co_await request.event.wait();
 }
 
@@ -306,6 +328,19 @@ async::result<bool> Controller::_detectDevice() {
 	_supportsLBA48 = (ident_data[167] & (1 << 2))
 			&& (ident_data[173] & (1 << 2));
 
+	auto word = [&](size_t index) -> uint16_t {
+		return ident_data[index * 2] | (uint16_t{ident_data[index * 2 + 1]} << 8);
+	};
+	if ((word(83) & 0xC000) == 0x4000) {
+		if (word(83) & (1 << 13))
+			_flushCommand = kCommandFlushExt;
+		else if (word(83) & (1 << 12))
+			_flushCommand = kCommandFlush;
+		_writeCacheKnownDisabled = !(word(82) & (1 << 5));
+	}
+	if ((word(87) & 0xC000) == 0x4000 && !(word(85) & (1 << 5)))
+		_writeCacheKnownDisabled = true;
+
 	printf("block/ata: detected device, model: '%s', %s 48-bit LBA\n", model, _supportsLBA48 ? "supports" : "doesn't support");
 
 	co_return true;
@@ -322,6 +357,16 @@ async::result<void> Controller::_performRequest(Request *request) {
 	_ioSpace.store(regs::outDevice, kDeviceLba);
 	// TODO: There should be a 400ns delay after drive selection.
 
+	if (request->type == RequestType::flush) {
+		_ioSpace.store(regs::outCommand, _flushCommand);
+		auto ioRes = co_await _waitForBsyIrq();
+		if (ioRes != IoResult::noData) {
+			std::cout << "block/ata: Cache flush failed" << std::endl;
+			abort();
+		}
+		co_return;
+	}
+
 	if (_supportsLBA48) {
 		_ioSpace.store(regs::outSectorCount, (request->numSectors >> 8) & 0xFF);
 		_ioSpace.store(regs::outLba1, (request->sector >> 24) & 0xFF);
@@ -334,7 +379,7 @@ async::result<void> Controller::_performRequest(Request *request) {
 	_ioSpace.store(regs::outLba2, (request->sector >> 8) & 0xFF);
 	_ioSpace.store(regs::outLba3, (request->sector >> 16) & 0xFF);
 
-	if(!request->isWrite) {
+	if(request->type == RequestType::read) {
 		if (_supportsLBA48)
 			_ioSpace.store(regs::outCommand, kCommandReadSectorsExt);
 		else

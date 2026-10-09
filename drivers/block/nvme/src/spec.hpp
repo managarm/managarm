@@ -12,6 +12,7 @@ enum class DataTransfer {
 };
 
 enum CommandOpcode {
+	kFlush = 0x00,
 	kWrite = 0x01,
 	kRead = 0x02,
 };

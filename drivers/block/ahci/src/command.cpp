@@ -70,6 +70,12 @@ async::result<void> Command::prepare(arch::dma_object_view<commandTable> table, 
 		case CommandType::identify:
 			table->commandFis.command = 0xEC; // IDENTIFY DEVICE
 			break;
+		case CommandType::flush:
+			table->commandFis.command = 0xE7; // FLUSH CACHE (non-data)
+			break;
+		case CommandType::flushExt:
+			table->commandFis.command = 0xEA; // FLUSH CACHE EXT (non-data)
+			break;
 		default:
 			assert(!"unknown command type");
 	}
@@ -87,6 +93,9 @@ async::result<void> Command::prepare(arch::dma_object_view<commandTable> table, 
  * in the page tables. Hence, we know the buffer remains in memory during the DMA.
  */
 async::result<size_t> Command::writeScatterGather_(arch::dma_object_view<commandTable> table) {
+	if (!numBytes_)
+		co_return 0;
+
 	// TODO: Grab the page size for each individual address
 	size_t pageSize = getpagesize();
 

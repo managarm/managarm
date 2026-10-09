@@ -93,13 +93,14 @@ async::result<frg::expected<scsi::Error, size_t>> StorageDevice::sendScsiCommand
 
 	if(logTrace)
 		std::cout << "block-usb: Waiting for data" << std::endl;
-	if(!info.isWrite) {
+	// BOT has no data stage at all when dCBWDataTransferLength is zero.
+	if(info.data.size() && !info.isWrite) {
 		proto::BulkTransfer data_info{proto::XferFlags::kXferToHost, info.data};
 		// TODO: We want this to be lazy but that only works if can ensure that
 		// the next transaction is also posted to the queue.
 //			data_info.lazyNotification = true;
 		(co_await endp_in_.transfer(data_info)).unwrap();
-	}else{
+	}else if(info.data.size()){
 		(co_await endp_out_.transfer(proto::BulkTransfer{proto::XferFlags::kXferToDevice, info.data})).unwrap();
 	}
 
@@ -113,9 +114,12 @@ async::result<frg::expected<scsi::Error, size_t>> StorageDevice::sendScsiCommand
 	assert(csw.signature == Signatures::kSignCsw);
 	assert(csw.tag == 1);
 	assert(!csw.dataResidue);
-	if(csw.status) {
-		co_return scsi::statusToError(csw.status);
-	}
+	// CSW status is a BOT status, not a SCSI status byte. In particular,
+	// 1 is command failure and 2 is a transport phase error.
+	if(csw.status == 1)
+		co_return scsi::Error{scsi::ErrorType::checkCondition, csw.status};
+	if(csw.status)
+		co_return scsi::Error{scsi::ErrorType::deviceSpecific, csw.status};
 
 	co_return info.data.size();
 }
