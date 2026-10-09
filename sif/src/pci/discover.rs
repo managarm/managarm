@@ -368,7 +368,7 @@ fn find_pci_caps(entity: &PciEntity) -> Result<(), PciError> {
 }
 
 // Setup MSI / MSI-X. This needs to happen after BARs are already allocated.
-fn setup_msis(device: &'static PciDevice) {
+fn setup_msis(device: &'static PciDevice) -> Result<(), PciError> {
     let entity = &device.entity;
     let bus = entity.parent_bus;
     let slot = entity.slot;
@@ -390,30 +390,32 @@ fn setup_msis(device: &'static PciDevice) {
         let table_info = unsafe { bus.read_config_word(slot, function, offset + 4) };
         let table_bar = (table_info & 0x7) as usize;
         let table_offset = table_info & 0xFFFF_FFF8;
-        assert!(table_bar < 6);
 
-        let bar = {
-            let bars = entity.bars.lock().expect(EXPECT_LOCK);
-            assert!(bars[table_bar].type_ == BarType::Memory);
-            bars[table_bar]
-        };
+        let bar = entity
+            .bars
+            .lock()
+            .expect(EXPECT_LOCK)
+            .get(table_bar)
+            .copied()
+            .filter(|bar| bar.type_ == BarType::Memory)
+            .ok_or(PciError::MsixTableNotInMemoryBar { bir: table_bar })?;
+        if !bar.allocated {
+            return Err(PciError::MsixTableBarUnallocated { bir: table_bar });
+        }
+        if table_offset as u64 + num_msis as u64 * 16 > bar.length {
+            return Err(PciError::MsixTableOutsideBar { bir: table_bar });
+        }
         let table_address = (bar.host_address + table_offset as u64) as usize;
         let mapping_disp = table_address & PAGE_MASK;
         let mapping_size = (mapping_disp + num_msis as usize * 16 + PAGE_MASK) & !PAGE_MASK;
 
-        let handle = match hel::access_physical(
+        let handle = hel::access_physical(
             hardware_access_handle(),
             table_address & !PAGE_MASK,
             mapping_size,
             hel::CachingMode::Mmio,
-        ) {
-            Ok(handle) => handle,
-            Err(err) => {
-                println!("sif: Failed to access the MSI-X table: {err}");
-                return;
-            }
-        };
-        let mapping = match unsafe {
+        )?;
+        let mapping = unsafe {
             hel::Mapping::<u8>::new(
                 &handle,
                 None,
@@ -421,13 +423,7 @@ fn setup_msis(device: &'static PciDevice) {
                 mapping_size,
                 hel::MappingFlags::READ | hel::MappingFlags::WRITE,
             )
-        } {
-            Ok(mapping) => mapping,
-            Err(err) => {
-                println!("sif: Failed to map the MSI-X table: {err}");
-                return;
-            }
-        };
+        }?;
         let table = MsixTable::new(mapping, mapping_disp);
 
         // Mask all MSIs.
@@ -454,6 +450,8 @@ fn setup_msis(device: &'static PciDevice) {
         device.num_msis.store(num_msis, Ordering::Relaxed);
         device.msis_usable.store(true, Ordering::Relaxed);
     }
+
+    Ok(())
 }
 
 fn check_pci_function(
@@ -1325,7 +1323,12 @@ fn configure_device(device: &'static PciDevice) {
     }
     enable_decodes_in_chain(decode_bits, &device.entity);
 
-    setup_msis(device);
+    if let Err(err) = setup_msis(device) {
+        println!(
+            "sif: Not using the MSIs of PCI device {:04x}:{:02x}:{:02x}.{:x}: {err}",
+            device.entity.seg, device.entity.bus, device.entity.slot, device.entity.function
+        );
+    }
 
     println!(
         "sif: Applying quirks for PCI device {:04x}:{:02x}:{:02x}.{:x}",

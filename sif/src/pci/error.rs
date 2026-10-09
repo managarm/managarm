@@ -17,4 +17,16 @@ pub enum PciError {
 
     #[error("the bridge is configured, but sits below an unconfigured bridge")]
     ConfiguredBridgeBelowUnconfigured,
+
+    #[error("BAR #{bir}, which holds the MSI-X table, is not allocated")]
+    MsixTableBarUnallocated { bir: usize },
+
+    #[error("the MSI-X table does not fit into BAR #{bir}")]
+    MsixTableOutsideBar { bir: usize },
+
+    #[error("the MSI-X table is in BIR {bir}, which is not a memory BAR")]
+    MsixTableNotInMemoryBar { bir: usize },
+
+    #[error(transparent)]
+    Hel(#[from] hel::Error),
 }
