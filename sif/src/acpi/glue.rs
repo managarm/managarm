@@ -177,7 +177,10 @@ unsafe fn complete_read<T>(result: config::Result<T>, value: *mut T, absent: T) 
             uacpi_sys::UACPI_STATUS_OK
         }
         Err(error) => {
-            println!("sif: uacpi: Configuration space read failed: {error}");
+            println!(
+                "sif: uacpi: Configuration space read failed: {:#}",
+                anyhow::Error::from(error)
+            );
             uacpi_sys::UACPI_STATUS_INTERNAL_ERROR
         }
     }
@@ -189,7 +192,10 @@ fn complete_write(result: config::Result<()>) -> uacpi_status {
         Ok(()) => uacpi_sys::UACPI_STATUS_OK,
         Err(error) if is_absent(&error) => uacpi_sys::UACPI_STATUS_OK,
         Err(error) => {
-            println!("sif: uacpi: Configuration space write failed: {error}");
+            println!(
+                "sif: uacpi: Configuration space write failed: {:#}",
+                anyhow::Error::from(error)
+            );
             uacpi_sys::UACPI_STATUS_INTERNAL_ERROR
         }
     }
