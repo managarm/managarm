@@ -24,6 +24,9 @@ size_t pduHeaderSize(spec::tcp::PduType type) {
 	}
 }
 
+// Host Pathing Error, which Linux also reports for commands on a failed transport.
+constexpr Command::Result hostPathError{spec::CompletionStatus{(0x3 << 9) | (0x70 << 1)}, {}};
+
 } // namespace
 
 TcpQueue::TcpQueue(Tcp *controller, uint16_t cid, unsigned int index, unsigned int depth, in_addr addr, in_port_t port, helix::BorrowedLane lane, std::span<uint8_t, 16> uuid)
@@ -78,6 +81,7 @@ async::result<void> TcpQueue::init() {
 	auto sock_err = co_await protocols::fs::File::createSocket(lane_, AF_INET, SOCK_STREAM, 0, 0);
 	if(!sock_err) {
 		std::cout << "block/nvme: failed to create socket for queue " << qid_ << std::endl;
+		fail();
 		co_return;
 	}
 
@@ -91,11 +95,13 @@ async::result<void> TcpQueue::init() {
 	auto connect_err = co_await file_->connect(reinterpret_cast<struct sockaddr *>(&sockaddr), sizeof(sockaddr));
 	if(connect_err != protocols::fs::Error::none) {
 		std::cout << "block/nvme: failed to TCP connect for queue " << qid_ << std::endl;
+		fail();
 		co_return;
 	}
 
 	if(co_await connect() != protocols::fs::Error::none) {
 		std::cout << "block/nvme: failed to init queue " << qid_ << std::endl;
+		fail();
 		co_return;
 	}
 
@@ -125,6 +131,7 @@ async::result<void> TcpQueue::init() {
 	auto res = co_await submitCommand(std::move(cmd));
 	if(!res.first.successful()) {
 		std::cout << "block/nvme: failed to set up queue " << qid_ << std::endl;
+		fail();
 		co_return;
 	}
 
@@ -136,7 +143,7 @@ async::detached TcpQueue::keepAlive() {
 	assert(keepAliveTimeout_ > 5000);
 	assert(keepAliveTimeout_ < 10 * 60 * 1000);
 
-	while(true) {
+	while(!broken_) {
 		// Like Linux, send at half the timeout to avoid hitting the timeout due to lag.
 		co_await helix::sleepFor(keepAliveTimeout_ / 2 * 1'000'000);
 
@@ -166,6 +173,7 @@ async::detached TcpQueue::run() {
 
 		if(ch->pduLength < pduHeaderSize(ch->pduType)) {
 			std::cout << std::format("block/nvme: NVMe-oF PDU of type {:#x} is truncated", static_cast<uint8_t>(ch->pduType)) << std::endl;
+			fail();
 			co_return;
 		}
 
@@ -192,20 +200,24 @@ async::detached TcpQueue::run() {
 				auto slot = r2t->commandCapsuleId;
 				if(slot >= queuedCmds_.size() || !queuedCmds_[slot] || slots_[slot].deferredResult) {
 					std::cout << std::format("block/nvme: R2T for unknown command {}", slot) << std::endl;
+					fail();
 					co_return;
 				}
 				if(!slots_[slot].r2tData) {
 					std::cout << std::format("block/nvme: Unexpected R2T for command {} that is not a write without in-capsule data", slot) << std::endl;
+					fail();
 					co_return;
 				}
 				// We would send no H2CData PDU at all, so the controller would never see the last one.
 				if(!r2t->r2tLength) {
 					std::cout << std::format("block/nvme: R2T of zero length for command {}", slot) << std::endl;
+					fail();
 					co_return;
 				}
 				auto &view = queuedCmds_[slot]->view();
 				if(!view.byte_data() || uint64_t{r2t->r2tOffset} + r2t->r2tLength > view.size()) {
 					std::cout << std::format("block/nvme: R2T exceeds the data of command {}", slot) << std::endl;
+					fail();
 					co_return;
 				}
 				slots_[slot].activeTransfers++;
@@ -216,27 +228,31 @@ async::detached TcpQueue::run() {
 				auto resp = reinterpret_cast<spec::tcp::C2HData *>(recvbuf.data());
 
 				if(uint64_t{resp->ch.pduDataOffset} + resp->dataLength > resp->ch.pduLength) {
-					std::cout << std::format("block/nvme: NVMe-oF packet requests out-of-bound read, dropping") << std::endl;
-					continue;
+					std::cout << std::format("block/nvme: NVMe-oF packet requests out-of-bound read") << std::endl;
+					fail();
+					co_return;
 				}
 
 				auto slot = resp->commandCapsuleId;
 				if(slot >= queuedCmds_.size() || !queuedCmds_[slot]) {
-					std::cout << std::format("block/nvme: C2HData for unknown command {}, dropping", slot) << std::endl;
-					continue;
+					std::cout << std::format("block/nvme: C2HData for unknown command {}", slot) << std::endl;
+					fail();
+					co_return;
 				}
 
 				auto &cmd = queuedCmds_[slot];
 				if(cmd->view().byte_data() && cmd->view().size() >= uint64_t{resp->dataOffset} + resp->dataLength) {
 					memcpy(cmd->view().byte_data() + resp->dataOffset, recvbuf.data() + resp->ch.pduDataOffset, resp->dataLength);
 				} else {
-					std::cout << std::format("block/nvme: NVMe-oF packet requests out-of-bound read, dropping") << std::endl;
-					continue;
+					std::cout << std::format("block/nvme: NVMe-oF packet requests out-of-bound read") << std::endl;
+					fail();
+					co_return;
 				}
 				break;
 			}
 			default: {
 				std::cout << std::format("block/nvme: unhandled NVMe-oF PDU type {:#x}", static_cast<uint8_t>(ch->pduType)) << std::endl;
+				fail();
 				co_return;
 			}
 		}
@@ -249,7 +265,13 @@ async::result<protocols::fs::Error> TcpQueue::receiveExact(void *buffer, size_t 
 		auto recv_err = co_await file_->recvfrom(static_cast<std::byte *>(buffer) + received, size - received, 0, nullptr, 0);
 		if(!recv_err) {
 			std::cout << "block/nvme: error on receive for queue " << qid_ << std::endl;
+			fail();
 			co_return recv_err.error();
+		}
+		if(!recv_err.value()) {
+			std::cout << "block/nvme: connection of queue " << qid_ << " was closed" << std::endl;
+			fail();
+			co_return protocols::fs::Error::endOfFile;
 		}
 		received += recv_err.value();
 	}
@@ -262,6 +284,7 @@ async::result<protocols::fs::Error> TcpQueue::sendExact(const void *buffer, size
 		auto send_err = co_await file_->sendto(static_cast<const std::byte *>(buffer) + sent, size - sent, 0, nullptr, 0);
 		if(!send_err) {
 			std::cout << "block/nvme: error on send for queue " << qid_ << std::endl;
+			fail();
 			co_return send_err.error();
 		}
 		sent += send_err.value();
@@ -279,6 +302,11 @@ async::detached TcpQueue::submitPendingLoop() {
 
 async::result<void> TcpQueue::submitCommandToDevice(std::unique_ptr<Command> cmd) {
 	auto slot = co_await findFreeSlot();
+
+	if(broken_) {
+		cmd->complete(hostPathError.first, hostPathError.second);
+		co_return;
+	}
 
 	// we can safely reuse the buffer as we are (implicitly) serialized by `submitPendingLoop`
 	auto data_len = cmd->view().size();
@@ -333,6 +361,10 @@ async::result<void> TcpQueue::submitCommandToDevice(std::unique_ptr<Command> cmd
 	co_await sendMutex.async_lock();
 	frg::unique_lock lock{frg::adopt_lock, sendMutex};
 
+	// fail() has already completed the command.
+	if(broken_)
+		co_return;
+
 	co_await sendExact(buf_.data(), capsuleCmd->ch.pduLength);
 }
 
@@ -344,7 +376,7 @@ async::detached TcpQueue::sendH2CData(uint16_t slot, uint16_t transferTag, uint3
 	// MAXH2CDATA must be at least 4096; do not loop forever on a controller that reports 0.
 	auto maxChunk = maxH2CData_ ? maxH2CData_ : length;
 
-	for(uint32_t done = 0; done < length;) {
+	for(uint32_t done = 0; done < length && !broken_;) {
 		auto chunk = std::min<uint32_t>(length - done, maxChunk);
 		spec::tcp::H2CData header{
 			.ch = {
@@ -366,6 +398,9 @@ async::detached TcpQueue::sendH2CData(uint16_t slot, uint16_t transferTag, uint3
 		co_await sendMutex.async_lock();
 		frg::unique_lock lock{frg::adopt_lock, sendMutex};
 
+		if(broken_)
+			break;
+
 		if(co_await sendExact(pdu.data(), pdu.size()) != protocols::fs::Error::none)
 			break;
 
@@ -380,6 +415,24 @@ void TcpQueue::finishTransfer(uint16_t slot) {
 	assert(state.activeTransfers);
 	if(!--state.activeTransfers && state.deferredResult)
 		completeSlot(slot, *std::exchange(state.deferredResult, std::nullopt));
+}
+
+void TcpQueue::fail() {
+	if(broken_)
+		return;
+	broken_ = true;
+	std::cout << "block/nvme: NVMe/TCP queue " << qid_ << " is broken, failing all of its commands" << std::endl;
+
+	// Fail commands that have not been submitted yet.
+	while(auto cmd = pendingCmdQueue_.maybe_get())
+		(*cmd)->complete(hostPathError.first, hostPathError.second);
+
+	// Fail commands that are waiting for completion.
+	for(size_t slot = 0; slot < queuedCmds_.size(); slot++) {
+		// A deferred result is the controller's own and is delivered once H2C data stops.
+		if(queuedCmds_[slot] && !slots_[slot].deferredResult)
+			resolveSlot(slot, hostPathError);
+	}
 }
 
 void TcpQueue::resolveSlot(size_t slot, Command::Result result) {
@@ -398,6 +451,9 @@ void TcpQueue::completeSlot(size_t slot, Command::Result result) {
 }
 
 async::result<Command::Result> TcpQueue::submitCommand(std::unique_ptr<Command> cmd) {
+	if(broken_)
+		co_return hostPathError;
+
 	auto future = cmd->getFuture();
 	pendingCmdQueue_.put(std::move(cmd));
 	co_return *(co_await future.get());
@@ -426,7 +482,13 @@ async::detached Tcp::run(mbus_ng::EntityId subsystem) {
 	adminq->run();
 	co_await adminq->init();
 	auto cid = adminq->controllerId();
+	bool adminqBroken = adminq->broken();
+	// The queue's detached coroutines still reference it, so keep it alive even if it failed.
 	activeQueues_.push_back(std::move(adminq));
+	if(adminqBroken) {
+		std::cout << "block/nvme: failed to set up the NVMe/TCP admin queue" << std::endl;
+		co_return;
+	}
 
 	std::cout << std::format("block/nvme: TCP socket connected to controller") << std::endl;
 
@@ -477,7 +539,12 @@ async::detached Tcp::run(mbus_ng::EntityId subsystem) {
 		ioq->setInCapsuleDataSize(ioCapsuleSize - sizeof(spec::Command));
 	ioq->run();
 	co_await ioq->init();
+	bool ioqBroken = ioq->broken();
 	activeQueues_.push_back(std::move(ioq));
+	if(ioqBroken) {
+		std::cout << "block/nvme: failed to set up the NVMe/TCP I/O queue" << std::endl;
+		co_return;
+	}
 
 	for (auto &ns : activeNamespaces_)
 		ns->run();

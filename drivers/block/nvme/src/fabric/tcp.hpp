@@ -34,17 +34,23 @@ struct TcpQueue final : public Queue {
 		return controllerId_;
 	}
 
+	bool broken() const {
+		return broken_;
+	}
+
 	void setInCapsuleDataSize(size_t size);
 private:
 	async::result<protocols::fs::Error> connect();
 	async::detached keepAlive();
 	async::detached submitPendingLoop();
-	// Transfer exactly size bytes.
+	// Transfer exactly size bytes; fail the queue on errors and when the connection closes.
 	async::result<protocols::fs::Error> receiveExact(void *buffer, size_t size);
 	async::result<protocols::fs::Error> sendExact(const void *buffer, size_t size);
 	async::result<void> submitCommandToDevice(std::unique_ptr<Command> cmd);
 	async::detached sendH2CData(uint16_t slot, uint16_t transferTag, uint32_t offset, uint32_t length);
 	void finishTransfer(uint16_t slot);
+	// Fails all commands once the stream cannot be trusted anymore; NVMe/TCP cannot resynchronize.
+	void fail();
 	void resolveSlot(size_t slot, Command::Result result);
 	void completeSlot(size_t slot, Command::Result result);
 
@@ -73,6 +79,7 @@ private:
 	std::vector<SlotState> slots_;
 
 	async::oneshot_event connectedEvent_;
+	bool broken_ = false;
 
 	std::unique_ptr<protocols::fs::File> file_;
 
