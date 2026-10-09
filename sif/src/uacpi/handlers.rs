@@ -59,6 +59,7 @@ impl RegionRw<'_> {
 pub enum RegionError {
     InvalidArgument,
     HardwareTimeout,
+    Internal,
 }
 
 impl RegionError {
@@ -66,6 +67,7 @@ impl RegionError {
         match self {
             RegionError::InvalidArgument => uacpi_sys::UACPI_STATUS_INVALID_ARGUMENT,
             RegionError::HardwareTimeout => uacpi_sys::UACPI_STATUS_HARDWARE_TIMEOUT,
+            RegionError::Internal => uacpi_sys::UACPI_STATUS_INTERNAL_ERROR,
         }
     }
 }

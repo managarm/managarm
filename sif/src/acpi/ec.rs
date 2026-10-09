@@ -2,7 +2,8 @@ use std::ffi::{CStr, CString};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Mutex, OnceLock};
 
-use anyhow::{Result, bail};
+use anyhow::Result;
+use thiserror::Error;
 use uacpi_sys::acpi_ecdt;
 
 use crate::uacpi::handlers::{self, RegionError, RegionOp, RegionRw};
@@ -11,7 +12,7 @@ use crate::uacpi::namespace::{self, IterationDecision, NamespaceNode};
 use crate::uacpi::resources::Resource;
 use crate::uacpi::runtime::{self, Aml, AmlThread};
 use crate::uacpi::table::Table;
-use crate::{EXPECT_LOCK, leak};
+use crate::{EXPECT_LOCK, leak, uacpi};
 
 const HID_EC: &CStr = c"PNP0C09";
 
@@ -28,6 +29,26 @@ const QR_EC: u8 = 0x84;
 
 const BURST_ACK: u8 = 0x90;
 
+/// Reasons why a transaction with the EC fails.
+#[derive(Debug, Error)]
+enum EcError {
+    #[error("the EC answered a burst enable with {0:#04x}")]
+    BurstNotAcknowledged(u8),
+
+    #[error(transparent)]
+    Acpi(#[from] uacpi::Error),
+}
+
+impl From<EcError> for RegionError {
+    fn from(err: EcError) -> RegionError {
+        match err {
+            // An EC that does not grant burst mode is as unresponsive as one that times out.
+            EcError::BurstNotAcknowledged(_) => RegionError::HardwareTimeout,
+            EcError::Acpi(_) => RegionError::Internal,
+        }
+    }
+}
+
 struct EcDevice {
     node: NamespaceNode,
     control: MappedGas,
@@ -38,7 +59,7 @@ struct EcDevice {
 }
 
 impl EcDevice {
-    fn new(node: NamespaceNode, control: Gas, data: Gas) -> Result<EcDevice> {
+    fn new(node: NamespaceNode, control: Gas, data: Gas) -> uacpi::Result<EcDevice> {
         // Transactions poll the registers, hence map them once.
         Ok(EcDevice {
             node,
@@ -49,49 +70,49 @@ impl EcDevice {
         })
     }
 
-    fn wait_for_bit(&self, register: &MappedGas, bit: u8, value: bool) -> Result<()> {
+    fn wait_for_bit(&self, register: &MappedGas, bit: u8, value: bool) -> Result<(), EcError> {
         while (register.read()? as u8 & bit != 0) != value {}
         Ok(())
     }
 
-    fn write_one(&self, register: &MappedGas, value: u8) -> Result<()> {
+    fn write_one(&self, register: &MappedGas, value: u8) -> Result<(), EcError> {
         self.wait_for_bit(&self.control, EC_IBF, false)?;
         register.write(u64::from(value))?;
         Ok(())
     }
 
-    fn read_one(&self, register: &MappedGas) -> Result<u8> {
+    fn read_one(&self, register: &MappedGas) -> Result<u8, EcError> {
         self.wait_for_bit(&self.control, EC_OBF, true)?;
         Ok(register.read()? as u8)
     }
 
-    fn burst_enable(&self) -> Result<()> {
+    fn burst_enable(&self) -> Result<(), EcError> {
         self.write_one(&self.control, BE_EC)?;
         let acknowledge = self.read_one(&self.data)?;
         if acknowledge != BURST_ACK {
-            bail!("sif: acpi: EC answered a burst enable with {acknowledge:#04x}");
+            return Err(EcError::BurstNotAcknowledged(acknowledge));
         }
         Ok(())
     }
 
-    fn burst_disable(&self) -> Result<()> {
+    fn burst_disable(&self) -> Result<(), EcError> {
         self.write_one(&self.control, BD_EC)?;
         self.wait_for_bit(&self.control, EC_BURST, false)
     }
 
-    fn read(&self, offset: u8) -> Result<u8> {
+    fn read(&self, offset: u8) -> Result<u8, EcError> {
         self.write_one(&self.control, RD_EC)?;
         self.write_one(&self.data, offset)?;
         self.read_one(&self.data)
     }
 
-    fn write(&self, offset: u8, value: u8) -> Result<()> {
+    fn write(&self, offset: u8, value: u8) -> Result<(), EcError> {
         self.write_one(&self.control, WR_EC)?;
         self.write_one(&self.data, offset)?;
         self.write_one(&self.data, value)
     }
 
-    fn check_event(&self) -> Result<Option<u8>> {
+    fn check_event(&self) -> Result<Option<u8>, EcError> {
         let _transaction = self.transaction.lock().expect(EXPECT_LOCK);
         let status = self.control.read()? as u8;
 
@@ -108,7 +129,7 @@ impl EcDevice {
         Ok(Some(index))
     }
 
-    fn handle_event(&self, aml: Aml) -> Result<()> {
+    fn handle_event(&self, aml: Aml) -> Result<(), EcError> {
         let Some(index) = self.check_event()? else {
             return Ok(());
         };
@@ -122,7 +143,7 @@ impl EcDevice {
         Ok(())
     }
 
-    fn transfer(&self, op: RegionOp, access: &mut RegionRw<'_>) -> Result<()> {
+    fn transfer(&self, op: RegionOp, access: &mut RegionRw<'_>) -> Result<(), EcError> {
         let offset = access.offset() as u8;
 
         let _transaction = self.transaction.lock().expect(EXPECT_LOCK);
@@ -151,7 +172,7 @@ fn handle_region(
 
     device.transfer(op, access).map_err(|err| {
         println!("sif: acpi: EC access failed: {err}");
-        RegionError::HardwareTimeout
+        RegionError::from(err)
     })
 }
 
@@ -279,9 +300,9 @@ fn init_from_namespace(aml: Aml) -> Result<Option<EcDevice>> {
         IterationDecision::Break
     })?;
 
-    found
+    Ok(found
         .map(|(node, control, data)| EcDevice::new(node, control, data))
-        .transpose()
+        .transpose()?)
 }
 
 pub fn init(aml: Aml) -> Result<()> {
