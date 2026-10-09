@@ -141,12 +141,11 @@ impl DtNode for ServedDtNode {
         self.irqs.get(index).ok_or(HwError::OutOfBounds)?.object()
     }
 
-    fn enable_irqs(&self) {
-        for (index, irq) in self.irqs.iter().enumerate() {
-            if irq.object().is_err() {
-                println!("sif: {}: failed to configure IRQ {index}", self.node.path());
-            }
+    fn enable_irqs(&self) -> managarm::hw::Result<()> {
+        for irq in &self.irqs {
+            irq.object()?;
         }
+        Ok(())
     }
 }
 

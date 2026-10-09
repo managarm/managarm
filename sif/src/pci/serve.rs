@@ -4,6 +4,7 @@ use std::sync::Arc;
 use std::sync::atomic::Ordering;
 
 use anyhow::Result;
+use managarm::hw::Error as HwError;
 use managarm::hw::pci::IoType;
 use managarm::hw::server::{BarDescriptor, CapDescriptor, serve_pci_device};
 use managarm::mbus::{EntityManager, Properties, create_entity};
@@ -84,24 +85,26 @@ impl managarm::hw::server::PciDevice for ServedEntity {
         }
     }
 
-    fn access_expansion_rom(&self) -> hel::Result<Option<hel::Handle>> {
-        let Some(rom) = self.entity().expansion_rom.get() else {
-            return Ok(None);
-        };
+    fn access_expansion_rom(&self) -> managarm::hw::Result<hel::Handle> {
+        let rom = self
+            .entity()
+            .expansion_rom
+            .get()
+            .ok_or(HwError::DeviceError)?;
         if rom.address == 0 {
-            return Ok(None);
+            return Err(HwError::DeviceError);
         }
 
         let aligned = (rom.address as usize) & !PAGE_MASK;
         let page_off = (rom.address as usize) & PAGE_MASK;
         let span = ((rom.length as usize) + page_off + PAGE_MASK) & !PAGE_MASK;
         // Some cards have problems with caching the expansion ROM.
-        Ok(Some(hel::access_physical(
+        Ok(hel::access_physical(
             hardware_access_handle(),
             aligned,
             span,
             hel::CachingMode::Uncached,
-        )?))
+        )?)
     }
 
     fn capabilities(&self) -> Vec<CapDescriptor> {
@@ -118,7 +121,7 @@ impl managarm::hw::server::PciDevice for ServedEntity {
             .collect()
     }
 
-    fn config_read(&self, offset: u32, size: u32) -> Option<u32> {
+    fn config_read(&self, offset: u32, size: u32) -> managarm::hw::Result<u32> {
         let entity = self.entity();
         let bus = entity.parent_bus;
 
@@ -132,19 +135,19 @@ impl managarm::hw::server::PciDevice for ServedEntity {
             || offset & (size - 1) != 0
             || offset.checked_add(size).is_none_or(|end| end > limit)
         {
-            return None;
+            return Err(HwError::IllegalArguments);
         }
 
         let offset = offset as u16;
         // The protocol hands out raw config space access; the client is responsible for it.
-        Some(match size {
+        Ok(match size {
             1 => (unsafe { bus.read_config_byte(entity.slot, entity.function, offset) }) as u32,
             2 => (unsafe { bus.read_config_half(entity.slot, entity.function, offset) }) as u32,
             _ => unsafe { bus.read_config_word(entity.slot, entity.function, offset) },
         })
     }
 
-    fn config_write(&self, offset: u32, size: u32, word: u32) -> bool {
+    fn config_write(&self, offset: u32, size: u32, word: u32) -> managarm::hw::Result<()> {
         let entity = self.entity();
         let bus = entity.parent_bus;
 
@@ -158,7 +161,7 @@ impl managarm::hw::server::PciDevice for ServedEntity {
             || offset & (size - 1) != 0
             || offset.checked_add(size).is_none_or(|end| end > limit)
         {
-            return false;
+            return Err(HwError::IllegalArguments);
         }
 
         let offset = offset as u16;
@@ -170,53 +173,55 @@ impl managarm::hw::server::PciDevice for ServedEntity {
             },
             _ => unsafe { bus.write_config_word(entity.slot, entity.function, offset, word) },
         }
-        true
+        Ok(())
     }
 
-    fn capability_read(&self, index: i32, offset: u32, size: u32) -> Option<u32> {
+    fn capability_read(&self, index: i32, offset: u32, size: u32) -> managarm::hw::Result<u32> {
         let cap_offset = {
             let caps = self.entity().caps.lock().expect(EXPECT_LOCK);
-            caps.get(usize::try_from(index).ok()?)?.offset
+            let index = usize::try_from(index).map_err(|_| HwError::IllegalArguments)?;
+            caps.get(index).ok_or(HwError::IllegalArguments)?.offset
         };
-        self.config_read(u32::from(cap_offset).checked_add(offset)?, size)
+        let offset = u32::from(cap_offset)
+            .checked_add(offset)
+            .ok_or(HwError::IllegalArguments)?;
+        self.config_read(offset, size)
     }
 
-    fn access_bar(&self, index: usize) -> hel::Result<hel::Handle> {
+    fn access_bar(&self, index: usize) -> managarm::hw::Result<hel::Handle> {
         let bars = self.entity().bars.lock().expect(EXPECT_LOCK);
-        let bar = bars.get(index).ok_or(hel::Error::IllegalArgs)?;
+        let bar = bars.get(index).ok_or(HwError::OutOfBounds)?;
         match bar.host_type {
             BarType::Memory => {
                 let aligned = (bar.host_address as usize) & !PAGE_MASK;
                 let page_off = (bar.host_address as usize) & PAGE_MASK;
                 let span = ((bar.length as usize) + page_off + PAGE_MASK) & !PAGE_MASK;
-                hel::access_physical(
+                Ok(hel::access_physical(
                     hardware_access_handle(),
                     aligned,
                     span.max(PAGE_SIZE),
                     hel::CachingMode::Mmio,
-                )
+                )?)
             }
             BarType::Io => {
                 let ports: Vec<usize> = (bar.address..bar.address + bar.length)
                     .map(|p| p as usize)
                     .collect();
-                hel::access_io(hardware_access_handle(), &ports)
+                Ok(hel::access_io(hardware_access_handle(), &ports)?)
             }
-            BarType::None => Err(hel::Error::IllegalArgs),
+            BarType::None => Err(HwError::OutOfBounds),
         }
     }
 
-    fn access_vbt(&self) -> hel::Result<Option<(u32, hel::Handle)>> {
+    fn access_vbt(&self) -> managarm::hw::Result<(u32, hel::Handle)> {
         let ServedEntity::Device(device) = self else {
-            return Ok(None);
+            return Err(HwError::IllegalArguments);
         };
-        let Some(&(address, size)) = device.igd_vbt.get() else {
-            return Ok(None);
-        };
+        let &(address, size) = device.igd_vbt.get().ok_or(HwError::IllegalArguments)?;
 
         let aligned = (address as usize) & !PAGE_MASK;
         let span = ((size as usize) + PAGE_MASK) & !PAGE_MASK;
-        Ok(Some((
+        Ok((
             span as u32,
             hel::access_physical(
                 hardware_access_handle(),
@@ -224,31 +229,29 @@ impl managarm::hw::server::PciDevice for ServedEntity {
                 span,
                 hel::CachingMode::Uncached,
             )?,
-        )))
+        ))
     }
 
-    fn access_irq(&self, index: u64) -> hel::Result<Option<hel::Handle>> {
+    fn access_irq(&self, index: u64) -> managarm::hw::Result<hel::Handle> {
         let ServedEntity::Device(device) = self else {
-            return Ok(None);
+            return Err(HwError::IllegalArguments);
         };
         if index != 0 {
-            return Ok(None);
+            return Err(HwError::IllegalArguments);
         }
-        match device.interrupt.get() {
-            Some(pin) => Ok(Some(hel::handle_irq(pin.handle())?)),
-            None => Ok(None),
-        }
+        let pin = device.interrupt.get().ok_or(HwError::IllegalArguments)?;
+        Ok(hel::handle_irq(pin.handle())?)
     }
 
-    fn install_msi(&self, index: u32) -> hel::Result<Option<hel::Handle>> {
+    fn install_msi(&self, index: u32) -> managarm::hw::Result<hel::Handle> {
         let ServedEntity::Device(device) = self else {
-            return Ok(None);
+            return Err(HwError::IllegalArguments);
         };
         if !msi_controller_available()
             || !device.msis_usable.load(Ordering::Relaxed)
             || index >= device.num_msis.load(Ordering::Relaxed)
         {
-            return Ok(None);
+            return Err(HwError::IllegalArguments);
         }
 
         // Allocate the MSI.
@@ -257,7 +260,11 @@ impl managarm::hw::server::PciDevice for ServedEntity {
             "pci-msi.{:04x}:{:02x}:{:02x}.{:x}.{index}",
             entity.seg, entity.bus, entity.slot, entity.function
         );
-        let pin = hel::allocate_msi(hardware_access_handle(), &name)?;
+        // The kernel reports that no MSI vector is left as OutOfBounds.
+        let pin = hel::allocate_msi(hardware_access_handle(), &name).map_err(|err| match err {
+            hel::Error::OutOfBounds => HwError::ResourceExhaustion,
+            err => HwError::from(err),
+        })?;
         let msi = hel::query_msi_info(&pin)?;
 
         // Obtain an IRQ object for the interrupt.
@@ -265,50 +272,50 @@ impl managarm::hw::server::PciDevice for ServedEntity {
 
         device.setup_msi(&msi, index as usize);
 
-        Ok(Some(irq))
+        Ok(irq)
     }
 
-    fn enable_busmaster(&self) {
+    fn enable_busmaster(&self) -> managarm::hw::Result<()> {
         self.entity().enable_busmaster();
+        Ok(())
     }
 
-    fn enable_irq(&self) {
+    fn enable_irq(&self) -> managarm::hw::Result<()> {
         if let ServedEntity::Device(device) = self {
             device.enable_irq();
         }
+        Ok(())
     }
 
-    fn enable_msi(&self) -> bool {
+    fn enable_msi(&self) -> managarm::hw::Result<()> {
         let ServedEntity::Device(device) = self else {
-            return false;
+            return Err(HwError::IllegalArguments);
         };
         if !msi_controller_available() || !device.msis_usable.load(Ordering::Relaxed) {
-            return false;
+            return Err(HwError::IllegalArguments);
         }
         device.enable_msi();
-        true
+        Ok(())
     }
 
-    async fn enable_dma(&self, passthrough: bool) -> bool {
+    async fn enable_dma(&self, passthrough: bool) -> managarm::hw::Result<()> {
         let entity = self.entity();
-        let Some(unit) = iommu::find_iommu(entity) else {
-            return false;
-        };
+        let unit = iommu::find_iommu(entity).ok_or(HwError::DeviceError)?;
         // Without a domain there is nothing to translate through, hence the request fails
         // instead of falling back to passthrough.
         let domain = if passthrough {
             None
         } else {
-            let Some(&domain) = entity.dma_domain.get() else {
-                return false;
-            };
-            Some(domain)
+            Some(*entity.dma_domain.get().ok_or(HwError::DeviceError)?)
         };
-        iommu::bind_device(unit, domain, entity).await
+        if !iommu::bind_device(unit, domain, entity).await {
+            return Err(HwError::DeviceError);
+        }
+        Ok(())
     }
 
-    fn get_dma_space(&self) -> hel::Result<(bool, hel::Handle)> {
-        iommu::dma_space(self.entity())
+    fn get_dma_space(&self) -> managarm::hw::Result<(bool, hel::Handle)> {
+        Ok(iommu::dma_space(self.entity())?)
     }
 }
 
