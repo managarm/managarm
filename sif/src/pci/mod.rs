@@ -2,6 +2,7 @@ pub mod acpi;
 pub mod config;
 pub mod discover;
 pub mod dtb;
+pub mod error;
 pub mod iommu;
 pub mod quirks;
 pub mod serve;
@@ -13,6 +14,7 @@ use anyhow::Result;
 use arch::{IoMemSpace, bit_register, scalar_register};
 
 use config::PciConfigIo;
+pub use error::PciError;
 
 pub(crate) use crate::irq::{IrqPin, system_irq};
 use crate::{EXPECT_LOCK, leak};

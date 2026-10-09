@@ -7,11 +7,16 @@ use super::{
     BarType, Capability, ExtendedCapability, IrqIndex, MsixTable,
     PCI_BRIDGE_EXPANSION_ROM_BASE_ADDRESS, PCI_REGULAR_BAR0,
     PCI_REGULAR_EXPANSION_ROM_BASE_ADDRESS, PciBridge, PciBus, PciBusResource, PciDevice,
-    PciEntity, PciExpansionRom, name_of_capability, name_of_extended_capability,
+    PciEntity, PciError, PciExpansionRom, name_of_capability, name_of_extended_capability,
 };
 
 use crate::EXPECT_LOCK;
 use crate::acpi::PAGE_MASK;
+
+// Capability lists are walked with a bound since a device can make them loop; Linux uses the
+// same bounds.
+const MAX_CAPABILITIES: usize = 48;
+const MAX_EXTENDED_CAPABILITIES: usize = (0x1000 - 0x100) / 8;
 
 static ALL_DEVICES: Mutex<Vec<&'static PciDevice>> = Mutex::new(Vec::new());
 static ALL_ROOT_BUSES: Mutex<Vec<&'static PciBus>> = Mutex::new(Vec::new());
@@ -33,7 +38,7 @@ fn compute_bar_length(mask: u64) -> u64 {
     1u64 << mask.trailing_zeros()
 }
 
-fn read_entity_bars(entity: &PciEntity, n_bars: usize) {
+fn read_entity_bars(entity: &PciEntity, n_bars: usize) -> Result<(), PciError> {
     let bus = entity.parent_bus;
     let slot = entity.slot;
     let function = entity.function;
@@ -155,7 +160,9 @@ fn read_entity_bars(entity: &PciEntity, n_bars: usize) {
 
             i += 1;
         } else if (bar >> 1) & 3 == 2 {
-            assert!(i < n_bars - 1); // Otherwise there is no next BAR.
+            if i + 1 >= n_bars {
+                return Err(PciError::TruncatedBar64 { index: i });
+            }
             let high = unsafe { bus.bar(slot, function, offset + 4) };
             let address = ((high as u64) << 32) | (bar & 0xFFFFFFF0) as u64;
 
@@ -212,9 +219,11 @@ fn read_entity_bars(entity: &PciEntity, n_bars: usize) {
 
             i += 2;
         } else {
-            panic!("Unexpected BAR type");
+            return Err(PciError::ReservedBarType { index: i });
         }
     }
+
+    Ok(())
 }
 
 fn parse_expansion_rom(entity: &PciEntity, offset: u16) {
@@ -252,7 +261,7 @@ fn parse_expansion_rom(entity: &PciEntity, offset: u16) {
     );
 }
 
-fn find_pci_caps(entity: &PciEntity) {
+fn find_pci_caps(entity: &PciEntity) -> Result<(), PciError> {
     let bus = entity.parent_bus;
     let slot = entity.slot;
     let function = entity.function;
@@ -263,7 +272,13 @@ fn find_pci_caps(entity: &PciEntity) {
     if status & 0x10 != 0 {
         // The bottom two bits of each capability offset must be masked!
         let mut offset = (bus.capabilities_pointer(slot, function) & 0xFC) as u16;
+        let mut remaining = MAX_CAPABILITIES;
         while offset != 0 {
+            if remaining == 0 {
+                return Err(PciError::CapabilityLoop);
+            }
+            remaining -= 1;
+
             // Capability headers sit at device-defined offsets, hence we cannot use a
             // safe accessor to read them.
             let ent = unsafe { bus.read_config_half(slot, function, offset) };
@@ -303,8 +318,14 @@ fn find_pci_caps(entity: &PciEntity) {
     // PCIe devices are required to provide the 4096-byte configuration space.
     if bus.io.supports_4k_config_space() && entity.is_pcie.load(Ordering::Relaxed) {
         let mut offset: u16 = 0x100;
+        let mut remaining = MAX_EXTENDED_CAPABILITIES;
 
         while offset != 0 {
+            if remaining == 0 {
+                return Err(PciError::ExtendedCapabilityLoop);
+            }
+            remaining -= 1;
+
             // Extended capability headers sit at device-defined offsets, hence we cannot
             // use a safe accessor to read them.
             let data = unsafe { bus.read_config_word(slot, function, offset) };
@@ -342,6 +363,8 @@ fn find_pci_caps(entity: &PciEntity) {
             offset = next_offset;
         }
     }
+
+    Ok(())
 }
 
 // Setup MSI / MSI-X. This needs to happen after BARs are already allocated.
@@ -438,10 +461,10 @@ fn check_pci_function(
     slot: u8,
     function: u8,
     enumerate_downstream: &mut dyn FnMut(&'static PciBus),
-) {
+) -> Result<(), PciError> {
     let vendor = bus.vendor(slot, function);
     if vendor == 0xFFFF {
-        return;
+        return Ok(());
     }
 
     let header_type = bus.header_type(slot, function);
@@ -505,7 +528,7 @@ fn check_pci_function(
             subsystem_device,
         );
 
-        find_pci_caps(&device.entity);
+        find_pci_caps(&device.entity)?;
 
         for (i, cap) in device
             .entity
@@ -523,7 +546,7 @@ fn check_pci_function(
             }
         }
 
-        read_entity_bars(&device.entity, 6);
+        read_entity_bars(&device.entity, 6)?;
         parse_expansion_rom(&device.entity, PCI_REGULAR_EXPANSION_ROM_BASE_ADDRESS);
 
         let irq_index = IrqIndex::from_pin(bus.interrupt_pin(slot, function));
@@ -550,11 +573,10 @@ fn check_pci_function(
         let bridge = PciBridge::new(
             bus, slot, function, vendor, device_id, revision, class_code, sub_class, interface,
         );
-        bus.child_bridges.lock().expect(EXPECT_LOCK).push(bridge);
 
-        find_pci_caps(&bridge.entity);
+        find_pci_caps(&bridge.entity)?;
 
-        read_entity_bars(&bridge.entity, 2);
+        read_entity_bars(&bridge.entity, 2)?;
         parse_expansion_rom(&bridge.entity, PCI_BRIDGE_EXPANSION_ROM_BASE_ADDRESS);
 
         let downstream_id = unsafe { bus.secondary_bus(slot, function) };
@@ -575,7 +597,12 @@ fn check_pci_function(
         } else {
             println!("sif:     Deferring enumeration until the bridge is configured");
         }
+
+        // Only register the bridge once nothing can fail anymore.
+        bus.child_bridges.lock().expect(EXPECT_LOCK).push(bridge);
     }
+
+    Ok(())
 }
 
 fn check_pci_device(
@@ -594,12 +621,28 @@ fn check_pci_device(
     );
 
     let header_type = bus.header_type(slot, 0);
-    if header_type & 0x80 != 0 {
-        for function in 0..8 {
-            check_pci_function(bus, slot, function, enumerate_downstream);
+    let functions = if header_type & 0x80 != 0 { 0..8 } else { 0..1 };
+    for function in functions {
+        if let Err(err) = check_pci_function(bus, slot, function, enumerate_downstream) {
+            println!(
+                "sif: Ignoring PCI function {:04x}:{:02x}:{:02x}.{function}: {err}",
+                bus.seg_id, bus.bus_id, slot
+            );
+            quiesce_function(bus, slot, function);
         }
-    } else {
-        check_pci_function(bus, slot, 0, enumerate_downstream);
+    }
+}
+
+// sif does not track ignored functions, hence they must not decode, forward or DMA anything.
+fn quiesce_function(bus: &'static PciBus, slot: u8, function: u8) {
+    let command = bus.command(slot, function);
+    bus.set_command(slot, function, command & !0x07);
+
+    if bus.header_type(slot, function) & 0x7F == 1 {
+        unsafe {
+            bus.set_secondary_bus(slot, function, 0);
+            bus.set_subordinate_bus(slot, function, 0);
+        }
     }
 }
 
