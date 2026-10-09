@@ -776,6 +776,9 @@ void loadKernelImage(void *imagePtr) {
 
 namespace {
 
+// Set to false to fall back to thor's in-kernel ACPI and PCI support.
+constexpr bool useSif = true;
+
 static initgraph::Task parseCmdlineTask{
     &globalInitEngine,
     "generic.parse-cmdline",
@@ -784,12 +787,10 @@ static initgraph::Task parseCmdlineTask{
     [] {
 	    bool serial{false};
 	    bool kernelProfile{false};
-	    bool sif{false};
 	    frg::string_view ubsan;
 	    frg::array options = {
 	        frg::option{"serial", frg::store_true(serial)},
 	        frg::option{"kernel-profile", frg::store_true(kernelProfile)},
-	        frg::option{"sif", frg::store_true(sif)},
 	        frg::option{"thor-ubsan", frg::as_string_view(ubsan)},
 	    };
 	    parseCmdline(options);
@@ -800,8 +801,7 @@ static initgraph::Task parseCmdlineTask{
 		    debugOptions.flags |= eirDebugBochs;
 	    if (kernelProfile)
 		    debugOptions.flags |= eirDebugKernelProfile;
-	    if (sif)
-		    debugOptions.useSif = true;
+	    debugOptions.useSif = useSif;
 
 	    if (ubsan.size()) {
 		    if (ubsan == "ignore") {
