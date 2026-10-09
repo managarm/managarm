@@ -11,13 +11,12 @@ use managarm::mbus::create_entity;
 
 use crate::acpi::object;
 use crate::entity::{decimal, serve_entity_lanes, string};
-use crate::leak;
 use crate::uacpi::handlers;
 use crate::uacpi::namespace::{self, IterationDecision, NamespaceNode};
 use crate::uacpi::runtime::{self, Aml};
+use crate::{EXPECT_LOCK, leak};
 
 const HID_BATTERY: &CStr = c"PNP0C0A";
-const EXPECT_LOCK: &str = "sif: battery mutex was poisoned";
 const UNKNOWN: u64 = 0xFFFFFFFF;
 
 mod bif {

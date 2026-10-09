@@ -15,10 +15,7 @@ use arch::{IoMemSpace, bit_register, scalar_register};
 use config::PciConfigIo;
 
 pub(crate) use crate::irq::{IrqPin, system_irq};
-pub(crate) use crate::leak;
-
-// The PCI tree is only locked for the duration of a single operation, none of which can panic.
-pub(crate) const EXPECT_LOCK: &str = "sif: PCI tree mutex was poisoned";
+use crate::{EXPECT_LOCK, leak};
 
 // thor only implements MSI allocation on x86-64 (LAPIC MSIs); mirror that here
 // until the kernel can report MSI availability.

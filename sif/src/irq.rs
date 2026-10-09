@@ -7,10 +7,7 @@ use hel::{IrqPolarity, IrqTrigger};
 use managarm::svrctl::hardware_access_handle;
 
 use crate::dt::node::DeviceTreeNode;
-use crate::leak;
-
-// The pin maps are only locked for the duration of a single operation, none of which can panic.
-const EXPECT_LOCK: &str = "sif: IRQ pin map mutex was poisoned";
+use crate::{EXPECT_LOCK, leak};
 
 pub struct IrqPin {
     name: String,

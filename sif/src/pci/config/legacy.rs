@@ -2,6 +2,7 @@ use arch::{PioSpace, scalar_register};
 use std::sync::Mutex;
 
 use super::{ConfigIoError, PciConfigIo, Result, check_offset};
+use crate::EXPECT_LOCK;
 use crate::pio::PioWindow;
 
 const CONFIG_SPACE_SIZE: u16 = 0x100;
@@ -62,10 +63,7 @@ impl PciConfigIo for LegacyPciConfigIo {
         Self::check_address(seg, bus, slot, function)?;
         check_offset(offset, 1, CONFIG_SPACE_SIZE)?;
         let address = Self::address(bus, slot, function, offset);
-        let _lock = self
-            .mutex
-            .lock()
-            .expect("sif: legacy config space mutex was poisoned");
+        let _lock = self.mutex.lock().expect(EXPECT_LOCK);
         let space = self.space();
         Ok(unsafe {
             space.store(ConfigAddress, address);
@@ -84,10 +82,7 @@ impl PciConfigIo for LegacyPciConfigIo {
         Self::check_address(seg, bus, slot, function)?;
         check_offset(offset, 2, CONFIG_SPACE_SIZE)?;
         let address = Self::address(bus, slot, function, offset);
-        let _lock = self
-            .mutex
-            .lock()
-            .expect("sif: legacy config space mutex was poisoned");
+        let _lock = self.mutex.lock().expect(EXPECT_LOCK);
         let space = self.space();
         Ok(unsafe {
             space.store(ConfigAddress, address);
@@ -106,10 +101,7 @@ impl PciConfigIo for LegacyPciConfigIo {
         Self::check_address(seg, bus, slot, function)?;
         check_offset(offset, 4, CONFIG_SPACE_SIZE)?;
         let address = Self::address(bus, slot, function, offset);
-        let _lock = self
-            .mutex
-            .lock()
-            .expect("sif: legacy config space mutex was poisoned");
+        let _lock = self.mutex.lock().expect(EXPECT_LOCK);
         let space = self.space();
         Ok(unsafe {
             space.store(ConfigAddress, address);
@@ -129,10 +121,7 @@ impl PciConfigIo for LegacyPciConfigIo {
         Self::check_address(seg, bus, slot, function)?;
         check_offset(offset, 1, CONFIG_SPACE_SIZE)?;
         let address = Self::address(bus, slot, function, offset);
-        let _lock = self
-            .mutex
-            .lock()
-            .expect("sif: legacy config space mutex was poisoned");
+        let _lock = self.mutex.lock().expect(EXPECT_LOCK);
         let space = self.space();
         unsafe {
             space.store(ConfigAddress, address);
@@ -153,10 +142,7 @@ impl PciConfigIo for LegacyPciConfigIo {
         Self::check_address(seg, bus, slot, function)?;
         check_offset(offset, 2, CONFIG_SPACE_SIZE)?;
         let address = Self::address(bus, slot, function, offset);
-        let _lock = self
-            .mutex
-            .lock()
-            .expect("sif: legacy config space mutex was poisoned");
+        let _lock = self.mutex.lock().expect(EXPECT_LOCK);
         let space = self.space();
         unsafe {
             space.store(ConfigAddress, address);
@@ -177,10 +163,7 @@ impl PciConfigIo for LegacyPciConfigIo {
         Self::check_address(seg, bus, slot, function)?;
         check_offset(offset, 4, CONFIG_SPACE_SIZE)?;
         let address = Self::address(bus, slot, function, offset);
-        let _lock = self
-            .mutex
-            .lock()
-            .expect("sif: legacy config space mutex was poisoned");
+        let _lock = self.mutex.lock().expect(EXPECT_LOCK);
         let space = self.space();
         unsafe {
             space.store(ConfigAddress, address);

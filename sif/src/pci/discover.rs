@@ -4,12 +4,13 @@ use std::sync::atomic::Ordering;
 use managarm::svrctl::hardware_access_handle;
 
 use super::{
-    BarType, Capability, EXPECT_LOCK, ExtendedCapability, IrqIndex, MsixTable,
+    BarType, Capability, ExtendedCapability, IrqIndex, MsixTable,
     PCI_BRIDGE_EXPANSION_ROM_BASE_ADDRESS, PCI_REGULAR_BAR0,
     PCI_REGULAR_EXPANSION_ROM_BASE_ADDRESS, PciBridge, PciBus, PciBusResource, PciDevice,
     PciEntity, PciExpansionRom, name_of_capability, name_of_extended_capability,
 };
 
+use crate::EXPECT_LOCK;
 use crate::acpi::PAGE_MASK;
 
 static ALL_DEVICES: Mutex<Vec<&'static PciDevice>> = Mutex::new(Vec::new());
