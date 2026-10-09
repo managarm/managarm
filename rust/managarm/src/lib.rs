@@ -6,5 +6,6 @@ pub mod hw;
 pub mod kerncfg;
 pub mod mbus;
 pub mod posix;
+pub mod shm;
 pub mod svrctl;
 pub mod usb;

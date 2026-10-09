@@ -1,0 +1,70 @@
+namespace "managarm::shm";
+
+// Shared memory communication between peers.
+// At the moment, the protocol only supports ring buffers that carry bytes from a producer to a consumer.
+
+// A ring is established over a conversation lane of a host protocol.
+// * The host protocol determines the ring (its roles, Mode and Framing),
+//   such that both sides derive it on their own.
+// * One side (the provider) allocates all memory and decides on the size of the ring.
+//   After the host protocol's own exchange, the other side (the requester) sends an
+//   EstablishRingRequest that contains the mode, framing and role that it derived.
+//   The provider only checks that they match its own and answers with an EstablishRingResponse.
+//   On success, the response contains the size of the ring and
+//   the provider then pushes the memory and the event of the producer, followed by the memory
+//   and the event of the consumer, over the conversation lane.
+// * A host protocol can establish further rings over the same lane, one after another.
+
+// Each side owns two objects:
+// * Its memory, which only it writes. The producer memory is a header page (see
+//   ProducerHeader in core.hpp) followed by the data area; the consumer memory is a single
+//   page (see ConsumerHeader in core.hpp). The other side does not get kHelRightWrite.
+// * A sequenced event (see helCreateSequencedEvent()) that only it raises to kick the other
+//   side. The requester receives the raise end of its own event and the wait end of the
+//   other side's event.
+
+// A kick tells the other side to re-examine the shared state of the ring.
+// Each side notices that the other side is gone since waiting for (or raising) an event fails once all handles
+// to the other end are closed.
+
+// All positions are monotonically increasing byte counters;
+// the offset into the data area is the position modulo the ring size.
+// A peer that wants to wait first publishes the position that it waits for in the wake_at field
+// of its header, then re-checks the other side's position and only then waits for a kick.
+// A peer that moves its own position past the other side's wake_at must kick the other side.
+
+enum Error {
+	SUCCESS = 0,
+	// The ring of the EstablishRingRequest does not match the provider's ring.
+	MISMATCH = 1
+}
+
+enum Mode {
+	// The producer waits until the consumer frees up space. Single consumer.
+	RELIABLE = 1
+}
+
+enum Framing {
+	// The ring carries a byte stream without any structure.
+	STREAM = 1
+}
+
+enum Role {
+	PRODUCER = 1,
+	CONSUMER = 2
+}
+
+message EstablishRingRequest 2 {
+head(32):
+	Mode mode;
+	Framing framing;
+	// Role that the requester plays for the ring.
+	Role role;
+}
+
+message EstablishRingResponse 3 {
+head(32):
+	Error error;
+	// Size of the data area of the ring. A power of two and a multiple of the page size.
+	uint64 ring_size;
+}

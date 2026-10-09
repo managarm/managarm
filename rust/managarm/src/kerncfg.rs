@@ -1,6 +1,7 @@
 use anyhow::{Context, anyhow, bail};
 
 use crate::mbus;
+use crate::shm::{Consumer, Framing, Mode, Producer};
 
 bragi::include_binding!(mod bindings = "kerncfg.rs");
 
@@ -84,4 +85,49 @@ pub async fn get_device_tree() -> anyhow::Result<(u64, u64)> {
     }
 
     Ok((response.address(), response.size()))
+}
+
+/// A kernel I/O channel that this server provides: the kernel writes its output to `output`
+/// (and flushes the ring when output needs to be written out) and reads its input from `input`.
+pub struct IoChannel {
+    pub output: Consumer,
+    pub input: Option<Producer>,
+}
+
+/// Registers a kernel I/O channel with the given tag; the kernel chooses the ring sizes.
+/// Without `input`, the channel is output-only.
+pub async fn provide_io_channel(
+    tag: &str,
+    descriptive_tag: &str,
+    input: bool,
+) -> anyhow::Result<IoChannel> {
+    let lane = open_kerncfg_lane().await?;
+
+    let request = bindings::ProvideIoChannelRequest::new(
+        tag.to_string(),
+        descriptive_tag.to_string(),
+        input as u8,
+    );
+    let head = bragi::head_to_bytes(&request)?;
+    let (offer, (_send_head, recv)) = hel::submit_async(
+        &lane,
+        hel::Offer::new_with_lane((hel::SendBuffer::new(&head), hel::ReceiveInline)),
+    )
+    .await?;
+
+    let recv_data = recv?;
+    let conversation = offer?.context("kerncfg did not offer a lane")?;
+    let response: bindings::ProvideIoChannelResponse = bragi::head_from_bytes(&recv_data)?;
+    if response.error() != bindings::Error::Success {
+        bail!("kerncfg rejected I/O channel {tag}: {:?}", response.error());
+    }
+
+    let output = Consumer::establish(&conversation, Mode::Reliable, Framing::Stream).await?;
+    let input = if input {
+        Some(Producer::establish(&conversation, Mode::Reliable, Framing::Stream).await?)
+    } else {
+        None
+    };
+
+    Ok(IoChannel { output, input })
 }

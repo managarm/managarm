@@ -10,6 +10,7 @@
 #include <thor-internal/profile.hpp>
 #include <thor-internal/stream.hpp>
 #include <thor-internal/timer.hpp>
+#include <thor-internal/user-io.hpp>
 #include <thor-internal/mbus.hpp>
 #include <thor-internal/physical.hpp>
 #include <thor-internal/elf-notes.hpp>
@@ -179,6 +180,25 @@ private:
 			auto respTailError = co_await sendBuffer(lane, std::move(respTailBuffer));
 			if(respTailError != Error::success)
 				co_return respTailError;
+		}else if(preamble.id() == bragi::message_id<managarm::kerncfg::ProvideIoChannelRequest>) {
+			auto req = bragi::parse_head_only<managarm::kerncfg::ProvideIoChannelRequest>(reqBuffer, *kernelAlloc);
+
+			if (!req)
+				co_return Error::protocolViolation;
+
+			managarm::kerncfg::ProvideIoChannelResponse<KernelAlloc> resp(*kernelAlloc);
+			resp.set_error(managarm::kerncfg::Error::SUCCESS);
+
+			frg::unique_memory<KernelAlloc> respBuffer{*kernelAlloc, resp.size_of_head()};
+			bragi::write_head_only(resp, respBuffer);
+			auto respError = co_await sendBuffer(lane, std::move(respBuffer));
+			if(respError != Error::success)
+				co_return respError;
+
+			FRG_CO_TRY(co_await UserIoChannel::provide(lane,
+					frg::string<KernelAlloc>{*kernelAlloc, req->tag()},
+					frg::string<KernelAlloc>{*kernelAlloc, req->descriptive_tag()},
+					req->has_input() != 0));
 		}else{
 			managarm::kerncfg::SvrResponse<KernelAlloc> resp(*kernelAlloc);
 			resp.set_error(managarm::kerncfg::Error::ILLEGAL_REQUEST);

@@ -78,7 +78,12 @@ coroutine<void> dumpRingToChannel(LogRingBuffer *ringBuffer,
 			if(unflushed) {
 				auto ioOutcome = co_await channel->issueIo(
 						KernelIoChannel::ioProgressOutput | KernelIoChannel::ioFlush);
-				assert(ioOutcome);
+				if(!ioOutcome) {
+					warningLogger() << "thor: Stopping to dump " << tag << " after error "
+							<< static_cast<int>(ioOutcome.error()) << " on I/O channel "
+							<< channel->descriptiveTag() << frg::endlog;
+					co_return;
+				}
 				unflushed = false;
 			}
 			co_await ringBuffer->wait(nextPtr);
@@ -102,7 +107,12 @@ coroutine<void> dumpRingToChannel(LogRingBuffer *ringBuffer,
 			auto span = channel->writableSpan();
 			if(!span.size()) {
 				auto ioOutcome = co_await channel->issueIo(KernelIoChannel::ioProgressOutput);
-				assert(ioOutcome);
+				if(!ioOutcome) {
+					warningLogger() << "thor: Stopping to dump " << tag << " after error "
+							<< static_cast<int>(ioOutcome.error()) << " on I/O channel "
+							<< channel->descriptiveTag() << frg::endlog;
+					co_return;
+				}
 				unflushed = false;
 				continue;
 			}

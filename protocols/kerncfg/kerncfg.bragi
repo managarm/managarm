@@ -97,3 +97,22 @@ head(128):
 tail:
 	HierarchyNode[] nodes;
 }
+
+// Registers a userspace-backed kernel I/O channel.
+// On success, userspace establishes the rings of the channel on the same lane via the shm protocol (see shm.bragi),
+// one after another; the kernel is the provider and chooses the ring sizes.
+// Both rings are RELIABLE and STREAM:
+// * First, the output ring; userspace is the consumer.
+// * Second, the input ring; userspace is the producer. It only exists if has_input is set.
+// The kernel flushes the output ring whenever output needs to be written out immediately.
+message ProvideIoChannelRequest 14 {
+head(128):
+	string tag;
+	string descriptive_tag;
+	uint8 has_input;
+}
+
+message ProvideIoChannelResponse 15 {
+head(128):
+	Error error;
+}
