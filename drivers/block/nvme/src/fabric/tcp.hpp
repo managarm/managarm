@@ -2,6 +2,7 @@
 
 #include <async/mutex.hpp>
 #include <netinet/in.h>
+#include <optional>
 #include <protocols/fs/client.hpp>
 #include <protocols/mbus/client.hpp>
 #include <span>
@@ -32,11 +33,26 @@ struct TcpQueue final : public Queue {
 	uint16_t controllerId() {
 		return controllerId_;
 	}
+
+	bool broken() const {
+		return broken_;
+	}
+
+	void setInCapsuleDataSize(size_t size);
 private:
 	async::result<protocols::fs::Error> connect();
 	async::detached keepAlive();
 	async::detached submitPendingLoop();
+	// Transfer exactly size bytes; fail the queue on errors and when the connection closes.
+	async::result<protocols::fs::Error> receiveExact(void *buffer, size_t size);
+	async::result<protocols::fs::Error> sendExact(const void *buffer, size_t size);
 	async::result<void> submitCommandToDevice(std::unique_ptr<Command> cmd);
+	async::detached sendH2CData(uint16_t slot, uint16_t transferTag, uint32_t offset, uint32_t length);
+	void finishTransfer(uint16_t slot);
+	// Fails all commands once the stream cannot be trusted anymore; NVMe/TCP cannot resynchronize.
+	void fail();
+	void resolveSlot(size_t slot, Command::Result result);
+	void completeSlot(size_t slot, Command::Result result);
 
 	in_addr addr_;
 	in_port_t port_;
@@ -46,9 +62,24 @@ private:
 	size_t keepAliveTimeout_ = 10'000;
 	std::span<uint8_t, 16> uuid_;
 
-	std::vector<std::byte> buf_{8256};
+	// Grows to the largest command capsule that has been sent.
+	std::vector<std::byte> buf_;
+	uint32_t maxH2CData_ = 0;
+	size_t inCapsuleDataSize_ = 0;
+
+	// Transport state of a slot that is not part of the command itself.
+	struct SlotState {
+		// Data transfers that still access the command's buffer.
+		unsigned int activeTransfers = 0;
+		// The response, if it arrived while data transfers were still active.
+		std::optional<Command::Result> deferredResult;
+		// Whether the controller fetches the command's data through R2T, i.e., a write without in-capsule data.
+		bool r2tData = false;
+	};
+	std::vector<SlotState> slots_;
 
 	async::oneshot_event connectedEvent_;
+	bool broken_ = false;
 
 	std::unique_ptr<protocols::fs::File> file_;
 

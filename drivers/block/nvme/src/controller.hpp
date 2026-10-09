@@ -85,6 +85,9 @@ protected:
 	std::string serial;
 	std::string model;
 	std::string fw_rev;
+	// Fabrics only: I/O queue command capsule size (in 16 byte units) and in-capsule data offset.
+	uint32_t ioccsz_ = 0;
+	uint16_t icdoff_ = 0;
 
 	std::vector<std::unique_ptr<Queue>> activeQueues_;
 	std::vector<std::unique_ptr<Namespace>> activeNamespaces_;

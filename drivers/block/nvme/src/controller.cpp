@@ -361,6 +361,8 @@ async::result<void> Controller::scanNamespaces() {
 	model = std::string{idCtrl->mn, sizeof(idCtrl->mn)};
 	serial = std::string{idCtrl->sn, sizeof(idCtrl->sn)};
 	fw_rev = std::string{idCtrl->fr, sizeof(idCtrl->fr)};
+	ioccsz_ = convert_endian<endian::little>(idCtrl->ioccsz);
+	icdoff_ = convert_endian<endian::little>(idCtrl->icdoff);
 
 	if (version_ >= flags::vs::version(1, 1, 0)) {
 		auto nsList = arch::dma_array<uint32_t>{&pool_, 1024};
