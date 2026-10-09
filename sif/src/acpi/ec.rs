@@ -5,13 +5,13 @@ use std::sync::{Mutex, OnceLock};
 use anyhow::{Result, bail};
 use uacpi_sys::acpi_ecdt;
 
-use crate::leak;
 use crate::uacpi::handlers::{self, RegionError, RegionOp, RegionRw};
 use crate::uacpi::io::{Gas, MappedGas};
 use crate::uacpi::namespace::{self, IterationDecision, NamespaceNode};
 use crate::uacpi::resources::Resource;
 use crate::uacpi::runtime::{self, Aml, AmlThread};
 use crate::uacpi::table::Table;
+use crate::{EXPECT_LOCK, leak};
 
 const HID_EC: &CStr = c"PNP0C09";
 
@@ -27,8 +27,6 @@ const BD_EC: u8 = 0x83;
 const QR_EC: u8 = 0x84;
 
 const BURST_ACK: u8 = 0x90;
-
-const EXPECT_LOCK: &str = "sif: EC transaction mutex was poisoned";
 
 struct EcDevice {
     node: NamespaceNode,

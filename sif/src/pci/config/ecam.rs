@@ -4,6 +4,7 @@ use std::collections::BTreeMap;
 use std::sync::Mutex;
 
 use super::{ConfigIoError, PciConfigIo, Result, check_offset};
+use crate::EXPECT_LOCK;
 
 const CONFIG_SPACE_SIZE: u16 = 0x1000;
 
@@ -47,10 +48,7 @@ impl EcamPcieConfigIo {
     fn space_for_bus(&self, bus: u8) -> Result<IoMemSpace> {
         const SIZE: usize = 1 << 20;
 
-        let mut mappings = self
-            .bus_mappings
-            .lock()
-            .expect("sif: ECAM window mutex was poisoned");
+        let mut mappings = self.bus_mappings.lock().expect(EXPECT_LOCK);
         if let Some(mapping) = mappings.get(&bus) {
             return Ok(unsafe { IoMemSpace::new(mapping.as_ptr().unwrap().as_ptr(), SIZE) });
         }

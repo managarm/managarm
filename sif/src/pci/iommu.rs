@@ -11,11 +11,12 @@ use hel::{DmaDeviceId, DmaReservedRegion, IommuKind};
 
 use crate::acpi::PAGE_SIZE;
 use crate::acpi::dmar::{self, DeviceScope};
+use crate::{EXPECT_LOCK, leak};
 
 use super::discover::all_root_buses;
 use super::{
-    EXPECT_LOCK, PCIE_TYPE_DOWNSTREAM_PORT, PCIE_TYPE_PCIE_TO_PCI_BRIDGE, PCIE_TYPE_ROOT_PORT,
-    PCIE_TYPE_UPSTREAM_PORT, PciBridge, PciBus, PciDevice, PciEntity, leak,
+    PCIE_TYPE_DOWNSTREAM_PORT, PCIE_TYPE_PCIE_TO_PCI_BRIDGE, PCIE_TYPE_ROOT_PORT,
+    PCIE_TYPE_UPSTREAM_PORT, PciBridge, PciBus, PciDevice, PciEntity,
 };
 
 /// One IOMMU, i.e., one DMA remapping hardware unit.

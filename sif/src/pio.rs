@@ -5,7 +5,7 @@ use arch::PioSpace;
 use std::ops::Range;
 
 #[cfg(target_arch = "x86_64")]
-const EXPECT_LOCK: &str = "sif: PIO window ID mutex was poisoned";
+use crate::EXPECT_LOCK;
 
 /// Window IDs are dense, such that ENABLED only grows with the number of live windows.
 #[cfg(target_arch = "x86_64")]

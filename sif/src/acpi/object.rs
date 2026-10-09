@@ -8,12 +8,10 @@ use managarm::mbus::{EntityManager, create_entity};
 use managarm::svrctl::hardware_access_handle;
 
 use crate::entity::{serve_entity_lanes, string};
-use crate::leak;
 use crate::uacpi::namespace::NamespaceNode;
 use crate::uacpi::resources::Resource;
 use crate::uacpi::runtime::{self, Aml};
-
-const EXPECT_LOCK: &str = "sif: ACPI IRQ object mutex was poisoned";
+use crate::{EXPECT_LOCK, leak};
 
 pub struct NodeObject {
     node: NamespaceNode,

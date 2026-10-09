@@ -10,6 +10,7 @@ use thiserror::Error;
 use ecam::EcamPcieConfigIo;
 use legacy::LegacyPciConfigIo;
 
+use crate::EXPECT_LOCK;
 use crate::uacpi::table::Table;
 
 /// Reasons why an access to PCI configuration space can fail.
@@ -142,14 +143,14 @@ static CONFIG_SPACES: Mutex<BTreeMap<u32, &'static dyn PciConfigIo>> = Mutex::ne
 pub fn add_config_space_io(seg: u16, bus: u8, io: &'static dyn PciConfigIo) {
     CONFIG_SPACES
         .lock()
-        .expect("sif: config space registry mutex was poisoned")
+        .expect(EXPECT_LOCK)
         .insert(((seg as u32) << 8) | bus as u32, io);
 }
 
 pub fn get_config_io_for(seg: u16, bus: u8) -> Option<&'static dyn PciConfigIo> {
     CONFIG_SPACES
         .lock()
-        .expect("sif: config space registry mutex was poisoned")
+        .expect(EXPECT_LOCK)
         .get(&(((seg as u32) << 8) | bus as u32))
         .copied()
 }

@@ -17,6 +17,9 @@ pub(crate) fn leak<T>(value: T) -> &'static T {
     Box::leak(Box::new(value))
 }
 
+// Mutexes are only locked for the duration of operations that cannot panic.
+pub(crate) const EXPECT_LOCK: &str = "sif: mutex was poisoned";
+
 fn main() -> Result<()> {
     hel::block_on(async {
         let cmdline = managarm::kerncfg::get_cmdline().await?;

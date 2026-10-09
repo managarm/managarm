@@ -1,12 +1,12 @@
 use crate::dt::node::{DeviceTreeNode, get_device_tree_root, walk_interrupt_map};
 use crate::irq::{IrqPin, dt_irq};
+use crate::{EXPECT_LOCK, leak};
 
 use super::config::PciConfigIo;
 use super::config::ecam::EcamPcieConfigIo;
 use super::discover::add_root_bus;
 use super::{
-    EXPECT_LOCK, IrqIndex, PciBus, PciBusResource, PciIrqRouter, RouterState, RoutingEntry,
-    RoutingModel, leak,
+    IrqIndex, PciBus, PciBusResource, PciIrqRouter, RouterState, RoutingEntry, RoutingModel,
 };
 
 const LOG_ROUTING_TABLE: bool = false;

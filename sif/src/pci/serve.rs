@@ -9,13 +9,11 @@ use managarm::hw::server::{BarDescriptor, CapDescriptor, serve_pci_device};
 use managarm::mbus::{EntityManager, Properties, create_entity};
 
 use super::discover::{all_devices, all_root_buses};
-use super::{
-    BarType, EXPECT_LOCK, PciBridge, PciBus, PciDevice, PciEntity, iommu, leak,
-    msi_controller_available,
-};
+use super::{BarType, PciBridge, PciBus, PciDevice, PciEntity, iommu, msi_controller_available};
 
 use crate::acpi::{PAGE_MASK, PAGE_SIZE};
 use crate::entity::{decimal, hex, serve_entity_lanes, string};
+use crate::{EXPECT_LOCK, leak};
 
 #[derive(Clone, Copy)]
 enum ServedEntity {

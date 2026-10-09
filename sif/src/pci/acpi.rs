@@ -2,6 +2,7 @@ use std::ffi::CStr;
 
 use hel::{IrqPolarity, IrqTrigger};
 
+use crate::leak;
 use crate::uacpi::namespace::{
     IterationDecision, NamespaceNode, PredefinedNamespace, find_devices_at,
 };
@@ -10,7 +11,7 @@ use crate::uacpi::runtime::{self, Aml};
 
 use super::discover::add_root_bus;
 use super::{
-    IrqIndex, IrqPin, PciBus, PciIrqRouter, RouterState, RoutingEntry, RoutingModel, config, leak,
+    IrqIndex, IrqPin, PciBus, PciIrqRouter, RouterState, RoutingEntry, RoutingModel, config,
     system_irq,
 };
 

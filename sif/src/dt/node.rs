@@ -6,12 +6,10 @@ use std::sync::{Mutex, OnceLock};
 use anyhow::{Context, Result};
 use managarm::svrctl::hardware_access_handle;
 
+use crate::EXPECT_LOCK;
 use crate::acpi::PAGE_MASK;
 use crate::dt::fdt;
 use crate::dt::irq::IrqController;
-
-// The device tree is only locked for the duration of a single operation, none of which can panic.
-const EXPECT_LOCK: &str = "sif: device tree mutex was poisoned";
 
 static PHANDLES: Mutex<BTreeMap<u32, &'static DeviceTreeNode>> = Mutex::new(BTreeMap::new());
 static TREE_ROOT: OnceLock<&'static DeviceTreeNode> = OnceLock::new();
