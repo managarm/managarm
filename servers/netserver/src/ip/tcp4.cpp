@@ -226,7 +226,8 @@ struct Tcp4Socket {
 
 		localClosed_ = true;
 
-		while (localSettledSn_ < localFlushedSn_)
+		// The sendFin state sends no data, so everything in sendRing_ must be acknowledged first.
+		while (sendRing_.availableToDequeue())
 			co_await settleEvent_.async_wait();
 
 		connectState_ = ConnectState::sendFin;
@@ -234,7 +235,7 @@ struct Tcp4Socket {
 			co_return;
 
 		// TODO: Wait for disconnect to finish?
-		while (localSettledSn_ < localFlushedSn_)
+		while (localSettledSn_ != localFlushedSn_)
 			co_await settleEvent_.async_wait();
 		std::println("netserver: TCP FIN was acknowledged");
 	}
