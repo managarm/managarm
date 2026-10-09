@@ -13,6 +13,11 @@ async::result<void> Command::setupBuffer(Controller *controller, arch::dma_buffe
 	view_ = view;
 
 	if(policy == spec::DataTransfer::PRP) {
+		if (!view.size()) {
+			command_.common.dataPtr = {};
+			co_return;
+		}
+
 		static size_t pageSize = getpagesize();
 
 		co_await controller->ensureMapped(view);

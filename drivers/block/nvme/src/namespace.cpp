@@ -2,6 +2,9 @@
 #include <asm/ioctl.h>
 #include <format>
 #include <linux/nvme_ioctl.h>
+#include <iostream>
+
+#include <core/logging.hpp>
 
 #include "namespace.hpp"
 #include "controller.hpp"
@@ -45,7 +48,9 @@ async::result<void> Namespace::readSectors(uint64_t sector, arch::dma_buffer_vie
 	cmdBuf.length = convert_endian<endian::little, endian::native>(numSectors - 1);
 	co_await cmd->setupBuffer(controller_, view, controller_->dataTransferPolicy());
 
-	co_await controller_->submitIoCommand(std::move(cmd));
+	auto result = co_await controller_->submitIoCommand(std::move(cmd));
+	if (!result.first.successful())
+		logPanic("block/nvme: Read failed, status {:#x}", result.first.status);
 }
 
 async::result<void> Namespace::writeSectors(uint64_t sector, arch::dma_buffer_view view) {
@@ -63,7 +68,23 @@ async::result<void> Namespace::writeSectors(uint64_t sector, arch::dma_buffer_vi
 	cmdBuf.length = convert_endian<endian::little, endian::native>(numSectors - 1);
 	co_await cmd->setupBuffer(controller_, view, controller_->dataTransferPolicy());
 
-	co_await controller_->submitIoCommand(std::move(cmd));
+	auto result = co_await controller_->submitIoCommand(std::move(cmd));
+	if (!result.first.successful())
+		logPanic("block/nvme: Write failed, status {:#x}", result.first.status);
+}
+
+async::result<void> Namespace::flush() {
+	auto cmd = std::make_unique<Command>();
+	auto &cmdBuf = cmd->getCommandBuffer().common;
+	cmdBuf = {};
+	cmdBuf.opcode = spec::kFlush;
+	cmdBuf.namespaceId = arch::convert_endian<arch::endian::little, arch::endian::native>(nsid_);
+
+	// PCIe uses zero data pointers; fabrics needs the empty transport SGL.
+	co_await cmd->setupBuffer(controller_, {}, controller_->dataTransferPolicy());
+	auto result = co_await controller_->submitIoCommand(std::move(cmd));
+	if (!result.first.successful())
+		logPanic("block/nvme: Flush failed, status {:#x}", result.first.status);
 }
 
 async::result<size_t> Namespace::getSize() {
