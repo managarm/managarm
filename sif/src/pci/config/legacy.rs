@@ -36,10 +36,8 @@ impl LegacyPciConfigIo {
     }
 
     /// Enables the config window on the current thread.
-    fn space(&self) -> PioSpace {
-        self.window
-            .enable()
-            .expect("sif: failed to enable the legacy PCI config window")
+    fn space(&self) -> Result<PioSpace> {
+        self.window.enable().map_err(ConfigIoError::PortAccess)
     }
 
     fn address(bus: u8, slot: u8, function: u8, offset: u16) -> u32 {
@@ -64,7 +62,7 @@ impl PciConfigIo for LegacyPciConfigIo {
         check_offset(offset, 1, CONFIG_SPACE_SIZE)?;
         let address = Self::address(bus, slot, function, offset);
         let _lock = self.mutex.lock().expect(EXPECT_LOCK);
-        let space = self.space();
+        let space = self.space()?;
         Ok(unsafe {
             space.store(ConfigAddress, address);
             space.scalar_load::<u8>(DATA + (offset & 3) as usize)
@@ -83,7 +81,7 @@ impl PciConfigIo for LegacyPciConfigIo {
         check_offset(offset, 2, CONFIG_SPACE_SIZE)?;
         let address = Self::address(bus, slot, function, offset);
         let _lock = self.mutex.lock().expect(EXPECT_LOCK);
-        let space = self.space();
+        let space = self.space()?;
         Ok(unsafe {
             space.store(ConfigAddress, address);
             space.scalar_load::<u16>(DATA + (offset & 3) as usize)
@@ -102,7 +100,7 @@ impl PciConfigIo for LegacyPciConfigIo {
         check_offset(offset, 4, CONFIG_SPACE_SIZE)?;
         let address = Self::address(bus, slot, function, offset);
         let _lock = self.mutex.lock().expect(EXPECT_LOCK);
-        let space = self.space();
+        let space = self.space()?;
         Ok(unsafe {
             space.store(ConfigAddress, address);
             space.scalar_load::<u32>(DATA)
@@ -122,7 +120,7 @@ impl PciConfigIo for LegacyPciConfigIo {
         check_offset(offset, 1, CONFIG_SPACE_SIZE)?;
         let address = Self::address(bus, slot, function, offset);
         let _lock = self.mutex.lock().expect(EXPECT_LOCK);
-        let space = self.space();
+        let space = self.space()?;
         unsafe {
             space.store(ConfigAddress, address);
             space.scalar_store::<u8>(DATA + (offset & 3) as usize, value);
@@ -143,7 +141,7 @@ impl PciConfigIo for LegacyPciConfigIo {
         check_offset(offset, 2, CONFIG_SPACE_SIZE)?;
         let address = Self::address(bus, slot, function, offset);
         let _lock = self.mutex.lock().expect(EXPECT_LOCK);
-        let space = self.space();
+        let space = self.space()?;
         unsafe {
             space.store(ConfigAddress, address);
             space.scalar_store::<u16>(DATA + (offset & 3) as usize, value);
@@ -164,7 +162,7 @@ impl PciConfigIo for LegacyPciConfigIo {
         check_offset(offset, 4, CONFIG_SPACE_SIZE)?;
         let address = Self::address(bus, slot, function, offset);
         let _lock = self.mutex.lock().expect(EXPECT_LOCK);
-        let space = self.space();
+        let space = self.space()?;
         unsafe {
             space.store(ConfigAddress, address);
             space.scalar_store::<u32>(DATA, value);
