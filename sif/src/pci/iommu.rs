@@ -16,7 +16,7 @@ use crate::{EXPECT_LOCK, leak};
 use super::discover::all_root_buses;
 use super::{
     PCIE_TYPE_DOWNSTREAM_PORT, PCIE_TYPE_PCIE_TO_PCI_BRIDGE, PCIE_TYPE_ROOT_PORT,
-    PCIE_TYPE_UPSTREAM_PORT, PciBridge, PciBus, PciDevice, PciEntity,
+    PCIE_TYPE_UPSTREAM_PORT, PciBridge, PciBus, PciDevice, PciEntity, PciError,
 };
 
 /// One IOMMU, i.e., one DMA remapping hardware unit.
@@ -50,17 +50,10 @@ async fn bind_id(
     unit: &'static IommuUnit,
     domain: Option<&'static DmaDomain>,
     id: DmaDeviceId,
-) -> bool {
-    let result =
-        hel::submission::bind_dma_device(&unit.handle, domain.map(DmaDomain::handle), id).await;
-    if let Err(err) = result {
-        println!(
-            "sif: Failed to bind {:04x}:{:02x}:{:02x}.{} to its IOMMU domain: {err}",
-            id.segment, id.bus, id.slot, id.function
-        );
-        return false;
-    }
-    true
+) -> Result<(), PciError> {
+    hel::submission::bind_dma_device(&unit.handle, domain.map(DmaDomain::handle), id)
+        .await
+        .map_err(|source| PciError::IommuBind { id, source })
 }
 
 /// Binds every requester ID that an entity DMAs as to a DMA space, or to the passthrough
@@ -69,12 +62,11 @@ pub async fn bind_device(
     unit: &'static IommuUnit,
     domain: Option<&'static DmaDomain>,
     entity: &'static PciEntity,
-) -> bool {
-    let mut bound = true;
+) -> Result<(), PciError> {
     for id in alias_ids(entity) {
-        bound &= bind_id(unit, domain, id).await;
+        bind_id(unit, domain, id).await?;
     }
-    bound
+    Ok(())
 }
 
 /// Returns the DMA space that the driver of an entity maps into, and whether an IOMMU
@@ -577,7 +569,16 @@ async fn bind_entity(entity: &'static PciEntity) {
     let Some(unit) = find_iommu(entity) else {
         return;
     };
-    bind_device(unit, entity.dma_domain.get().copied(), entity).await;
+    if let Err(err) = bind_device(unit, entity.dma_domain.get().copied(), entity).await {
+        println!(
+            "sif: Failed to bind PCI entity {:04x}:{:02x}:{:02x}.{} to its IOMMU domain: {:#}",
+            entity.seg,
+            entity.bus,
+            entity.slot,
+            entity.function,
+            anyhow::Error::from(err)
+        );
+    }
 }
 
 async fn bind_bus(bus: &'static PciBus) {

@@ -308,9 +308,7 @@ impl managarm::hw::server::PciDevice for ServedEntity {
         } else {
             Some(*entity.dma_domain.get().ok_or(HwError::DeviceError)?)
         };
-        if !iommu::bind_device(unit, domain, entity).await {
-            return Err(HwError::DeviceError);
-        }
+        iommu::bind_device(unit, domain, entity).await?;
         Ok(())
     }
 

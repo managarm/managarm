@@ -30,6 +30,16 @@ pub enum PciError {
     #[error("MSI address {address:#x} does not fit into the 32-bit MSI capability")]
     MsiAddressTooWide { address: u64 },
 
+    #[error(
+        "failed to bind requester {:04x}:{:02x}:{:02x}.{}",
+        id.segment, id.bus, id.slot, id.function
+    )]
+    IommuBind {
+        id: hel::DmaDeviceId,
+        #[source]
+        source: hel::Error,
+    },
+
     #[error(transparent)]
     Hel(#[from] hel::Error),
 }
