@@ -27,22 +27,12 @@ async::result<protocols::fs::Error> TcpQueue::connect() {
 		.maxr2t = 0,
 	};
 
-	size_t sent = 0;
-	while(sent < sizeof(connect_req)) {
-		auto send_err = co_await file_->sendto(reinterpret_cast<std::byte *>(&connect_req) + sent, sizeof(connect_req) - sent, 0, nullptr, 0);
-		if(!send_err)
-			co_return send_err.error();
-		sent += send_err.value();
-	}
+	if(auto e = co_await sendExact(&connect_req, sizeof(connect_req)); e != protocols::fs::Error::none)
+		co_return e;
 
 	spec::tcp::ICResp resp{};
-	size_t read = 0;
-	while(read < sizeof(resp)) {
-		auto recv_err = co_await file_->recvfrom(reinterpret_cast<std::byte *>(&resp) + read, sizeof(resp) - read, 0, nullptr, 0);
-		if(!recv_err)
-			co_return recv_err.error();
-		read += recv_err.value();
-	}
+	if(auto e = co_await receiveExact(&resp, sizeof(resp)); e != protocols::fs::Error::none)
+		co_return e;
 
 	if(resp.ch.pduType != spec::tcp::PduType::ICResp)
 		co_return protocols::fs::Error::addressNotAvailable;
@@ -136,30 +126,18 @@ async::detached TcpQueue::run() {
 	auto recvbuf = std::vector<std::byte>(65536);
 
 	while(true) {
-		size_t received = 0;
-
-		while(received < sizeof(spec::tcp::PduCommonHeader)) {
-			auto recv_err = co_await file_->recvfrom(recvbuf.data() + received, sizeof(spec::tcp::PduCommonHeader) - received, 0, nullptr, 0);
-			if(!recv_err) {
-				std::cout << "block/nvme: error on receive for queue " << qid_ << std::endl;
-				co_return;
-			}
-			received += recv_err.value();
-		}
+		if(co_await receiveExact(recvbuf.data(), sizeof(spec::tcp::PduCommonHeader)) != protocols::fs::Error::none)
+			co_return;
 
 		auto ch = reinterpret_cast<spec::tcp::PduCommonHeader *>(recvbuf.data());
 
 		if(ch->pduLength > recvbuf.size())
 			recvbuf.resize(ch->pduLength);
 
-		while(received < ch->pduLength) {
-			auto recv_err = co_await file_->recvfrom(recvbuf.data() + received, ch->pduLength - received, 0, nullptr, 0);
-			if(!recv_err) {
-				std::cout << "block/nvme: error on receive for queue " << qid_ << std::endl;
-				co_return;
-			}
-			received += recv_err.value();
-		}
+		if(ch->pduLength > sizeof(spec::tcp::PduCommonHeader)
+				&& co_await receiveExact(recvbuf.data() + sizeof(spec::tcp::PduCommonHeader),
+					ch->pduLength - sizeof(spec::tcp::PduCommonHeader)) != protocols::fs::Error::none)
+			co_return;
 
 		ch = reinterpret_cast<spec::tcp::PduCommonHeader *>(recvbuf.data());
 
@@ -198,6 +176,32 @@ async::detached TcpQueue::run() {
 			}
 		}
 	}
+}
+
+async::result<protocols::fs::Error> TcpQueue::receiveExact(void *buffer, size_t size) {
+	size_t received = 0;
+	while(received < size) {
+		auto recv_err = co_await file_->recvfrom(static_cast<std::byte *>(buffer) + received, size - received, 0, nullptr, 0);
+		if(!recv_err) {
+			std::cout << "block/nvme: error on receive for queue " << qid_ << std::endl;
+			co_return recv_err.error();
+		}
+		received += recv_err.value();
+	}
+	co_return protocols::fs::Error::none;
+}
+
+async::result<protocols::fs::Error> TcpQueue::sendExact(const void *buffer, size_t size) {
+	size_t sent = 0;
+	while(sent < size) {
+		auto send_err = co_await file_->sendto(static_cast<const std::byte *>(buffer) + sent, size - sent, 0, nullptr, 0);
+		if(!send_err) {
+			std::cout << "block/nvme: error on send for queue " << qid_ << std::endl;
+			co_return send_err.error();
+		}
+		sent += send_err.value();
+	}
+	co_return protocols::fs::Error::none;
 }
 
 async::detached TcpQueue::submitPendingLoop() {
@@ -244,16 +248,7 @@ async::result<void> TcpQueue::submitCommandToDevice(std::unique_ptr<Command> cmd
 	queuedCmds_[slot] = std::move(cmd);
 	commandsInFlight_++;
 
-	size_t sent = 0;
-
-	while(sent < capsuleCmd->ch.pduLength) {
-		auto send_err = co_await file_->sendto(buf_.data() + sent, capsuleCmd->ch.pduLength - sent, 0, nullptr, 0);
-		if(!send_err) {
-			std::cout << "block/nvme: error on send for queue " << qid_ << std::endl;
-			co_return;
-		}
-		sent += send_err.value();
-	}
+	co_await sendExact(buf_.data(), capsuleCmd->ch.pduLength);
 }
 
 async::result<Command::Result> TcpQueue::submitCommand(std::unique_ptr<Command> cmd) {

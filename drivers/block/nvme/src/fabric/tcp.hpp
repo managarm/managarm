@@ -36,6 +36,9 @@ private:
 	async::result<protocols::fs::Error> connect();
 	async::detached keepAlive();
 	async::detached submitPendingLoop();
+	// Transfer exactly size bytes.
+	async::result<protocols::fs::Error> receiveExact(void *buffer, size_t size);
+	async::result<protocols::fs::Error> sendExact(const void *buffer, size_t size);
 	async::result<void> submitCommandToDevice(std::unique_ptr<Command> cmd);
 
 	in_addr addr_;
