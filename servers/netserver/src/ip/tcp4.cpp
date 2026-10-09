@@ -397,6 +397,11 @@ struct Tcp4Socket {
 			self->parent_->rebind(self, {targetInfo->source, self->localEp_.port});
 		}
 
+		// Obtain a new random sequence number.
+		auto randomSn = globalPrng();
+		self->localSettledSn_ = randomSn;
+		self->localFlushedSn_ = randomSn;
+
 		// Connect to the remote.
 		self->connectState_ = ConnectState::sendSyn;
 		self->remoteEp_ = connectEp;
@@ -775,11 +780,6 @@ async::result<void> Tcp4Socket::flushOutPackets_() {
 				continue;
 			}
 
-			// Obtain a new random sequence number.
-			auto randomSn = globalPrng();
-			localSettledSn_ = randomSn;
-			localFlushedSn_ = randomSn;
-
 			// Construct and transmit the initial SYN packet.
 			auto targetInfo = co_await ip4().targetByRemote(remoteEp_.ipAddress, boundInterface_);
 			if (!targetInfo) {
@@ -832,11 +832,6 @@ async::result<void> Tcp4Socket::flushOutPackets_() {
 				co_await flushEvent_.async_wait();
 				continue;
 			}
-
-			// Obtain a new random sequence number.
-			auto randomSn = globalPrng();
-			localSettledSn_ = randomSn;
-			localFlushedSn_ = randomSn;
 
 			// Construct and transmit the initial SYN-ACK packet.
 			auto targetInfo = co_await ip4().targetByRemote(remoteEp_.ipAddress, boundInterface_);
@@ -1001,6 +996,11 @@ async::result<void> Tcp4Socket::handleIncomingConnection(PendingConnection c) {
 		std::println("netserver: No source port in accept");
 		co_return;
 	}
+
+	// Obtain a new random sequence number.
+	auto randomSn = globalPrng();
+	sock->localSettledSn_ = randomSn;
+	sock->localFlushedSn_ = randomSn;
 
 	// Connect to the remote.
 	sock->connectState_ = ConnectState::sendSynAck;
