@@ -14,4 +14,7 @@ pub enum PciError {
 
     #[error("the extended capability list does not terminate")]
     ExtendedCapabilityLoop,
+
+    #[error("the bridge is configured, but sits below an unconfigured bridge")]
+    ConfiguredBridgeBelowUnconfigured,
 }

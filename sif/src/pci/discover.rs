@@ -460,7 +460,7 @@ fn check_pci_function(
     bus: &'static PciBus,
     slot: u8,
     function: u8,
-    enumerate_downstream: &mut dyn FnMut(&'static PciBus),
+    enumerate_downstream: &mut dyn FnMut(&'static PciBus) -> Result<(), PciError>,
 ) -> Result<(), PciError> {
     let vendor = bus.vendor(slot, function);
     if vendor == 0xFFFF {
@@ -593,7 +593,7 @@ fn check_pci_function(
                 bridge.associated_bus.set(downstream_bus).is_ok(),
                 "sif: PCI bridge was already enumerated"
             );
-            enumerate_downstream(downstream_bus);
+            enumerate_downstream(downstream_bus)?;
         } else {
             println!("sif:     Deferring enumeration until the bridge is configured");
         }
@@ -608,7 +608,7 @@ fn check_pci_function(
 fn check_pci_device(
     bus: &'static PciBus,
     slot: u8,
-    enumerate_downstream: &mut dyn FnMut(&'static PciBus),
+    enumerate_downstream: &mut dyn FnMut(&'static PciBus) -> Result<(), PciError>,
 ) {
     let vendor = bus.vendor(slot, 0);
     if vendor == 0xFFFF {
@@ -646,7 +646,10 @@ fn quiesce_function(bus: &'static PciBus, slot: u8, function: u8) {
     }
 }
 
-fn check_pci_bus(bus: &'static PciBus, enumerate_downstream: &mut dyn FnMut(&'static PciBus)) {
+fn check_pci_bus(
+    bus: &'static PciBus,
+    enumerate_downstream: &mut dyn FnMut(&'static PciBus) -> Result<(), PciError>,
+) {
     let bridge = bus.associated_bridge;
     let mut n_slots: u8 = 32;
 
@@ -899,13 +902,8 @@ fn configure_bridges(bus: &'static PciBus, highest_id: &mut u8) {
                 bridge.associated_bus.set(downstream_bus).is_ok(),
                 "sif: PCI bridge was already enumerated"
             );
-            check_pci_bus(downstream_bus, &mut |b: &'static PciBus| {
-                let br = b.associated_bridge.unwrap();
-                panic!(
-                    "sif: error: found already configured bridge {:04x}:{:02x}:{:02x}.{} \
-                            under an unconfigured bridge",
-                    br.entity.seg, br.entity.bus, br.entity.slot, br.entity.function
-                );
+            check_pci_bus(downstream_bus, &mut |_| {
+                Err(PciError::ConfiguredBridgeBelowUnconfigured)
             });
         }
 
@@ -1359,7 +1357,10 @@ pub fn enumerate_all() {
     let mut i = 0;
     while i < queue.len() {
         let bus = queue[i];
-        check_pci_bus(bus, &mut |downstream| queue.push(downstream));
+        check_pci_bus(bus, &mut |downstream| {
+            queue.push(downstream);
+            Ok(())
+        });
         i += 1;
     }
 
