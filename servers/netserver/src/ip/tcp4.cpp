@@ -1195,6 +1195,10 @@ void Tcp4Socket::handleInPacket_(TcpPacket packet) {
 					outSeq_ = ++currentSeq_;
 					settleEvent_.raise();
 					pollEvent_.raise();
+
+					// The ACK may have opened the window for data that is still unsent.
+					if(sendRing_.availableToDequeue() > localFlushedSn_ - localSettledSn_)
+						kickEmitter_();
 				}else{
 					std::cout << "netserver: Rejecting ack-number outside of valid window"
 							<< std::endl;
