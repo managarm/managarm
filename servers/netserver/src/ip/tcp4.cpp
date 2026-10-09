@@ -1,5 +1,6 @@
 #include <async/algorithm.hpp>
 #include <async/basic.hpp>
+#include <async/mutex.hpp>
 #include <async/recurring-event.hpp>
 #include <async/result.hpp>
 #include <arch/bit.hpp>
@@ -225,14 +226,16 @@ struct Tcp4Socket {
 
 		localClosed_ = true;
 
-		while (localSettledSn_ < localFlushedSn_)
+		// The sendFin state sends no data, so everything in sendRing_ must be acknowledged first.
+		while (sendRing_.availableToDequeue())
 			co_await settleEvent_.async_wait();
 
 		connectState_ = ConnectState::sendFin;
-		flushEvent_.raise();
+		if(auto sent = co_await emitSegment_(); !sent)
+			co_return;
 
 		// TODO: Wait for disconnect to finish?
-		while (localSettledSn_ < localFlushedSn_)
+		while (localSettledSn_ != localFlushedSn_)
 			co_await settleEvent_.async_wait();
 		std::println("netserver: TCP FIN was acknowledged");
 	}
@@ -240,7 +243,6 @@ struct Tcp4Socket {
 	static auto makeSocket(Tcp4 *parent, bool nonBlock) {
 		auto s = smarter::make_shared<Tcp4Socket>(parent, nonBlock);
 		s->holder_ = s;
-		async::detach(s->flushOutPackets_());
 		return s;
 	}
 
@@ -397,10 +399,18 @@ struct Tcp4Socket {
 			self->parent_->rebind(self, {targetInfo->source, self->localEp_.port});
 		}
 
+		// Obtain a new random sequence number.
+		auto randomSn = globalPrng();
+		self->localSettledSn_ = randomSn;
+		self->localFlushedSn_ = randomSn;
+
 		// Connect to the remote.
 		self->connectState_ = ConnectState::sendSyn;
 		self->remoteEp_ = connectEp;
-		self->flushEvent_.raise();
+		if(auto sent = co_await self->emitSegment_(); !sent) {
+			self->connectState_ = ConnectState::none;
+			co_return sent.error();
+		}
 
 		while(true) {
 			if(self->connectState_ != ConnectState::sendSyn)
@@ -486,7 +496,7 @@ struct Tcp4Socket {
 			if(flags & MSG_PEEK)
 				break;
 			self->recvRing_.dequeueAdvance(chunk);
-			self->flushEvent_.raise();
+			self->kickEmitter_();
 		}
 
 		struct sockaddr_in sa;
@@ -529,8 +539,10 @@ struct Tcp4Socket {
 			}
 			size_t chunk = std::min(space, size - progress);
 			self->sendRing_.enqueue(p + progress, chunk);
-			self->flushEvent_.raise();
 			progress += chunk;
+
+			// Transmission errors are not reported here; the data stays in sendRing_.
+			co_await self->emitUntil_(self->localSettledSn_ + self->sendRing_.availableToDequeue());
 		}
 
 		co_return progress;
@@ -686,7 +698,21 @@ struct Tcp4Socket {
 	}
 
 private:
-	async::result<void> flushOutPackets_();
+	// Decides on the next segment to send and claims its sequence space.
+	std::optional<std::vector<char>> buildSegment_();
+
+	// Transmits the next segment, if any. Returns false if there was nothing to send.
+	async::result<std::expected<bool, protocols::fs::Error>> emitSegment_();
+
+	// Transmits segments until everything before the out-SN sn is flushed or nothing can be sent.
+	async::result<void> emitUntil_(uint32_t sn);
+
+	// For callers that do not wait for the transmission: starts runEmitter_() unless it is running.
+	// Starting a fresh coroutine (instead of waking a long-lived one) transmits on the kicking thread.
+	void kickEmitter_();
+
+	// self keeps the socket alive while the emitter runs.
+	async::result<void> runEmitter_(smarter::shared_ptr<Tcp4Socket> self);
 
 	void handleInPacket_(TcpPacket packet);
 
@@ -747,8 +773,14 @@ private:
 	RingBuffer sendRing_;
 
 	async::recurring_event inEvent_;
-	async::recurring_event flushEvent_;
 	async::recurring_event settleEvent_;
+
+	// Held across the transmission of a segment so that segments leave in the order that
+	// buildSegment_() produced them.
+	async::mutex emitMutex_;
+	bool emitterActive_ = false;
+	// Set when work arrives while runEmitter_() is active.
+	bool emitterPending_ = false;
 
 	// The following sequence numbers are *not* TCP sequence numbers,
 	// they implement the poll() function.
@@ -762,228 +794,222 @@ private:
 	std::shared_ptr<nic::Link> boundInterface_ = {};
 };
 
-async::result<void> Tcp4Socket::flushOutPackets_() {
-	while(true) {
-		if(connectState_ == ConnectState::none) {
-			co_await flushEvent_.async_wait();
-			continue;
-		}
+std::optional<std::vector<char>> Tcp4Socket::buildSegment_() {
+	if(connectState_ == ConnectState::none)
+		return std::nullopt;
 
-		if(connectState_ == ConnectState::sendSyn) {
-			if(localSettledSn_ != localFlushedSn_) {
-				co_await flushEvent_.async_wait();
-				continue;
-			}
+	if(connectState_ == ConnectState::sendSyn) {
+		if(localSettledSn_ != localFlushedSn_)
+			return std::nullopt;
 
-			// Obtain a new random sequence number.
-			auto randomSn = globalPrng();
-			localSettledSn_ = randomSn;
-			localFlushedSn_ = randomSn;
+		// Construct the initial SYN packet.
+		std::vector<char> buf;
+		buf.resize(sizeof(TcpHeader));
 
-			// Construct and transmit the initial SYN packet.
-			auto targetInfo = co_await ip4().targetByRemote(remoteEp_.ipAddress, boundInterface_);
-			if (!targetInfo) {
-				// TODO: Return an error to users.
-				std::cout << "netserver: Destination unreachable" << std::endl;
-				co_return;
-			}
-			pinSource_(*targetInfo);
+		auto header = new (buf.data()) TcpHeader {
+			.srcPort = localEp_.port,
+			.destPort = remoteEp_.port,
+			.seqNumber = localFlushedSn_,
+			.ackNumber = 0,
+			.flags = {},
+			.window = 0,
+			.checksum = 0,
+			.urgentPointer = 0,
+		};
+		header->flags.store(TcpHeader::headerWords(sizeof(TcpHeader) / 4)
+				| TcpHeader::synFlag(true));
 
-			std::vector<char> buf;
-			buf.resize(sizeof(TcpHeader));
+		// Fill in the checksum.
+		PseudoHeader pseudo {
+			.src = localEp_.ipAddress,
+			.dst = remoteEp_.ipAddress,
+			.len = buf.size()
+		};
+		Checksum csum;
+		csum.update(&pseudo, sizeof(PseudoHeader));
+		csum.update(buf.data(), buf.size());
+		header->checksum = csum.finalize();
 
-			auto header = new (buf.data()) TcpHeader {
-				.srcPort = localEp_.port,
-				.destPort = remoteEp_.port,
-				.seqNumber = localFlushedSn_,
-				.ackNumber = 0,
-				.flags = {},
-				.window = 0,
-				.checksum = 0,
-				.urgentPointer = 0,
-			};
-			header->flags.store(TcpHeader::headerWords(sizeof(TcpHeader) / 4)
-					| TcpHeader::synFlag(true));
+		++localFlushedSn_;
 
-			// Fill in the checksum.
-			PseudoHeader pseudo {
-				.src = targetInfo->source,
-				.dst = remoteEp_.ipAddress,
-				.len = buf.size()
-			};
-			Checksum csum;
-			csum.update(&pseudo, sizeof(PseudoHeader));
-			csum.update(buf.data(), buf.size());
-			header->checksum = csum.finalize();
+		if(debugTcp)
+			std::cout << "netserver: Sending TCP SYN" << std::endl;
+		return buf;
+	}else if(connectState_ == ConnectState::sendSynAck) {
+		if(localSettledSn_ != localFlushedSn_)
+			return std::nullopt;
 
-			++localFlushedSn_;
+		// Construct the initial SYN-ACK packet.
+		std::vector<char> buf;
+		buf.resize(sizeof(TcpHeader));
 
-			if(debugTcp)
-				std::cout << "netserver: Sending TCP SYN" << std::endl;
-			auto error = co_await ip4().sendFrame(std::move(*targetInfo),
-				buf.data(), buf.size(), static_cast<uint16_t>(IpProto::tcp));
-			if (error != protocols::fs::Error::none) {
-				// TODO: Return an error to users.
-				std::cout << "netserver: Could not send TCP packet" << std::endl;
-				co_return;
-			}
-		}else if(connectState_ == ConnectState::sendSynAck) {
-			if(localSettledSn_ != localFlushedSn_) {
-				co_await flushEvent_.async_wait();
-				continue;
-			}
+		auto header = new (buf.data()) TcpHeader {
+			.srcPort = localEp_.port,
+			.destPort = remoteEp_.port,
+			.seqNumber = localFlushedSn_,
+			.ackNumber = remoteKnownSn_,
+			.flags = {},
+			.window = 0,
+			.checksum = 0,
+			.urgentPointer = 0,
+		};
+		header->flags.store(TcpHeader::headerWords(sizeof(TcpHeader) / 4)
+				| TcpHeader::synFlag(true)
+				| TcpHeader::ackFlag(true));
 
-			// Obtain a new random sequence number.
-			auto randomSn = globalPrng();
-			localSettledSn_ = randomSn;
-			localFlushedSn_ = randomSn;
+		// Fill in the checksum.
+		PseudoHeader pseudo {
+			.src = localEp_.ipAddress,
+			.dst = remoteEp_.ipAddress,
+			.len = buf.size()
+		};
+		Checksum csum;
+		csum.update(&pseudo, sizeof(PseudoHeader));
+		csum.update(buf.data(), buf.size());
+		header->checksum = csum.finalize();
 
-			// Construct and transmit the initial SYN-ACK packet.
-			auto targetInfo = co_await ip4().targetByRemote(remoteEp_.ipAddress, boundInterface_);
-			if (!targetInfo) {
-				// TODO: Return an error to users.
-				std::cout << "netserver: Destination unreachable" << std::endl;
-				co_return;
-			}
-			pinSource_(*targetInfo);
+		++localFlushedSn_;
 
-			std::vector<char> buf;
-			buf.resize(sizeof(TcpHeader));
+		if(debugTcp)
+			std::cout << "netserver: Sending TCP SYN-ACK" << std::endl;
+		return buf;
+	}else{
+		assert(connectState_ == ConnectState::connected
+			|| connectState_ == ConnectState::sendFin
+			|| connectState_ == ConnectState::finAcked);
 
-			auto header = new (buf.data()) TcpHeader {
-				.srcPort = localEp_.port,
-				.destPort = remoteEp_.port,
-				.seqNumber = localFlushedSn_,
-				.ackNumber = remoteKnownSn_,
-				.flags = {},
-				.window = 0,
-				.checksum = 0,
-				.urgentPointer = 0,
-			};
-			header->flags.store(TcpHeader::headerWords(sizeof(TcpHeader) / 4)
-					| TcpHeader::synFlag(true)
-					| TcpHeader::ackFlag(true));
+		size_t flushPointer = localFlushedSn_ - localSettledSn_;
+		size_t windowPointer = localWindowSn_ - localSettledSn_;
 
-			// Fill in the checksum.
-			PseudoHeader pseudo {
-				.src = targetInfo->source,
-				.dst = remoteEp_.ipAddress,
-				.len = buf.size()
-			};
-			Checksum csum;
-			csum.update(&pseudo, sizeof(PseudoHeader));
-			csum.update(buf.data(), buf.size());
-			header->checksum = csum.finalize();
+		size_t chunk = 0; // Size of payload that we are going to send.
+		if (connectState_ == ConnectState::connected) {
+			size_t bytesAvailable = sendRing_.availableToDequeue();
+			assert(bytesAvailable >= flushPointer);
 
-			++localFlushedSn_;
-
-			if(debugTcp)
-				std::cout << "netserver: Sending TCP SYN-ACK" << std::endl;
-			auto error = co_await ip4().sendFrame(std::move(*targetInfo),
-				buf.data(), buf.size(), static_cast<uint16_t>(IpProto::tcp));
-			if (error != protocols::fs::Error::none) {
-				// TODO: Return an error to users.
-				std::cout << "netserver: Could not send TCP packet" << std::endl;
-				co_return;
-			}
-		}else{
-			assert(connectState_ == ConnectState::connected
-				|| connectState_ == ConnectState::sendFin
-				|| connectState_ == ConnectState::finAcked);
-
-			auto targetInfo = co_await ip4().targetByRemote(remoteEp_.ipAddress);
-			if (!targetInfo) {
-				// TODO: Return an error to users.
-				std::cout << "netserver: Destination unreachable" << std::endl;
-				co_return;
-			}
-			pinSource_(*targetInfo);
-
-			size_t flushPointer = localFlushedSn_ - localSettledSn_;
-			size_t windowPointer = localWindowSn_ - localSettledSn_;
-
-			size_t chunk = 0; // Size of payload that we are going to send.
-			if (connectState_ == ConnectState::connected) {
-				size_t bytesAvailable = sendRing_.availableToDequeue();
-				assert(bytesAvailable >= flushPointer);
-
-				if (bytesAvailable > flushPointer && windowPointer > flushPointer) {
-					chunk = std::min({
-						bytesAvailable - flushPointer,
-						windowPointer - flushPointer,
-						size_t{1280} // TODO: Perform path MTU discovery.
-					});
-				}
-			}
-
-			bool sendFin = false;
-			if (connectState_ == ConnectState::sendFin) {
-				// If flushPointer != 0, we sent a FIN already.
-				if (!flushPointer)
-					sendFin = true;
-			}
-
-			// Check whether we need to send a packet.
-			// TODO: Add retransmission here.
-			bool wantAck = (remoteAckedSn_ != remoteKnownSn_);
-			bool wantWindowUpdate = (announcedWindow_ < recvRing_.spaceForEnqueue());
-
-			if(chunk == 0 && !sendFin && !wantAck && !wantWindowUpdate) {
-				co_await flushEvent_.async_wait();
-				continue;
-			}
-
-			// Construct and transmit the TCP packet.
-			std::vector<char> buf;
-			buf.resize(sizeof(TcpHeader) + chunk);
-
-			auto header = new (buf.data()) TcpHeader {
-				.srcPort = localEp_.port,
-				.destPort = remoteEp_.port,
-				.seqNumber = localFlushedSn_,
-				.ackNumber = remoteKnownSn_,
-				.flags = {},
-				.window = std::min(recvRing_.spaceForEnqueue(), size_t{0xFFFF}),
-				.checksum = 0,
-				.urgentPointer = 0,
-			};
-			header->flags.store(TcpHeader::headerWords(sizeof(TcpHeader) / 4)
-					| TcpHeader::ackFlag(true)
-					| TcpHeader::finFlag(sendFin));
-
-			if (chunk)
-				sendRing_.dequeueLookahead(flushPointer, buf.data() + sizeof(TcpHeader), chunk);
-
-			// Fill in the checksum.
-			PseudoHeader pseudo {
-				.src = targetInfo->source,
-				.dst = remoteEp_.ipAddress,
-				.len = buf.size()
-			};
-			Checksum csum;
-			csum.update(&pseudo, sizeof(PseudoHeader));
-			csum.update(buf.data(), buf.size());
-			header->checksum = csum.finalize();
-
-			localFlushedSn_ += chunk;
-			if (sendFin)
-				++localFlushedSn_;
-
-			remoteAckedSn_ = remoteKnownSn_;
-			announcedWindow_ = recvRing_.spaceForEnqueue();
-
-			if(debugTcp)
-				std::cout << "netserver: Sending TCP data (" << chunk << " bytes)" << std::endl;
-			auto error = co_await ip4().sendFrame(std::move(*targetInfo),
-				buf.data(), buf.size(),
-				static_cast<uint16_t>(IpProto::tcp));
-			if (error != protocols::fs::Error::none) {
-				// TODO: Return an error to users.
-				std::cout << "netserver: Could not send TCP packet" << std::endl;
-				co_return;
+			if (bytesAvailable > flushPointer && windowPointer > flushPointer) {
+				chunk = std::min({
+					bytesAvailable - flushPointer,
+					windowPointer - flushPointer,
+					size_t{1280} // TODO: Perform path MTU discovery.
+				});
 			}
 		}
+
+		bool sendFin = false;
+		if (connectState_ == ConnectState::sendFin) {
+			// If flushPointer != 0, we sent a FIN already.
+			if (!flushPointer)
+				sendFin = true;
+		}
+
+		// Check whether we need to send a packet.
+		// TODO: Add retransmission here.
+		bool wantAck = (remoteAckedSn_ != remoteKnownSn_);
+		bool wantWindowUpdate = (announcedWindow_ < recvRing_.spaceForEnqueue());
+
+		if(chunk == 0 && !sendFin && !wantAck && !wantWindowUpdate)
+			return std::nullopt;
+
+		// Construct the TCP packet.
+		std::vector<char> buf;
+		buf.resize(sizeof(TcpHeader) + chunk);
+
+		auto header = new (buf.data()) TcpHeader {
+			.srcPort = localEp_.port,
+			.destPort = remoteEp_.port,
+			.seqNumber = localFlushedSn_,
+			.ackNumber = remoteKnownSn_,
+			.flags = {},
+			.window = std::min(recvRing_.spaceForEnqueue(), size_t{0xFFFF}),
+			.checksum = 0,
+			.urgentPointer = 0,
+		};
+		header->flags.store(TcpHeader::headerWords(sizeof(TcpHeader) / 4)
+				| TcpHeader::ackFlag(true)
+				| TcpHeader::finFlag(sendFin));
+
+		if (chunk)
+			sendRing_.dequeueLookahead(flushPointer, buf.data() + sizeof(TcpHeader), chunk);
+
+		// Fill in the checksum.
+		PseudoHeader pseudo {
+			.src = localEp_.ipAddress,
+			.dst = remoteEp_.ipAddress,
+			.len = buf.size()
+		};
+		Checksum csum;
+		csum.update(&pseudo, sizeof(PseudoHeader));
+		csum.update(buf.data(), buf.size());
+		header->checksum = csum.finalize();
+
+		localFlushedSn_ += chunk;
+		if (sendFin)
+			++localFlushedSn_;
+
+		remoteAckedSn_ = remoteKnownSn_;
+		announcedWindow_ = recvRing_.spaceForEnqueue();
+
+		if(debugTcp)
+			std::cout << "netserver: Sending TCP data (" << chunk << " bytes)" << std::endl;
+		return buf;
 	}
+}
+
+async::result<std::expected<bool, protocols::fs::Error>> Tcp4Socket::emitSegment_() {
+	co_await emitMutex_.async_lock();
+	frg::unique_lock emitLock{frg::adopt_lock, emitMutex_};
+
+	auto buf = buildSegment_();
+	if(!buf)
+		co_return false;
+
+	// A segment that fails to send is treated like one lost on the wire.
+	// TODO: Retransmission needs to resend its sequence space.
+	auto targetInfo = co_await ip4().targetByRemote(remoteEp_.ipAddress, boundInterface_);
+	if (!targetInfo) {
+		std::cout << "netserver: Destination unreachable" << std::endl;
+		co_return std::unexpected{protocols::fs::Error::netUnreachable};
+	}
+	pinSource_(*targetInfo);
+
+	auto error = co_await ip4().sendFrame(std::move(*targetInfo),
+		buf->data(), buf->size(), static_cast<uint16_t>(IpProto::tcp));
+	if (error != protocols::fs::Error::none) {
+		std::cout << "netserver: Could not send TCP packet" << std::endl;
+		co_return std::unexpected{error};
+	}
+	co_return true;
+}
+
+async::result<void> Tcp4Socket::emitUntil_(uint32_t sn) {
+	// Our data may have been sent by another emitter already.
+	while(sn - localSettledSn_ > localFlushedSn_ - localSettledSn_) {
+		auto sent = co_await emitSegment_();
+		if(!sent || !*sent)
+			break;
+	}
+}
+
+void Tcp4Socket::kickEmitter_() {
+	if(emitterActive_) {
+		emitterPending_ = true;
+		return;
+	}
+	emitterActive_ = true;
+	async::detach(runEmitter_(holder_.lock()));
+}
+
+async::result<void> Tcp4Socket::runEmitter_(smarter::shared_ptr<Tcp4Socket>) {
+	while(true) {
+		emitterPending_ = false;
+		auto sent = co_await emitSegment_();
+		if(sent && *sent)
+			continue;
+		// Errors are dropped like Linux does; the data stays in sendRing_.
+		if(!emitterPending_)
+			break;
+	}
+	emitterActive_ = false;
 }
 
 async::result<void> Tcp4Socket::handleIncomingConnection(PendingConnection c) {
@@ -1002,12 +1028,19 @@ async::result<void> Tcp4Socket::handleIncomingConnection(PendingConnection c) {
 		co_return;
 	}
 
+	// Obtain a new random sequence number.
+	auto randomSn = globalPrng();
+	sock->localSettledSn_ = randomSn;
+	sock->localFlushedSn_ = randomSn;
+
 	// Connect to the remote.
 	sock->connectState_ = ConnectState::sendSynAck;
 	sock->remoteAckedSn_ = c.sequence + 1;
 	sock->remoteKnownSn_ = c.sequence + 1;
 
-	sock->flushEvent_.raise();
+	// TODO: Tear down the half-open connection.
+	if(auto sent = co_await sock->emitSegment_(); !sent)
+		co_return;
 
 	while(true) {
 		if(sock->connectState_ != ConnectState::sendSynAck)
@@ -1082,7 +1115,7 @@ void Tcp4Socket::handleInPacket_(TcpPacket packet) {
 		remoteAckedSn_ = packet.header.seqNumber.load();
 		remoteKnownSn_ = packet.header.seqNumber.load() + 1; // SYN counts as one byte.
 		connectState_ = ConnectState::connected;
-		flushEvent_.raise();
+		kickEmitter_();
 		settleEvent_.raise();
 	}else if(connectState_ == ConnectState::sendSynAck) {
 		if(localSettledSn_ == localFlushedSn_) {
@@ -1112,7 +1145,7 @@ void Tcp4Socket::handleInPacket_(TcpPacket packet) {
 		++localSettledSn_;
 		localWindowSn_ = localSettledSn_ + packet.header.window.load();
 		connectState_ = ConnectState::connected;
-		flushEvent_.raise();
+		kickEmitter_();
 		settleEvent_.raise();
 	}else if(connectState_ == ConnectState::connected
 			|| connectState_ == ConnectState::sendFin
@@ -1147,7 +1180,7 @@ void Tcp4Socket::handleInPacket_(TcpPacket packet) {
 
 			if(gotUpdate) {
 				inEvent_.raise();
-				flushEvent_.raise();
+				kickEmitter_();
 				pollEvent_.raise();
 			}
 		}
@@ -1163,6 +1196,10 @@ void Tcp4Socket::handleInPacket_(TcpPacket packet) {
 					outSeq_ = ++currentSeq_;
 					settleEvent_.raise();
 					pollEvent_.raise();
+
+					// The ACK may have opened the window for data that is still unsent.
+					if(sendRing_.availableToDequeue() > localFlushedSn_ - localSettledSn_)
+						kickEmitter_();
 				}else{
 					std::cout << "netserver: Rejecting ack-number outside of valid window"
 							<< std::endl;
