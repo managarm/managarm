@@ -1,6 +1,7 @@
 use thiserror::Error;
 
 use crate::dt::DtError;
+use crate::uacpi;
 
 /// Reasons why sif cannot use a PCI function or one of its features.
 #[derive(Debug, Error)]
@@ -56,6 +57,24 @@ pub enum PciError {
 
     #[error("routes of individual functions are not supported")]
     FunctionRoute,
+
+    #[error("invalid interrupt pin {pin}")]
+    InvalidPin { pin: u64 },
+
+    #[error("failed to evaluate the _PRT")]
+    PrtEvaluation(#[source] uacpi::Error),
+
+    #[error("failed to evaluate the _CRS of the IRQ link")]
+    LinkResources(#[source] uacpi::Error),
+
+    #[error("the _CRS of the IRQ link has no resource {index}")]
+    LinkResourceMissing { index: u32 },
+
+    #[error("resource {index} of the IRQ link does not describe an IRQ")]
+    LinkResourceNotIrq { index: u32 },
+
+    #[error("the IRQ link is not connected to any IRQ")]
+    LinkNotConnected,
 
     #[error("failed to set up IRQ {index} of {controller}")]
     DtIrqSetup {

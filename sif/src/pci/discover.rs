@@ -547,8 +547,7 @@ fn check_pci_function(
         read_entity_bars(&device.entity, 6)?;
         parse_expansion_rom(&device.entity, PCI_REGULAR_EXPANSION_ROM_BASE_ADDRESS);
 
-        let irq_index = IrqIndex::from_pin(bus.interrupt_pin(slot, function));
-        if irq_index != IrqIndex::Null {
+        if let Some(irq_index) = IrqIndex::from_pin(bus.interrupt_pin(slot, function)) {
             let router = bus.irq_router.get().expect("bus has no IRQ router");
             if let Some(pin) = router.resolve_irq_route(slot, irq_index) {
                 println!(

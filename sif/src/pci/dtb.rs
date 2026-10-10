@@ -167,7 +167,10 @@ fn map_entry(
     }
     Ok(RoutingEntry {
         slot: slot as u8,
-        index: IrqIndex::from_pin(index as u8),
+        index: u8::try_from(index)
+            .ok()
+            .and_then(IrqIndex::from_pin)
+            .ok_or(PciError::InvalidPin { pin: index })?,
         pin,
     })
 }

@@ -27,7 +27,6 @@ pub fn msi_controller_available() -> bool {
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum IrqIndex {
-    Null = 0,
     IntA = 1,
     IntB = 2,
     IntC = 3,
@@ -35,13 +34,21 @@ pub enum IrqIndex {
 }
 
 impl IrqIndex {
-    pub fn from_pin(pin: u8) -> IrqIndex {
+    pub const ALL: [IrqIndex; 4] = [
+        IrqIndex::IntA,
+        IrqIndex::IntB,
+        IrqIndex::IntC,
+        IrqIndex::IntD,
+    ];
+
+    /// Decodes the value of the interrupt pin register, which is 0 if there is no INTx.
+    pub fn from_pin(pin: u8) -> Option<IrqIndex> {
         match pin {
-            1 => IrqIndex::IntA,
-            2 => IrqIndex::IntB,
-            3 => IrqIndex::IntC,
-            4 => IrqIndex::IntD,
-            _ => IrqIndex::Null,
+            1 => Some(IrqIndex::IntA),
+            2 => Some(IrqIndex::IntB),
+            3 => Some(IrqIndex::IntC),
+            4 => Some(IrqIndex::IntD),
+            _ => None,
         }
     }
 
@@ -51,7 +58,6 @@ impl IrqIndex {
             IrqIndex::IntB => "INTB",
             IrqIndex::IntC => "INTC",
             IrqIndex::IntD => "INTD",
-            IrqIndex::Null => panic!("Illegal PCI interrupt pin"),
         }
     }
 }
@@ -151,9 +157,8 @@ impl RouterState {
             .associated_bridge
             .expect("expansion bridge routing without an associated bridge");
 
-        for (i, bridge_irq) in self.bridge_irqs.iter_mut().enumerate() {
-            *bridge_irq =
-                parent.resolve_irq_route(bridge.entity.slot, IrqIndex::from_pin(i as u8 + 1));
+        for (i, (bridge_irq, index)) in self.bridge_irqs.iter_mut().zip(IrqIndex::ALL).enumerate() {
+            *bridge_irq = parent.resolve_irq_route(bridge.entity.slot, index);
             if let Some(pin) = bridge_irq {
                 println!("sif:     Bridge IRQ [{i}]: {}", pin.name());
             }
