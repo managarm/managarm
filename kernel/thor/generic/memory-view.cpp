@@ -3574,7 +3574,6 @@ frg::expected<Error> CopyOnWriteMemory::_publishCopy(CowPage *page, PhysicalAddr
 			return Error::noMemory;
 		// Copies are installed dirty - their content doesn't exist anywhere
 		// elsewhere, so the frame can only be dropped after a writeback.
-		_space->hierarchy->chargeMemory(kPageSize);
 		_space->installPage(swapPage, physical, true, page->lockCount, raiseDirty, raiseExpedite);
 		page->swapPage = swapPage;
 	}
@@ -3645,40 +3644,46 @@ coroutine<frg::expected<Error, smarter::shared_ptr<MemoryView>>> CopyOnWriteMemo
 		}
 	}
 
+	// Charge the memory to the forked memory view.
+	// Shared pages are counted twice: once in the original and once in the forked memory view.
+	// This ensures that uncharging behaves correctly.
+	{
+		auto numPages = numSharedPages + lockedCopies.size();
+		if(auto charge = forked->tryChargePages_(numPages); !charge)
+			co_return charge.error();
+
+		auto irqLock = frg::guard(&irqMutex());
+		auto forkedLock = frg::guard(&forked->_mutex);
+		forked->_chargedPages += numPages;
+	}
+
 	// Copy all the pages that were locked.
 	for(auto [pg, src] : lockedCopies) {
-		auto copyPhysical = physicalAllocator->allocate(kPageSize);
-		assert(copyPhysical != PhysicalAddr(-1) && "OOM");
+		auto physicalOutcome = _allocateCopy();
+		if(!physicalOutcome)
+			co_return physicalOutcome.error();
+		auto copyPhysical = *physicalOutcome;
+		frg::scope_exit freeCopy{[&] {
+			_freeCopy(copyPhysical);
+		}};
 
 		// The lock observed above may have been dropped concurrently, so the source
 		// is pinned again by the copy itself.
-		if(auto outcome = co_await _copyFromCowPage(src.get(), copyPhysical, 0); !outcome) {
-			physicalAllocator->free(copyPhysical, kPageSize);
+		if(auto outcome = co_await _copyFromCowPage(src.get(), copyPhysical, 0); !outcome)
 			co_return outcome.error();
-		}
 
 		auto copyPage = smarter::allocate_shared<CowPage>(*kernelAlloc);
 		bool raiseDirty = false;
 		bool raiseExpedite = false;
-		if(auto outcome = _publishCopy(copyPage.get(), copyPhysical, raiseDirty, raiseExpedite); !outcome) {
-			physicalAllocator->free(copyPhysical, kPageSize);
+		if(auto outcome = _publishCopy(copyPage.get(), copyPhysical, raiseDirty, raiseExpedite); !outcome)
 			co_return outcome.error();
-		}
+		freeCopy.release();
 		auto copyIt = forked->_ownedPages.insert(pg >> kPageShift);
 		*copyIt = copyPage;
 		if(raiseDirty)
 			_space->_dirtyEvent.raise();
 		if(raiseExpedite)
 			_space->_expediteEvent.raise();
-	}
-
-	// Charge the memory to the forked memory view.
-	// Shared pages are counted twice: once in the original and once in the forked memory view.
-	// This ensures that uncharging behaves correctly.
-	{
-		auto irqLock = frg::guard(&irqMutex());
-		auto forkedLock = frg::guard(&forked->_mutex);
-		forked->chargePages_(numSharedPages + lockedCopies.size());
 	}
 
 	co_await evictionQueue()->breakRange(0, _length);
@@ -3974,10 +3979,23 @@ CopyOnWriteMemory::_materializePage(uintptr_t offset,
 	}};
 
 	// TODO: On OOM, wait for memory and retry; the page stays inProgress meanwhile.
-	PhysicalAddr physical = physicalAllocator->allocate(kPageSize);
-	assert(physical != PhysicalAddr(-1) && "OOM");
+	// Replacing a shared page by an owned one does not charge here
+	// since we already charged for the shared page at fork() time.
+	if(!sharedPage) {
+		if(auto charge = tryChargePages_(1); !charge)
+			co_return charge.error();
+	}
+	frg::scope_exit uncharge{[&] {
+		if(!sharedPage)
+			unchargePages_(1);
+	}};
+
+	auto physicalOutcome = _allocateCopy();
+	if(!physicalOutcome)
+		co_return physicalOutcome.error();
+	auto physical = *physicalOutcome;
 	frg::scope_exit freeCopy{[&] {
-		physicalAllocator->free(physical, kPageSize);
+		_freeCopy(physical);
 	}};
 
 	// Copy from the shared page (outside of the locks; it remains in hasCopy state)
@@ -4002,11 +4020,10 @@ CopyOnWriteMemory::_materializePage(uintptr_t offset,
 		if(auto outcome = _publishCopy(cowPage.get(), physical, raiseDirty, raiseExpedite); !outcome)
 			co_return outcome.error();
 		freeCopy.release();
+		uncharge.release();
 		rollback.release();
-		// Replacing a shared page by an owned one does not charge here
-		// since we already charged for the shared page at fork() time.
-		if (!sharedPage)
-			chargePages_(1);
+		if(!sharedPage)
+			_chargedPages++;
 		// The owned copy supersedes the shared page, so drop our reference to it.
 		if(sharedPage)
 			_sharedPages.erase(offset >> kPageShift);
@@ -4019,24 +4036,39 @@ CopyOnWriteMemory::_materializePage(uintptr_t offset,
 	co_return {};
 }
 
-void CopyOnWriteMemory::chargePages_(size_t n) {
-	_chargedPages += n;
+std::expected<void, Error> CopyOnWriteMemory::tryChargePages_(size_t n) {
 	// Swappable copies hold swap slots; their frames are charged by the swap space.
 	if(_space) {
 		_hierarchy->chargeSwap(n << kPageShift);
-	}else{
-		_hierarchy->chargeMemory(n << kPageShift);
+		return {};
 	}
+	return _hierarchy->tryChargeMemory(n << kPageShift);
 }
 
 void CopyOnWriteMemory::unchargePages_(size_t n) {
-	assert(_chargedPages >= n);
-	_chargedPages -= n;
 	if(_space) {
 		_hierarchy->unchargeSwap(n << kPageShift);
-	}else{
-		_hierarchy->unchargeMemory(n << kPageShift);
+		return;
 	}
+	_hierarchy->unchargeMemory(n << kPageShift);
+}
+
+std::expected<PhysicalAddr, Error> CopyOnWriteMemory::_allocateCopy() {
+	if(_space)
+		return tryChargeAndAllocate(_space->hierarchy.get(), kPageSize, 64);
+	// Non-swappable CopyOnWriteMemory only needs the charge in tryChargePages_().
+	auto physical = physicalAllocator->allocate(kPageSize, 64);
+	assert(physical != PhysicalAddr(-1) && "OOM");
+	return physical;
+}
+
+void CopyOnWriteMemory::_freeCopy(PhysicalAddr physical) {
+	if(_space) {
+		deallocateAndUncharge(_space->hierarchy.get(), physical, kPageSize);
+		return;
+	}
+	// Non-swappable CopyOnWriteMemory only needs the uncharge in unchargePages_().
+	physicalAllocator->free(physical, kPageSize);
 }
 
 // --------------------------------------------------------------------------------------

@@ -1395,10 +1395,12 @@ public:
 			FetchFlags flags, PageAccessFn fn) override;
 
 private:
-	// Callers must hold _mutex.
-	void chargePages_(size_t n);
-	// Callers must hold _mutex.
+	std::expected<void, Error> tryChargePages_(size_t n);
 	void unchargePages_(size_t n);
+
+	// Allocate/free an owned copy of a page.
+	std::expected<PhysicalAddr, Error> _allocateCopy();
+	void _freeCopy(PhysicalAddr physical);
 
 public:
 	// Contract: set by the code that constructs this object.
