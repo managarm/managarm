@@ -97,8 +97,12 @@ fn build_routing(
                 let irq_controller = parent_node.associated_irq_controller().unwrap_or_else(|| {
                     panic!("No IRQ controller associated with {}", parent_node.path())
                 });
-                let Some(irq) = irq_controller.resolve_dt_irq(parent_irq) else {
-                    return;
+                let irq = match irq_controller.resolve_dt_irq(parent_irq) {
+                    Ok(irq) => irq,
+                    Err(err) => {
+                        println!("sif: {}: ignoring interrupt-map entry: {err}", node.path());
+                        return;
+                    }
                 };
                 let Some(pin) = dt_irq(parent_node, irq.index, irq.trigger, irq.polarity) else {
                     return;

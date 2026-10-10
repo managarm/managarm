@@ -36,9 +36,12 @@ impl DtIrq {
             .parent
             .associated_irq_controller()
             .ok_or(HwError::DeviceError)?;
-        let irq = controller
-            .resolve_dt_irq(self.cells)
-            .ok_or(HwError::DeviceError)?;
+        let irq = controller.resolve_dt_irq(self.cells).inspect_err(|err| {
+            println!(
+                "sif: Failed to resolve an interrupt of {}: {err}",
+                self.parent.path()
+            )
+        })?;
         dt_irq(self.parent, irq.index, irq.trigger, irq.polarity).ok_or(HwError::DeviceError)
     }
 
