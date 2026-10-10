@@ -270,7 +270,7 @@ impl managarm::hw::server::PciDevice for ServedEntity {
         // Obtain an IRQ object for the interrupt.
         let irq = hel::handle_irq(&pin)?;
 
-        device.setup_msi(&msi, index as usize);
+        device.setup_msi(&msi, index as usize)?;
 
         Ok(irq)
     }
@@ -308,9 +308,7 @@ impl managarm::hw::server::PciDevice for ServedEntity {
         } else {
             Some(*entity.dma_domain.get().ok_or(HwError::DeviceError)?)
         };
-        if !iommu::bind_device(unit, domain, entity).await {
-            return Err(HwError::DeviceError);
-        }
+        iommu::bind_device(unit, domain, entity).await?;
         Ok(())
     }
 

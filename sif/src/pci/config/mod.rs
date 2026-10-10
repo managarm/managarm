@@ -33,6 +33,9 @@ pub enum ConfigIoError {
     #[error("register {offset:#x} is not aligned to {size} bytes")]
     Misaligned { offset: u16, size: u8 },
 
+    #[error("failed to enable the legacy configuration ports")]
+    PortAccess(#[source] hel::Error),
+
     #[error("failed to map the ECAM window of {seg:04x}:{bus:02x}")]
     MappingFailed {
         seg: u16,

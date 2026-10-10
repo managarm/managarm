@@ -2,6 +2,7 @@ pub mod acpi;
 pub mod config;
 pub mod discover;
 pub mod dtb;
+pub mod error;
 pub mod iommu;
 pub mod quirks;
 pub mod serve;
@@ -13,6 +14,7 @@ use anyhow::Result;
 use arch::{IoMemSpace, bit_register, scalar_register};
 
 use config::PciConfigIo;
+pub use error::PciError;
 
 pub(crate) use crate::irq::{IrqPin, system_irq};
 use crate::{EXPECT_LOCK, leak};
@@ -916,7 +918,7 @@ impl PciDevice {
         bus.set_command(self.entity.slot, self.entity.function, command & !0x400);
     }
 
-    pub fn setup_msi(&self, msi: &hel::MsiInfo, index: usize) {
+    pub fn setup_msi(&self, msi: &hel::MsiInfo, index: usize) -> Result<(), PciError> {
         let bus = self.entity.parent_bus;
         let slot = self.entity.slot;
         let function = self.entity.function;
@@ -941,6 +943,11 @@ impl PciDevice {
             let mut msg_control = unsafe { bus.read_config_half(slot, function, offset + 2) };
 
             let is_64_capable = msg_control & (1 << 7) != 0;
+            if !is_64_capable && msi.address >> 32 != 0 {
+                return Err(PciError::MsiAddressTooWide {
+                    address: msi.address,
+                });
+            }
 
             unsafe { bus.write_config_word(slot, function, offset + 4, msi.address as u32) };
 
@@ -950,7 +957,6 @@ impl PciDevice {
                 };
                 unsafe { bus.write_config_half(slot, function, offset + 12, msi.data as u16) };
             } else {
-                assert!(msi.address >> 32 == 0);
                 unsafe { bus.write_config_half(slot, function, offset + 8, msi.data as u16) };
             }
 
@@ -963,6 +969,8 @@ impl PciDevice {
 
             self.msi_installed.store(true, Ordering::Relaxed);
         }
+
+        Ok(())
     }
 
     // Unlike thor, this does not unmask INTx: clients that use INTx alongside MSIs
