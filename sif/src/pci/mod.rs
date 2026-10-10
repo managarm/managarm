@@ -10,7 +10,6 @@ pub mod serve;
 use std::sync::atomic::{AtomicBool, AtomicI32, AtomicI64, AtomicU8, AtomicU32, Ordering};
 use std::sync::{Mutex, OnceLock};
 
-use anyhow::Result;
 use arch::{IoMemSpace, bit_register, scalar_register};
 
 use config::PciConfigIo;
@@ -1062,7 +1061,7 @@ pub const PCI_BRIDGE_PREFETCH_MEM_LIMIT_UPPER: u16 = 0x2C;
 pub const PCI_BRIDGE_SECONDARY: u16 = 0x19;
 pub const PCI_BRIDGE_SUBORDINATE: u16 = 0x1A;
 
-pub async fn publish_devices() -> Result<()> {
+pub async fn publish_devices() {
     // Each discovery source no-ops if its firmware interface is absent. ACPI systems
     // describe PCI via the MCFG even when a device tree is also present.
     acpi::discover_root_buses().await;
@@ -1074,7 +1073,5 @@ pub async fn publish_devices() -> Result<()> {
     // Every requester has to be bound before a device is published: a driver must not see a
     // translated DMA space before the IOMMU translates.
     iommu::configure().await;
-    serve::publish_all().await?;
-
-    Ok(())
+    serve::publish_all().await;
 }

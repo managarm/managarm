@@ -1,6 +1,6 @@
 //! Publishes dt-node entities for the device tree; port of thor's system/dtb/dtb_discover.cpp.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, OnceLock};
 
 use anyhow::Result;
@@ -180,9 +180,9 @@ async fn publish_node(node: &'static DeviceTreeNode, parent: Option<i64>) -> Res
 }
 
 /// Publishes a dt-node entity for every node of the device tree.
-pub async fn publish_all() -> Result<()> {
+pub async fn publish_all() {
     let Some(root) = get_device_tree_root() else {
-        return Ok(());
+        return;
     };
 
     // Collect in pre-order so that parents are published before their children.
@@ -196,13 +196,30 @@ pub async fn publish_all() -> Result<()> {
     println!("sif: Found {} DT nodes in total.", nodes.len());
 
     let mut mbus_ids: HashMap<*const DeviceTreeNode, i64> = HashMap::new();
+    // Nodes whose parent failed to publish are not published either.
+    let mut unpublished: HashSet<*const DeviceTreeNode> = HashSet::new();
     for node in nodes {
+        if let Some(parent) = node.parent()
+            && unpublished.contains(&std::ptr::from_ref(parent))
+        {
+            unpublished.insert(std::ptr::from_ref(node));
+            continue;
+        }
+
         let parent = node
             .parent()
             .and_then(|parent| mbus_ids.get(&std::ptr::from_ref(parent)).copied());
-        let id = publish_node(node, parent).await?;
-        mbus_ids.insert(std::ptr::from_ref(node), id);
+        match publish_node(node, parent).await {
+            Ok(id) => {
+                mbus_ids.insert(std::ptr::from_ref(node), id);
+            }
+            Err(err) => {
+                println!(
+                    "sif: Not publishing DT node {} and its children: {err:#}",
+                    node.path()
+                );
+                unpublished.insert(std::ptr::from_ref(node));
+            }
+        }
     }
-
-    Ok(())
 }

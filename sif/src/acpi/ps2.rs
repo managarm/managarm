@@ -39,7 +39,12 @@ async fn publish_devices(hids: &'static [&'static CStr]) -> Result<()> {
     let nodes = runtime::run(move |aml| find_devices(aml, hids)).await?;
 
     for (instance, node) in nodes.into_iter().enumerate() {
-        crate::acpi::object::publish(node, instance).await?;
+        if let Err(err) = crate::acpi::object::publish(node, instance).await {
+            println!(
+                "sif: acpi: Not publishing {}: {err:#}",
+                node.absolute_path()
+            );
+        }
     }
     Ok(())
 }
@@ -61,10 +66,12 @@ async fn publish_status() -> Result<()> {
 
 /// Publishes the acpi-object entities of all PS/2 keyboards and mice.
 pub async fn publish() -> Result<()> {
-    publish_devices(ACPI_HID_PS2_KEYBOARDS).await?;
-    publish_devices(ACPI_HID_PS2_MICE).await?;
+    for hids in [ACPI_HID_PS2_KEYBOARDS, ACPI_HID_PS2_MICE] {
+        if let Err(err) = publish_devices(hids).await {
+            println!("sif: acpi: Failed to search for PS/2 devices: {err:#}");
+        }
+    }
 
-    publish_status().await?;
-
-    Ok(())
+    // Listeners stop waiting for PS/2 devices even if some of them could not be published.
+    publish_status().await
 }
