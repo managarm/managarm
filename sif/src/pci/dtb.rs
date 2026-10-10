@@ -157,7 +157,13 @@ impl PciIrqRouter for DtbPciIrqRouter {
 fn init_pci_node(node: &'static DeviceTreeNode) {
     println!("sif: Initializing node \"{}\":", node.path());
 
-    let range = node.bus_range();
+    let range = match node.bus_range() {
+        Ok(range) => range,
+        Err(err) => {
+            println!("sif: Ignoring PCI(e) controller \"{}\": {err}", node.path());
+            return;
+        }
+    };
 
     let io: &'static dyn PciConfigIo = if node.is_compatible(&["pci-host-ecam-generic"]) {
         println!("sif:     It's a generic controller with ECAM IO.");

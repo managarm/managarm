@@ -166,25 +166,6 @@ impl<'a> DeviceTreeProperty<'a> {
     pub fn access(&self) -> Accessor<'a> {
         Accessor::new(self.data)
     }
-
-    pub fn as_u32(&self, offset: usize) -> u32 {
-        U32::read_from_bytes(&self.data[offset..][..size_of::<u32>()])
-            .unwrap()
-            .get()
-    }
-
-    pub fn as_u64(&self, offset: usize) -> u64 {
-        (u64::from(self.as_u32(offset)) << 32) | u64::from(self.as_u32(offset + 4))
-    }
-
-    pub fn as_prop_array_entry(&self, n_cells: usize, offset: usize) -> u64 {
-        match n_cells {
-            0 => 0,
-            1 => self.as_u32(offset).into(),
-            2 => self.as_u64(offset),
-            _ => panic!("Invalid amount of cells"),
-        }
-    }
 }
 
 // Reads a NUL-terminated string at the given offset.

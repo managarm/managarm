@@ -16,11 +16,8 @@ static PHANDLES: Mutex<BTreeMap<u32, &'static DeviceTreeNode>> = Mutex::new(BTre
 static TREE_ROOT: OnceLock<&'static DeviceTreeNode> = OnceLock::new();
 
 pub struct RegRange {
-    pub addr_hi: u32,
     pub addr: u64,
     pub size: u64,
-
-    pub addr_hi_valid: bool,
 }
 
 pub struct BusRange {
@@ -50,20 +47,10 @@ pub struct DeviceTreeNode {
     phandle: u32,
     compatible: Vec<&'static str>,
 
-    address_cells: usize,
-    has_address_cells: bool,
-    size_cells: usize,
-    interrupt_cells: usize,
-
     reg: Vec<RegRange>,
     ranges: Vec<AddrTranslateRange>,
 
     interrupt_controller: bool,
-
-    interrupt_parent_id: u32,
-    interrupt_parent: OnceLock<&'static DeviceTreeNode>,
-
-    bus_range: BusRange,
 
     // Objects associated with this DeviceTreeNode.
     associated_irq_controller: OnceLock<&'static dyn IrqController>,
@@ -82,11 +69,40 @@ fn parse_string_list(prop: fdt::DeviceTreeProperty<'static>) -> Vec<&'static str
     list
 }
 
+// Reads the next value of a property that is num_cells cells wide.
+fn read_value(
+    it: &mut fdt::Accessor<'static>,
+    num_cells: usize,
+    name: &'static str,
+) -> Result<u64, DtError> {
+    let cells = it
+        .into_cells(num_cells)
+        .ok_or(DtError::TruncatedProperty { name })?;
+    it.advance(num_cells * size_of::<u32>());
+    cells.read().ok_or(DtError::UnsupportedCells {
+        name,
+        cells: num_cells,
+    })
+}
+
+// Like read_value(), but splits off the high cell of PCI(e) addresses, which are 3 cells long.
+fn read_address(
+    it: &mut fdt::Accessor<'static>,
+    num_cells: usize,
+    name: &'static str,
+) -> Result<(Option<u32>, u64), DtError> {
+    if num_cells != 3 {
+        return Ok((None, read_value(it, num_cells, name)?));
+    }
+    let hi = read_value(it, 1, name)? as u32;
+    Ok((Some(hi), read_value(it, 2, name)?))
+}
+
 impl DeviceTreeNode {
     fn new(
         dt_node: fdt::DeviceTreeNode<'static>,
         parent: Option<&'static DeviceTreeNode>,
-    ) -> &'static DeviceTreeNode {
+    ) -> Result<&'static DeviceTreeNode, DtError> {
         let name = dt_node.name();
 
         let mut node = DeviceTreeNode {
@@ -98,24 +114,17 @@ impl DeviceTreeNode {
             model: "",
             phandle: 0,
             compatible: Vec::new(),
-            address_cells: 2,
-            has_address_cells: false,
-            size_cells: 1,
-            interrupt_cells: 0,
             reg: Vec::new(),
             ranges: Vec::new(),
             interrupt_controller: false,
-            interrupt_parent_id: 0,
-            interrupt_parent: OnceLock::new(),
-            bus_range: BusRange { from: 0, to: 0xFF },
             associated_irq_controller: OnceLock::new(),
         };
 
-        if let Some(p) = dt_node.find_property("phandle") {
-            node.phandle = p.as_u32(0);
-        } else if let Some(p) = dt_node.find_property("linux,phandle") {
+        if let Some(phandle) = node.u32_property("phandle")? {
+            node.phandle = phandle;
+        } else if let Some(phandle) = node.u32_property("linux,phandle")? {
             println!("sif: warning: node \"{name}\" uses legacy \"linux,phandle\" property!");
-            node.phandle = p.as_u32(0);
+            node.phandle = phandle;
         }
 
         for prop in dt_node.properties() {
@@ -126,142 +135,50 @@ impl DeviceTreeNode {
                 "compatible" => {
                     node.compatible = parse_string_list(prop);
                 }
-                "#address-cells" => {
-                    node.address_cells = prop.as_u32(0) as usize;
-                    node.has_address_cells = true;
-                }
-                "#size-cells" => {
-                    node.size_cells = prop.as_u32(0) as usize;
-                }
-                "#interrupt-cells" => {
-                    node.interrupt_cells = prop.as_u32(0) as usize;
-                }
-                "interrupt-parent" => {
-                    node.interrupt_parent_id = prop.as_u32(0);
-                }
                 "interrupt-controller" => {
                     node.interrupt_controller = true;
                 }
-                "reg" => {
-                    let parent = parent.expect("sif: the root node cannot have a reg property");
-                    let addr_cells = parent.address_cells;
-                    let size_cells = parent.size_cells;
+                "reg" if prop.size() != 0 => {
+                    let parent = parent.ok_or(DtError::PropertyOnRoot { name: "reg" })?;
+                    let addr_cells = parent.address_cells()?;
+                    let size_cells = parent.size_cells()?;
+                    if addr_cells + size_cells == 0 {
+                        return Err(DtError::ZeroSizedEntries { name: "reg" });
+                    }
 
-                    let mut j = 0;
-                    while j < prop.size() {
-                        let mut reg = RegRange {
-                            addr_hi: 0,
-                            addr: 0,
-                            size: 0,
-                            addr_hi_valid: false,
-                        };
-
-                        if addr_cells != 0 {
-                            if addr_cells == 3 {
-                                reg.addr_hi = prop.as_prop_array_entry(1, j) as u32;
-                                reg.addr_hi_valid = true;
-                                reg.addr = prop.as_prop_array_entry(addr_cells - 1, j + 4);
-                                j += addr_cells * 4;
-                            } else {
-                                if j + addr_cells * 4 > prop.size() {
-                                    println!(
-                                        "sif: warning: node \"{name}\": reg field isn't conforming to #addr-cells"
-                                    );
-                                    reg.addr = prop.as_prop_array_entry(
-                                        (j + addr_cells * 4 - prop.size()) / 4,
-                                        0,
-                                    );
-                                    node.reg.push(reg);
-                                    break;
-                                }
-                                reg.addr = prop.as_prop_array_entry(addr_cells, j);
-                                j += addr_cells * 4;
-                            }
-                        }
-
-                        if size_cells != 0 {
-                            if j + size_cells * 4 > prop.size() {
-                                println!(
-                                    "sif: warning: node \"{name}\": reg field isn't conforming to #size-cells"
-                                );
-                                reg.size = prop
-                                    .as_prop_array_entry((j + size_cells * 4 - prop.size()) / 4, 0);
-                                node.reg.push(reg);
-                                break;
-                            }
-                            reg.size = prop.as_prop_array_entry(size_cells, j);
-                            j += size_cells * 4;
-                        }
-
-                        node.reg.push(reg);
+                    let mut it = prop.access();
+                    while !it.at_end_of_property() {
+                        let (_, addr) = read_address(&mut it, addr_cells, "reg")?;
+                        let size = read_value(&mut it, size_cells, "reg")?;
+                        node.reg.push(RegRange { addr, size });
                     }
                 }
-                "bus-range" => {
-                    node.bus_range.from = prop.as_prop_array_entry(1, 0) as u32;
-                    node.bus_range.to = prop.as_prop_array_entry(1, 4) as u32;
+                "ranges" if prop.size() != 0 => {
+                    let parent_addr_cells = parent
+                        .ok_or(DtError::PropertyOnRoot { name: "ranges" })?
+                        .address_cells()?;
+                    let child_addr_cells = node.address_cells()?;
+                    let size_cells = node.size_cells()?;
+                    if child_addr_cells + parent_addr_cells + size_cells == 0 {
+                        return Err(DtError::ZeroSizedEntries { name: "ranges" });
+                    }
+
+                    let mut it = prop.access();
+                    while !it.at_end_of_property() {
+                        let (child_addr_hi, child_addr) =
+                            read_address(&mut it, child_addr_cells, "ranges")?;
+                        let parent_addr = read_value(&mut it, parent_addr_cells, "ranges")?;
+                        let size = read_value(&mut it, size_cells, "ranges")?;
+                        node.ranges.push(AddrTranslateRange {
+                            child_addr_hi: child_addr_hi.unwrap_or(0),
+                            child_addr,
+                            parent_addr,
+                            size,
+                            child_addr_hi_valid: child_addr_hi.is_some(),
+                        });
+                    }
                 }
                 _ => {}
-            }
-        }
-
-        // Iterate again to parse things that depend on previously parsed properties.
-        for prop in dt_node.properties() {
-            if prop.name() == "ranges" {
-                let parent_addr_cells = parent
-                    .expect("sif: the root node cannot have a ranges property")
-                    .address_cells;
-                let child_addr_cells = node.address_cells;
-                let size_cells = node.size_cells;
-
-                let mut j = 0;
-                while j < prop.size() {
-                    let mut reg = AddrTranslateRange {
-                        child_addr_hi: 0,
-                        child_addr: 0,
-                        parent_addr: 0,
-                        size: 0,
-                        child_addr_hi_valid: false,
-                    };
-                    // PCI(e) buses have a 3 cell long child addresses.
-                    if child_addr_cells == 3 {
-                        reg.child_addr_hi = prop.as_prop_array_entry(1, j) as u32;
-                        j += 4;
-                        reg.child_addr = prop.as_prop_array_entry(2, j);
-                        j += 8;
-                        reg.child_addr_hi_valid = true;
-                    } else {
-                        assert!(child_addr_cells < 3);
-                        reg.child_addr = prop.as_prop_array_entry(child_addr_cells, j);
-                        j += child_addr_cells * 4;
-                    }
-
-                    assert!(parent_addr_cells < 3);
-                    reg.parent_addr = prop.as_prop_array_entry(parent_addr_cells, j);
-                    j += parent_addr_cells * 4;
-
-                    reg.size = prop.as_prop_array_entry(size_cells, j);
-                    j += size_cells * 4;
-
-                    node.ranges.push(reg);
-                }
-            }
-        }
-
-        {
-            // Inherit the interrupt parent from the parent if we don't have one.
-            let mut p = parent;
-            while node.interrupt_parent_id == 0 {
-                let Some(parent) = p else {
-                    break;
-                };
-                if parent.is_interrupt_controller() {
-                    assert!(parent.phandle != 0);
-                    node.interrupt_parent_id = parent.phandle;
-                    continue;
-                }
-
-                node.interrupt_parent_id = parent.interrupt_parent_id;
-                p = parent.parent;
             }
         }
 
@@ -271,11 +188,11 @@ impl DeviceTreeNode {
             && !parent.ranges.is_empty()
         {
             for r in &mut node.reg {
-                r.addr = parent.translate_address(r.addr);
+                r.addr = parent.translate_address(r.addr)?;
             }
 
             for r in &mut node.ranges {
-                r.parent_addr = parent.translate_address(r.parent_addr);
+                r.parent_addr = parent.translate_address(r.parent_addr)?;
             }
         }
 
@@ -286,7 +203,7 @@ impl DeviceTreeNode {
                 .expect(EXPECT_LOCK)
                 .insert(node.phandle, node);
         }
-        node
+        Ok(node)
     }
 
     fn generate_path(name: &str, parent: Option<&'static DeviceTreeNode>) -> String {
@@ -308,23 +225,25 @@ impl DeviceTreeNode {
         path
     }
 
-    fn finalize_init(&'static self) {
-        if self.interrupt_parent_id != 0 {
-            match get_device_tree_node_by_phandle(self.interrupt_parent_id) {
-                Some(ip) => {
-                    let _ = self.interrupt_parent.set(ip);
-                }
-                None => panic!(
-                    "sif: node \"{}\" has an interrupt parent id {} but no such node exists",
-                    self.name, self.interrupt_parent_id
-                ),
-            }
-        }
+    fn u32_property(&self, name: &'static str) -> Result<Option<u32>, DtError> {
+        let Some(prop) = self.dt_node.find_property(name) else {
+            return Ok(None);
+        };
+        let mut it = prop.access();
+        Ok(Some(read_value(&mut it, 1, name)? as u32))
+    }
 
-        // Recurse into children.
-        for child in self.children.lock().expect(EXPECT_LOCK).iter() {
-            child.finalize_init();
-        }
+    // Cell counts are read on demand, such that a malformed one only fails the code that needs it.
+    fn address_cells(&self) -> Result<usize, DtError> {
+        Ok(self.u32_property("#address-cells")?.unwrap_or(2) as usize)
+    }
+
+    fn size_cells(&self) -> Result<usize, DtError> {
+        Ok(self.u32_property("#size-cells")?.unwrap_or(1) as usize)
+    }
+
+    fn interrupt_cells(&self) -> Result<usize, DtError> {
+        Ok(self.u32_property("#interrupt-cells")?.unwrap_or(0) as usize)
     }
 
     fn attach_child(&self, node: &'static DeviceTreeNode) {
@@ -347,8 +266,27 @@ impl DeviceTreeNode {
         &self.compatible
     }
 
-    pub fn interrupt_parent(&self) -> Option<&'static DeviceTreeNode> {
-        self.interrupt_parent.get().copied()
+    /// Returns the interrupt parent, which nodes without an interrupt-parent property inherit.
+    pub fn interrupt_parent(&self) -> Result<&'static DeviceTreeNode, DtError> {
+        let mut node = self;
+        loop {
+            if let Some(phandle) = node.u32_property("interrupt-parent")? {
+                return get_device_tree_node_by_phandle(phandle)
+                    .ok_or(DtError::DanglingPhandle { phandle });
+            }
+
+            let parent = node.parent.ok_or(DtError::NoInterruptParent)?;
+            if parent.is_interrupt_controller() {
+                // thor identifies interrupt controllers by their phandle.
+                if parent.phandle == 0 {
+                    return Err(DtError::InterruptControllerWithoutPhandle {
+                        controller: parent.path.clone(),
+                    });
+                }
+                return Ok(parent);
+            }
+            node = parent;
+        }
     }
 
     pub fn path(&self) -> &str {
@@ -375,8 +313,15 @@ impl DeviceTreeNode {
         &self.ranges
     }
 
-    pub fn bus_range(&self) -> &BusRange {
-        &self.bus_range
+    pub fn bus_range(&self) -> Result<BusRange, DtError> {
+        let Some(prop) = self.dt_node.find_property("bus-range") else {
+            return Ok(BusRange { from: 0, to: 0xFF });
+        };
+        let mut it = prop.access();
+        Ok(BusRange {
+            from: read_value(&mut it, 1, "bus-range")? as u32,
+            to: read_value(&mut it, 1, "bus-range")? as u32,
+        })
     }
 
     pub fn associate_irq_controller(&self, controller: &'static dyn IrqController) {
@@ -391,27 +336,24 @@ impl DeviceTreeNode {
         self.associated_irq_controller.get().copied()
     }
 
-    pub fn translate_address(&self, addr: u64) -> u64 {
+    pub fn translate_address(&self, addr: u64) -> Result<u64, DtError> {
         // We only handle simple bus address translation.
         if !self.is_compatible(&["simple-bus"]) {
-            return addr;
+            return Ok(addr);
         }
 
         // This node has no translation table.
         if self.ranges.is_empty() {
-            return addr;
+            return Ok(addr);
         }
 
         for tr in &self.ranges {
             if addr >= tr.child_addr && addr < tr.child_addr + tr.size {
-                return tr.parent_addr + (addr - tr.child_addr);
+                return Ok(tr.parent_addr + (addr - tr.child_addr));
             }
         }
 
-        panic!(
-            "sif: address {addr:#x} doesn't fall into any of \"{}\"'s memory ranges",
-            self.path
-        );
+        Err(DtError::AddressNotInRanges { address: addr })
     }
 
     pub fn for_each(&'static self, f: &mut impl FnMut(&'static DeviceTreeNode) -> bool) -> bool {
@@ -462,7 +404,7 @@ pub fn init(address: u64, size: u64) -> Result<()> {
 
     let tree: &'static fdt::DeviceTree = Box::leak(Box::new(fdt::DeviceTree::new(data)));
 
-    let root = DeviceTreeNode::new(tree.root_node(), None);
+    let root = DeviceTreeNode::new(tree.root_node(), None).context("cannot use the root node")?;
     assert!(
         TREE_ROOT.set(root).is_ok(),
         "sif: device tree was already initialized"
@@ -472,17 +414,39 @@ pub fn init(address: u64, size: u64) -> Result<()> {
 
     struct Walker {
         curr: Option<&'static DeviceTreeNode>,
+        // Depth within the subtree of a node that could not be used, which is dropped.
+        skipped_depth: usize,
     }
 
     impl fdt::DeviceTreeWalker<'static> for Walker {
         fn push(&mut self, dt_node: fdt::DeviceTreeNode<'static>) {
+            if self.skipped_depth > 0 {
+                self.skipped_depth += 1;
+                return;
+            }
+
             let curr = self.curr.expect("sif: device tree walker escaped the root");
-            let node = DeviceTreeNode::new(dt_node, Some(curr));
-            curr.attach_child(node);
-            self.curr = Some(node);
+            match DeviceTreeNode::new(dt_node, Some(curr)) {
+                Ok(node) => {
+                    curr.attach_child(node);
+                    self.curr = Some(node);
+                }
+                Err(err) => {
+                    println!(
+                        "sif: Ignoring DT node {} and its children: {err}",
+                        DeviceTreeNode::generate_path(dt_node.name(), Some(curr))
+                    );
+                    self.skipped_depth = 1;
+                }
+            }
         }
 
         fn pop(&mut self) {
+            if self.skipped_depth > 0 {
+                self.skipped_depth -= 1;
+                return;
+            }
+
             self.curr = self
                 .curr
                 .expect("sif: device tree walker escaped the root")
@@ -490,12 +454,11 @@ pub fn init(address: u64, size: u64) -> Result<()> {
         }
     }
 
-    let mut walker = Walker { curr: Some(root) };
+    let mut walker = Walker {
+        curr: Some(root),
+        skipped_depth: 0,
+    };
     tree.root_node().walk_children(&mut walker);
-
-    // Initialize the interrupt parents. This can't be done above because the interrupt
-    // parent may not have been discovered yet.
-    root.finalize_init();
 
     Ok(())
 }
@@ -510,8 +473,8 @@ pub fn walk_interrupts<E: From<DtError>>(
         return Ok(());
     };
 
-    let parent = node.interrupt_parent().ok_or(DtError::NoInterruptParent)?;
-    let parent_interrupt_cells = parent.interrupt_cells;
+    let parent = node.interrupt_parent()?;
+    let parent_interrupt_cells = parent.interrupt_cells()?;
     if parent_interrupt_cells == 0 {
         return Err(DtError::NoInterruptCells {
             parent: parent.path().to_string(),
@@ -553,8 +516,8 @@ pub fn walk_interrupt_map<E: From<DtError>>(
             name: "interrupt-map",
         })?;
 
-    let child_address_cells = node.address_cells;
-    let child_interrupt_cells = node.interrupt_cells;
+    let child_address_cells = node.address_cells()?;
+    let child_interrupt_cells = node.interrupt_cells()?;
 
     let mut it = prop.access();
     while !it.at_end_of_property() {
@@ -573,12 +536,9 @@ pub fn walk_interrupt_map<E: From<DtError>>(
         // should explicitly set #address-cells to 0 if it needs to). This behavior is copied from
         // Linux, and is at least needed to correctly parse interrupt-map of the PCIe node on the
         // RPi4.
-        let parent_address_cells = if parent_node.has_address_cells {
-            parent_node.address_cells
-        } else {
-            0
-        };
-        let parent_interrupt_cells = parent_node.interrupt_cells;
+        let parent_address_cells =
+            parent_node.u32_property("#address-cells")?.unwrap_or(0) as usize;
+        let parent_interrupt_cells = parent_node.interrupt_cells()?;
 
         let parent_address = it.into_cells(parent_address_cells).ok_or(TRUNCATED)?;
         it.advance(parent_address_cells * size_of::<u32>());

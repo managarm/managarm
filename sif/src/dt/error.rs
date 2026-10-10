@@ -26,6 +26,21 @@ pub enum DtError {
 
     #[error("no node has the phandle {phandle}")]
     DanglingPhandle { phandle: u32 },
+
+    #[error("the root node has a {name} property")]
+    PropertyOnRoot { name: &'static str },
+
+    #[error("the {name} property uses {cells} cells per value, which is not supported")]
+    UnsupportedCells { name: &'static str, cells: usize },
+
+    #[error("the {name} property has entries of zero cells")]
+    ZeroSizedEntries { name: &'static str },
+
+    #[error("the interrupt controller {controller} has no phandle")]
+    InterruptControllerWithoutPhandle { controller: String },
+
+    #[error("address {address:#x} is not covered by the ranges of the parent")]
+    AddressNotInRanges { address: u64 },
 }
 
 impl From<DtError> for managarm::hw::Error {
