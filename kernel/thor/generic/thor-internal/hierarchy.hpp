@@ -14,6 +14,16 @@ namespace thor {
 
 struct HierarchySnapshot;
 
+struct MemoryController {
+public:
+	std::expected<void, Error> tryCharge(size_t bytes);
+
+	void uncharge(size_t bytes);
+
+private:
+	std::atomic<size_t> chargedToSubtree_{0};
+};
+
 struct Hierarchy : RcuProtected {
 	friend frg::vector<HierarchySnapshot, KernelAlloc> snapshotHierarchies();
 
@@ -45,14 +55,10 @@ public:
 	}
 
 	// Tracks the physical memory (in bytes) currently charged to this node.
-	void chargeMemory(size_t bytes) {
-		chargedMemory_.fetch_add(bytes, std::memory_order_relaxed);
-	}
 	std::expected<void, Error> tryChargeMemory(size_t bytes);
 
-	void unchargeMemory(size_t bytes) {
-		chargedMemory_.fetch_sub(bytes, std::memory_order_relaxed);
-	}
+	void unchargeMemory(size_t bytes);
+
 	size_t chargedMemory() const {
 		return chargedMemory_.load(std::memory_order_relaxed);
 	}
@@ -78,6 +84,8 @@ private:
 
 	// Can be used to pin the node under RCU.
 	smarter::weak_ptr<Hierarchy> selfPtr_;
+
+	MemoryController *memoryCtlr_{nullptr};
 
 	IrqSpinlock childrenMutex_;
 
