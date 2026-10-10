@@ -8,6 +8,7 @@ use managarm::svrctl::hardware_access_handle;
 
 use crate::EXPECT_LOCK;
 use crate::acpi::PAGE_MASK;
+use crate::dt::DtError;
 use crate::dt::fdt;
 use crate::dt::irq::IrqController;
 
@@ -500,99 +501,74 @@ pub fn init(address: u64, size: u64) -> Result<()> {
 }
 
 /// Walks the "interrupts" property of a node; port of thor's dt::walkInterrupts().
-/// Returns None if the node has no interrupts property.
-pub fn walk_interrupts(
-    f: &mut impl FnMut(&'static DeviceTreeNode, fdt::Cells<'static>),
+/// Does nothing if the node has no interrupts property.
+pub fn walk_interrupts<E: From<DtError>>(
+    f: &mut impl FnMut(&'static DeviceTreeNode, fdt::Cells<'static>) -> Result<(), E>,
     node: &'static DeviceTreeNode,
-) -> Option<bool> {
-    let prop = node.dt_node.find_property("interrupts")?;
-
-    let Some(parent) = node.interrupt_parent() else {
-        println!(
-            "sif: {}: interrupts property without an interrupt parent",
-            node.path()
-        );
-        return Some(false);
+) -> Result<(), E> {
+    let Some(prop) = node.dt_node.find_property("interrupts") else {
+        return Ok(());
     };
+
+    let parent = node.interrupt_parent().ok_or(DtError::NoInterruptParent)?;
     let parent_interrupt_cells = parent.interrupt_cells;
     if parent_interrupt_cells == 0 {
-        println!(
-            "sif: {}: interrupt parent {} has no #interrupt-cells",
-            node.path(),
-            parent.path()
-        );
-        return Some(false);
+        return Err(DtError::NoInterruptCells {
+            parent: parent.path().to_string(),
+        }
+        .into());
     }
 
     let mut it = prop.access();
     while !it.at_end_of_property() {
-        let Some(parent_irq) = it.into_cells(parent_interrupt_cells) else {
-            println!(
-                "sif: {}: failed to read parent IRQ from interrupts",
-                node.path()
-            );
-            return Some(false);
-        };
+        let parent_irq = it
+            .into_cells(parent_interrupt_cells)
+            .ok_or(DtError::TruncatedProperty { name: "interrupts" })?;
         it.advance(parent_interrupt_cells * size_of::<u32>());
 
-        f(parent, parent_irq);
+        f(parent, parent_irq)?;
     }
 
-    Some(true)
+    Ok(())
 }
 
-pub fn walk_interrupt_map(
+pub fn walk_interrupt_map<E: From<DtError>>(
     f: &mut impl FnMut(
         fdt::Cells<'static>,
         fdt::Cells<'static>,
         &'static DeviceTreeNode,
         fdt::Cells<'static>,
         fdt::Cells<'static>,
-    ),
+    ) -> Result<(), E>,
     node: &'static DeviceTreeNode,
-) -> bool {
-    let Some(prop) = node.dt_node.find_property("interrupt-map") else {
-        println!("sif: {} has no interrupt-map", node.path());
-        return false;
+) -> Result<(), E> {
+    const TRUNCATED: DtError = DtError::TruncatedProperty {
+        name: "interrupt-map",
     };
+
+    let prop = node
+        .dt_node
+        .find_property("interrupt-map")
+        .ok_or(DtError::MissingProperty {
+            name: "interrupt-map",
+        })?;
 
     let child_address_cells = node.address_cells;
     let child_interrupt_cells = node.interrupt_cells;
 
     let mut it = prop.access();
     while !it.at_end_of_property() {
-        let Some(child_address) = it.into_cells(child_address_cells) else {
-            println!(
-                "sif: {}: failed to read child address from interrupt-map",
-                node.path()
-            );
-            return false;
-        };
+        let child_address = it.into_cells(child_address_cells).ok_or(TRUNCATED)?;
         it.advance(child_address_cells * size_of::<u32>());
-        let Some(child_irq) = it.into_cells(child_interrupt_cells) else {
-            println!(
-                "sif: {}: failed to read child IRQ from interrupt-map",
-                node.path()
-            );
-            return false;
-        };
+        let child_irq = it.into_cells(child_interrupt_cells).ok_or(TRUNCATED)?;
         it.advance(child_interrupt_cells * size_of::<u32>());
 
-        let Some(parent_phandle) = it.read_cells(1) else {
-            println!(
-                "sif: {}: failed to read phandle from interrupt-map",
-                node.path()
-            );
-            return false;
-        };
+        let parent_phandle = it.read_cells(1).ok_or(TRUNCATED)? as u32;
         it.advance(size_of::<u32>());
-        let Some(parent_node) = get_device_tree_node_by_phandle(parent_phandle as u32) else {
-            println!(
-                "sif: {}: no DT node with phandle {parent_phandle}",
-                node.path()
-            );
-            return false;
-        };
+        let parent_node =
+            get_device_tree_node_by_phandle(parent_phandle).ok_or(DtError::DanglingPhandle {
+                phandle: parent_phandle,
+            })?;
         // NOTE: This behavior is not documented in the DT specification (the spec says the node
         // should explicitly set #address-cells to 0 if it needs to). This behavior is copied from
         // Linux, and is at least needed to correctly parse interrupt-map of the PCIe node on the
@@ -604,21 +580,9 @@ pub fn walk_interrupt_map(
         };
         let parent_interrupt_cells = parent_node.interrupt_cells;
 
-        let Some(parent_address) = it.into_cells(parent_address_cells) else {
-            println!(
-                "sif: {}: failed to read parent address from interrupt-map",
-                node.path()
-            );
-            return false;
-        };
+        let parent_address = it.into_cells(parent_address_cells).ok_or(TRUNCATED)?;
         it.advance(parent_address_cells * size_of::<u32>());
-        let Some(parent_irq) = it.into_cells(parent_interrupt_cells) else {
-            println!(
-                "sif: {}: failed to read parent IRQ from interrupt-map",
-                node.path()
-            );
-            return false;
-        };
+        let parent_irq = it.into_cells(parent_interrupt_cells).ok_or(TRUNCATED)?;
         it.advance(parent_interrupt_cells * size_of::<u32>());
 
         f(
@@ -627,8 +591,8 @@ pub fn walk_interrupt_map(
             parent_node,
             parent_address,
             parent_irq,
-        );
+        )?;
     }
 
-    true
+    Ok(())
 }

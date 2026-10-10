@@ -1,3 +1,4 @@
+use crate::dt::DtError;
 use crate::dt::node::{DeviceTreeNode, get_device_tree_root, walk_interrupt_map};
 use crate::irq::{IrqPin, dt_irq};
 use crate::{EXPECT_LOCK, leak};
@@ -72,8 +73,13 @@ fn build_routing(
             }
         }
 
-        let success = walk_interrupt_map(
-            &mut |child_address, child_irq, parent_node, _parent_address, parent_irq| {
+        let walked = walk_interrupt_map(
+            &mut |child_address,
+                  child_irq,
+                  parent_node,
+                  _parent_address,
+                  parent_irq|
+             -> Result<(), DtError> {
                 if child_address.num_cells() != 3 {
                     panic!("Expected three child address cells in ECAM interrupt-map");
                 }
@@ -101,7 +107,7 @@ fn build_routing(
                     Ok(irq) => irq,
                     Err(err) => {
                         println!("sif: {}: ignoring interrupt-map entry: {err}", node.path());
-                        return;
+                        return Ok(());
                     }
                 };
                 let pin = match dt_irq(parent_node, irq.index, irq.trigger, irq.polarity) {
@@ -112,7 +118,7 @@ fn build_routing(
                             irq.index,
                             parent_node.path()
                         );
-                        return;
+                        return Ok(());
                     }
                 };
                 if LOG_ROUTING_TABLE {
@@ -126,11 +132,12 @@ fn build_routing(
                     index: IrqIndex::from_pin(index as u8),
                     pin,
                 });
+                Ok(())
             },
             node,
         );
-        if !success {
-            panic!("Failed to walk interrupt-map of {}", node.path());
+        if let Err(err) = walked {
+            panic!("Failed to walk interrupt-map of {}: {err}", node.path());
         }
     }
 

@@ -14,6 +14,7 @@ use crate::entity::{decimal, serve_entity_lanes, string};
 use crate::irq::{IrqPin, dt_irq};
 use crate::leak;
 
+use super::DtError;
 use super::fdt::Cells;
 use super::node::{DeviceTreeNode, get_device_tree_root, walk_interrupts};
 
@@ -86,12 +87,11 @@ impl ServedDtNode {
                 cells,
                 object: OnceLock::new(),
             });
+            Ok::<(), DtError>(())
         };
-        if walk_interrupts(&mut collect, node) == Some(false) {
-            println!(
-                "sif: {}: failed to parse interrupts for mbus node",
-                node.path()
-            );
+        if let Err(err) = walk_interrupts(&mut collect, node) {
+            println!("sif: {}: Ignoring the interrupts: {err}", node.path());
+            irqs.clear();
         }
         // TODO(qookie): Try interrupts-extended if interrupts failed.
 
