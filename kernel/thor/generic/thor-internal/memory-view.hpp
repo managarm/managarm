@@ -233,6 +233,12 @@ inline constexpr FetchFlags fetchDisallowBacking = 2;
 using CachingFlags = uint32_t;
 inline constexpr CachingFlags cacheWriteCombine = 1;
 
+// Helper to perform tryCharge() and allocation in one call.
+std::expected<PhysicalAddr, Error>
+tryChargeAndAllocate(Hierarchy *hierarchy, size_t size, int addressBits);
+
+void deallocateAndUncharge(Hierarchy *hierarchy, PhysicalAddr physical, size_t size);
+
 // Returned by the callback of MemoryView::accessRange().
 struct PageAccessResult {
 	// Whether the callback modified the range. Requires fetchRequireMutable.

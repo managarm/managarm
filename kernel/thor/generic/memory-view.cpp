@@ -35,6 +35,24 @@ namespace {
 }
 
 // --------------------------------------------------------
+// Frame allocation
+// --------------------------------------------------------
+
+std::expected<PhysicalAddr, Error>
+tryChargeAndAllocate(Hierarchy *hierarchy, size_t size, int addressBits) {
+	if(auto charge = hierarchy->tryChargeMemory(size); !charge)
+		return std::unexpected{charge.error()};
+	auto physical = physicalAllocator->allocate(size, addressBits);
+	assert(physical != PhysicalAddr(-1) && "OOM");
+	return physical;
+}
+
+void deallocateAndUncharge(Hierarchy *hierarchy, PhysicalAddr physical, size_t size) {
+	physicalAllocator->free(physical, size);
+	hierarchy->unchargeMemory(size);
+}
+
+// --------------------------------------------------------
 // EvictionQueue
 // --------------------------------------------------------
 

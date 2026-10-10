@@ -48,6 +48,8 @@ public:
 	void chargeMemory(size_t bytes) {
 		chargedMemory_.fetch_add(bytes, std::memory_order_relaxed);
 	}
+	std::expected<void, Error> tryChargeMemory(size_t bytes);
+
 	void unchargeMemory(size_t bytes) {
 		chargedMemory_.fetch_sub(bytes, std::memory_order_relaxed);
 	}

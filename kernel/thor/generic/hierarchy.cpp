@@ -56,6 +56,11 @@ std::expected<smarter::shared_ptr<Hierarchy>, Error> Hierarchy::extend(
 	return ptr;
 }
 
+std::expected<void, Error> Hierarchy::tryChargeMemory(size_t bytes) {
+	chargeMemory(bytes);
+	return {};
+}
+
 frg::vector<HierarchySnapshot, KernelAlloc> snapshotHierarchies() {
 	frg::vector<HierarchySnapshot, KernelAlloc> snapshot{*kernelAlloc};
 
