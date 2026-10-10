@@ -20,6 +20,7 @@ src = [
 	'src/timerfd.cpp',
 	'src/posix-timers.cpp',
 	'src/eventfd.cpp',
+	'src/exec.cpp',
 	'src/pty.cpp',
 	'src/procfs.cpp',
 	'src/path-resolution.cpp',

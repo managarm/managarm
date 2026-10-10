@@ -8,6 +8,7 @@ std::ostream& operator<<(std::ostream& os, const Error& err) {
 		case Error::notDirectory: err_string = "notDirectory"; break;
 		case Error::noSuchFile: err_string = "noSuchFile"; break;
 		case Error::eof: err_string = "eof"; break;
+		case Error::argumentListTooLong: err_string = "argumentListTooLong"; break;
 		case Error::fileClosed: err_string = "fileClosed"; break;
 		case Error::badExecutable: err_string = "badExecutable"; break;
 		case Error::illegalOperationTarget: err_string = "illegalOperationTarget"; break;
