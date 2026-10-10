@@ -578,7 +578,8 @@ enum HelRegisterSets {
 
 enum HelPageFaultFlags {
 	kHelPageFaultMapError = 1,
-	kHelPageFaultAccessError = 2
+	kHelPageFaultAccessError = 2,
+	kHelPageFaultOutOfMemory = 3
 };
 
 //! Register-related information returned by helQueryRegisterInfo

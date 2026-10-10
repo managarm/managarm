@@ -2851,6 +2851,9 @@ HelError helLoadRegisters(HelHandle handle, int set, void *image) {
 			case thor::PageFaultType::BadPermissions:
 				regs[1] = kHelPageFaultAccessError;
 				break;
+			case thor::PageFaultType::OutOfMemory:
+				regs[1] = kHelPageFaultOutOfMemory;
+				break;
 			case thor::PageFaultType::None:
 				regs[1] = 0;
 				break;
