@@ -892,7 +892,7 @@ struct ManagedSpace : CacheBundle {
 
 	// Installs a frame for a page that is currently missing (and in no transaction):
 	// - registers it in the pfn-db,
-	// - makes the page present (charging it to hierarchy),
+	// - makes the page present,
 	// - hands it to the dirty pipeline if its dirty,
 	// - hands it to the reclaimer LRU if its clean and unreferenced.
 	// Must be called under mutex.
@@ -903,6 +903,7 @@ struct ManagedSpace : CacheBundle {
 	// Precondition: If !dirty, the frame is zero-filled.
 	//               This is needed since non-dirty pages can be reclaimed and would be re-created by zero-filling.
 	// Precondition: The caller owns the fully initialized frame, which is not in the pfn-db yet.
+	// Precondition: The caller charged the frame to hierarchy.
 	void installPage(ManagedPage *page, PhysicalAddr physical, bool dirty,
 			unsigned int extraLockCount, bool &raiseDirty, bool &raiseExpedite);
 

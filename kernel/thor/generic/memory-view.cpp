@@ -1356,8 +1356,7 @@ coroutine<void> ManagedSpace::_runReclaimLoop() {
 			}
 
 			globalPfnDb().erase(physical);
-			physicalAllocator->free(physical, kPageSize);
-			hierarchy->unchargeMemory(kPageSize);
+			deallocateAndUncharge(hierarchy.get(), physical, kPageSize);
 			sizeFreed += kPageSize;
 		}
 
@@ -1406,8 +1405,7 @@ coroutine<void> ManagedSpace::_runReclaimLoop() {
 			}
 
 			if(physical != PhysicalAddr(-1)) {
-				physicalAllocator->free(physical, kPageSize);
-				hierarchy->unchargeMemory(kPageSize);
+				deallocateAndUncharge(hierarchy.get(), physical, kPageSize);
 				sizeFreed += kPageSize;
 			}
 		}
@@ -1605,7 +1603,6 @@ void ManagedSpace::installPage(ManagedPage *page, PhysicalAddr physical, bool di
 	globalPfnDb().insert(physical, PfnDescriptor::cachePage(&page->cachePage));
 	page->physical = physical;
 	page->loadState = LoadState::present;
-	hierarchy->chargeMemory(kPageSize);
 	page->lockCount += extraLockCount;
 
 	if(dirty) {
@@ -1959,10 +1956,8 @@ coroutine<void> ManagedSpace::dispose() {
 			physical = releasePage(frg::container_of(unindexed.pop_front(),
 					&ManagedPage::cachePage));
 		}
-		if(physical != PhysicalAddr(-1)) {
-			physicalAllocator->free(physical, kPageSize);
-			hierarchy->unchargeMemory(kPageSize);
-		}
+		if(physical != PhysicalAddr(-1))
+			deallocateAndUncharge(hierarchy.get(), physical, kPageSize);
 	}
 
 	uint64_t nextIdentity = 0;
@@ -1978,10 +1973,8 @@ coroutine<void> ManagedSpace::dispose() {
 			nextIdentity = (*it)->cachePage.identity + 1;
 			physical = releasePage(*it);
 		}
-		if(physical != PhysicalAddr(-1)) {
-			physicalAllocator->free(physical, kPageSize);
-			hierarchy->unchargeMemory(kPageSize);
-		}
+		if(physical != PhysicalAddr(-1))
+			deallocateAndUncharge(hierarchy.get(), physical, kPageSize);
 	}
 
 	globalReclaimer->unregisterBundle(this);
@@ -3218,6 +3211,7 @@ SwappableMemory::touchRange(uintptr_t offset, size_t, FetchFlags flags) {
 					// A clean install neither wakes the drain nor expedites writeback.
 					bool raiseDirty = false;
 					bool raiseExpedite = false;
+					_space->hierarchy->chargeMemory(kPageSize);
 					_space->installPage(pit, freshPhysical, false, 0, raiseDirty, raiseExpedite);
 					assert(!raiseDirty && !raiseExpedite);
 					freshPhysical = PhysicalAddr(-1);
@@ -3578,6 +3572,7 @@ frg::expected<Error> CopyOnWriteMemory::_publishCopy(CowPage *page, PhysicalAddr
 			return Error::noMemory;
 		// Copies are installed dirty - their content doesn't exist anywhere
 		// elsewhere, so the frame can only be dropped after a writeback.
+		_space->hierarchy->chargeMemory(kPageSize);
 		_space->installPage(swapPage, physical, true, page->lockCount, raiseDirty, raiseExpedite);
 		page->swapPage = swapPage;
 	}
