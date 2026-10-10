@@ -6,13 +6,14 @@ use crate::leak;
 use crate::uacpi::namespace::{
     IterationDecision, NamespaceNode, PredefinedNamespace, find_devices_at,
 };
+use crate::uacpi::pci::RoutingEntry as PrtEntry;
 use crate::uacpi::resources::{Polarity, Resource, Triggering};
 use crate::uacpi::runtime::{self, Aml};
 
 use super::discover::add_root_bus;
 use super::{
-    IrqIndex, IrqPin, PciBus, PciIrqRouter, RouterState, RoutingEntry, RoutingModel, config,
-    system_irq,
+    IrqIndex, IrqPin, PciBus, PciError, PciIrqRouter, RouterState, RoutingEntry, RoutingModel,
+    config, system_irq,
 };
 
 #[derive(Clone, Copy)]
@@ -66,19 +67,15 @@ fn resolve_link(
     aml: Aml,
     source: NamespaceNode,
     index: u32,
-) -> Option<(u32, IrqTrigger, IrqPolarity)> {
-    let resources = match source.current_resources(aml) {
-        Ok(resources) => resources,
-        Err(err) => {
-            println!("sif: Failed to evaluate the _CRS of an IRQ link: {err}");
-            return None;
-        }
-    };
+) -> Result<(u32, IrqTrigger, IrqPolarity), PciError> {
+    let resources = source
+        .current_resources(aml)
+        .map_err(PciError::LinkResources)?;
 
-    let Some(resource) = resources.iter().nth(index as usize) else {
-        println!("sif: The _CRS of an IRQ link has no resource {index}");
-        return None;
-    };
+    let resource = resources
+        .iter()
+        .nth(index as usize)
+        .ok_or(PciError::LinkResourceMissing { index })?;
 
     let (gsi, triggering, polarity) = match resource {
         Resource::Irq(irq) => (
@@ -91,20 +88,14 @@ fn resolve_link(
             irq.triggering(),
             irq.polarity(),
         ),
-        _ => {
-            println!("sif: Resource {index} of an IRQ link does not describe an IRQ");
-            return None;
-        }
+        _ => return Err(PciError::LinkResourceNotIrq { index }),
     };
 
     // Firmware reports a link that it did not connect to an IRQ as one without any IRQs.
     // TODO: Connect such links ourselves by picking an IRQ from _PRS and applying it via _SRS.
-    let Some(gsi) = gsi else {
-        println!("sif: An IRQ link is not connected to any IRQ");
-        return None;
-    };
+    let gsi = gsi.ok_or(PciError::LinkNotConnected)?;
 
-    Some((gsi, trigger_of(triggering), polarity_of(polarity)))
+    Ok((gsi, trigger_of(triggering), polarity_of(polarity)))
 }
 
 fn trigger_of(triggering: Triggering) -> IrqTrigger {
@@ -135,7 +126,7 @@ enum Prt {
     /// The bus has no _PRT.
     Missing,
     /// Evaluating the _PRT failed.
-    Failed,
+    Failed(PciError),
     Routes(Vec<PrtRoute>),
 }
 
@@ -165,57 +156,66 @@ fn evaluate_prt(aml: Aml, node: NamespaceNode) -> Prt {
     let pci_routes = match node.pci_routing_table(aml) {
         Ok(Some(pci_routes)) => pci_routes,
         Ok(None) => return Prt::Missing,
-        Err(err) => {
-            println!("sif: Failed to evaluate _PRT: {err}; giving up IRQ routing");
-            return Prt::Failed;
-        }
+        Err(err) => return Prt::Failed(PciError::PrtEvaluation(err)),
     };
 
     // Walk through the PRT and determine the routing.
     let mut routes = Vec::new();
     for entry in pci_routes.entries() {
-        // These are the defaults.
-        let mut triggering = IrqTrigger::Level;
-        let mut polarity = IrqPolarity::Low;
-        let mut gsi = entry.index;
         let slot = ((entry.address >> 16) & 0xFFFF) as u8;
-
-        assert!(
-            entry.address & 0xFFFF == 0xFFFF,
-            "TODO: support routing of individual functions"
-        );
-
-        let index = IrqIndex::from_pin(entry.pin + 1);
-
-        if let Some(source) = entry.source {
-            match resolve_link(aml, source, entry.index) {
-                Some((link_gsi, link_trigger, link_polarity)) => {
-                    gsi = link_gsi;
-                    triggering = link_trigger;
-                    polarity = link_polarity;
-                }
-                None => {
-                    println!("sif:     No route for slot {slot}, {}", index.name());
-                    continue;
-                }
+        match prt_route(aml, &entry) {
+            Ok(route) => {
+                println!(
+                    "sif:     Route for slot {slot}, {}: GSI {}",
+                    route.index.name(),
+                    route.gsi
+                );
+                routes.push(route);
             }
+            Err(err) => println!(
+                "sif:     No route for slot {slot}, pin {}: {:#}",
+                entry.pin,
+                anyhow::Error::from(err)
+            ),
         }
-
-        println!(
-            "sif:     Route for slot {slot}, {}: GSI {gsi}",
-            index.name()
-        );
-
-        routes.push(PrtRoute {
-            slot,
-            index,
-            gsi,
-            triggering,
-            polarity,
-        });
     }
 
     Prt::Routes(routes)
+}
+
+/// Determines the route that an entry of a _PRT describes.
+fn prt_route(aml: Aml, entry: &PrtEntry) -> Result<PrtRoute, PciError> {
+    // These are the defaults.
+    let mut triggering = IrqTrigger::Level;
+    let mut polarity = IrqPolarity::Low;
+    let mut gsi = entry.index;
+    let slot = ((entry.address >> 16) & 0xFFFF) as u8;
+
+    // TODO: support routing of individual functions.
+    if entry.address & 0xFFFF != 0xFFFF {
+        return Err(PciError::FunctionRoute);
+    }
+
+    // _PRT pins are zero-based, unlike the interrupt pin register.
+    let index = entry
+        .pin
+        .checked_add(1)
+        .and_then(IrqIndex::from_pin)
+        .ok_or(PciError::InvalidPin {
+            pin: entry.pin.into(),
+        })?;
+
+    if let Some(source) = entry.source {
+        (gsi, triggering, polarity) = resolve_link(aml, source, entry.index)?;
+    }
+
+    Ok(PrtRoute {
+        slot,
+        index,
+        gsi,
+        triggering,
+        polarity,
+    })
 }
 
 fn build_routing(
@@ -248,7 +248,14 @@ fn build_routing(
             }
             return;
         }
-        Prt::Failed => return,
+        Prt::Failed(err) => {
+            println!(
+                "sif: Giving up IRQ routing of bus {}: {:#}",
+                bus.bus_id,
+                anyhow::Error::from(err)
+            );
+            return;
+        }
     };
 
     for route in routes {

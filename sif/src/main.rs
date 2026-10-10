@@ -20,6 +20,13 @@ pub(crate) fn leak<T>(value: T) -> &'static T {
 // Mutexes are only locked for the duration of operations that cannot panic.
 pub(crate) const EXPECT_LOCK: &str = "sif: mutex was poisoned";
 
+/// Logs the failure of a subsystem; sif keeps serving the others.
+fn degrade(what: &str, result: Result<()>) {
+    if let Err(err) = result {
+        println!("sif: {what} failed: {err:#}");
+    }
+}
+
 fn main() -> Result<()> {
     hel::block_on(async {
         let cmdline = managarm::kerncfg::get_cmdline().await?;
@@ -28,12 +35,12 @@ fn main() -> Result<()> {
         let rsdp = managarm::kerncfg::get_acpi_rsdp().await?;
         let (dt_address, dt_size) = managarm::kerncfg::get_device_tree().await?;
         if rsdp == 0 && dt_address == 0 {
-            bail!("sif: kernel reported neither an ACPI RSDP nor a device tree");
+            bail!("the kernel reported neither an ACPI RSDP nor a device tree");
         }
 
         // thor publishes dt-node objects whenever a device tree exists, even on ACPI systems.
         if dt_address != 0 {
-            dt::node::init(dt_address, dt_size)?;
+            degrade("Device tree parsing", dt::node::init(dt_address, dt_size));
             dt::irq::init();
         }
 
@@ -48,25 +55,21 @@ fn main() -> Result<()> {
             #[cfg(target_arch = "x86_64")]
             isa::configure_isa_irqs();
 
-            if let Err(err) = acpi::ec::init_events().await {
-                println!("sif: acpi: failed to initialize EC events: {err}");
-            }
+            degrade("EC event setup", acpi::ec::init_events().await);
         }
 
-        pci::publish_devices().await?;
+        pci::publish_devices().await;
         // Only PCI enumeration blocks on AML.
         runtime::forbid_run_blocking();
 
         println!("sif: published PCI devices");
 
         if acpi::has_rsdp() {
-            acpi::ps2::publish().await?;
-            if let Err(err) = acpi::battery::publish().await {
-                println!("sif: acpi: failed to publish batteries: {err}");
-            }
+            degrade("PS/2 publishing", acpi::ps2::publish().await);
+            degrade("Battery publishing", acpi::battery::publish().await);
         }
 
-        dt::serve::publish_all().await?;
+        dt::serve::publish_all().await;
 
         std::future::pending::<Result<()>>().await
     })?

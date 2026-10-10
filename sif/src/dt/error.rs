@@ -36,6 +36,9 @@ pub enum DtError {
     #[error("the {name} property has entries of zero cells")]
     ZeroSizedEntries { name: &'static str },
 
+    #[error("the interrupt parent {controller} is not a supported interrupt controller")]
+    UnsupportedInterruptController { controller: String },
+
     #[error("the interrupt controller {controller} has no phandle")]
     InterruptControllerWithoutPhandle { controller: String },
 

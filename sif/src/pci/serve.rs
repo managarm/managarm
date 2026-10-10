@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::sync::atomic::Ordering;
 
-use anyhow::Result;
+use anyhow::{Result, bail};
 use managarm::hw::Error as HwError;
 use managarm::hw::pci::IoType;
 use managarm::hw::server::{BarDescriptor, CapDescriptor, serve_pci_device};
@@ -340,19 +340,29 @@ fn entity_properties(entity: &PciEntity, pci_type: &str) -> Properties {
     props.insert("pci-class".into(), hex(entity.class_code as u32, 2));
     props.insert("pci-subclass".into(), hex(entity.sub_class as u32, 2));
     props.insert("pci-interface".into(), hex(entity.interface as u32, 2));
-
-    let parent = entity
-        .parent_bus
-        .associated_bridge
-        .map(|bridge| bridge.entity.mbus_id.load(Ordering::Relaxed))
-        .unwrap_or(entity.parent_bus.mbus_id.load(Ordering::Relaxed));
-    props.insert("drvcore.mbus-parent".into(), decimal(parent));
+    props.insert(
+        "drvcore.mbus-parent".into(),
+        decimal(parent_mbus_id(entity)),
+    );
 
     props
 }
 
+/// Returns the mbus ID of the bridge or root bus above an entity, or 0 if it is not published.
+fn parent_mbus_id(entity: &PciEntity) -> i64 {
+    entity
+        .parent_bus
+        .associated_bridge
+        .map(|bridge| bridge.entity.mbus_id.load(Ordering::Relaxed))
+        .unwrap_or(entity.parent_bus.mbus_id.load(Ordering::Relaxed))
+}
+
 async fn publish_entity(served: ServedEntity, pci_type: &str) -> Result<()> {
     let entity = served.entity();
+    // mbus IDs start at 1.
+    if parent_mbus_id(entity) == 0 {
+        bail!("its parent is not published");
+    }
 
     let mut props = entity_properties(entity, pci_type);
     if let ServedEntity::Device(device) = served {
@@ -393,7 +403,14 @@ fn bridges_in_publish_order(bus: &'static PciBus, out: &mut Vec<&'static PciBrid
     }
 }
 
-pub async fn publish_all() -> Result<()> {
+fn log_unpublished(entity: &PciEntity, err: anyhow::Error) {
+    println!(
+        "sif: Not publishing PCI entity {:04x}:{:02x}:{:02x}.{}: {err:#}",
+        entity.seg, entity.bus, entity.slot, entity.function
+    );
+}
+
+pub async fn publish_all() {
     for root_bus in all_root_buses() {
         let mut props: Properties = HashMap::new();
         props.insert("unix.subsystem".into(), string("pci"));
@@ -405,20 +422,31 @@ pub async fn publish_all() -> Result<()> {
             "sif: PCI root bus {:04x}:{:02x}",
             root_bus.seg_id, root_bus.bus_id
         );
-        let manager: &'static EntityManager = leak(create_entity("pci-root-bus", &props).await?);
-        root_bus.mbus_id.store(manager.id(), Ordering::Relaxed);
+        // Entities below a root bus that fails to publish are not published either.
+        match create_entity("pci-root-bus", &props).await {
+            Ok(manager) => {
+                let manager: &'static EntityManager = leak(manager);
+                root_bus.mbus_id.store(manager.id(), Ordering::Relaxed);
+            }
+            Err(err) => println!(
+                "sif: Not publishing PCI root bus {:04x}:{:02x}: {err}",
+                root_bus.seg_id, root_bus.bus_id
+            ),
+        }
 
         // Publish bridges in pre-order so that every bridge finds its parent's mbus ID set.
         let mut bridges = Vec::new();
         bridges_in_publish_order(root_bus, &mut bridges);
         for bridge in bridges {
-            publish_entity(ServedEntity::Bridge(bridge), "pci-bridge").await?;
+            if let Err(err) = publish_entity(ServedEntity::Bridge(bridge), "pci-bridge").await {
+                log_unpublished(&bridge.entity, err);
+            }
         }
     }
 
     for device in all_devices() {
-        publish_entity(ServedEntity::Device(device), "pci-device").await?;
+        if let Err(err) = publish_entity(ServedEntity::Device(device), "pci-device").await {
+            log_unpublished(&device.entity, err);
+        }
     }
-
-    Ok(())
 }
