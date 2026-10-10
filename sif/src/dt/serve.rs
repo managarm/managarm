@@ -42,7 +42,14 @@ impl DtIrq {
                 self.parent.path()
             )
         })?;
-        dt_irq(self.parent, irq.index, irq.trigger, irq.polarity).ok_or(HwError::DeviceError)
+        let pin = dt_irq(self.parent, irq.index, irq.trigger, irq.polarity).inspect_err(|err| {
+            println!(
+                "sif: Failed to set up IRQ {} of {}: {err}",
+                irq.index,
+                self.parent.path()
+            )
+        })?;
+        Ok(pin)
     }
 
     fn object(&self) -> managarm::hw::Result<&hel::Handle> {

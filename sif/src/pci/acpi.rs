@@ -252,8 +252,17 @@ fn build_routing(
     };
 
     for route in routes {
-        let Some(pin) = system_irq(route.gsi, route.triggering, route.polarity) else {
-            continue;
+        let pin = match system_irq(route.gsi, route.triggering, route.polarity) {
+            Ok(pin) => pin,
+            Err(err) => {
+                println!(
+                    "sif: Failed to set up GSI {} for slot {}, {}: {err}",
+                    route.gsi,
+                    route.slot,
+                    route.index.name()
+                );
+                continue;
+            }
         };
         state.routing_table.push(RoutingEntry {
             slot: route.slot,

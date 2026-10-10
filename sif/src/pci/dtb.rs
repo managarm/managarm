@@ -104,8 +104,16 @@ fn build_routing(
                         return;
                     }
                 };
-                let Some(pin) = dt_irq(parent_node, irq.index, irq.trigger, irq.polarity) else {
-                    return;
+                let pin = match dt_irq(parent_node, irq.index, irq.trigger, irq.polarity) {
+                    Ok(pin) => pin,
+                    Err(err) => {
+                        println!(
+                            "sif: Failed to set up IRQ {} of {}: {err}",
+                            irq.index,
+                            parent_node.path()
+                        );
+                        return;
+                    }
                 };
                 if LOG_ROUTING_TABLE {
                     println!(
