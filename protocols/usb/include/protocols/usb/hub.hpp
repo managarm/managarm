@@ -10,6 +10,8 @@
 #include "usb.hpp"
 #include "api.hpp"
 
+#include <protocols/mbus/client.hpp>
+
 namespace protocols::usb {
 
 // ----------------------------------------------------------------
@@ -29,6 +31,7 @@ struct PortState {
 
 struct HubCharacteristics {
 	int ttThinkTime; // In FS bit times
+	int powerOnToPowerGood; // In milliseconds
 };
 
 struct Hub {
@@ -36,37 +39,39 @@ protected:
 	~Hub() = default;
 
 public:
-	Hub(std::shared_ptr<Hub> parent, size_t port)
-	: parent_{parent}, port_{port} { }
+	Hub(std::shared_ptr<DeviceServerData> state)
+	: state_{state} { }
 
 	virtual size_t numPorts() = 0;
-	virtual async::result<PortState> pollState(int port) = 0;
+	virtual async::result<PortState> pollUntilState(int port, uint32_t desired) = 0;
+	virtual async::result<frg::expected<UsbError, void>> setPortPower(int port, bool state) = 0;
 	virtual async::result<frg::expected<UsbError, void>> issueReset(int port) = 0;
 	virtual async::result<frg::expected<UsbError, DeviceSpeed>> querySpeed(int port) = 0;
+
+	virtual async::detached run() = 0;
 
 	virtual frg::expected<UsbError, HubCharacteristics> getCharacteristics() {
 		return UsbError::unsupported;
 	}
 
-	virtual std::optional<Device> associatedDevice() {
-		return std::nullopt;
+	std::shared_ptr<DeviceServerData> state() const {
+		return state_;
 	}
 
-	std::shared_ptr<Hub> parent() const {
-		return parent_;
+	bool rootHub() const {
+		return state_ == nullptr;
 	}
 
-	size_t port() const {
-		return port_;
+	virtual mbus_ng::EntityId mbusEntityId() {
+		assert(!"Unimplemented");
 	}
 
 private:
-	std::shared_ptr<Hub> parent_;
-	size_t port_;
+	std::shared_ptr<DeviceServerData> state_;
 };
 
 async::result<frg::expected<UsbError, std::shared_ptr<Hub>>>
-createHubFromDevice(std::shared_ptr<Hub> parentHub, Device device, size_t port);
+createHubFromDevice(std::shared_ptr<DeviceServerData> device);
 
 // ----------------------------------------------------------------
 // Enumerator.
@@ -76,11 +81,14 @@ struct Enumerator {
 	Enumerator(BaseController *controller)
 	: controller_{controller} { }
 
-	void observeHub(std::shared_ptr<Hub> hub);
+	async::detached observeHub(std::shared_ptr<Hub> hub);
 
 private:
 	async::detached observePort_(std::shared_ptr<Hub> hub, int port);
 	async::result<void> observationCycle_(std::shared_ptr<Hub> hub, int port);
+
+	async::result<frg::expected<UsbError>>
+	enumerateDevice_(std::shared_ptr<DeviceServerData> device);
 
 	BaseController *controller_;
 	async::mutex enumerateMutex_;
