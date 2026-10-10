@@ -2540,15 +2540,16 @@ BackingMemory::touchRange(uintptr_t offset, size_t, FetchFlags) {
 	}
 
 	if(pit->physical == PhysicalAddr(-1)) {
-		PhysicalAddr physical = physicalAllocator->allocate(kPageSize);
-		assert(physical != PhysicalAddr(-1) && "OOM");
+		auto physicalOutcome = tryChargeAndAllocate(_managed->hierarchy.get(), kPageSize, 64);
+		if(!physicalOutcome)
+			co_return physicalOutcome.error();
+		auto physical = *physicalOutcome;
 
 		PageAccessor accessor{physical};
 		memset(accessor.get(), 0, kPageSize);
 
 		globalPfnDb().insert(physical, PfnDescriptor::cachePage(&pit->cachePage));
 		pit->physical = physical;
-		_managed->hierarchy->chargeMemory(kPageSize);
 	}
 
 	co_return kPageSize - misalign;
