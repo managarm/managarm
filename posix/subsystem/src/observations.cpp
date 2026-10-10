@@ -744,12 +744,18 @@ async::result<void> observeThread(std::shared_ptr<Process> self,
 			HEL_CHECK(helLoadRegisters(thread.getHandle(), kHelRegsPageFault, &gprs));
 
 			auto item = new SignalItem;
-			item->signalNumber = SIGSEGV;
-			item->info = SegfaultSignal{
-			    gprs[0],
-			    (gprs[1] == kHelPageFaultAccessError),
-			    (gprs[1] == kHelPageFaultMapError),
-			};
+			if(gprs[1] == kHelPageFaultOutOfMemory) {
+				std::println("\e[31mposix: Out of memory during page fault in process {}\e[39m",
+						self->path());
+				item->signalNumber = SIGKILL;
+			}else{
+				item->signalNumber = SIGSEGV;
+				item->info = SegfaultSignal{
+				    gprs[0],
+				    (gprs[1] == kHelPageFaultAccessError),
+				    (gprs[1] == kHelPageFaultMapError),
+				};
+			}
 			if(!self->checkSignalRaise())
 				std::cout << "\e[33m" "posix: Ignoring global signal flag "
 						"during synchronous SIGSEGV" "\e[39m" << std::endl;
