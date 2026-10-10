@@ -1652,6 +1652,14 @@ void ManagedSpace::installPage(ManagedPage *page, PhysicalAddr physical, bool di
 	}
 }
 
+void ManagedSpace::attachFrame(ManagedPage *page, PhysicalAddr physical) {
+	assert(page->loadState == LoadState::missing);
+	assert(page->physical == PhysicalAddr(-1));
+
+	globalPfnDb().insert(physical, PfnDescriptor::cachePage(&page->cachePage));
+	page->physical = physical;
+}
+
 void ManagedSpace::discardPage(ManagedPage *pit, DiscardMode mode, bool &raiseDirty,
 		bool &raiseDiscard, bool &raiseExpedite, MonitorPendingList &pendingMonitors) {
 	assert(mode != DiscardMode::none);
@@ -2212,13 +2220,21 @@ bool ManagedSpace::touchPresentPage(ManagedPage *page) {
 }
 
 std::expected<frg::intrusive_shared_ptr<ManagedSpace::TransactionMonitor, Allocator>, Error>
-ManagedSpace::initializePage(ManagedPage *page, FetchFlags flags, ManageList &pendingManagement) {
+ManagedSpace::initializePage(ManagedPage *page, FetchFlags flags, PhysicalAddr &freshPhysical,
+		ManageList &pendingManagement) {
 	assert(page->loadState == LoadState::missing);
 	assert(!isSwapSpace || (page->swapCopyValid && page->hasSlot()));
 
 	if(flags & fetchDisallowBacking) {
 		urgentLogger() << "thor: Backing of page is disallowed" << frg::endlog;
 		return std::unexpected{Error::fault};
+	}
+
+	if(page->physical == PhysicalAddr(-1)) {
+		if(freshPhysical == PhysicalAddr(-1))
+			return frg::intrusive_shared_ptr<TransactionMonitor, Allocator>{};
+		attachFrame(page, freshPhysical);
+		freshPhysical = PhysicalAddr(-1);
 	}
 
 	if(page->transactionState == TxState::none) {
@@ -2585,15 +2601,19 @@ BackingMemory::touchRange(uintptr_t offset, size_t, FetchFlags) {
 
 			if(pit->physical != PhysicalAddr(-1))
 				co_return kPageSize - misalign;
+			// The daemon only reaches pages in transactions, which always have a frame.
+			assert(!_managed->isSwapSpace);
 
 			if(freshPhysical != PhysicalAddr(-1)) {
-				globalPfnDb().insert(freshPhysical, PfnDescriptor::cachePage(&pit->cachePage));
-				pit->physical = freshPhysical;
+				_managed->attachFrame(pit, freshPhysical);
 				freshPhysical = PhysicalAddr(-1);
 				co_return kPageSize - misalign;
 			}
 		}
 
+		// Faulting threads attach frames before they request initialization (see initializePage()),
+		// so this is only reached for readahead pages or if the manager touches pages outside of
+		// initialization.
 		auto physicalOutcome = co_await chargeAndAllocate(_managed->hierarchy.get(), kPageSize,
 				PhysicalKind::evictable, 64);
 		if(!physicalOutcome)
@@ -3035,32 +3055,54 @@ FrontalMemory::touchRange(uintptr_t offset, size_t, FetchFlags flags) {
 	auto index = offset >> kPageShift;
 	auto misalign = offset & (kPageSize - 1);
 
-	ManageList pendingManagement;
-	frg::intrusive_shared_ptr<ManagedSpace::TransactionMonitor, Allocator> fetchMonitor;
-	{
-		auto irq_lock = frg::guard(&irqMutex());
-		auto lock = frg::guard(&_managed->mutex);
+	// Frame for initializePage(), allocated and zeroed outside of the mutex.
+	PhysicalAddr freshPhysical(-1);
+	frg::scope_exit freeFreshFrame{[&] {
+		if(freshPhysical != PhysicalAddr(-1))
+			deallocateAndUncharge(_managed->hierarchy.get(), freshPhysical, kPageSize,
+					PhysicalKind::evictable);
+	}};
 
-		if(index >= _managed->numPages)
-			co_return Error::fault;
+	while(true) {
+		ManageList pendingManagement;
+		frg::intrusive_shared_ptr<ManagedSpace::TransactionMonitor, Allocator> fetchMonitor;
+		{
+			auto irq_lock = frg::guard(&irqMutex());
+			auto lock = frg::guard(&_managed->mutex);
 
-		// Try the fast-paths first.
-		auto pit = _managed->findOrInsertPage(index);
-		assert(pit);
-		if(_managed->touchPresentPage(pit))
+			if(index >= _managed->numPages)
+				co_return Error::fault;
+
+			// Try the fast-paths first.
+			auto pit = _managed->findOrInsertPage(index);
+			assert(pit);
+			if(_managed->touchPresentPage(pit))
+				co_return kPageSize - misalign;
+
+			// We have to take the slow-path, i.e., perform the fetch asynchronously.
+			auto monitorOutcome = _managed->initializePage(pit, flags, freshPhysical,
+					pendingManagement);
+			if(!monitorOutcome)
+				co_return monitorOutcome.error();
+			fetchMonitor = std::move(*monitorOutcome);
+		}
+
+		if(fetchMonitor) {
+			ManagedSpace::_raiseManagement(pendingManagement);
+			co_await fetchMonitor->event.wait();
 			co_return kPageSize - misalign;
+		}
 
-		// We have to take the slow-path, i.e., perform the fetch asynchronously.
-		auto monitorOutcome = _managed->initializePage(pit, flags, pendingManagement);
-		if(!monitorOutcome)
-			co_return monitorOutcome.error();
-		fetchMonitor = std::move(*monitorOutcome);
+		// initializePage() needs a frame, allocate one without the mutex held and retry.
+		assert(freshPhysical == PhysicalAddr(-1));
+		auto physicalOutcome = co_await chargeAndAllocate(_managed->hierarchy.get(), kPageSize,
+				PhysicalKind::evictable, 64);
+		if(!physicalOutcome)
+			co_return physicalOutcome.error();
+		freshPhysical = *physicalOutcome;
+		PageAccessor accessor{freshPhysical};
+		memset(accessor.get(), 0, kPageSize);
 	}
-
-	ManagedSpace::_raiseManagement(pendingManagement);
-	co_await fetchMonitor->event.wait();
-
-	co_return kPageSize - misalign;
 }
 
 size_t FrontalMemory::getLength() {
@@ -3228,7 +3270,7 @@ SwappableMemory::touchRange(uintptr_t offset, size_t, FetchFlags flags) {
 	auto index = offset >> kPageShift;
 	auto misalign = offset & (kPageSize - 1);
 
-	// Frame for the zero-fill path. Allocated and zeroed outside of the
+	// Frame for the zero-fill and swap-in paths. Allocated and zeroed outside of the
 	// SwapSpace mutex, then installed under the mutex after re-checking that no
 	// other thread allocated the frame meanwhile.
 	PhysicalAddr freshPhysical(-1);
@@ -3270,7 +3312,9 @@ SwappableMemory::touchRange(uintptr_t offset, size_t, FetchFlags flags) {
 				// ... no frame at hand, allocate one below without the mutex held and retry.
 			}else{
 				// The page is swapped out, read it back via the manage protocol.
-				auto monitorOutcome = _space->initializePage(pit, flags, pendingManagement);
+				// Without a fetch monitor, initializePage() needs a frame; allocate one below.
+				auto monitorOutcome = _space->initializePage(pit, flags, freshPhysical,
+						pendingManagement);
 				if(!monitorOutcome)
 					co_return monitorOutcome.error();
 				fetchMonitor = std::move(*monitorOutcome);
@@ -3524,25 +3568,48 @@ CopyOnWriteMemory::_ensureResident(CowPage *page, FetchFlags flags) {
 	if(!_space)
 		co_return {};
 
-	ManageList pendingManagement;
-	frg::intrusive_shared_ptr<ManagedSpace::TransactionMonitor, Allocator> fetchMonitor;
-	{
-		auto irqLock = frg::guard(&irqMutex());
-		auto spaceLock = frg::guard(&_space->mutex);
+	// Frame for initializePage(), allocated and zeroed outside of the mutex.
+	PhysicalAddr freshPhysical(-1);
+	frg::scope_exit freeFreshFrame{[&] {
+		if(freshPhysical != PhysicalAddr(-1))
+			deallocateAndUncharge(_space->hierarchy.get(), freshPhysical, kPageSize,
+					PhysicalKind::evictable);
+	}};
 
-		if(_space->touchPresentPage(page->swapPage))
+	while(true) {
+		ManageList pendingManagement;
+		frg::intrusive_shared_ptr<ManagedSpace::TransactionMonitor, Allocator> fetchMonitor;
+		{
+			auto irqLock = frg::guard(&irqMutex());
+			auto spaceLock = frg::guard(&_space->mutex);
+
+			if(_space->touchPresentPage(page->swapPage))
+				co_return {};
+			// Copies are installed dirty, hence swapped-out copies always have a valid disk copy.
+			assert(page->swapPage->swapCopyValid);
+			auto monitorOutcome = _space->initializePage(page->swapPage, flags, freshPhysical,
+					pendingManagement);
+			if(!monitorOutcome)
+				co_return monitorOutcome.error();
+			fetchMonitor = std::move(*monitorOutcome);
+		}
+
+		if(fetchMonitor) {
+			ManagedSpace::_raiseManagement(pendingManagement);
+			co_await fetchMonitor->event.wait();
 			co_return {};
-		// Copies are installed dirty, hence swapped-out copies always have a valid disk copy.
-		assert(page->swapPage->swapCopyValid);
-		auto monitorOutcome = _space->initializePage(page->swapPage, flags, pendingManagement);
-		if(!monitorOutcome)
-			co_return monitorOutcome.error();
-		fetchMonitor = std::move(*monitorOutcome);
-	}
+		}
 
-	ManagedSpace::_raiseManagement(pendingManagement);
-	co_await fetchMonitor->event.wait();
-	co_return {};
+		// initializePage() needs a frame, allocate one without the mutex held and retry.
+		assert(freshPhysical == PhysicalAddr(-1));
+		auto physicalOutcome = co_await chargeAndAllocate(_space->hierarchy.get(), kPageSize,
+				PhysicalKind::evictable, 64);
+		if(!physicalOutcome)
+			co_return physicalOutcome.error();
+		freshPhysical = *physicalOutcome;
+		PageAccessor accessor{freshPhysical};
+		memset(accessor.get(), 0, kPageSize);
+	}
 }
 
 void CopyOnWriteMemory::_lockPage(CowPage *page) {
