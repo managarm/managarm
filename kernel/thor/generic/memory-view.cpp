@@ -3185,7 +3185,7 @@ SwappableMemory::touchRange(uintptr_t offset, size_t, FetchFlags flags) {
 	PhysicalAddr freshPhysical(-1);
 	frg::scope_exit freeFreshFrame{[&] {
 		if(freshPhysical != PhysicalAddr(-1))
-			physicalAllocator->free(freshPhysical, kPageSize);
+			deallocateAndUncharge(_space->hierarchy.get(), freshPhysical, kPageSize);
 	}};
 
 	while(true) {
@@ -3212,7 +3212,6 @@ SwappableMemory::touchRange(uintptr_t offset, size_t, FetchFlags flags) {
 					// A clean install neither wakes the drain nor expedites writeback.
 					bool raiseDirty = false;
 					bool raiseExpedite = false;
-					_space->hierarchy->chargeMemory(kPageSize);
 					_space->installPage(pit, freshPhysical, false, 0, raiseDirty, raiseExpedite);
 					assert(!raiseDirty && !raiseExpedite);
 					freshPhysical = PhysicalAddr(-1);
@@ -3235,8 +3234,10 @@ SwappableMemory::touchRange(uintptr_t offset, size_t, FetchFlags flags) {
 		}
 
 		assert(freshPhysical == PhysicalAddr(-1));
-		freshPhysical = physicalAllocator->allocate(kPageSize);
-		assert(freshPhysical != PhysicalAddr(-1) && "OOM");
+		auto physicalOutcome = tryChargeAndAllocate(_space->hierarchy.get(), kPageSize, 64);
+		if(!physicalOutcome)
+			co_return physicalOutcome.error();
+		freshPhysical = *physicalOutcome;
 		PageAccessor accessor{freshPhysical};
 		memset(accessor.get(), 0, kPageSize);
 	}
