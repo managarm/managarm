@@ -596,7 +596,7 @@ pub unsafe extern "C" fn uacpi_kernel_wait_for_work_completion() -> uacpi_status
 
 struct InterruptHandler;
 
-fn resolve_irq(irq: uacpi_u32) -> Option<&'static crate::irq::IrqPin> {
+fn resolve_irq(irq: uacpi_u32) -> hel::Result<&'static crate::irq::IrqPin> {
     #[cfg(target_arch = "x86_64")]
     {
         let line = crate::isa::resolve_isa_irq(irq);
@@ -653,10 +653,13 @@ pub unsafe extern "C" fn uacpi_kernel_install_interrupt_handler(
     ctx: uacpi_handle,
     out: *mut uacpi_handle,
 ) -> uacpi_status {
-    let Some(pin) = resolve_irq(irq) else {
-        println!("sif: acpi: cannot claim IRQ {irq}");
-        unsafe { *out = std::ptr::null_mut() };
-        return uacpi_sys::UACPI_STATUS_OK;
+    let pin = match resolve_irq(irq) {
+        Ok(pin) => pin,
+        Err(err) => {
+            println!("sif: acpi: cannot claim IRQ {irq}: {err}");
+            unsafe { *out = std::ptr::null_mut() };
+            return uacpi_sys::UACPI_STATUS_OK;
+        }
     };
 
     let object = match hel::handle_irq(pin.handle()) {

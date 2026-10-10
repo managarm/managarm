@@ -14,6 +14,7 @@ use crate::entity::{decimal, serve_entity_lanes, string};
 use crate::irq::{IrqPin, dt_irq};
 use crate::leak;
 
+use super::DtError;
 use super::fdt::Cells;
 use super::node::{DeviceTreeNode, get_device_tree_root, walk_interrupts};
 
@@ -36,10 +37,20 @@ impl DtIrq {
             .parent
             .associated_irq_controller()
             .ok_or(HwError::DeviceError)?;
-        let irq = controller
-            .resolve_dt_irq(self.cells)
-            .ok_or(HwError::DeviceError)?;
-        dt_irq(self.parent, irq.index, irq.trigger, irq.polarity).ok_or(HwError::DeviceError)
+        let irq = controller.resolve_dt_irq(self.cells).inspect_err(|err| {
+            println!(
+                "sif: Failed to resolve an interrupt of {}: {err}",
+                self.parent.path()
+            )
+        })?;
+        let pin = dt_irq(self.parent, irq.index, irq.trigger, irq.polarity).inspect_err(|err| {
+            println!(
+                "sif: Failed to set up IRQ {} of {}: {err}",
+                irq.index,
+                self.parent.path()
+            )
+        })?;
+        Ok(pin)
     }
 
     fn object(&self) -> managarm::hw::Result<&hel::Handle> {
@@ -76,12 +87,11 @@ impl ServedDtNode {
                 cells,
                 object: OnceLock::new(),
             });
+            Ok::<(), DtError>(())
         };
-        if walk_interrupts(&mut collect, node) == Some(false) {
-            println!(
-                "sif: {}: failed to parse interrupts for mbus node",
-                node.path()
-            );
+        if let Err(err) = walk_interrupts(&mut collect, node) {
+            println!("sif: {}: Ignoring the interrupts: {err}", node.path());
+            irqs.clear();
         }
         // TODO(qookie): Try interrupts-extended if interrupts failed.
 

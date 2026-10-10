@@ -1,6 +1,7 @@
 //! aarch64 interrupt controllers; port of the interrupt specifier decoding of thor's
 //! thor-internal/arch/gic.hpp.
 
+use crate::dt::DtError;
 use crate::dt::fdt::Cells;
 use crate::dt::node::DeviceTreeNode;
 
@@ -26,9 +27,10 @@ static DT_GIC_V3_COMPATIBLE: [&str; 1] = ["arm,gic-v3"];
 struct Gic;
 
 impl IrqController for Gic {
-    fn resolve_dt_irq(&self, irq_specifier: Cells<'static>) -> Option<DtIrq> {
-        if irq_specifier.num_cells() != 3 && irq_specifier.num_cells() != 4 {
-            panic!("GIC #interrupt-cells should be 3 or 4");
+    fn resolve_dt_irq(&self, irq_specifier: Cells<'static>) -> Result<DtIrq, DtError> {
+        let cells = irq_specifier.num_cells();
+        if cells != 3 && cells != 4 {
+            return Err(DtError::UnsupportedInterruptCells { cells });
         }
         let type_ = irq_specifier
             .read_slice(0, 1)
@@ -42,22 +44,17 @@ impl IrqController for Gic {
 
         // TODO(qookie): Handle extended PPI and SPI.
         if type_ != 0 && type_ != 1 {
-            panic!("Unexpected GIC interrupt type {type_}");
+            return Err(DtError::UnsupportedGicInterruptType { type_ });
         }
 
         // The upper flag bits carry the PPI CPU affinity, which we do not care about.
-        let Some((trigger, _)) = decode_irq_flags(flags & 0xF) else {
-            println!(
-                "sif: Illegal IRQ flags {} found when parsing GIC interrupt",
-                flags & 0xF
-            );
-            return None;
-        };
+        let (trigger, _) =
+            decode_irq_flags(flags & 0xF).ok_or(DtError::InvalidIrqFlags { flags: flags & 0xF })?;
 
         let irq = idx + if type_ == 1 { 16 } else { 32 };
 
         // The GIC does not support configuring IRQ polarity.
-        Some(DtIrq {
+        Ok(DtIrq {
             index: irq,
             trigger: Some(trigger),
             polarity: None,

@@ -5,6 +5,7 @@ mod riscv64;
 
 use hel::{IrqPolarity, IrqTrigger};
 
+use crate::dt::DtError;
 use crate::dt::fdt::Cells;
 use crate::dt::node::get_device_tree_root;
 
@@ -20,7 +21,7 @@ pub struct DtIrq {
 
 pub trait IrqController: Sync {
     // Resolve a DT interrupt specifier to a controller-specific IRQ index.
-    fn resolve_dt_irq(&self, irq_specifier: Cells<'static>) -> Option<DtIrq>;
+    fn resolve_dt_irq(&self, irq_specifier: Cells<'static>) -> Result<DtIrq, DtError>;
 }
 
 // Decodes the IRQ_TYPE_* flags that the GIC and the APLIC share.

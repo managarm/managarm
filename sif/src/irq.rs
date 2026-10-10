@@ -30,26 +30,21 @@ impl IrqPin {
 static IRQ_PINS: Mutex<BTreeMap<u32, &'static IrqPin>> = Mutex::new(BTreeMap::new());
 
 // Configures a GSI and returns its pin, sharing pins between users of the same GSI.
-pub fn system_irq(gsi: u32, trigger: IrqTrigger, polarity: IrqPolarity) -> Option<&'static IrqPin> {
+pub fn system_irq(
+    gsi: u32,
+    trigger: IrqTrigger,
+    polarity: IrqPolarity,
+) -> hel::Result<&'static IrqPin> {
     let mut pins = IRQ_PINS.lock().expect(EXPECT_LOCK);
     if let Some(pin) = pins.get(&gsi) {
         if pin.trigger != Some(trigger) || pin.polarity != Some(polarity) {
             println!("sif: Conflicting configurations for GSI {gsi}");
         }
-        return Some(*pin);
+        return Ok(*pin);
     }
 
-    let handle = match hel::access_irq_by_gsi(hardware_access_handle(), gsi as u64) {
-        Ok(handle) => handle,
-        Err(err) => {
-            println!("sif: Failed to access GSI {gsi}: {err}");
-            return None;
-        }
-    };
-    if let Err(err) = hel::configure_irq(&handle, Some(trigger), Some(polarity)) {
-        println!("sif: Failed to configure GSI {gsi}: {err}");
-        return None;
-    }
+    let handle = hel::access_irq_by_gsi(hardware_access_handle(), gsi as u64)?;
+    hel::configure_irq(&handle, Some(trigger), Some(polarity))?;
 
     let pin = leak(IrqPin {
         name: format!("gsi-{gsi}"),
@@ -58,7 +53,7 @@ pub fn system_irq(gsi: u32, trigger: IrqTrigger, polarity: IrqPolarity) -> Optio
         polarity: Some(polarity),
     });
     pins.insert(gsi, pin);
-    Some(pin)
+    Ok(pin)
 }
 
 static DT_IRQ_PINS: Mutex<BTreeMap<(u32, u64), &'static IrqPin>> = Mutex::new(BTreeMap::new());
@@ -70,7 +65,7 @@ pub fn dt_irq(
     index: u64,
     trigger: Option<IrqTrigger>,
     polarity: Option<IrqPolarity>,
-) -> Option<&'static IrqPin> {
+) -> hel::Result<&'static IrqPin> {
     let phandle = controller.phandle();
     let mut pins = DT_IRQ_PINS.lock().expect(EXPECT_LOCK);
     if let Some(pin) = pins.get(&(phandle, index)) {
@@ -80,26 +75,11 @@ pub fn dt_irq(
                 controller.path()
             );
         }
-        return Some(*pin);
+        return Ok(*pin);
     }
 
-    let handle = match hel::access_irq_by_phandle(hardware_access_handle(), phandle.into(), index) {
-        Ok(handle) => handle,
-        Err(err) => {
-            println!(
-                "sif: Failed to access IRQ {index} of {}: {err}",
-                controller.path()
-            );
-            return None;
-        }
-    };
-    if let Err(err) = hel::configure_irq(&handle, trigger, polarity) {
-        println!(
-            "sif: Failed to configure IRQ {index} of {}: {err}",
-            controller.path()
-        );
-        return None;
-    }
+    let handle = hel::access_irq_by_phandle(hardware_access_handle(), phandle.into(), index)?;
+    hel::configure_irq(&handle, trigger, polarity)?;
 
     let pin = leak(IrqPin {
         name: format!("{}:{index}", controller.name()),
@@ -108,5 +88,5 @@ pub fn dt_irq(
         polarity,
     });
     pins.insert((phandle, index), pin);
-    Some(pin)
+    Ok(pin)
 }

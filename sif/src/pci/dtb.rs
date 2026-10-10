@@ -1,3 +1,4 @@
+use crate::dt::DtError;
 use crate::dt::node::{DeviceTreeNode, get_device_tree_root, walk_interrupt_map};
 use crate::irq::{IrqPin, dt_irq};
 use crate::{EXPECT_LOCK, leak};
@@ -72,8 +73,13 @@ fn build_routing(
             }
         }
 
-        let success = walk_interrupt_map(
-            &mut |child_address, child_irq, parent_node, _parent_address, parent_irq| {
+        let walked = walk_interrupt_map(
+            &mut |child_address,
+                  child_irq,
+                  parent_node,
+                  _parent_address,
+                  parent_irq|
+             -> Result<(), DtError> {
                 if child_address.num_cells() != 3 {
                     panic!("Expected three child address cells in ECAM interrupt-map");
                 }
@@ -97,11 +103,23 @@ fn build_routing(
                 let irq_controller = parent_node.associated_irq_controller().unwrap_or_else(|| {
                     panic!("No IRQ controller associated with {}", parent_node.path())
                 });
-                let Some(irq) = irq_controller.resolve_dt_irq(parent_irq) else {
-                    return;
+                let irq = match irq_controller.resolve_dt_irq(parent_irq) {
+                    Ok(irq) => irq,
+                    Err(err) => {
+                        println!("sif: {}: ignoring interrupt-map entry: {err}", node.path());
+                        return Ok(());
+                    }
                 };
-                let Some(pin) = dt_irq(parent_node, irq.index, irq.trigger, irq.polarity) else {
-                    return;
+                let pin = match dt_irq(parent_node, irq.index, irq.trigger, irq.polarity) {
+                    Ok(pin) => pin,
+                    Err(err) => {
+                        println!(
+                            "sif: Failed to set up IRQ {} of {}: {err}",
+                            irq.index,
+                            parent_node.path()
+                        );
+                        return Ok(());
+                    }
                 };
                 if LOG_ROUTING_TABLE {
                     println!(
@@ -114,11 +132,12 @@ fn build_routing(
                     index: IrqIndex::from_pin(index as u8),
                     pin,
                 });
+                Ok(())
             },
             node,
         );
-        if !success {
-            panic!("Failed to walk interrupt-map of {}", node.path());
+        if let Err(err) = walked {
+            panic!("Failed to walk interrupt-map of {}: {err}", node.path());
         }
     }
 
@@ -138,7 +157,13 @@ impl PciIrqRouter for DtbPciIrqRouter {
 fn init_pci_node(node: &'static DeviceTreeNode) {
     println!("sif: Initializing node \"{}\":", node.path());
 
-    let range = node.bus_range();
+    let range = match node.bus_range() {
+        Ok(range) => range,
+        Err(err) => {
+            println!("sif: Ignoring PCI(e) controller \"{}\": {err}", node.path());
+            return;
+        }
+    };
 
     let io: &'static dyn PciConfigIo = if node.is_compatible(&["pci-host-ecam-generic"]) {
         println!("sif:     It's a generic controller with ECAM IO.");
