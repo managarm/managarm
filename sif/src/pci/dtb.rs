@@ -1,4 +1,5 @@
 use crate::dt::DtError;
+use crate::dt::fdt::Cells;
 use crate::dt::node::{DeviceTreeNode, get_device_tree_root, walk_interrupt_map};
 use crate::irq::{IrqPin, dt_irq};
 use crate::{EXPECT_LOCK, leak};
@@ -7,7 +8,8 @@ use super::config::PciConfigIo;
 use super::config::ecam::EcamPcieConfigIo;
 use super::discover::add_root_bus;
 use super::{
-    IrqIndex, PciBus, PciBusResource, PciIrqRouter, RouterState, RoutingEntry, RoutingModel,
+    IrqIndex, PciBus, PciBusResource, PciError, PciIrqRouter, RouterState, RoutingEntry,
+    RoutingModel,
 };
 
 const LOG_ROUTING_TABLE: bool = false;
@@ -29,7 +31,15 @@ impl DtbPciIrqRouter {
         node: Option<&'static DeviceTreeNode>,
     ) -> &'static DtbPciIrqRouter {
         let mut state = RouterState::new();
-        build_routing(&mut state, parent, bus, node);
+        if let Err(err) = build_routing(&mut state, parent, bus, node) {
+            println!(
+                "sif: Giving up IRQ routing of PCI bus {:04x}:{:02x}: {:#}",
+                bus.seg_id,
+                bus.bus_id,
+                anyhow::Error::from(err)
+            );
+            state = RouterState::new();
+        }
 
         leak(DtbPciIrqRouter { state })
     }
@@ -40,22 +50,26 @@ fn build_routing(
     parent: Option<&'static dyn PciIrqRouter>,
     bus: &'static PciBus,
     node: Option<&'static DeviceTreeNode>,
-) {
+) -> Result<(), PciError> {
     let Some(node) = node else {
         let parent = parent.expect("expansion bridge routing without a parent router");
         state.route_expansion_bridge(parent, bus);
-        return;
+        return Ok(());
     };
 
-    let Some(mask_prop) = node.dt_node().find_property("interrupt-map-mask") else {
-        panic!("{} has no interrupt-map-mask", node.path());
-    };
+    let mask_prop =
+        node.dt_node()
+            .find_property("interrupt-map-mask")
+            .ok_or(DtError::MissingProperty {
+                name: "interrupt-map-mask",
+            })?;
 
     let mask = mask_prop
         .access()
         .read_cells(1)
-        .unwrap_or_else(|| panic!("{}: failed to read interrupt-map-mask field", node.path()))
-        as u32;
+        .ok_or(DtError::TruncatedProperty {
+            name: "interrupt-map-mask",
+        })? as u32;
 
     // TODO(qookie): We mask off the function bits here.
     let ignored = !mask & 0x0000F800;
@@ -73,75 +87,89 @@ fn build_routing(
             }
         }
 
-        let walked = walk_interrupt_map(
-            &mut |child_address,
-                  child_irq,
-                  parent_node,
-                  _parent_address,
-                  parent_irq|
-             -> Result<(), DtError> {
-                if child_address.num_cells() != 3 {
-                    panic!("Expected three child address cells in ECAM interrupt-map");
+        walk_interrupt_map(
+            &mut |child_address, child_irq, parent_node, _parent_address, parent_irq| {
+                match map_entry(bus, disp, child_address, child_irq, parent_node, parent_irq) {
+                    Ok(entry) => state.routing_table.push(entry),
+                    Err(err) => println!(
+                        "sif: {}: Ignoring an interrupt-map entry: {:#}",
+                        node.path(),
+                        anyhow::Error::from(err)
+                    ),
                 }
-                let bdf = child_address
-                    .read_slice(0, 1)
-                    .expect("Failed to read BDF from ECAM interupt-map")
-                    as u32;
-                let addr = bdf + disp;
-                let bus_id = (addr >> 16) & 0xFF;
-                let slot = (addr >> 11) & 0x1F;
-                let func = (addr >> 8) & 0x07;
-                assert!(bus_id == bus.bus_id as u32);
-                assert!(func == 0, "TODO: support routing of individual functions");
-
-                let index = child_irq
-                    .read()
-                    .expect("Failed to read pin index from interrupt-map");
-                // The parent address does not matter in this case
-                // (and is not present on QEMU's virt machine on AArch64).
-
-                let irq_controller = parent_node.associated_irq_controller().unwrap_or_else(|| {
-                    panic!("No IRQ controller associated with {}", parent_node.path())
-                });
-                let irq = match irq_controller.resolve_dt_irq(parent_irq) {
-                    Ok(irq) => irq,
-                    Err(err) => {
-                        println!("sif: {}: ignoring interrupt-map entry: {err}", node.path());
-                        return Ok(());
-                    }
-                };
-                let pin = match dt_irq(parent_node, irq.index, irq.trigger, irq.polarity) {
-                    Ok(pin) => pin,
-                    Err(err) => {
-                        println!(
-                            "sif: Failed to set up IRQ {} of {}: {err}",
-                            irq.index,
-                            parent_node.path()
-                        );
-                        return Ok(());
-                    }
-                };
-                if LOG_ROUTING_TABLE {
-                    println!(
-                        "sif: {bus_id} {slot} [{index}]: Routed to IRQ {}",
-                        pin.name()
-                    );
-                }
-                state.routing_table.push(RoutingEntry {
-                    slot: slot as u8,
-                    index: IrqIndex::from_pin(index as u8),
-                    pin,
-                });
-                Ok(())
+                Ok::<(), PciError>(())
             },
             node,
-        );
-        if let Err(err) = walked {
-            panic!("Failed to walk interrupt-map of {}: {err}", node.path());
-        }
+        )?;
     }
 
     state.routing_model = RoutingModel::RootTable;
+    Ok(())
+}
+
+/// Resolves an entry of the interrupt-map of a host bridge to a route.
+fn map_entry(
+    bus: &'static PciBus,
+    disp: u32,
+    child_address: Cells<'static>,
+    child_irq: Cells<'static>,
+    parent_node: &'static DeviceTreeNode,
+    parent_irq: Cells<'static>,
+) -> Result<RoutingEntry, PciError> {
+    let cells = child_address.num_cells();
+    if cells != 3 {
+        return Err(DtError::UnsupportedCells {
+            name: "interrupt-map",
+            cells,
+        }
+        .into());
+    }
+    let bdf = child_address
+        .read_slice(0, 1)
+        .expect("Failed to read BDF from ECAM interupt-map") as u32;
+    let addr = bdf + disp;
+    let bus_id = (addr >> 16) & 0xFF;
+    let slot = (addr >> 11) & 0x1F;
+    let func = (addr >> 8) & 0x07;
+    if bus_id != bus.bus_id as u32 {
+        return Err(PciError::RouteForOtherBus { bus: bus_id });
+    }
+    // TODO: support routing of individual functions.
+    if func != 0 {
+        return Err(PciError::FunctionRoute);
+    }
+
+    let index = child_irq.read().ok_or(DtError::UnsupportedCells {
+        name: "interrupt-map",
+        cells: child_irq.num_cells(),
+    })?;
+    // The parent address does not matter in this case
+    // (and is not present on QEMU's virt machine on AArch64).
+
+    let irq_controller = parent_node.associated_irq_controller().ok_or_else(|| {
+        DtError::UnsupportedInterruptController {
+            controller: parent_node.path().to_string(),
+        }
+    })?;
+    let irq = irq_controller.resolve_dt_irq(parent_irq)?;
+    let pin = dt_irq(parent_node, irq.index, irq.trigger, irq.polarity).map_err(|source| {
+        PciError::DtIrqSetup {
+            index: irq.index,
+            controller: parent_node.path().to_string(),
+            source,
+        }
+    })?;
+    if LOG_ROUTING_TABLE {
+        println!(
+            "sif: {bus_id} {slot} [{index}]: Routed to IRQ {}",
+            pin.name()
+        );
+    }
+    Ok(RoutingEntry {
+        slot: slot as u8,
+        index: IrqIndex::from_pin(index as u8),
+        pin,
+    })
 }
 
 impl PciIrqRouter for DtbPciIrqRouter {
@@ -154,31 +182,28 @@ impl PciIrqRouter for DtbPciIrqRouter {
     }
 }
 
-fn init_pci_node(node: &'static DeviceTreeNode) {
+fn init_pci_node(node: &'static DeviceTreeNode) -> Result<(), PciError> {
     println!("sif: Initializing node \"{}\":", node.path());
 
-    let range = match node.bus_range() {
-        Ok(range) => range,
-        Err(err) => {
-            println!("sif: Ignoring PCI(e) controller \"{}\": {err}", node.path());
-            return;
-        }
-    };
+    let range = node.bus_range()?;
 
     let io: &'static dyn PciConfigIo = if node.is_compatible(&["pci-host-ecam-generic"]) {
         println!("sif:     It's a generic controller with ECAM IO.");
-        assert!(node.reg().len() == 1);
+        let [reg] = node.reg() else {
+            return Err(PciError::EcamRegCount {
+                count: node.reg().len(),
+            });
+        };
 
         leak(EcamPcieConfigIo::new(
-            node.reg()[0].addr,
+            reg.addr,
             0,
             range.from as u8,
             range.to as u8,
         ))
     } else {
         // The Broadcom STB PCIe controller (brcm,bcm2711-pcie) is not ported yet.
-        println!("sif: Unsupported PCI(e) controller \"{}\"", node.path());
-        return;
+        return Err(PciError::UnsupportedHostBridge);
     };
 
     let root_bus = PciBus::new(None, io, 0, range.from as u8);
@@ -189,7 +214,9 @@ fn init_pci_node(node: &'static DeviceTreeNode) {
     );
 
     for r in node.ranges() {
-        assert!(r.child_addr_hi_valid);
+        if !r.child_addr_hi_valid {
+            return Err(PciError::RangeWithoutPciAddress);
+        }
 
         let type_ = (r.child_addr_hi >> 24) & 0b11;
 
@@ -226,6 +253,7 @@ fn init_pci_node(node: &'static DeviceTreeNode) {
     }
 
     add_root_bus(root_bus);
+    Ok(())
 }
 
 pub fn discover_root_buses() {
@@ -237,7 +265,13 @@ pub fn discover_root_buses() {
 
     root.for_each(&mut |node| {
         if node.is_compatible(&DT_PCI_COMPATIBLE) {
-            init_pci_node(node);
+            if let Err(err) = init_pci_node(node) {
+                println!(
+                    "sif: Ignoring PCI host bridge {}: {:#}",
+                    node.path(),
+                    anyhow::Error::from(err)
+                );
+            }
             i += 1;
         }
 

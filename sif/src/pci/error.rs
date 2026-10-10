@@ -1,5 +1,7 @@
 use thiserror::Error;
 
+use crate::dt::DtError;
+
 /// Reasons why sif cannot use a PCI function or one of its features.
 #[derive(Debug, Error)]
 pub enum PciError {
@@ -39,6 +41,32 @@ pub enum PciError {
         #[source]
         source: hel::Error,
     },
+
+    #[error("the host bridge is not supported")]
+    UnsupportedHostBridge,
+
+    #[error("the ECAM host bridge has {count} reg entries instead of one")]
+    EcamRegCount { count: usize },
+
+    #[error("a range of the host bridge has no PCI address")]
+    RangeWithoutPciAddress,
+
+    #[error("the route is for bus {bus:02x}")]
+    RouteForOtherBus { bus: u32 },
+
+    #[error("routes of individual functions are not supported")]
+    FunctionRoute,
+
+    #[error("failed to set up IRQ {index} of {controller}")]
+    DtIrqSetup {
+        index: u64,
+        controller: String,
+        #[source]
+        source: hel::Error,
+    },
+
+    #[error(transparent)]
+    Dt(#[from] DtError),
 
     #[error(transparent)]
     Hel(#[from] hel::Error),
