@@ -1405,7 +1405,7 @@ private:
 	void unchargePages_(size_t n);
 
 	// Allocate/free an owned copy of a page.
-	std::expected<PhysicalAddr, Error> _allocateCopy();
+	coroutine<std::expected<PhysicalAddr, Error>> _allocateCopy();
 	void _freeCopy(PhysicalAddr physical);
 
 public:

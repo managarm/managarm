@@ -2594,7 +2594,7 @@ BackingMemory::touchRange(uintptr_t offset, size_t, FetchFlags) {
 			}
 		}
 
-		auto physicalOutcome = tryChargeAndAllocate(_managed->hierarchy.get(), kPageSize,
+		auto physicalOutcome = co_await chargeAndAllocate(_managed->hierarchy.get(), kPageSize,
 				PhysicalKind::evictable, 64);
 		if(!physicalOutcome)
 			co_return physicalOutcome.error();
@@ -3284,7 +3284,7 @@ SwappableMemory::touchRange(uintptr_t offset, size_t, FetchFlags flags) {
 		}
 
 		assert(freshPhysical == PhysicalAddr(-1));
-		auto physicalOutcome = tryChargeAndAllocate(_space->hierarchy.get(), kPageSize,
+		auto physicalOutcome = co_await chargeAndAllocate(_space->hierarchy.get(), kPageSize,
 				PhysicalKind::evictable, 64);
 		if(!physicalOutcome)
 			co_return physicalOutcome.error();
@@ -3710,7 +3710,7 @@ coroutine<frg::expected<Error, smarter::shared_ptr<MemoryView>>> CopyOnWriteMemo
 
 	// Copy all the pages that were locked.
 	for(auto [pg, src] : lockedCopies) {
-		auto physicalOutcome = _allocateCopy();
+		auto physicalOutcome = co_await _allocateCopy();
 		if(!physicalOutcome)
 			co_return physicalOutcome.error();
 		auto copyPhysical = *physicalOutcome;
@@ -4029,7 +4029,6 @@ CopyOnWriteMemory::_materializePage(uintptr_t offset,
 		_copyEvent.raise();
 	}};
 
-	// TODO: On OOM, wait for memory and retry; the page stays inProgress meanwhile.
 	// Replacing a shared page by an owned one does not charge here
 	// since we already charged for the shared page at fork() time.
 	if(!sharedPage) {
@@ -4041,7 +4040,7 @@ CopyOnWriteMemory::_materializePage(uintptr_t offset,
 			unchargePages_(1);
 	}};
 
-	auto physicalOutcome = _allocateCopy();
+	auto physicalOutcome = co_await _allocateCopy();
 	if(!physicalOutcome)
 		co_return physicalOutcome.error();
 	auto physical = *physicalOutcome;
@@ -4104,14 +4103,14 @@ void CopyOnWriteMemory::unchargePages_(size_t n) {
 	_hierarchy->unchargeMemory(n << kPageShift);
 }
 
-std::expected<PhysicalAddr, Error> CopyOnWriteMemory::_allocateCopy() {
+coroutine<std::expected<PhysicalAddr, Error>> CopyOnWriteMemory::_allocateCopy() {
 	if(_space)
-		return tryChargeAndAllocate(_space->hierarchy.get(), kPageSize,
+		co_return co_await chargeAndAllocate(_space->hierarchy.get(), kPageSize,
 				PhysicalKind::evictable, 64);
 	// Non-swappable CopyOnWriteMemory only needs the charge in tryChargePages_().
 	auto physical = physicalAllocator->allocate(kPageSize, 64);
 	assert(physical != PhysicalAddr(-1) && "OOM");
-	return physical;
+	co_return physical;
 }
 
 void CopyOnWriteMemory::_freeCopy(PhysicalAddr physical) {
