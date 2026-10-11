@@ -2542,37 +2542,51 @@ BackingMemory::touchRange(uintptr_t offset, size_t, FetchFlags) {
 	if(offset >= backingMemoryLength)
 		co_return Error::fault;
 
-	auto irqLock = frg::guard(&irqMutex());
-	auto lock = frg::guard(&_managed->mutex);
+	// Frame that is allocated and zeroed outside of the mutex, then attached under the mutex.
+	PhysicalAddr freshPhysical(-1);
+	frg::scope_exit freeFreshFrame{[&] {
+		if(freshPhysical != PhysicalAddr(-1))
+			deallocateAndUncharge(_managed->hierarchy.get(), freshPhysical, kPageSize,
+					PhysicalKind::evictable);
+	}};
 
-	// On swap spaces, the daemon may only access pages while it serves their transactions.
-	auto pit = _managed->isSwapSpace
-			? _managed->findPage(index)
-			: _managed->findOrInsertPage(index);
-	if(!pit || (_managed->isSwapSpace && !_managed->isHandedToManager(pit)))
-		co_return Error::fault;
+	while(true) {
+		{
+			auto irqLock = frg::guard(&irqMutex());
+			auto lock = frg::guard(&_managed->mutex);
 
-	if(pit->transactionState == ManagedSpace::TxState::performReclaim) {
-		pit->transactionState = ManagedSpace::TxState::avertReclaim;
-	} else if(pit->transactionState == ManagedSpace::TxState::performDiscard) {
-		pit->transactionState = ManagedSpace::TxState::avertDiscard;
-	}
+			// On swap spaces, the daemon may only access pages while it serves their transactions.
+			auto pit = _managed->isSwapSpace
+					? _managed->findPage(index)
+					: _managed->findOrInsertPage(index);
+			if(!pit || (_managed->isSwapSpace && !_managed->isHandedToManager(pit)))
+				co_return Error::fault;
 
-	if(pit->physical == PhysicalAddr(-1)) {
+			if(pit->transactionState == ManagedSpace::TxState::performReclaim) {
+				pit->transactionState = ManagedSpace::TxState::avertReclaim;
+			} else if(pit->transactionState == ManagedSpace::TxState::performDiscard) {
+				pit->transactionState = ManagedSpace::TxState::avertDiscard;
+			}
+
+			if(pit->physical != PhysicalAddr(-1))
+				co_return kPageSize - misalign;
+
+			if(freshPhysical != PhysicalAddr(-1)) {
+				globalPfnDb().insert(freshPhysical, PfnDescriptor::cachePage(&pit->cachePage));
+				pit->physical = freshPhysical;
+				freshPhysical = PhysicalAddr(-1);
+				co_return kPageSize - misalign;
+			}
+		}
+
 		auto physicalOutcome = tryChargeAndAllocate(_managed->hierarchy.get(), kPageSize,
 				PhysicalKind::evictable, 64);
 		if(!physicalOutcome)
 			co_return physicalOutcome.error();
-		auto physical = *physicalOutcome;
-
-		PageAccessor accessor{physical};
+		freshPhysical = *physicalOutcome;
+		PageAccessor accessor{freshPhysical};
 		memset(accessor.get(), 0, kPageSize);
-
-		globalPfnDb().insert(physical, PfnDescriptor::cachePage(&pit->cachePage));
-		pit->physical = physical;
 	}
-
-	co_return kPageSize - misalign;
 }
 
 size_t BackingMemory::getLength() {
