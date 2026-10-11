@@ -1034,8 +1034,7 @@ AllocatedMemory::~AllocatedMemory() {
 		if(_physicalChunks[i] != PhysicalAddr(-1)) {
 			for(size_t pg = 0; pg < _chunkSize; pg += kPageSize)
 				globalPfnDb().erase(_physicalChunks[i] + pg);
-			physicalAllocator->free(_physicalChunks[i], _chunkSize);
-			_hierarchy->unchargeMemory(_chunkSize);
+			deallocateAndUncharge(_hierarchy.get(), _physicalChunks[i], _chunkSize);
 		}
 	}
 	if(logUsage)
@@ -1129,8 +1128,10 @@ AllocatedMemory::touchRange(uintptr_t offset, size_t, FetchFlags) {
 		co_return Error::fault;
 
 	if(_physicalChunks[index] == PhysicalAddr(-1)) {
-		auto physical = physicalAllocator->allocate(_chunkSize, _addressBits);
-		assert(physical != PhysicalAddr(-1) && "OOM");
+		auto physicalOutcome = tryChargeAndAllocate(_hierarchy.get(), _chunkSize, _addressBits);
+		if(!physicalOutcome)
+			co_return physicalOutcome.error();
+		auto physical = *physicalOutcome;
 		assert(!(physical & (_chunkAlign - 1)));
 
 		for(size_t pg_progress = 0; pg_progress < _chunkSize; pg_progress += kPageSize) {
@@ -1140,7 +1141,6 @@ AllocatedMemory::touchRange(uintptr_t offset, size_t, FetchFlags) {
 			globalPfnDb().insert(physical + pg_progress, PfnDescriptor::otherPage());
 		}
 		_physicalChunks[index] = physical;
-		_hierarchy->chargeMemory(_chunkSize);
 	}
 
 	assert(_physicalChunks[index] != PhysicalAddr(-1));
