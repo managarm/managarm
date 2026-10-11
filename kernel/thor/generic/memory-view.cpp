@@ -1120,34 +1120,49 @@ coroutine<frg::expected<Error, size_t>>
 AllocatedMemory::touchRange(uintptr_t offset, size_t, FetchFlags) {
 	assert(currentIpl() == ipl::exceptionalWork);
 
-	auto irqLock = frg::guard(&irqMutex());
-	auto lock = frg::guard(&_mutex);
-
 	auto index = offset / _chunkSize;
 	auto misalign = offset & (_chunkSize - 1);
 
-	if(index >= _physicalChunks.size())
-		co_return Error::fault;
+	{
+		auto irqLock = frg::guard(&irqMutex());
+		auto lock = frg::guard(&_mutex);
 
-	if(_physicalChunks[index] == PhysicalAddr(-1)) {
-		auto kind = _chunkSize > kPageSize ? PhysicalKind::contiguous : PhysicalKind::pinned;
-		auto physicalOutcome = tryChargeAndAllocate(_hierarchy.get(), _chunkSize,
-				kind, _addressBits);
-		if(!physicalOutcome)
-			co_return physicalOutcome.error();
-		auto physical = *physicalOutcome;
-		assert(!(physical & (_chunkAlign - 1)));
-
-		for(size_t pg_progress = 0; pg_progress < _chunkSize; pg_progress += kPageSize) {
-			PageAccessor accessor{physical + pg_progress};
-			memset(accessor.get(), 0, kPageSize);
-
-			globalPfnDb().insert(physical + pg_progress, PfnDescriptor::otherPage());
-		}
-		_physicalChunks[index] = physical;
+		if(index >= _physicalChunks.size())
+			co_return Error::fault;
+		if(_physicalChunks[index] != PhysicalAddr(-1))
+			co_return _chunkSize - misalign;
 	}
 
-	assert(_physicalChunks[index] != PhysicalAddr(-1));
+	auto kind = _chunkSize > kPageSize ? PhysicalKind::contiguous : PhysicalKind::pinned;
+	auto physicalOutcome = tryChargeAndAllocate(_hierarchy.get(), _chunkSize,
+			kind, _addressBits);
+	if(!physicalOutcome)
+		co_return physicalOutcome.error();
+	auto physical = *physicalOutcome;
+	assert(!(physical & (_chunkAlign - 1)));
+
+	for(size_t pg_progress = 0; pg_progress < _chunkSize; pg_progress += kPageSize) {
+		PageAccessor accessor{physical + pg_progress};
+		memset(accessor.get(), 0, kPageSize);
+	}
+
+	{
+		auto irqLock = frg::guard(&irqMutex());
+		auto lock = frg::guard(&_mutex);
+
+		// resize() never shrinks, so index is still in bounds.
+		if(_physicalChunks[index] == PhysicalAddr(-1)) {
+			for(size_t pg_progress = 0; pg_progress < _chunkSize; pg_progress += kPageSize)
+				globalPfnDb().insert(physical + pg_progress, PfnDescriptor::otherPage());
+			_physicalChunks[index] = physical;
+			physical = PhysicalAddr(-1);
+		}
+	}
+
+	// Another thread published a chunk while the lock was dropped.
+	if(physical != PhysicalAddr(-1))
+		deallocateAndUncharge(_hierarchy.get(), physical, _chunkSize, kind);
+
 	co_return _chunkSize - misalign;
 }
 
