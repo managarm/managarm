@@ -38,12 +38,27 @@ namespace {
 // Frame allocation
 // --------------------------------------------------------
 
+coroutine<std::expected<PhysicalAddr, Error>>
+chargeAndAllocate(Hierarchy *hierarchy, size_t size, PhysicalKind kind, int addressBits) {
+	assert(currentIpl() == ipl::exceptionalWork);
+
+	// TODO: This does not wait yet. Change this when implementing waiting in the physical allocator.
+	if(auto charge = hierarchy->tryChargeMemory(size); !charge)
+		co_return std::unexpected{charge.error()};
+	auto physical = physicalAllocator->tryAllocate(size, kind, addressBits);
+	assert(physical && "OOM");
+	co_return *physical;
+}
+
 std::expected<PhysicalAddr, Error>
 tryChargeAndAllocate(Hierarchy *hierarchy, size_t size, PhysicalKind kind, int addressBits) {
 	if(auto charge = hierarchy->tryChargeMemory(size); !charge)
 		return std::unexpected{charge.error()};
 	auto physical = physicalAllocator->tryAllocate(size, kind, addressBits);
-	assert(physical && "OOM");
+	if(!physical) {
+		hierarchy->unchargeMemory(size);
+		return std::unexpected{physical.error()};
+	}
 	return *physical;
 }
 
