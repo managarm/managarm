@@ -504,6 +504,7 @@ void handlePageFault(FaultImageAccessor image, uintptr_t address, Word errorCode
 	switch(handledError.error()) {
 		case Error::fault: info.pageFaultType = PageFaultType::NotMapped; break;
 		case Error::badPermissions: info.pageFaultType = PageFaultType::BadPermissions; break;
+		case Error::noMemory: info.pageFaultType = PageFaultType::OutOfMemory; break;
 		default:
 			info.pageFaultType = PageFaultType::None;
 			infoLogger() << "thor: unhandled page fault error 0x" << frg::hex_fmt{std::to_underlying(handledError.error())} << frg::endlog;

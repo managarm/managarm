@@ -53,6 +53,7 @@ enum class PageFaultType {
 	None,
 	NotMapped,
 	BadPermissions,
+	OutOfMemory,
 };
 
 struct InterruptInfo {
