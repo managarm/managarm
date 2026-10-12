@@ -3943,23 +3943,39 @@ CopyOnWriteMemory::_materializePage(uintptr_t offset,
 	// Note: offset is not necessarily page aligned.
 	auto pageOffset = (_viewOffset + offset) & ~(kPageSize - 1);
 
+	// If there is no copy, roll the page back so that waiters do not wait forever.
+	frg::scope_exit rollback{[&] {
+		{
+			auto irqLock = frg::guard(&irqMutex());
+			auto lock = frg::guard(&_mutex);
+
+			assert(cowPage->state == CowState::inProgress);
+			cowPage->state = CowState::null;
+			// Locked pages stay as placeholders, as created by lockRange().
+			if(!cowPage->lockCount)
+				_ownedPages.erase(offset >> kPageShift);
+		}
+		_copyEvent.raise();
+	}};
+
 	// TODO: On OOM, wait for memory and retry; the page stays inProgress meanwhile.
 	PhysicalAddr physical = physicalAllocator->allocate(kPageSize);
 	assert(physical != PhysicalAddr(-1) && "OOM");
+	frg::scope_exit freeCopy{[&] {
+		physicalAllocator->free(physical, kPageSize);
+	}};
 
 	// Copy from the shared page (outside of the locks; it remains in hasCopy state)
 	// or from the root view.
-	frg::expected<Error> outcome;
 	if(sharedPage) {
-		outcome = co_await _copyFromCowPage(sharedPage.get(), physical, flags);
+		FRG_CO_TRY(co_await _copyFromCowPage(sharedPage.get(), physical, flags));
 	}else{
 		PageAccessor accessor{physical};
-		outcome = co_await _view->copyFrom(pageOffset, accessor.get(), kPageSize);
+		FRG_CO_TRY(co_await _view->copyFrom(pageOffset, accessor.get(), kPageSize));
 	}
 
 	// To make CoW unobservable, we first need to evict the page here.
-	if(outcome)
-		co_await evictionQueue()->breakRange(alignedOffset, kPageSize);
+	co_await evictionQueue()->breakRange(alignedOffset, kPageSize);
 
 	bool raiseDirty = false;
 	bool raiseExpedite = false;
@@ -3968,32 +3984,24 @@ CopyOnWriteMemory::_materializePage(uintptr_t offset,
 		auto lock = frg::guard(&_mutex);
 
 		assert(cowPage->state == CowState::inProgress);
-		if(outcome)
-			outcome = _publishCopy(cowPage.get(), physical, raiseDirty, raiseExpedite);
-		if(outcome) {
-			// Replacing a shared page by an owned one does not charge here
-			// since we already charged for the shared page at fork() time.
-			if (!sharedPage)
-				chargePages_(1);
-			// The owned copy supersedes the shared page, so drop our reference to it.
-			if(sharedPage)
-				_sharedPages.erase(offset >> kPageShift);
-		}else{
-			// There is no copy, roll the page back so that waiters do not wait forever.
-			cowPage->state = CowState::null;
-			// Locked pages stay as placeholders, as created by lockRange().
-			if(!cowPage->lockCount)
-				_ownedPages.erase(offset >> kPageShift);
-		}
+		if(auto outcome = _publishCopy(cowPage.get(), physical, raiseDirty, raiseExpedite); !outcome)
+			co_return outcome.error();
+		freeCopy.release();
+		rollback.release();
+		// Replacing a shared page by an owned one does not charge here
+		// since we already charged for the shared page at fork() time.
+		if (!sharedPage)
+			chargePages_(1);
+		// The owned copy supersedes the shared page, so drop our reference to it.
+		if(sharedPage)
+			_sharedPages.erase(offset >> kPageShift);
 	}
-	if(!outcome)
-		physicalAllocator->free(physical, kPageSize);
 	_copyEvent.raise();
 	if(raiseDirty)
 		_space->_dirtyEvent.raise();
 	if(raiseExpedite)
 		_space->_expediteEvent.raise();
-	co_return outcome;
+	co_return {};
 }
 
 void CopyOnWriteMemory::chargePages_(size_t n) {
