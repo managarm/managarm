@@ -46,6 +46,9 @@ pub enum PciError {
     #[error("the host bridge is not supported")]
     UnsupportedHostBridge,
 
+    #[error("failed to set up the host bridge")]
+    HostBridgeSetup(#[source] Box<dyn std::error::Error + Send + Sync>),
+
     #[error("the ECAM host bridge has {count} reg entries instead of one")]
     EcamRegCount { count: usize },
 

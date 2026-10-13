@@ -2,6 +2,7 @@ use managarm::svrctl::hardware_access_handle;
 use std::ptr::addr_of;
 
 use super::PciDevice;
+use super::quirks_rpi4::upload_raspberry_pi4_vl805_firmware;
 
 use crate::acpi::PAGE_MASK;
 
@@ -224,7 +225,7 @@ const DEFAULT_QUIRK: Quirk = Quirk {
     func: |_| {},
 };
 
-// Like thor's quirk table, minus the RPi4 VL805 firmware upload (not ported yet).
+// The same table as thor's.
 static QUIRKS: &[Quirk] = &[
     Quirk {
         pci_class: Some(0x0C),
@@ -239,6 +240,14 @@ static QUIRKS: &[Quirk] = &[
         pci_interface: Some(0x30),
         pci_vendor: Some(0x8086),
         func: switch_usb_ports_to_xhci,
+        ..DEFAULT_QUIRK
+    },
+    Quirk {
+        pci_class: Some(0x0C),
+        pci_subclass: Some(0x03),
+        pci_interface: Some(0x30),
+        pci_vendor: Some(0x1106),
+        func: upload_raspberry_pi4_vl805_firmware,
         ..DEFAULT_QUIRK
     },
     Quirk {
