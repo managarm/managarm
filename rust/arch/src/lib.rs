@@ -10,6 +10,7 @@ pub(crate) mod sealed {
 }
 
 mod bits;
+mod cache;
 mod domain;
 mod mem_space;
 mod pio_space;
@@ -17,6 +18,7 @@ mod register;
 mod scalar;
 
 pub use bits::{BitConvertible, BitValue, Field};
+pub use cache::{cache_clean_or_invalidate, cache_invalidate, cache_writeback};
 pub use domain::{Domain, IoMemDomain, MainMemDomain};
 pub use mem_space::{BaseMemSpace, IoMemSpace, MainMemSpace, MemAccess};
 pub use pio_space::{PioAccess, PioSpace};
