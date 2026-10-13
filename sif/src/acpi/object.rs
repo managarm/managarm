@@ -1,10 +1,10 @@
-use std::collections::{BTreeMap, HashMap};
+use std::collections::BTreeMap;
 use std::sync::{Arc, Mutex};
 
 use anyhow::Result;
 use managarm::hw::Error as HwError;
 use managarm::hw::server::{AcpiObject, AcpiResources, serve_acpi_object};
-use managarm::mbus::{EntityManager, create_entity};
+use managarm::mbus::{EntityManager, Properties, create_entity};
 use managarm::svrctl::hardware_access_handle;
 
 use crate::entity::{serve_entity_lanes, string};
@@ -151,9 +151,17 @@ impl AcpiObject for NodeObject {
 
 /// Publishes the acpi-object entity of a node and starts serving it.
 pub async fn publish(node: NamespaceNode, instance: usize) -> Result<&'static EntityManager> {
+    publish_with_properties(node, instance, Properties::new()).await
+}
+
+/// Like [`publish`], but adds props to the properties of the entity.
+pub async fn publish_with_properties(
+    node: NamespaceNode,
+    instance: usize,
+    mut props: Properties,
+) -> Result<&'static EntityManager> {
     let path = node.absolute_path();
 
-    let mut props = HashMap::new();
     props.insert("unix.subsystem".into(), string("acpi"));
     props.insert("acpi.path".into(), string(&path));
     let (hid, cid) = runtime::run(move |aml| {
