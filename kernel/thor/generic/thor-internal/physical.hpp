@@ -1,6 +1,7 @@
 #pragma once
 
 #include <atomic>
+#include <expected>
 
 #include <eir/interface.hpp>
 #include <frg/optional.hpp>
@@ -9,6 +10,7 @@
 #include <physical-buddy.hpp>
 #include <thor-internal/arch-generic/paging-consts.hpp>
 #include <thor-internal/elf-notes.hpp>
+#include <thor-internal/error.hpp>
 #include <thor-internal/types.hpp>
 
 namespace thor {
@@ -130,7 +132,12 @@ public:
 	void bootstrapRegion(PhysicalAddr address,
 			int order, size_t numRoots, int8_t *buddyTree);
 
+	// Allocates a naturally aligned power-of-two sized chunk.
+	std::expected<PhysicalAddr, Error> tryAllocate(size_t size, int addressBits = 64);
+
+	// Like tryAllocate() but returns -1 on failure.
 	PhysicalAddr allocate(size_t size, int addressBits = 64);
+
 	void free(PhysicalAddr address, size_t size);
 
 	size_t numTotalPages() {

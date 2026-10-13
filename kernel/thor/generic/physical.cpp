@@ -86,20 +86,22 @@ void PhysicalChunkAllocator::bootstrapRegion(PhysicalAddr address,
 }
 
 PhysicalAddr PhysicalChunkAllocator::allocate(size_t size, int addressBits) {
-	auto irq_lock = frg::guard(&irqMutex());
-	auto lock = frg::guard(&_mutex);
+	auto outcome = tryAllocate(size, addressBits);
+	if(!outcome)
+		return static_cast<PhysicalAddr>(-1);
+	return *outcome;
+}
 
-	auto currentFree = _freePages.load(std::memory_order_relaxed);
-	auto currentUsed = _usedPages.load(std::memory_order_relaxed);
-	assert(currentFree > size / kPageSize);
-	_freePages.store(currentFree - size / kPageSize, std::memory_order_relaxed);
-	_usedPages.store(currentUsed + size / kPageSize, std::memory_order_relaxed);
-
+std::expected<PhysicalAddr, Error> PhysicalChunkAllocator::tryAllocate(size_t size,
+		int addressBits) {
 	// TODO: This could be solved better.
 	int target = 0;
 	while(size > (size_t(kPageSize) << target))
 		target++;
 	assert(size == (size_t(kPageSize) << target));
+
+	auto irq_lock = frg::guard(&irqMutex());
+	auto lock = frg::guard(&_mutex);
 
 	if(logPhysicalAllocs)
 		infoLogger() << "thor: Allocating physical memory of order "
@@ -126,11 +128,17 @@ PhysicalAddr PhysicalChunkAllocator::allocate(size_t size, int addressBits) {
 				continue;
 		//	infoLogger() << "Allocate " << (void *)physical << frg::endlog;
 			assert(!(physical % (size_t(kPageSize) << target)));
+
+			auto currentFree = _freePages.load(std::memory_order_relaxed);
+			auto currentUsed = _usedPages.load(std::memory_order_relaxed);
+			assert(currentFree >= size / kPageSize);
+			_freePages.store(currentFree - size / kPageSize, std::memory_order_relaxed);
+			_usedPages.store(currentUsed + size / kPageSize, std::memory_order_relaxed);
 			return physical;
 		}
 	}
 
-	return static_cast<PhysicalAddr>(-1);
+	return std::unexpected{Error::noMemory};
 }
 
 void PhysicalChunkAllocator::free(PhysicalAddr address, size_t size) {
