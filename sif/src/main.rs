@@ -38,7 +38,7 @@ fn main() -> Result<()> {
             bail!("the kernel reported neither an ACPI RSDP nor a device tree");
         }
 
-        // thor publishes dt-node objects whenever a device tree exists, even on ACPI systems.
+        // dt-node objects are published whenever a device tree exists, even on ACPI systems.
         if dt_address != 0 {
             degrade("Device tree parsing", dt::node::init(dt_address, dt_size));
             dt::irq::init();
