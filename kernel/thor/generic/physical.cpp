@@ -88,6 +88,7 @@ void PhysicalChunkAllocator::bootstrapRegion(PhysicalAddr address,
 	for(size_t i = 0; i < numRoots; i++) {
 		auto freeItems = region.buddyAccessor.countFreeItems(i);
 		region.usedPagesOfRoot[i] = region.pagesPerRoot() - freeItems;
+		region.unevictablePagesOfRoot[i] = region.usedPagesOfRoot[i];
 		usedPages += region.usedPagesOfRoot[i];
 	}
 
@@ -223,7 +224,7 @@ std::expected<PhysicalAddr, Error> PhysicalChunkAllocator::tryAllocate(size_t si
 	if(!allocation)
 		return std::unexpected{Error::noMemory};
 
-	accountAllocation_(*allocation, size / kPageSize);
+	accountAllocation_(*allocation, size / kPageSize, kind);
 	return allocation->physical;
 }
 
@@ -283,12 +284,15 @@ void PhysicalChunkAllocator::convertRoot_(Region &region, size_t rootIndex, Root
 	region.rootClasses[rootIndex] = to;
 }
 
-void PhysicalChunkAllocator::accountAllocation_(Allocation allocation, size_t numPages) {
+void PhysicalChunkAllocator::accountAllocation_(Allocation allocation, size_t numPages,
+		PhysicalKind kind) {
 	auto &region = *allocation.region;
 	auto rootIndex = region.rootOfAddress(allocation.physical);
 	// Chunks are aligned to their size relative to the region, so they never straddle roots.
 	assert(region.rootOfAddress(allocation.physical + (numPages << kPageShift) - 1) == rootIndex);
 	region.usedPagesOfRoot[rootIndex] += numPages;
+	if(kind != PhysicalKind::evictable)
+		region.unevictablePagesOfRoot[rootIndex] += numPages;
 
 	auto currentFree = _freePages.load(std::memory_order_relaxed);
 	auto currentUsed = _usedPages.load(std::memory_order_relaxed);
@@ -297,7 +301,7 @@ void PhysicalChunkAllocator::accountAllocation_(Allocation allocation, size_t nu
 	_usedPages.store(currentUsed + numPages, std::memory_order_relaxed);
 }
 
-void PhysicalChunkAllocator::free(PhysicalAddr address, size_t size) {
+void PhysicalChunkAllocator::free(PhysicalAddr address, size_t size, PhysicalKind kind) {
 	auto irq_lock = frg::guard(&irqMutex());
 	auto lock = frg::guard(&_mutex);
 	
@@ -318,6 +322,13 @@ void PhysicalChunkAllocator::free(PhysicalAddr address, size_t size) {
 		auto rootIndex = region.rootOfAddress(address);
 		assert(region.usedPagesOfRoot[rootIndex] >= numPages);
 		region.usedPagesOfRoot[rootIndex] -= numPages;
+		if(kind != PhysicalKind::evictable) {
+			assert(region.unevictablePagesOfRoot[rootIndex] >= numPages);
+			region.unevictablePagesOfRoot[rootIndex] -= numPages;
+			if(!region.unevictablePagesOfRoot[rootIndex]
+					&& region.rootClasses[rootIndex] == RootClass::admitsPinned)
+				convertRoot_(region, rootIndex, RootClass::evictableOnly);
+		}
 
 		auto currentFree = _freePages.load(std::memory_order_relaxed);
 		auto currentUsed = _usedPages.load(std::memory_order_relaxed);

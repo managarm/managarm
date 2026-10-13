@@ -238,7 +238,8 @@ inline constexpr CachingFlags cacheWriteCombine = 1;
 std::expected<PhysicalAddr, Error>
 tryChargeAndAllocate(Hierarchy *hierarchy, size_t size, PhysicalKind kind, int addressBits);
 
-void deallocateAndUncharge(Hierarchy *hierarchy, PhysicalAddr physical, size_t size);
+void deallocateAndUncharge(Hierarchy *hierarchy, PhysicalAddr physical, size_t size,
+		PhysicalKind kind);
 
 // Returned by the callback of MemoryView::accessRange().
 struct PageAccessResult {

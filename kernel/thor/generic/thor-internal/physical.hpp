@@ -172,7 +172,13 @@ public:
 	// Like tryAllocate() for PhysicalKind::pinned but returns -1 on failure.
 	PhysicalAddr allocate(size_t size, int addressBits = 64);
 
-	void free(PhysicalAddr address, size_t size);
+	// kind must match the kind that the chunk was allocated with.
+	void free(PhysicalAddr address, size_t size, PhysicalKind kind);
+
+	// Like free() for PhysicalKind::pinned.
+	void free(PhysicalAddr address, size_t size) {
+		free(address, size, PhysicalKind::pinned);
+	}
 
 	size_t numTotalPages() {
 		return _totalPages.load(std::memory_order_relaxed);
@@ -193,6 +199,8 @@ private:
 		RootClass rootClasses[maxRootsPerRegion];
 		// Protected by _mutex.
 		uint32_t usedPagesOfRoot[maxRootsPerRegion];
+		// Pages of PhysicalKind::pinned and PhysicalKind::contiguous. Protected by _mutex.
+		uint32_t unevictablePagesOfRoot[maxRootsPerRegion];
 
 		size_t pagesPerRoot() {
 			return size_t{1} << buddyAccessor.tableOrder();
@@ -227,7 +235,7 @@ private:
 	void convertRoot_(Region &region, size_t rootIndex, RootClass to);
 
 	// Callers must hold _mutex.
-	void accountAllocation_(Allocation allocation, size_t numPages);
+	void accountAllocation_(Allocation allocation, size_t numPages, PhysicalKind kind);
 
 	Mutex _mutex;
 
