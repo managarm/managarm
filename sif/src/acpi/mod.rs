@@ -3,6 +3,7 @@ pub mod dmar;
 pub mod ec;
 pub mod glue;
 pub mod object;
+pub mod pm;
 pub mod ps2;
 
 use std::sync::atomic::{AtomicU64, Ordering};

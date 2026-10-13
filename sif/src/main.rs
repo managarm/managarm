@@ -67,6 +67,7 @@ fn main() -> Result<()> {
         if acpi::has_rsdp() {
             degrade("PS/2 publishing", acpi::ps2::publish().await);
             degrade("Battery publishing", acpi::battery::publish().await);
+            degrade("PM interface publishing", acpi::pm::publish().await);
         }
 
         dt::serve::publish_all().await;

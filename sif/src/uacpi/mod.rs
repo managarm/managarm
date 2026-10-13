@@ -14,6 +14,7 @@ pub mod object;
 pub mod pci;
 pub mod resources;
 pub mod runtime;
+pub mod sleep;
 pub mod table;
 
 use std::borrow::Cow;
