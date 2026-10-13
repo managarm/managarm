@@ -776,9 +776,6 @@ void loadKernelImage(void *imagePtr) {
 
 namespace {
 
-// Set to false to fall back to thor's in-kernel ACPI and PCI support.
-constexpr bool useSif = true;
-
 static initgraph::Task parseCmdlineTask{
     &globalInitEngine,
     "generic.parse-cmdline",
@@ -801,7 +798,6 @@ static initgraph::Task parseCmdlineTask{
 		    debugOptions.flags |= eirDebugBochs;
 	    if (kernelProfile)
 		    debugOptions.flags |= eirDebugKernelProfile;
-	    debugOptions.useSif = useSif;
 
 	    if (ubsan.size()) {
 		    if (ubsan == "ignore") {
