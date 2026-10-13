@@ -1,8 +1,7 @@
 //! dmalog: provides kernel I/O channels backed by QEMU's dmalog PCI devices.
 //!
-//! thor binds dmalog itself when it enumerates PCI, but under sif the bus belongs to
-//! userspace, so this server drives the device and hands each stream back to the kernel
-//! through kerncfg's ProvideIoChannel as a UserIoChannel.
+//! The PCI bus belongs to sif, hence this server drives the device and hands each stream back
+//! to the kernel through kerncfg's ProvideIoChannel as a UserIoChannel.
 
 use std::ffi::c_void;
 use std::ptr::{self, NonNull};
@@ -18,7 +17,7 @@ use managarm::{hw, kerncfg, posix};
 
 const PAGE_SIZE: usize = 4096;
 
-// Register layout of BAR 0; mirrors kernel/thor/system/pci/dmalog.cpp.
+// Register layout of BAR 0.
 scalar_register!(OutRegister @ 0x0: u64);
 scalar_register!(InRegister @ 0x8: u64);
 bit_register! {
