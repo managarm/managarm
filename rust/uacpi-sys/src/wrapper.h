@@ -10,6 +10,7 @@
 #include <uacpi/opregion.h>
 #include <uacpi/osi.h>
 #include <uacpi/resources.h>
+#include <uacpi/sleep.h>
 #include <uacpi/status.h>
 #include <uacpi/tables.h>
 #include <uacpi/types.h>
