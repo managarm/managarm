@@ -210,6 +210,7 @@ where
 }
 
 pub fn finish_handling_gpe(device: GpeDevice, index: u16) -> Result<()> {
+    runtime::assert_not_on_work_thread("uacpi_finish_handling_gpe()");
     let device = as_gpe_device(device);
 
     unsafe {
@@ -221,6 +222,7 @@ pub fn finish_handling_gpe(device: GpeDevice, index: u16) -> Result<()> {
 }
 
 pub fn finalize_gpe_initialization() -> Result<()> {
+    runtime::assert_not_on_work_thread("uacpi_finalize_gpe_initialization()");
     unsafe {
         check(
             "uacpi_finalize_gpe_initialization",
@@ -230,6 +232,7 @@ pub fn finalize_gpe_initialization() -> Result<()> {
 }
 
 pub fn enable_gpe(device: GpeDevice, index: u16) -> Result<()> {
+    runtime::assert_not_on_work_thread("uacpi_enable_gpe()");
     let device = as_gpe_device(device);
 
     unsafe {
