@@ -19,8 +19,6 @@ struct GlobalIrqInfo {
 };
 
 GlobalIrqInfo resolveIsaIrq(unsigned int irq);
-GlobalIrqInfo resolveIsaIrq(unsigned int irq, IrqConfiguration desired);
-void configureIrq(GlobalIrqInfo info);
 } // namespace thor
 
 namespace thor::acpi {
@@ -32,7 +30,5 @@ initgraph::Stage *getTablesDiscoveredStage();
 
 // Applies the uacpi.log kernel command line option.
 void configureLogLevel();
-
-void initGlue();
 
 } // namespace thor::acpi

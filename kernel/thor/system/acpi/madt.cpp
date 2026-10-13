@@ -113,23 +113,6 @@ GlobalIrqInfo resolveIsaIrq(unsigned int irq) {
 	return GlobalIrqInfo{irq, IrqConfiguration{TriggerMode::edge, Polarity::high}};
 }
 
-// Same as resolveIsaIrq(irq) but allows to set more specific configuration options.
-GlobalIrqInfo resolveIsaIrq(unsigned int irq, IrqConfiguration desired) {
-	if (irq < 16 && *isaIrqOverrides[irq]) {
-		assert(desired.compatible((*isaIrqOverrides[irq])->configuration));
-		return *(*isaIrqOverrides[irq]);
-	}
-	return GlobalIrqInfo{irq, desired};
-}
-
-// --------------------------------------------------------
-
-void configureIrq(GlobalIrqInfo info) {
-	auto pin = acpi::getGlobalSystemIrq(info.gsi);
-	assert(pin);
-	pin->configure(info.configuration);
-}
-
 } // namespace thor
 
 // --------------------------------------------------------

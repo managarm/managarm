@@ -170,6 +170,9 @@ if want_acpi
 
 	args += [ '-DTHOR_HAS_ACPI_SUPPORT=1' ]
 
+	# Use uACPI in barebones (= table only) mode; sif runs the AML.
+	args += [ '-DUACPI_BAREBONES_MODE' ]
+
 	uacpi_args = [ '-DUACPI_OVERRIDE_LIBC' ]
 
 	uacpi_lib = static_library('uacpi', uacpi_sources,
