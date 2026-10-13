@@ -120,9 +120,6 @@ void DeviceTreeNode::initializeWith(::DeviceTreeNode dtNode) {
 
 				reg_.push_back(reg);
 			}
-		} else if (pn == "bus-range") {
-			busRange_.from = prop.asPropArrayEntry(1, 0);
-			busRange_.to = prop.asPropArrayEntry(1, 4);
 		}
 	}
 

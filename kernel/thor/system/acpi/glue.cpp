@@ -18,7 +18,6 @@
 #include <thor-internal/irq.hpp>
 #include <thor-internal/kernel-heap.hpp>
 #include <thor-internal/main.hpp>
-#include <thor-internal/pci/pci.hpp>
 #include <thor-internal/physical.hpp>
 #include <thor-internal/timer.hpp>
 #include <thor-internal/work-queue.hpp>
@@ -104,66 +103,15 @@ uacpi_status uacpi_kernel_raw_io_write(uacpi_io_addr, T) {
 
 #endif
 
+// sif owns the PCI configuration space.
 template <typename T>
-uacpi_status uacpi_kernel_raw_pci_read(uacpi_handle handle, uacpi_size offset, T *value) {
-	uacpi_pci_address address;
-	memcpy(&address, static_cast<void *>(&handle), sizeof(uacpi_pci_address));
-
-	switch (sizeof(T)) {
-		case 1: {
-			*value = pci::readConfigByte(
-			    address.segment, address.bus, address.device, address.function, offset
-			);
-			break;
-		}
-		case 2: {
-			*value = pci::readConfigHalf(
-			    address.segment, address.bus, address.device, address.function, offset
-			);
-			break;
-		}
-		case 4: {
-			*value = pci::readConfigWord(
-			    address.segment, address.bus, address.device, address.function, offset
-			);
-			break;
-		}
-		default:
-			return UACPI_STATUS_INVALID_ARGUMENT;
-	}
-
-	return UACPI_STATUS_OK;
+uacpi_status uacpi_kernel_raw_pci_read(uacpi_handle, uacpi_size, T *) {
+	return UACPI_STATUS_UNIMPLEMENTED;
 }
 
 template <typename T>
-uacpi_status uacpi_kernel_raw_pci_write(uacpi_handle handle, uacpi_size offset, T value) {
-	uacpi_pci_address address;
-	memcpy(&address, static_cast<void *>(&handle), sizeof(uacpi_pci_address));
-
-	switch (sizeof(T)) {
-		case 1: {
-			pci::writeConfigByte(
-			    address.segment, address.bus, address.device, address.function, offset, value
-			);
-			break;
-		}
-		case 2: {
-			pci::writeConfigHalf(
-			    address.segment, address.bus, address.device, address.function, offset, value
-			);
-			break;
-		}
-		case 4: {
-			pci::writeConfigWord(
-			    address.segment, address.bus, address.device, address.function, offset, value
-			);
-			break;
-		}
-		default:
-			return UACPI_STATUS_INVALID_ARGUMENT;
-	}
-
-	return UACPI_STATUS_OK;
+uacpi_status uacpi_kernel_raw_pci_write(uacpi_handle, uacpi_size, T) {
+	return UACPI_STATUS_UNIMPLEMENTED;
 }
 
 } // namespace

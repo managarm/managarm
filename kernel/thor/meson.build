@@ -92,13 +92,6 @@ src = files(
 	'generic/iommu.cpp',
 	'system/framebuffer/boot-screen.cpp',
 	'system/framebuffer/fb.cpp',
-	'system/pci/dmalog.cpp',
-	'system/pci/pci_discover.cpp',
-	'system/pci/pci_legacy.cpp',
-	'system/pci/pci_quirks.cpp',
-	'system/pci/pci_quirks_rpi4.cpp',
-	'system/pci/pcie_ecam.cpp',
-	'system/pci/pcie_brcmstb.cpp',
 	'system/smbios/smbios3.cpp'
 )
 
@@ -124,7 +117,6 @@ inc += include_directories(
 	'system/dtb',
 	'system/framebuffer',
 	'system/legacy-pc',
-	'system/pci',
 	'system/smbios',
 	'../common',
 	'../../protocols/posix/include',
@@ -178,8 +170,7 @@ if want_acpi
 		'system/acpi/ec.cpp',
 		'system/acpi/pm-interface.cpp',
 		'system/acpi/battery.cpp',
-		'system/acpi/ps2.cpp',
-		'system/pci/pci_acpi.cpp'
+		'system/acpi/ps2.cpp'
 	)
 
 	args += [ '-DTHOR_HAS_ACPI_SUPPORT=1' ]
@@ -199,8 +190,7 @@ endif
 if want_dtb
 	src += files(
 		'system/dtb/dtb.cpp',
-		'system/dtb/dtb_discover.cpp',
-		'system/pci/pci_dtb.cpp'
+		'system/dtb/dtb_discover.cpp'
 	)
 
 	args += [ '-DTHOR_HAS_DTB_SUPPORT=1' ]

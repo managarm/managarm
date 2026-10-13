@@ -20,7 +20,6 @@
 #include <thor-internal/load-balancing.hpp>
 #include <thor-internal/main.hpp>
 #include <thor-internal/module.hpp>
-#include <thor-internal/pci/pci.hpp>
 #include <thor-internal/physical.hpp>
 #include <thor-internal/profile.hpp>
 #include <thor-internal/random.hpp>
@@ -205,9 +204,6 @@ extern "C" void thorMain() {
 		globalInitEngine.run();
 
 		transitionBootFb();
-
-		pci::runAllBridges();
-		pci::runAllDevices();
 
 #if defined(__aarch64__) || (defined(__riscv) && __riscv_xlen == 64)
 		dt::publishNodes();

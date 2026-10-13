@@ -12,7 +12,6 @@
 #include <thor-internal/fiber.hpp>
 #include <thor-internal/kernel-heap.hpp>
 #include <thor-internal/main.hpp>
-#include <thor-internal/pci/pci.hpp>
 
 #ifdef __x86_64__
 #include <thor-internal/arch/pic.hpp>
@@ -481,7 +480,7 @@ static initgraph::Task discoverIoApicsTask{
 static initgraph::Task loadAcpiNamespaceTask{
     &globalInitEngine,
     "acpi.load-namespace",
-    initgraph::Requires{getTaskingAvailableStage(), pci::getBus0AvailableStage()},
+    initgraph::Requires{getTaskingAvailableStage()},
     initgraph::Entails{getNsAvailableStage()},
     [] {
 	    if (!acpiRsdpNote->rsdp)
