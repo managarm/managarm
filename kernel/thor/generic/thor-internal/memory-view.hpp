@@ -233,6 +233,12 @@ inline constexpr FetchFlags fetchDisallowBacking = 2;
 using CachingFlags = uint32_t;
 inline constexpr CachingFlags cacheWriteCombine = 1;
 
+// Helper to perform tryCharge() and allocation in one call.
+std::expected<PhysicalAddr, Error>
+tryChargeAndAllocate(Hierarchy *hierarchy, size_t size, int addressBits);
+
+void deallocateAndUncharge(Hierarchy *hierarchy, PhysicalAddr physical, size_t size);
+
 // Returned by the callback of MemoryView::accessRange().
 struct PageAccessResult {
 	// Whether the callback modified the range. Requires fetchRequireMutable.
@@ -886,7 +892,7 @@ struct ManagedSpace : CacheBundle {
 
 	// Installs a frame for a page that is currently missing (and in no transaction):
 	// - registers it in the pfn-db,
-	// - makes the page present (charging it to hierarchy),
+	// - makes the page present,
 	// - hands it to the dirty pipeline if its dirty,
 	// - hands it to the reclaimer LRU if its clean and unreferenced.
 	// Must be called under mutex.
@@ -897,6 +903,7 @@ struct ManagedSpace : CacheBundle {
 	// Precondition: If !dirty, the frame is zero-filled.
 	//               This is needed since non-dirty pages can be reclaimed and would be re-created by zero-filling.
 	// Precondition: The caller owns the fully initialized frame, which is not in the pfn-db yet.
+	// Precondition: The caller charged the frame to hierarchy.
 	void installPage(ManagedPage *page, PhysicalAddr physical, bool dirty,
 			unsigned int extraLockCount, bool &raiseDirty, bool &raiseExpedite);
 
@@ -1388,10 +1395,12 @@ public:
 			FetchFlags flags, PageAccessFn fn) override;
 
 private:
-	// Callers must hold _mutex.
-	void chargePages_(size_t n);
-	// Callers must hold _mutex.
+	std::expected<void, Error> tryChargePages_(size_t n);
 	void unchargePages_(size_t n);
+
+	// Allocate/free an owned copy of a page.
+	std::expected<PhysicalAddr, Error> _allocateCopy();
+	void _freeCopy(PhysicalAddr physical);
 
 public:
 	// Contract: set by the code that constructs this object.

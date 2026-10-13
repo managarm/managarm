@@ -4,9 +4,37 @@
 #include <thor-internal/hierarchy.hpp>
 #include <thor-internal/ipl.hpp>
 #include <thor-internal/main.hpp>
+#include <thor-internal/physical.hpp>
 #include <thor-internal/rcu.hpp>
 
 namespace thor {
+
+namespace {
+	// Allow userspace to use 90% of physical memory.
+	constexpr size_t limitNumerator = 230;
+	constexpr unsigned int limitShift = 8;
+}
+
+std::expected<void, Error> MemoryController::tryCharge(size_t bytes) {
+	// We want to only constrain the memory that can actually be allocated.
+	// For now, we compute this from the amount of free memory.
+	// TODO: Since we do not always allocate immediately, this can overestimate how much memory there is available.
+	//       It would be better to track the amount of non-charged (e.g., kernel allocated) memory
+	//       and subtract it from numTotalPages().
+	auto charged = chargedToSubtree_.load(std::memory_order_relaxed);
+	auto free = physicalAllocator->numFreePages() << kPageShift;
+	auto total = charged + free;
+
+	auto limit = (limitNumerator * total) >> limitShift;
+	if (charged + bytes > limit)
+		return std::unexpected{Error::noMemory};
+	chargedToSubtree_.fetch_add(bytes, std::memory_order_relaxed);
+	return {};
+}
+
+void MemoryController::uncharge(size_t bytes) {
+	chargedToSubtree_.fetch_sub(bytes, std::memory_order_relaxed);
+}
 
 namespace {
 	std::atomic<uint64_t> nextHierarchyId{1};
@@ -14,7 +42,13 @@ namespace {
 
 Hierarchy::Hierarchy(CtorToken, smarter::shared_ptr<Hierarchy> parent, frg::string<KernelAlloc> tag)
 : id_{nextHierarchyId.fetch_add(1, std::memory_order_relaxed)},
-		parent_{std::move(parent)}, tag_{std::move(tag)} { }
+		parent_{std::move(parent)}, tag_{std::move(tag)} {
+	if (parent_) {
+		memoryCtlr_ = parent_->memoryCtlr_;
+	} else {
+		memoryCtlr_ = frg::construct<MemoryController>(*kernelAlloc);
+	}
+}
 
 void Hierarchy::finalizeBeforeRcu() {
 	if(!parent_)
@@ -54,6 +88,17 @@ std::expected<smarter::shared_ptr<Hierarchy>, Error> Hierarchy::extend(
 		ptr->parent_->children_.push_back(ptr.get());
 	}
 	return ptr;
+}
+
+std::expected<void, Error> Hierarchy::tryChargeMemory(size_t bytes) {
+	FRG_TRY(memoryCtlr_->tryCharge(bytes));
+	chargedMemory_.fetch_add(bytes, std::memory_order_relaxed);
+	return {};
+}
+
+void Hierarchy::unchargeMemory(size_t bytes) {
+	chargedMemory_.fetch_sub(bytes, std::memory_order_relaxed);
+	memoryCtlr_->uncharge(bytes);
 }
 
 frg::vector<HierarchySnapshot, KernelAlloc> snapshotHierarchies() {

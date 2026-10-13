@@ -35,6 +35,24 @@ namespace {
 }
 
 // --------------------------------------------------------
+// Frame allocation
+// --------------------------------------------------------
+
+std::expected<PhysicalAddr, Error>
+tryChargeAndAllocate(Hierarchy *hierarchy, size_t size, int addressBits) {
+	if(auto charge = hierarchy->tryChargeMemory(size); !charge)
+		return std::unexpected{charge.error()};
+	auto physical = physicalAllocator->allocate(size, addressBits);
+	assert(physical != PhysicalAddr(-1) && "OOM");
+	return physical;
+}
+
+void deallocateAndUncharge(Hierarchy *hierarchy, PhysicalAddr physical, size_t size) {
+	physicalAllocator->free(physical, size);
+	hierarchy->unchargeMemory(size);
+}
+
+// --------------------------------------------------------
 // EvictionQueue
 // --------------------------------------------------------
 
@@ -1016,8 +1034,7 @@ AllocatedMemory::~AllocatedMemory() {
 		if(_physicalChunks[i] != PhysicalAddr(-1)) {
 			for(size_t pg = 0; pg < _chunkSize; pg += kPageSize)
 				globalPfnDb().erase(_physicalChunks[i] + pg);
-			physicalAllocator->free(_physicalChunks[i], _chunkSize);
-			_hierarchy->unchargeMemory(_chunkSize);
+			deallocateAndUncharge(_hierarchy.get(), _physicalChunks[i], _chunkSize);
 		}
 	}
 	if(logUsage)
@@ -1111,8 +1128,10 @@ AllocatedMemory::touchRange(uintptr_t offset, size_t, FetchFlags) {
 		co_return Error::fault;
 
 	if(_physicalChunks[index] == PhysicalAddr(-1)) {
-		auto physical = physicalAllocator->allocate(_chunkSize, _addressBits);
-		assert(physical != PhysicalAddr(-1) && "OOM");
+		auto physicalOutcome = tryChargeAndAllocate(_hierarchy.get(), _chunkSize, _addressBits);
+		if(!physicalOutcome)
+			co_return physicalOutcome.error();
+		auto physical = *physicalOutcome;
 		assert(!(physical & (_chunkAlign - 1)));
 
 		for(size_t pg_progress = 0; pg_progress < _chunkSize; pg_progress += kPageSize) {
@@ -1122,7 +1141,6 @@ AllocatedMemory::touchRange(uintptr_t offset, size_t, FetchFlags) {
 			globalPfnDb().insert(physical + pg_progress, PfnDescriptor::otherPage());
 		}
 		_physicalChunks[index] = physical;
-		_hierarchy->chargeMemory(_chunkSize);
 	}
 
 	assert(_physicalChunks[index] != PhysicalAddr(-1));
@@ -1338,8 +1356,7 @@ coroutine<void> ManagedSpace::_runReclaimLoop() {
 			}
 
 			globalPfnDb().erase(physical);
-			physicalAllocator->free(physical, kPageSize);
-			hierarchy->unchargeMemory(kPageSize);
+			deallocateAndUncharge(hierarchy.get(), physical, kPageSize);
 			sizeFreed += kPageSize;
 		}
 
@@ -1388,8 +1405,7 @@ coroutine<void> ManagedSpace::_runReclaimLoop() {
 			}
 
 			if(physical != PhysicalAddr(-1)) {
-				physicalAllocator->free(physical, kPageSize);
-				hierarchy->unchargeMemory(kPageSize);
+				deallocateAndUncharge(hierarchy.get(), physical, kPageSize);
 				sizeFreed += kPageSize;
 			}
 		}
@@ -1587,7 +1603,6 @@ void ManagedSpace::installPage(ManagedPage *page, PhysicalAddr physical, bool di
 	globalPfnDb().insert(physical, PfnDescriptor::cachePage(&page->cachePage));
 	page->physical = physical;
 	page->loadState = LoadState::present;
-	hierarchy->chargeMemory(kPageSize);
 	page->lockCount += extraLockCount;
 
 	if(dirty) {
@@ -1941,10 +1956,8 @@ coroutine<void> ManagedSpace::dispose() {
 			physical = releasePage(frg::container_of(unindexed.pop_front(),
 					&ManagedPage::cachePage));
 		}
-		if(physical != PhysicalAddr(-1)) {
-			physicalAllocator->free(physical, kPageSize);
-			hierarchy->unchargeMemory(kPageSize);
-		}
+		if(physical != PhysicalAddr(-1))
+			deallocateAndUncharge(hierarchy.get(), physical, kPageSize);
 	}
 
 	uint64_t nextIdentity = 0;
@@ -1960,10 +1973,8 @@ coroutine<void> ManagedSpace::dispose() {
 			nextIdentity = (*it)->cachePage.identity + 1;
 			physical = releasePage(*it);
 		}
-		if(physical != PhysicalAddr(-1)) {
-			physicalAllocator->free(physical, kPageSize);
-			hierarchy->unchargeMemory(kPageSize);
-		}
+		if(physical != PhysicalAddr(-1))
+			deallocateAndUncharge(hierarchy.get(), physical, kPageSize);
 	}
 
 	globalReclaimer->unregisterBundle(this);
@@ -2529,15 +2540,16 @@ BackingMemory::touchRange(uintptr_t offset, size_t, FetchFlags) {
 	}
 
 	if(pit->physical == PhysicalAddr(-1)) {
-		PhysicalAddr physical = physicalAllocator->allocate(kPageSize);
-		assert(physical != PhysicalAddr(-1) && "OOM");
+		auto physicalOutcome = tryChargeAndAllocate(_managed->hierarchy.get(), kPageSize, 64);
+		if(!physicalOutcome)
+			co_return physicalOutcome.error();
+		auto physical = *physicalOutcome;
 
 		PageAccessor accessor{physical};
 		memset(accessor.get(), 0, kPageSize);
 
 		globalPfnDb().insert(physical, PfnDescriptor::cachePage(&pit->cachePage));
 		pit->physical = physical;
-		_managed->hierarchy->chargeMemory(kPageSize);
 	}
 
 	co_return kPageSize - misalign;
@@ -3173,7 +3185,7 @@ SwappableMemory::touchRange(uintptr_t offset, size_t, FetchFlags flags) {
 	PhysicalAddr freshPhysical(-1);
 	frg::scope_exit freeFreshFrame{[&] {
 		if(freshPhysical != PhysicalAddr(-1))
-			physicalAllocator->free(freshPhysical, kPageSize);
+			deallocateAndUncharge(_space->hierarchy.get(), freshPhysical, kPageSize);
 	}};
 
 	while(true) {
@@ -3222,8 +3234,10 @@ SwappableMemory::touchRange(uintptr_t offset, size_t, FetchFlags flags) {
 		}
 
 		assert(freshPhysical == PhysicalAddr(-1));
-		freshPhysical = physicalAllocator->allocate(kPageSize);
-		assert(freshPhysical != PhysicalAddr(-1) && "OOM");
+		auto physicalOutcome = tryChargeAndAllocate(_space->hierarchy.get(), kPageSize, 64);
+		if(!physicalOutcome)
+			co_return physicalOutcome.error();
+		freshPhysical = *physicalOutcome;
 		PageAccessor accessor{freshPhysical};
 		memset(accessor.get(), 0, kPageSize);
 	}
@@ -3630,40 +3644,46 @@ coroutine<frg::expected<Error, smarter::shared_ptr<MemoryView>>> CopyOnWriteMemo
 		}
 	}
 
+	// Charge the memory to the forked memory view.
+	// Shared pages are counted twice: once in the original and once in the forked memory view.
+	// This ensures that uncharging behaves correctly.
+	{
+		auto numPages = numSharedPages + lockedCopies.size();
+		if(auto charge = forked->tryChargePages_(numPages); !charge)
+			co_return charge.error();
+
+		auto irqLock = frg::guard(&irqMutex());
+		auto forkedLock = frg::guard(&forked->_mutex);
+		forked->_chargedPages += numPages;
+	}
+
 	// Copy all the pages that were locked.
 	for(auto [pg, src] : lockedCopies) {
-		auto copyPhysical = physicalAllocator->allocate(kPageSize);
-		assert(copyPhysical != PhysicalAddr(-1) && "OOM");
+		auto physicalOutcome = _allocateCopy();
+		if(!physicalOutcome)
+			co_return physicalOutcome.error();
+		auto copyPhysical = *physicalOutcome;
+		frg::scope_exit freeCopy{[&] {
+			_freeCopy(copyPhysical);
+		}};
 
 		// The lock observed above may have been dropped concurrently, so the source
 		// is pinned again by the copy itself.
-		if(auto outcome = co_await _copyFromCowPage(src.get(), copyPhysical, 0); !outcome) {
-			physicalAllocator->free(copyPhysical, kPageSize);
+		if(auto outcome = co_await _copyFromCowPage(src.get(), copyPhysical, 0); !outcome)
 			co_return outcome.error();
-		}
 
 		auto copyPage = smarter::allocate_shared<CowPage>(*kernelAlloc);
 		bool raiseDirty = false;
 		bool raiseExpedite = false;
-		if(auto outcome = _publishCopy(copyPage.get(), copyPhysical, raiseDirty, raiseExpedite); !outcome) {
-			physicalAllocator->free(copyPhysical, kPageSize);
+		if(auto outcome = _publishCopy(copyPage.get(), copyPhysical, raiseDirty, raiseExpedite); !outcome)
 			co_return outcome.error();
-		}
+		freeCopy.release();
 		auto copyIt = forked->_ownedPages.insert(pg >> kPageShift);
 		*copyIt = copyPage;
 		if(raiseDirty)
 			_space->_dirtyEvent.raise();
 		if(raiseExpedite)
 			_space->_expediteEvent.raise();
-	}
-
-	// Charge the memory to the forked memory view.
-	// Shared pages are counted twice: once in the original and once in the forked memory view.
-	// This ensures that uncharging behaves correctly.
-	{
-		auto irqLock = frg::guard(&irqMutex());
-		auto forkedLock = frg::guard(&forked->_mutex);
-		forked->chargePages_(numSharedPages + lockedCopies.size());
 	}
 
 	co_await evictionQueue()->breakRange(0, _length);
@@ -3943,23 +3963,52 @@ CopyOnWriteMemory::_materializePage(uintptr_t offset,
 	// Note: offset is not necessarily page aligned.
 	auto pageOffset = (_viewOffset + offset) & ~(kPageSize - 1);
 
+	// If there is no copy, roll the page back so that waiters do not wait forever.
+	frg::scope_exit rollback{[&] {
+		{
+			auto irqLock = frg::guard(&irqMutex());
+			auto lock = frg::guard(&_mutex);
+
+			assert(cowPage->state == CowState::inProgress);
+			cowPage->state = CowState::null;
+			// Locked pages stay as placeholders, as created by lockRange().
+			if(!cowPage->lockCount)
+				_ownedPages.erase(offset >> kPageShift);
+		}
+		_copyEvent.raise();
+	}};
+
 	// TODO: On OOM, wait for memory and retry; the page stays inProgress meanwhile.
-	PhysicalAddr physical = physicalAllocator->allocate(kPageSize);
-	assert(physical != PhysicalAddr(-1) && "OOM");
+	// Replacing a shared page by an owned one does not charge here
+	// since we already charged for the shared page at fork() time.
+	if(!sharedPage) {
+		if(auto charge = tryChargePages_(1); !charge)
+			co_return charge.error();
+	}
+	frg::scope_exit uncharge{[&] {
+		if(!sharedPage)
+			unchargePages_(1);
+	}};
+
+	auto physicalOutcome = _allocateCopy();
+	if(!physicalOutcome)
+		co_return physicalOutcome.error();
+	auto physical = *physicalOutcome;
+	frg::scope_exit freeCopy{[&] {
+		_freeCopy(physical);
+	}};
 
 	// Copy from the shared page (outside of the locks; it remains in hasCopy state)
 	// or from the root view.
-	frg::expected<Error> outcome;
 	if(sharedPage) {
-		outcome = co_await _copyFromCowPage(sharedPage.get(), physical, flags);
+		FRG_CO_TRY(co_await _copyFromCowPage(sharedPage.get(), physical, flags));
 	}else{
 		PageAccessor accessor{physical};
-		outcome = co_await _view->copyFrom(pageOffset, accessor.get(), kPageSize);
+		FRG_CO_TRY(co_await _view->copyFrom(pageOffset, accessor.get(), kPageSize));
 	}
 
 	// To make CoW unobservable, we first need to evict the page here.
-	if(outcome)
-		co_await evictionQueue()->breakRange(alignedOffset, kPageSize);
+	co_await evictionQueue()->breakRange(alignedOffset, kPageSize);
 
 	bool raiseDirty = false;
 	bool raiseExpedite = false;
@@ -3968,52 +4017,58 @@ CopyOnWriteMemory::_materializePage(uintptr_t offset,
 		auto lock = frg::guard(&_mutex);
 
 		assert(cowPage->state == CowState::inProgress);
-		if(outcome)
-			outcome = _publishCopy(cowPage.get(), physical, raiseDirty, raiseExpedite);
-		if(outcome) {
-			// Replacing a shared page by an owned one does not charge here
-			// since we already charged for the shared page at fork() time.
-			if (!sharedPage)
-				chargePages_(1);
-			// The owned copy supersedes the shared page, so drop our reference to it.
-			if(sharedPage)
-				_sharedPages.erase(offset >> kPageShift);
-		}else{
-			// There is no copy, roll the page back so that waiters do not wait forever.
-			cowPage->state = CowState::null;
-			// Locked pages stay as placeholders, as created by lockRange().
-			if(!cowPage->lockCount)
-				_ownedPages.erase(offset >> kPageShift);
-		}
+		if(auto outcome = _publishCopy(cowPage.get(), physical, raiseDirty, raiseExpedite); !outcome)
+			co_return outcome.error();
+		freeCopy.release();
+		uncharge.release();
+		rollback.release();
+		if(!sharedPage)
+			_chargedPages++;
+		// The owned copy supersedes the shared page, so drop our reference to it.
+		if(sharedPage)
+			_sharedPages.erase(offset >> kPageShift);
 	}
-	if(!outcome)
-		physicalAllocator->free(physical, kPageSize);
 	_copyEvent.raise();
 	if(raiseDirty)
 		_space->_dirtyEvent.raise();
 	if(raiseExpedite)
 		_space->_expediteEvent.raise();
-	co_return outcome;
+	co_return {};
 }
 
-void CopyOnWriteMemory::chargePages_(size_t n) {
-	_chargedPages += n;
+std::expected<void, Error> CopyOnWriteMemory::tryChargePages_(size_t n) {
 	// Swappable copies hold swap slots; their frames are charged by the swap space.
 	if(_space) {
 		_hierarchy->chargeSwap(n << kPageShift);
-	}else{
-		_hierarchy->chargeMemory(n << kPageShift);
+		return {};
 	}
+	return _hierarchy->tryChargeMemory(n << kPageShift);
 }
 
 void CopyOnWriteMemory::unchargePages_(size_t n) {
-	assert(_chargedPages >= n);
-	_chargedPages -= n;
 	if(_space) {
 		_hierarchy->unchargeSwap(n << kPageShift);
-	}else{
-		_hierarchy->unchargeMemory(n << kPageShift);
+		return;
 	}
+	_hierarchy->unchargeMemory(n << kPageShift);
+}
+
+std::expected<PhysicalAddr, Error> CopyOnWriteMemory::_allocateCopy() {
+	if(_space)
+		return tryChargeAndAllocate(_space->hierarchy.get(), kPageSize, 64);
+	// Non-swappable CopyOnWriteMemory only needs the charge in tryChargePages_().
+	auto physical = physicalAllocator->allocate(kPageSize, 64);
+	assert(physical != PhysicalAddr(-1) && "OOM");
+	return physical;
+}
+
+void CopyOnWriteMemory::_freeCopy(PhysicalAddr physical) {
+	if(_space) {
+		deallocateAndUncharge(_space->hierarchy.get(), physical, kPageSize);
+		return;
+	}
+	// Non-swappable CopyOnWriteMemory only needs the uncharge in unchargePages_().
+	physicalAllocator->free(physical, kPageSize);
 }
 
 // --------------------------------------------------------------------------------------
