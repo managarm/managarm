@@ -31,7 +31,7 @@ async fn install_entity(
     }
 
     let spec = DeviceSpec::new(
-        format!("{hid}:{instance:02}"),
+        format!("{hid}:{instance:02x}"),
         Parent::None,
         Membership::bus("acpi"),
     )
