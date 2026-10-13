@@ -1,5 +1,7 @@
 #include <algorithm>
 #include <elf.h>
+#include <frg/array.hpp>
+#include <frg/cmdline.hpp>
 #include <frg/string.hpp>
 #include <hel.h>
 #include <initgraph.hpp>
@@ -40,7 +42,6 @@ bool debugToSerial = false;
 bool debugToBochs = false;
 
 MfsDirectory *mfsRoot;
-frg::manual_box<frg::string<KernelAlloc>> kernelCommandLine;
 
 void setupDebugging();
 
@@ -55,7 +56,7 @@ extern ManagarmElfNote<CommandLine> commandLineNote;
 THOR_DEFINE_ELF_NOTE(commandLineNote){elf_note_type::commandLine, {}};
 
 frg::string_view getKernelCmdline() {
-	return *kernelCommandLine;
+	return frg::string_view{reinterpret_cast<const char *>(commandLineNote->ptr)};
 }
 
 using InitializerPtr = void (*)();
@@ -93,6 +94,14 @@ extern "C" void thorInitialize() {
 				region[i].numRoots, reinterpret_cast<int8_t *>(region[i].buddyTree));
 	infoLogger() << "thor: Number of available pages: "
 			<< physicalAllocator->numFreePages() << frg::endlog;
+
+	// Size of the reserve for contiguous allocations; rounded up to whole buddy roots.
+	size_t contigReserveMib = 16;
+	frg::array args = {
+		frg::option{"thor.contig-reserve", frg::as_number(contigReserveMib)},
+	};
+	frg::parse_arguments(getKernelCmdline(), args);
+	physicalAllocator->assignRootClasses(contigReserveMib << 20);
 
 	kernelAlloc.initialize();
 
@@ -177,9 +186,6 @@ initgraph::Edge fibersTaskingEdge{
 
 extern "C" void thorMain() {
 	infoLogger() << "thor: Entering main function" << frg::endlog;
-
-	kernelCommandLine.initialize(*kernelAlloc,
-			reinterpret_cast<const char *>(commandLineNote->ptr));
 
 	// Run the initgraph tasks that we need for tasking.
 	globalInitEngine.run(getTaskingAvailableStage());

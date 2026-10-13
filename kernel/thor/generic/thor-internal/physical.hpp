@@ -124,18 +124,52 @@ void poisonPhysicalAccess(PhysicalAddr physical);
 void poisonPhysicalWriteAccess(PhysicalAddr physical);
 
 
+// What an allocation is used for. Decides which buddy roots may serve it.
+enum class PhysicalKind {
+	// Frames that can be evicted and moved to different physical pages (e.g., ManagedSpace pages).
+	evictable,
+	// Frames that are never evicted or moved (e.g., kernel data structures).
+	pinned,
+	// Frames of multi-page contiguous allocations. Like pinned, never evicted or moved.
+	contiguous,
+};
+
+// Class of a buddy root, i.e., the PhysicalKinds that it admits.
+// Roots can be converted from evictableOnly to a less restricted class.
+// However, we forbid transitions between less restricted classes;
+// for example, admitsContiguous -> admitsPinned is forbidden
+// to make it easier to satisfy contiguous allocations.
+enum class RootClass : uint8_t {
+	// Can only satisfy evictable allocation.
+	evictableOnly,
+	// Can satisfy evictable and contiguous allocations.
+	admitsContiguous,
+	// Can satisfy evictable, contiguous and pinned allocations.
+	admitsPinned,
+};
+
 class PhysicalChunkAllocator {
 	typedef frg::ticket_spinlock Mutex;
 public:
+	// Guaranteed by BuddyAccessor::suitableOrder().
+	static constexpr size_t maxRootsPerRegion = 64;
+	static constexpr size_t numRootClasses = 3;
+
 	PhysicalChunkAllocator();
 	
 	void bootstrapRegion(PhysicalAddr address,
 			int order, size_t numRoots, int8_t *buddyTree);
+	// Assigns the initial class of each root: roots that Eir allocated from admit pinned frames,
+	// the lowest free roots that cover reserveBytes admit contiguous frames, all others are
+	// evictableOnly.
+	// Must be called after bootstrapRegion() and before the first allocation.
+	void assignRootClasses(size_t reserveBytes);
 
 	// Allocates a naturally aligned power-of-two sized chunk.
-	std::expected<PhysicalAddr, Error> tryAllocate(size_t size, int addressBits = 64);
+	std::expected<PhysicalAddr, Error> tryAllocate(size_t size, PhysicalKind kind,
+			int addressBits = 64);
 
-	// Like tryAllocate() but returns -1 on failure.
+	// Like tryAllocate() for PhysicalKind::pinned but returns -1 on failure.
 	PhysicalAddr allocate(size_t size, int addressBits = 64);
 
 	void free(PhysicalAddr address, size_t size);
@@ -151,16 +185,55 @@ public:
 	}
 
 private:
-	Mutex _mutex;
-
 	struct Region {
 		PhysicalAddr physicalBase;
 		PhysicalAddr regionSize;
 		BuddyAccessor buddyAccessor;
+		// Protected by _mutex.
+		RootClass rootClasses[maxRootsPerRegion];
+		// Protected by _mutex.
+		uint32_t usedPagesOfRoot[maxRootsPerRegion];
+
+		size_t pagesPerRoot() {
+			return size_t{1} << buddyAccessor.tableOrder();
+		}
+		size_t rootOfAddress(PhysicalAddr address) {
+			return (address - physicalBase) >> (buddyAccessor.tableOrder() + kPageShift);
+		}
 	};
+
+	struct Allocation {
+		Region *region;
+		PhysicalAddr physical;
+	};
+
+	// Allocates from the roots that satisfy rootFilter(region, rootIndex).
+	// Prefers regions above 4 GiB so that low memory stays available for
+	// allocations that are constrained to a limited address width (e.g., 32-bit DMA).
+	// Callers must hold _mutex.
+	template<typename F>
+	frg::optional<Allocation> search_(int order, int addressBits, F rootFilter);
+
+	// Allocate from roots of a specific class.
+	// Callers must hold _mutex.
+	frg::optional<Allocation> allocateInClass_(int order, int addressBits, RootClass cls,
+			bool requireFreeRoot = false);
+
+	// Allocates from an evictableOnly root and converts that root to the given class.
+	// Callers must hold _mutex.
+	frg::optional<Allocation> allocateByConverting_(int order, int addressBits, RootClass to);
+
+	// Callers must hold _mutex.
+	void convertRoot_(Region &region, size_t rootIndex, RootClass to);
+
+	// Callers must hold _mutex.
+	void accountAllocation_(Allocation allocation, size_t numPages);
+
+	Mutex _mutex;
 
 	Region _allRegions[eirMaxMemoryRegions];
 	int _numRegions = 0;
+	bool _classesAssigned = false;
 
 	std::atomic<size_t> _totalPages{0};
 	std::atomic<size_t> _usedPages{0};
