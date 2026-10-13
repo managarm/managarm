@@ -5,7 +5,6 @@
 #include <frg/scope_exit.hpp>
 #include <frg/vector.hpp>
 #include <thor-internal/acpi/acpi.hpp>
-#include <thor-internal/acpi/pm-interface.hpp>
 #include <thor-internal/arch-generic/cpu.hpp>
 #include <thor-internal/cpu-data.hpp>
 #include <thor-internal/debug.hpp>
@@ -18,12 +17,7 @@
 #endif
 
 #include <uacpi/acpi.h>
-#include <uacpi/context.h>
-#include <uacpi/event.h>
-#include <uacpi/osi.h>
-#include <uacpi/sleep.h>
 #include <uacpi/tables.h>
-#include <uacpi/utilities.h>
 
 namespace thor {
 namespace acpi {
@@ -345,11 +339,6 @@ initgraph::Stage *getTablesDiscoveredStage() {
 	return &s;
 }
 
-initgraph::Stage *getNsAvailableStage() {
-	static initgraph::Stage s{&globalInitEngine, "acpi.ns-available"};
-	return &s;
-}
-
 frg::manual_box<
     frg::hash_map<uint32_t, smarter::shared_ptr<IrqPin>, frg::hash<uint32_t>, KernelAlloc>>
     globalSystemIrqs;
@@ -477,86 +466,12 @@ static initgraph::Task discoverIoApicsTask{
     }
 };
 
-static initgraph::Task loadAcpiNamespaceTask{
-    &globalInitEngine,
-    "acpi.load-namespace",
-    initgraph::Requires{getTaskingAvailableStage()},
-    initgraph::Entails{getNsAvailableStage()},
-    [] {
-	    if (!acpiRsdpNote->rsdp)
-		    return;
-	    if (debugOptionsNote->useSif) {
-		    infoLogger() << "thor: Skipping ACPI namespace init (sif)" << frg::endlog;
-		    return;
-	    }
-
-	    initGlue();
-
-	    auto ret = uacpi_initialize(0);
-	    assert(ret == UACPI_STATUS_OK);
-
-	    // Advertise the same _OSI feature strings as Linux does. AML branches based on these
-	    // and firmware may only ever be tested against the set that Linux reports.
-
-	    // The OS understands ACPI0004 module devices, i.e., containers of other devices.
-	    ret = uacpi_enable_host_interface(UACPI_HOST_INTERFACE_MODULE_DEVICE);
-	    assert(ret == UACPI_STATUS_OK);
-	    // Processors may be described as ACPI0007 devices instead of Processor() objects.
-	    ret = uacpi_enable_host_interface(UACPI_HOST_INTERFACE_PROCESSOR_DEVICE);
-	    assert(ret == UACPI_STATUS_OK);
-	    // The platform may ask for idle CPUs through an ACPI000C processor aggregator.
-	    ret = uacpi_enable_host_interface(UACPI_HOST_INTERFACE_PROCESSOR_AGGREGATOR_DEVICE);
-	    assert(ret == UACPI_STATUS_OK);
-
-	    ret = uacpi_namespace_load();
-	    assert(ret == UACPI_STATUS_OK);
-
-#if defined(__aarch64__)
-	    ret = uacpi_set_interrupt_model(UACPI_INTERRUPT_MODEL_GIC);
-#elif defined(__riscv)
-	    ret = uacpi_set_interrupt_model(UACPI_INTERRUPT_MODEL_RINTC);
-#else
-	    ret = uacpi_set_interrupt_model(UACPI_INTERRUPT_MODEL_IOAPIC);
-#endif
-	    assert(ret == UACPI_STATUS_OK);
-
-	    initEc();
-
-	    ret = uacpi_namespace_initialize();
-	    assert(ret == UACPI_STATUS_OK);
-
-#ifdef __x86_64__
-	    // Configure the ISA IRQs.
-	    // TODO: This is a hack. We assume that HPET will use legacy replacement.
-	    infoLogger() << "thor: Configuring ISA IRQs." << frg::endlog;
-	    configureIrq(resolveIsaIrq(0));
-	    configureIrq(resolveIsaIrq(1));
-	    configureIrq(resolveIsaIrq(4));
-	    configureIrq(resolveIsaIrq(12));
-	    configureIrq(resolveIsaIrq(14));
-#endif
-
-	    initEvents();
-    }
-};
-
 static initgraph::Task bootApsTask{
-    &globalInitEngine, "acpi.boot-aps", initgraph::Requires{&loadAcpiNamespaceTask}, [] {
+    &globalInitEngine, "acpi.boot-aps", initgraph::Requires{getTaskingAvailableStage()}, [] {
 	    if (!acpiRsdpNote->rsdp)
 		    return;
 
 	    bootOtherProcessors();
-    }
-};
-
-static initgraph::Task initPmInterfaceTask{
-    &globalInitEngine, "acpi.init-pm-interface", initgraph::Requires{&loadAcpiNamespaceTask}, [] {
-	    if (!acpiRsdpNote->rsdp)
-		    return;
-	    if (debugOptionsNote->useSif)
-		    return;
-
-	    initializePmInterface();
     }
 };
 
