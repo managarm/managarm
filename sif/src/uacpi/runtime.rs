@@ -116,6 +116,11 @@ pub async fn run<R: Send + 'static>(f: impl FnOnce(Aml) -> R + Send + 'static) -
     requests().run(f).await
 }
 
+/// Like [`run`], but does not wait for f to return.
+pub fn post(f: impl FnOnce(Aml) + Send + 'static) {
+    requests().post(f);
+}
+
 static BLOCKING_ALLOWED: AtomicBool = AtomicBool::new(true);
 
 /// Like [`run`], but blocks the calling thread, hence its executor, until f returns.

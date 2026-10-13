@@ -209,6 +209,53 @@ where
     .await
 }
 
+/// An event that the fixed hardware of ACPI signals.
+#[derive(Clone, Copy)]
+pub enum FixedEvent {
+    PowerButton,
+}
+
+impl FixedEvent {
+    fn to_raw(self) -> uacpi_sys::uacpi_fixed_event {
+        match self {
+            FixedEvent::PowerButton => uacpi_sys::UACPI_FIXED_EVENT_POWER_BUTTON,
+        }
+    }
+}
+
+unsafe extern "C" fn fixed_event_trampoline<F>(context: uacpi_handle) -> uacpi_interrupt_ret
+where
+    F: Fn(),
+{
+    // SAFETY: the context is the handler that install_fixed_event_handler() leaked.
+    let handler = unsafe { &*(context as *const F) };
+    handler();
+    uacpi_sys::UACPI_INTERRUPT_HANDLED
+}
+
+/// Wraps uacpi_install_fixed_event_handler().
+///
+/// The handler runs in interrupt context, hence it must not run AML.
+///
+/// uACPI takes the event lock here, which it holds while it waits for work, hence this runs on
+/// the acpi thread. A wrapper for uacpi_uninstall_fixed_event_handler() must do the same.
+pub async fn install_fixed_event_handler<F>(event: FixedEvent, handler: F) -> Result<()>
+where
+    F: Fn() + Send + Sync + 'static,
+{
+    runtime::run(move |_aml| unsafe {
+        check(
+            "uacpi_install_fixed_event_handler",
+            uacpi_sys::uacpi_install_fixed_event_handler(
+                event.to_raw(),
+                Some(fixed_event_trampoline::<F>),
+                leak_handler(handler),
+            ),
+        )
+    })
+    .await
+}
+
 pub fn finish_handling_gpe(device: GpeDevice, index: u16) -> Result<()> {
     runtime::assert_not_on_work_thread("uacpi_finish_handling_gpe()");
     let device = as_gpe_device(device);
