@@ -187,8 +187,7 @@ endif
 
 if want_dtb
 	src += files(
-		'system/dtb/dtb.cpp',
-		'system/dtb/dtb_discover.cpp'
+		'system/dtb/dtb.cpp'
 	)
 
 	args += [ '-DTHOR_HAS_DTB_SUPPORT=1' ]

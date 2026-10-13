@@ -15,11 +15,6 @@ struct Properties {
 		properties_.emplace_back(std::move(allocName), std::move(value));
 	}
 
-	void decStringProperty(frg::string_view name, uint32_t value, int padding) {
-		auto allocName = frg::string<KernelAlloc>(*kernelAlloc, name);
-		stringProperty(std::move(allocName), frg::to_allocated_string(*kernelAlloc, value, 10, padding));
-	}
-
 private:
 	struct Property {
 		Property(frg::string<KernelAlloc> &&name,

@@ -19,10 +19,6 @@ extern ManagarmElfNote<DtData> dtDataNote;
 
 namespace dt {
 struct IrqController;
-struct MbusNode;
-
-void publishNodes();
-
 } // namespace dt
 
 struct DeviceTreeNode {
@@ -153,14 +149,6 @@ struct DeviceTreeNode {
 		return associatedIrqController_;
 	}
 
-	void associateMbusNode(dt::MbusNode *node) {
-		associatedMbusNode_ = node;
-	}
-
-	dt::MbusNode *getAssociatedMbusNode() {
-		return associatedMbusNode_;
-	}
-
 private:
 	void generatePath_();
 
@@ -198,7 +186,6 @@ private:
 
 	// Kernel objects associated with this DeviceTreeNode.
 	dt::IrqController *associatedIrqController_{nullptr};
-	dt::MbusNode *associatedMbusNode_{nullptr};
 };
 
 DeviceTreeNode *getDeviceTreeNodeByPath(frg::string_view path);

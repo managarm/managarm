@@ -9,7 +9,6 @@
 #include <thor-internal/arch/system.hpp>
 #include <thor-internal/cpu-state.hpp>
 #include <thor-internal/debug.hpp>
-#include <thor-internal/dtb/dtb.hpp>
 #include <thor-internal/elf-notes.hpp>
 #include <thor-internal/fiber.hpp>
 #include <thor-internal/framebuffer/fb.hpp>
@@ -205,9 +204,6 @@ extern "C" void thorMain() {
 
 		transitionBootFb();
 
-#if defined(__aarch64__) || (defined(__riscv) && __riscv_xlen == 64)
-		dt::publishNodes();
-#endif
 		smbios::publish();
 
 		// Parse the initrd image.
