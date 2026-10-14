@@ -56,6 +56,7 @@ fn main() -> Result<()> {
             isa::configure_isa_irqs();
 
             degrade("EC event setup", acpi::ec::init_events().await);
+            degrade("Power button setup", acpi::pm::init_power_button().await);
         }
 
         pci::publish_devices().await;
@@ -67,6 +68,7 @@ fn main() -> Result<()> {
         if acpi::has_rsdp() {
             degrade("PS/2 publishing", acpi::ps2::publish().await);
             degrade("Battery publishing", acpi::battery::publish().await);
+            degrade("PM interface publishing", acpi::pm::publish().await);
         }
 
         dt::serve::publish_all().await;

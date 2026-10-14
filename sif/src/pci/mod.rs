@@ -252,6 +252,8 @@ impl PciBusResource {
 pub struct PciBus {
     pub associated_bridge: Option<&'static PciBridge>,
     pub irq_router: OnceLock<&'static dyn PciIrqRouter>,
+    /// Only set for root buses that ACPI describes.
+    pub host_bridge: OnceLock<acpi::HostBridge>,
     pub io: &'static dyn PciConfigIo,
     pub child_devices: Mutex<Vec<&'static PciDevice>>,
     pub child_bridges: Mutex<Vec<&'static PciBridge>>,
@@ -278,6 +280,7 @@ impl PciBus {
         leak(PciBus {
             associated_bridge,
             irq_router: OnceLock::new(),
+            host_bridge: OnceLock::new(),
             io,
             child_devices: Mutex::new(Vec::new()),
             child_bridges: Mutex::new(Vec::new()),

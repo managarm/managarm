@@ -1,7 +1,11 @@
 use std::ffi::CStr;
+use std::sync::atomic::Ordering;
 
 use hel::{IrqPolarity, IrqTrigger};
+use managarm::mbus::Properties;
 
+use crate::acpi::object;
+use crate::entity::{decimal, string};
 use crate::leak;
 use crate::uacpi::namespace::{
     IterationDecision, NamespaceNode, PredefinedNamespace, find_devices_at,
@@ -16,22 +20,34 @@ use super::{
     config, system_irq,
 };
 
+/// The ACPI node of a host bridge, which is published next to its root bus.
+#[derive(Clone, Copy)]
+pub struct HostBridge {
+    node: NamespaceNode,
+    uid: Option<u64>,
+}
+
 #[derive(Clone, Copy)]
 struct RootBus {
     seg: u16,
     bus: u8,
-    node: NamespaceNode,
+    bridge: HostBridge,
+}
+
+/// Evaluates an integer method that the device may not implement.
+fn eval_optional_integer(aml: Aml, node: NamespaceNode, path: &CStr) -> Option<u64> {
+    match node.eval_simple_integer(aml, path) {
+        Ok(value) => value,
+        Err(err) => {
+            println!("sif: Failed to evaluate {}: {err}", path.to_string_lossy());
+            None
+        }
+    }
 }
 
 /// Evaluates an integer method that defaults to zero if the device does not implement it.
 fn eval_integer_or_zero(aml: Aml, node: NamespaceNode, path: &CStr) -> u64 {
-    match node.eval_simple_integer(aml, path) {
-        Ok(value) => value.unwrap_or(0),
-        Err(err) => {
-            println!("sif: Failed to evaluate {}: {err}", path.to_string_lossy());
-            0
-        }
-    }
+    eval_optional_integer(aml, node, path).unwrap_or(0)
 }
 
 fn find_root_buses(aml: Aml) -> Vec<RootBus> {
@@ -44,7 +60,10 @@ fn find_root_buses(aml: Aml) -> Vec<RootBus> {
         roots.push(RootBus {
             seg: eval_integer_or_zero(aml, node, c"_SEG") as u16,
             bus: eval_integer_or_zero(aml, node, c"_BBN") as u8,
-            node,
+            bridge: HostBridge {
+                node,
+                uid: eval_optional_integer(aml, node, c"_UID"),
+            },
         });
         // Devices below a host bridge are never host bridges themselves.
         IterationDecision::NextPeer
@@ -340,7 +359,7 @@ pub async fn discover_root_buses() {
             root.seg, root.bus
         );
 
-        let node = root.node;
+        let node = root.bridge.node;
         let prt = runtime::run(move |aml| evaluate_prt(aml, node)).await;
         let root_bus = PciBus::new(None, io, root.seg, root.bus);
         let router = AcpiPciIrqRouter::new(None, root_bus, Some((node, prt)));
@@ -348,6 +367,30 @@ pub async fn discover_root_buses() {
             root_bus.irq_router.set(router).is_ok(),
             "sif: PCI bus already has an IRQ router"
         );
+        assert!(
+            root_bus.host_bridge.set(root.bridge).is_ok(),
+            "sif: PCI bus already has a host bridge"
+        );
         add_root_bus(root_bus);
     }
+}
+
+/// Publishes the acpi-object of the host bridge of a published root bus.
+///
+/// UEFI device paths start at the host bridge, hence they resolve through this object.
+pub async fn publish_host_bridge(root_bus: &'static PciBus) -> anyhow::Result<()> {
+    let Some(&HostBridge { node, uid }) = root_bus.host_bridge.get() else {
+        return Ok(());
+    };
+
+    let mut props = Properties::new();
+    if let Some(uid) = uid {
+        props.insert("acpi.uid".into(), string(&uid.to_string()));
+    }
+    let mbus_id = root_bus.mbus_id.load(Ordering::Relaxed);
+    props.insert("acpi.physical_node".into(), decimal(mbus_id));
+
+    // Device paths name host bridges by _UID, which the devserver takes from the instance.
+    object::publish_with_properties(node, uid.unwrap_or(0) as usize, props).await?;
+    Ok(())
 }

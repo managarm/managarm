@@ -116,6 +116,11 @@ pub async fn run<R: Send + 'static>(f: impl FnOnce(Aml) -> R + Send + 'static) -
     requests().run(f).await
 }
 
+/// Like [`run`], but does not wait for f to return.
+pub fn post(f: impl FnOnce(Aml) + Send + 'static) {
+    requests().post(f);
+}
+
 static BLOCKING_ALLOWED: AtomicBool = AtomicBool::new(true);
 
 /// Like [`run`], but blocks the calling thread, hence its executor, until f returns.
@@ -193,17 +198,22 @@ where
         .expect("sif: interrupt thread terminated");
 }
 
+/// Asserts that the current thread is none that uACPI waits for, i.e., that it does not run
+/// uACPI's interrupt handlers, GPE methods or Notify() handlers.
+///
+/// uACPI holds the event lock while it waits for work, hence functions that take the event lock
+/// must not run there either, as they would deadlock against such a waiter.
+pub fn assert_not_on_work_thread(what: &str) {
+    assert!(
+        !ON_INTERRUPT_THREAD.get() && !gpe_thread().is_current() && !notify_thread().is_current(),
+        "sif: {what} on a thread that uACPI waits for"
+    );
+}
+
 /// Implements uacpi_kernel_wait_for_work_completion().
 pub fn wait_for_work_completion() {
-    assert!(
-        !ON_INTERRUPT_THREAD.get(),
-        "sif: interrupt thread waits for itself"
-    );
     // uACPI's own work never waits here, only a handler that calls a waiting uACPI function.
-    assert!(
-        !gpe_thread().is_current() && !notify_thread().is_current(),
-        "sif: a GPE or Notify() handler waits for the work that runs it"
-    );
+    assert_not_on_work_thread("uacpi_kernel_wait_for_work_completion()");
 
     // Interrupt handlers run synchronously, hence once a new task runs, earlier handlers are done.
     let (sender, receiver) = mpsc::sync_channel(1);

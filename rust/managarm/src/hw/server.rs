@@ -556,6 +556,55 @@ pub async fn serve_battery<B: Battery + 'static>(lane: Handle, battery: Arc<B>) 
     .await
 }
 
+// RebootRequest carries the command of reboot(2).
+const RB_AUTOBOOT: i64 = 0x01234567;
+const RB_POWER_OFF: i64 = 0x4321fedc;
+
+/// What a RebootRequest asks the platform to do.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RebootCommand {
+    PowerOff,
+    Restart,
+}
+
+pub trait PmInterface {
+    /// Powers off or restarts the system; only returns if that failed.
+    fn reboot(&self, command: RebootCommand) -> impl Future<Output = super::Error>;
+}
+
+async fn handle_one_pm<P: PmInterface>(lane: &Handle, request: &[u8], pm: &P) -> hel::Result<()> {
+    let preamble = match bragi::preamble_from_bytes(request) {
+        Ok(p) => p,
+        Err(_) => return Ok(()),
+    };
+
+    match preamble.id() {
+        bindings::RebootRequest::MESSAGE_ID => {
+            let req: bindings::RebootRequest =
+                bragi::head_from_bytes(request).map_err(|_| hel::Error::IllegalArgs)?;
+            let command = match req.cmd() {
+                RB_POWER_OFF => RebootCommand::PowerOff,
+                RB_AUTOBOOT => RebootCommand::Restart,
+                _ => {
+                    return send_response(lane, &error_response(Errors::IllegalArguments)).await;
+                }
+            };
+            let err = pm.reboot(command).await;
+            send_response(lane, &error_response(encode_hw_error(&err))).await?;
+        }
+        _ => send_response(lane, &error_response(Errors::DeviceError)).await?,
+    }
+
+    Ok(())
+}
+
+pub async fn serve_pm_interface<P: PmInterface + 'static>(lane: Handle, pm: Arc<P>) {
+    serve_requests(lane, async |conversation: &Handle, request: &[u8]| {
+        handle_one_pm(conversation, request, pm.as_ref()).await
+    })
+    .await
+}
+
 /// A register range of a device tree node's reg property.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct DtRegisterDescriptor {

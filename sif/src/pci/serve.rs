@@ -427,6 +427,15 @@ pub async fn publish_all() {
             Ok(manager) => {
                 let manager: &'static EntityManager = leak(manager);
                 root_bus.mbus_id.store(manager.id(), Ordering::Relaxed);
+                // Publishing the host bridge waits for AML, which need not delay the devices below it.
+                hel::spawn(async move {
+                    if let Err(err) = super::acpi::publish_host_bridge(root_bus).await {
+                        println!(
+                            "sif: Not publishing the host bridge of PCI root bus {:04x}:{:02x}: {err:#}",
+                            root_bus.seg_id, root_bus.bus_id
+                        );
+                    }
+                });
             }
             Err(err) => println!(
                 "sif: Not publishing PCI root bus {:04x}:{:02x}: {err}",

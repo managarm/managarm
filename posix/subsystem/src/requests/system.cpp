@@ -38,7 +38,17 @@ HandleRequest::operator()(managarm::posix::RebootRequest &&req,
 	HEL_CHECK(offer.error());
 	HEL_CHECK(hwSendResp.error());
 	HEL_CHECK(hwResp.error());
+	auto hwResult = *bragi::parse_head_only<managarm::hw::SvrResponse>(hwResp);
 	hwResp.reset();
+
+	// The pm-interface only responds if it could not power off or restart the system.
+	if(hwResult.error() != managarm::hw::Errors::SUCCESS) {
+		auto error = managarm::posix::Errors::INTERNAL_ERROR;
+		if(hwResult.error() == managarm::hw::Errors::ILLEGAL_ARGUMENTS)
+			error = managarm::posix::Errors::ILLEGAL_ARGUMENTS;
+		co_await sendErrorResponse<managarm::posix::RebootResponse>(conversation, error);
+		co_return {};
+	}
 
 	managarm::posix::RebootResponse resp;
 
