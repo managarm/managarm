@@ -1,8 +1,7 @@
 //! The graphics class subsystem: freestanding framebuffers.
 //!
 //! The udev rule that starts gfx-plainfb matches on the add uevent of these
-//! devices; thor publishes one whenever the boot framebuffer is not owned by
-//! a PCI device (which is always the case in sif mode).
+//! devices; thor publishes one for the boot framebuffer.
 
 use std::sync::Arc;
 

@@ -9,7 +9,6 @@
 #include <thor-internal/arch/system.hpp>
 #include <thor-internal/cpu-state.hpp>
 #include <thor-internal/debug.hpp>
-#include <thor-internal/dtb/dtb.hpp>
 #include <thor-internal/elf-notes.hpp>
 #include <thor-internal/fiber.hpp>
 #include <thor-internal/framebuffer/fb.hpp>
@@ -20,7 +19,6 @@
 #include <thor-internal/load-balancing.hpp>
 #include <thor-internal/main.hpp>
 #include <thor-internal/module.hpp>
-#include <thor-internal/pci/pci.hpp>
 #include <thor-internal/physical.hpp>
 #include <thor-internal/profile.hpp>
 #include <thor-internal/random.hpp>
@@ -206,12 +204,6 @@ extern "C" void thorMain() {
 
 		transitionBootFb();
 
-		pci::runAllBridges();
-		pci::runAllDevices();
-
-#if defined(__aarch64__) || (defined(__riscv) && __riscv_xlen == 64)
-		dt::publishNodes();
-#endif
 		smbios::publish();
 
 		// Parse the initrd image.
@@ -351,11 +343,8 @@ extern "C" void thorMain() {
 		infoLogger() << "thor: Launching user space." << frg::endlog;
 		KernelFiber::asyncBlockCurrent(runMbus());
 		initializeKernletCtl();
-		if(debugOptionsNote->useSif) {
-			KernelFiber::asyncBlockCurrent(runServerFromInitrd("usr/lib/managarm/server/sif.bin"));
-			// thor's own dmalog driver only sees PCI devices when thor enumerates the bus.
-			KernelFiber::asyncBlockCurrent(runServerFromInitrd("usr/lib/managarm/server/dmalog.bin"));
-		}
+		KernelFiber::asyncBlockCurrent(runServerFromInitrd("usr/lib/managarm/server/sif.bin"));
+		KernelFiber::asyncBlockCurrent(runServerFromInitrd("usr/lib/managarm/server/dmalog.bin"));
 		KernelFiber::asyncBlockCurrent(runServerFromInitrd("usr/lib/managarm/server/kernletcc.bin"));
 		KernelFiber::asyncBlockCurrent(runServerFromInitrd("usr/lib/managarm/server/posix-devserver.bin"));
 		KernelFiber::asyncBlockCurrent(runServerFromInitrd("usr/lib/managarm/server/clocktracker.bin"));

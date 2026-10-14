@@ -4,7 +4,7 @@
 #include <thor-internal/fiber.hpp>
 #include <thor-internal/io.hpp>
 #include <thor-internal/kernel-heap.hpp>
-#include <thor-internal/pci/pci.hpp>
+#include <thor-internal/mbus.hpp>
 
 #include <thor-internal/framebuffer/fb.hpp>
 #include <thor-internal/framebuffer/boot-screen.hpp>
@@ -147,40 +147,7 @@ void transitionBootFb() {
 		panicLogger() << "thor: Failed to create hardware memory" << frg::endlog;
 	bootInfo->memory = std::move(*memoryOutcome);
 
-	// Try to attached the framebuffer to a PCI device.
-	pci::PciDevice *owner = nullptr;
-	for (auto dev : *pci::allDevices) {
-		auto checkBars = [&] () -> bool {
-			for(int i = 0; i < 6; i++) {
-				if(dev->bars[i].type != pci::PciBar::kBarMemory)
-					continue;
-				// TODO: Careful about overflow here.
-				auto bar_begin = dev->bars[i].address;
-				auto bar_end = dev->bars[i].address + dev->bars[i].length;
-				if(bootInfo->address >= bar_begin
-						&& bootInfo->address + bootInfo->height * bootInfo->pitch <= bar_end)
-					return true;
-			}
-
-			return false;
-		};
-
-		if(checkBars()) {
-			assert(!owner);
-			owner = dev.get();
-		}
-	}
-
-	if(!owner) {
-		infoLogger() << "thor: Could not find owner for boot framebuffer" << frg::endlog;
-		publishFreestandingFb(bootInfo.get(), bootScreen.get());
-		return;
-	}
-
-	infoLogger() << "thor: Boot framebuffer is attached to PCI device "
-			<< owner->bus << "." << owner->slot << "." << owner->function << frg::endlog;
-	owner->associatedFrameBuffer = bootInfo.get();
-	owner->associatedScreen = bootScreen.get();
+	publishFreestandingFb(bootInfo.get(), bootScreen.get());
 }
 
 namespace {

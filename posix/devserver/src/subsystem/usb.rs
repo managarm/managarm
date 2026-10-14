@@ -246,7 +246,7 @@ async fn install_controller(
     let name = format!("usb{bus}");
     println!("devserver: Installing USB controller {name} (mbus ID: {mbus_id})");
 
-    // The controller is published before its PCI device in sif mode; wait for it.
+    // The controller may be published before its PCI device; wait for it.
     let pci = state
         .model
         .wait_device(&DeviceKey::primary(pci_parent))

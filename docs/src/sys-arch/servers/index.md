@@ -2,7 +2,7 @@
 
 > This part of the Handbook is Work-In-Progress.
 
-Servers are how most drivers running on a managarm system should be implemented. Exceptions to that are drivers that are required for kernel functionality, for instance interrupt controllers, which are part of the kernel. e9 debug logging is also implemented in-kernel. Notably, ACPI handling is also done in-kernel - having this run in a server has previously proved overly complex, and some functionality is needed by the kernel to set up timers and interrupts anyways.
+Servers are how most drivers running on a managarm system should be implemented. Exceptions to that are drivers that are required for kernel functionality, for instance interrupt controllers, which are part of the kernel. e9 debug logging is also implemented in-kernel. The kernel only parses the ACPI tables that it needs to set up timers and interrupts; the ACPI namespace (AML), PCI enumeration and device tree devices are handled by the sif server.
 
 As (filesystem) servers are used to access file systems, we cannot rely on loading servers from a disk - they are loaded from the initrd for bootstrapping. This is necessary for at least all servers that can be used for file access, and their dependencies.
 

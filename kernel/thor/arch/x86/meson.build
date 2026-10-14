@@ -20,7 +20,6 @@ src += files(
 	'paging.cpp',
 	'pmc-amd.cpp',
 	'pmc-intel.cpp',
-	'pci_io.cpp',
 	'rtc.cpp',
 	'svm.cpp',
 	'system.cpp',

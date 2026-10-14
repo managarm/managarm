@@ -15,16 +15,6 @@ struct Properties {
 		properties_.emplace_back(std::move(allocName), std::move(value));
 	}
 
-	void hexStringProperty(frg::string_view name, uint32_t value, int padding) {
-		auto allocName = frg::string<KernelAlloc>(*kernelAlloc, name);
-		stringProperty(std::move(allocName), frg::to_allocated_string(*kernelAlloc, value, 16, padding));
-	}
-
-	void decStringProperty(frg::string_view name, uint32_t value, int padding) {
-		auto allocName = frg::string<KernelAlloc>(*kernelAlloc, name);
-		stringProperty(std::move(allocName), frg::to_allocated_string(*kernelAlloc, value, 10, padding));
-	}
-
 private:
 	struct Property {
 		Property(frg::string<KernelAlloc> &&name,
@@ -40,7 +30,6 @@ private:
 
 struct KernelBusObject {
 	coroutine<frg::expected<Error, size_t>> createObject(frg::string_view name, Properties &&properties);
-	coroutine<Error> updateProperties(Properties &properties);
 
 	virtual smarter::shared_ptr<Stream, LanePolicy> initiateClient() {
 		auto streamOutcome = createStream();

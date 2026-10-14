@@ -10,10 +10,12 @@ eir is the platform-dependant part of Managarm's kernel which hands over control
 
 ## thor
 
-thor then proceeds to initialize the memory subsystem, scans and initializes PCI devices, starts the ACPI subsystem and starts the base servers and supporting infrastructure needed to run Managarm's userland. This means that the following programs are started (in order).
+thor then proceeds to initialize the memory subsystem, reads the ACPI tables or the device tree that it needs to set up interrupts, timers and CPUs, and starts the base servers and supporting infrastructure needed to run Managarm's userland. This means that the following programs are started (in order).
 - mbus, which is used to allow servers to find each other.
 - kerncfg, which exposes kernel configuration to servers.
 - srvctl, controls the starting and stopping of servers.
+- sif, which runs the ACPI namespace (AML) and enumerates PCI and device tree devices.
+- dmalog, which connects kernel I/O channels (e.g., the kernel log) to QEMU's dmalog device.
 - kernletcc, can compile and upload small programs (written in lewis) that run in kernel space.
 - clocktracker, provides timekeeping services to servers.
 - posix-subsystem, which runs posix-init, which is Managarm's init, and provides the environment that is expected by POSIX programs.
