@@ -19,6 +19,7 @@
 #include <thor-internal/error.hpp>
 #include <thor-internal/futex.hpp>
 #include <thor-internal/hierarchy.hpp>
+#include <thor-internal/physical.hpp>
 #include <thor-internal/types.hpp>
 #include <thor-internal/pfn-db.hpp>
 #include <thor-internal/rcu.hpp>
@@ -235,9 +236,10 @@ inline constexpr CachingFlags cacheWriteCombine = 1;
 
 // Helper to perform tryCharge() and allocation in one call.
 std::expected<PhysicalAddr, Error>
-tryChargeAndAllocate(Hierarchy *hierarchy, size_t size, int addressBits);
+tryChargeAndAllocate(Hierarchy *hierarchy, size_t size, PhysicalKind kind, int addressBits);
 
-void deallocateAndUncharge(Hierarchy *hierarchy, PhysicalAddr physical, size_t size);
+void deallocateAndUncharge(Hierarchy *hierarchy, PhysicalAddr physical, size_t size,
+		PhysicalKind kind);
 
 // Returned by the callback of MemoryView::accessRange().
 struct PageAccessResult {

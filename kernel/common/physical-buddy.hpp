@@ -74,6 +74,18 @@ private:
 			return freeOrder;
 	}
 
+	AddressType countFreeItems(int8_t *slice, int order, AddressType index) {
+		// An entry of -1 is either allocated as a whole or all of its descendants are allocated.
+		if (slice[index] == -1)
+			return 0;
+		if (slice[index] == order)
+			return AddressType(1) << order;
+		assert(order > 0);
+		auto childSlice = slice + (size_t(numRoots_) << (tableOrder_ - order));
+		return countFreeItems(childSlice, order - 1, 2 * index)
+		       + countFreeItems(childSlice, order - 1, 2 * index + 1);
+	}
+
 	int traverseForSanityCheck(int8_t *slice, int order, size_t base) {
 		assert(slice[base] >= -1);
 		assert(slice[base] <= order);
@@ -172,7 +184,34 @@ public:
 
 	int tableOrder() { return tableOrder_; }
 
+	AddressType numRoots() { return numRoots_; }
+
+	// Address of the first item of the given root.
+	AddressType rootAddress(AddressType rootIndex) {
+		assert(rootIndex < numRoots_);
+		return _baseAddress + (rootIndex << (tableOrder_ + _sizeShift));
+	}
+
+	// Largest order that is free in the given root, or -1 if the root is fully allocated.
+	// Equals tableOrder() if no item of the root is allocated.
+	int rootFreeOrder(AddressType rootIndex) {
+		assert(rootIndex < numRoots_);
+		return buddyPointer_[rootIndex];
+	}
+
+	// Number of free items of the given root.
+	AddressType countFreeItems(AddressType rootIndex) {
+		assert(rootIndex < numRoots_);
+		return countFreeItems(buddyPointer_, tableOrder_, rootIndex);
+	}
+
 	AddressType allocate(int order, int addressBits) {
+		return allocate(order, addressBits, [](AddressType) { return true; });
+	}
+
+	// Like allocate() but only descends into roots that satisfy rootFilter(rootIndex).
+	template <typename F>
+	AddressType allocate(int order, int addressBits, F rootFilter) {
 		assert(order >= 0);
 		if (order > tableOrder_)
 			return illegalAddress;
@@ -185,8 +224,14 @@ public:
 
 		// First phase: Descent to the target order.
 		// In this phase find a free element.
-		AddressType allocIndex =
-		    findAllocatableChunk(slice, 0, numRoots_, currentOrder, order, addressBits);
+		AddressType allocIndex = illegalAddress;
+		for (AddressType i = 0; i < numRoots_; i++) {
+			if (!rootFilter(i))
+				continue;
+			allocIndex = findAllocatableChunk(slice, i, 1, currentOrder, order, addressBits);
+			if (allocIndex != illegalAddress)
+				break;
+		}
 		if (allocIndex == illegalAddress)
 			return illegalAddress;
 		while (currentOrder > order) {

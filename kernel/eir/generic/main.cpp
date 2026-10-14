@@ -108,6 +108,17 @@ void createInitialRegion(address_t base, address_t size) {
 	assert(!(address % pageSize));
 	assert(!(limit % pageSize));
 
+	// Align the base to the buddy root size so that thor's chunks are naturally aligned.
+	// The unaligned head becomes a separate region (with smaller roots) instead of being discarded.
+	auto rootSize = address_t(pageSize)
+	                << BuddyAccessor::suitableOrder((limit - address) >> pageShift);
+	auto rootAligned = (address + rootSize - 1) & ~(rootSize - 1);
+	if (rootAligned != address) {
+		createInitialRegion(address, rootAligned - address);
+		createInitialRegion(rootAligned, limit - rootAligned);
+		return;
+	}
+
 	auto region = obtainRegion();
 	region->regionType = RegionType::allocatable;
 	region->address = address;

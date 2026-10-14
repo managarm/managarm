@@ -39,16 +39,17 @@ namespace {
 // --------------------------------------------------------
 
 std::expected<PhysicalAddr, Error>
-tryChargeAndAllocate(Hierarchy *hierarchy, size_t size, int addressBits) {
+tryChargeAndAllocate(Hierarchy *hierarchy, size_t size, PhysicalKind kind, int addressBits) {
 	if(auto charge = hierarchy->tryChargeMemory(size); !charge)
 		return std::unexpected{charge.error()};
-	auto physical = physicalAllocator->allocate(size, addressBits);
-	assert(physical != PhysicalAddr(-1) && "OOM");
-	return physical;
+	auto physical = physicalAllocator->tryAllocate(size, kind, addressBits);
+	assert(physical && "OOM");
+	return *physical;
 }
 
-void deallocateAndUncharge(Hierarchy *hierarchy, PhysicalAddr physical, size_t size) {
-	physicalAllocator->free(physical, size);
+void deallocateAndUncharge(Hierarchy *hierarchy, PhysicalAddr physical, size_t size,
+		PhysicalKind kind) {
+	physicalAllocator->free(physical, size, kind);
 	hierarchy->unchargeMemory(size);
 }
 
@@ -1034,7 +1035,8 @@ AllocatedMemory::~AllocatedMemory() {
 		if(_physicalChunks[i] != PhysicalAddr(-1)) {
 			for(size_t pg = 0; pg < _chunkSize; pg += kPageSize)
 				globalPfnDb().erase(_physicalChunks[i] + pg);
-			deallocateAndUncharge(_hierarchy.get(), _physicalChunks[i], _chunkSize);
+			deallocateAndUncharge(_hierarchy.get(), _physicalChunks[i], _chunkSize,
+					_chunkSize > kPageSize ? PhysicalKind::contiguous : PhysicalKind::pinned);
 		}
 	}
 	if(logUsage)
@@ -1128,7 +1130,9 @@ AllocatedMemory::touchRange(uintptr_t offset, size_t, FetchFlags) {
 		co_return Error::fault;
 
 	if(_physicalChunks[index] == PhysicalAddr(-1)) {
-		auto physicalOutcome = tryChargeAndAllocate(_hierarchy.get(), _chunkSize, _addressBits);
+		auto kind = _chunkSize > kPageSize ? PhysicalKind::contiguous : PhysicalKind::pinned;
+		auto physicalOutcome = tryChargeAndAllocate(_hierarchy.get(), _chunkSize,
+				kind, _addressBits);
 		if(!physicalOutcome)
 			co_return physicalOutcome.error();
 		auto physical = *physicalOutcome;
@@ -1356,7 +1360,7 @@ coroutine<void> ManagedSpace::_runReclaimLoop() {
 			}
 
 			globalPfnDb().erase(physical);
-			deallocateAndUncharge(hierarchy.get(), physical, kPageSize);
+			deallocateAndUncharge(hierarchy.get(), physical, kPageSize, PhysicalKind::evictable);
 			sizeFreed += kPageSize;
 		}
 
@@ -1405,7 +1409,7 @@ coroutine<void> ManagedSpace::_runReclaimLoop() {
 			}
 
 			if(physical != PhysicalAddr(-1)) {
-				deallocateAndUncharge(hierarchy.get(), physical, kPageSize);
+				deallocateAndUncharge(hierarchy.get(), physical, kPageSize, PhysicalKind::evictable);
 				sizeFreed += kPageSize;
 			}
 		}
@@ -1957,7 +1961,7 @@ coroutine<void> ManagedSpace::dispose() {
 					&ManagedPage::cachePage));
 		}
 		if(physical != PhysicalAddr(-1))
-			deallocateAndUncharge(hierarchy.get(), physical, kPageSize);
+			deallocateAndUncharge(hierarchy.get(), physical, kPageSize, PhysicalKind::evictable);
 	}
 
 	uint64_t nextIdentity = 0;
@@ -1974,7 +1978,7 @@ coroutine<void> ManagedSpace::dispose() {
 			physical = releasePage(*it);
 		}
 		if(physical != PhysicalAddr(-1))
-			deallocateAndUncharge(hierarchy.get(), physical, kPageSize);
+			deallocateAndUncharge(hierarchy.get(), physical, kPageSize, PhysicalKind::evictable);
 	}
 
 	globalReclaimer->unregisterBundle(this);
@@ -2540,7 +2544,8 @@ BackingMemory::touchRange(uintptr_t offset, size_t, FetchFlags) {
 	}
 
 	if(pit->physical == PhysicalAddr(-1)) {
-		auto physicalOutcome = tryChargeAndAllocate(_managed->hierarchy.get(), kPageSize, 64);
+		auto physicalOutcome = tryChargeAndAllocate(_managed->hierarchy.get(), kPageSize,
+				PhysicalKind::evictable, 64);
 		if(!physicalOutcome)
 			co_return physicalOutcome.error();
 		auto physical = *physicalOutcome;
@@ -3185,7 +3190,8 @@ SwappableMemory::touchRange(uintptr_t offset, size_t, FetchFlags flags) {
 	PhysicalAddr freshPhysical(-1);
 	frg::scope_exit freeFreshFrame{[&] {
 		if(freshPhysical != PhysicalAddr(-1))
-			deallocateAndUncharge(_space->hierarchy.get(), freshPhysical, kPageSize);
+			deallocateAndUncharge(_space->hierarchy.get(), freshPhysical, kPageSize,
+					PhysicalKind::evictable);
 	}};
 
 	while(true) {
@@ -3234,7 +3240,8 @@ SwappableMemory::touchRange(uintptr_t offset, size_t, FetchFlags flags) {
 		}
 
 		assert(freshPhysical == PhysicalAddr(-1));
-		auto physicalOutcome = tryChargeAndAllocate(_space->hierarchy.get(), kPageSize, 64);
+		auto physicalOutcome = tryChargeAndAllocate(_space->hierarchy.get(), kPageSize,
+				PhysicalKind::evictable, 64);
 		if(!physicalOutcome)
 			co_return physicalOutcome.error();
 		freshPhysical = *physicalOutcome;
@@ -4055,7 +4062,8 @@ void CopyOnWriteMemory::unchargePages_(size_t n) {
 
 std::expected<PhysicalAddr, Error> CopyOnWriteMemory::_allocateCopy() {
 	if(_space)
-		return tryChargeAndAllocate(_space->hierarchy.get(), kPageSize, 64);
+		return tryChargeAndAllocate(_space->hierarchy.get(), kPageSize,
+				PhysicalKind::evictable, 64);
 	// Non-swappable CopyOnWriteMemory only needs the charge in tryChargePages_().
 	auto physical = physicalAllocator->allocate(kPageSize, 64);
 	assert(physical != PhysicalAddr(-1) && "OOM");
@@ -4064,7 +4072,8 @@ std::expected<PhysicalAddr, Error> CopyOnWriteMemory::_allocateCopy() {
 
 void CopyOnWriteMemory::_freeCopy(PhysicalAddr physical) {
 	if(_space) {
-		deallocateAndUncharge(_space->hierarchy.get(), physical, kPageSize);
+		deallocateAndUncharge(_space->hierarchy.get(), physical, kPageSize,
+				PhysicalKind::evictable);
 		return;
 	}
 	// Non-swappable CopyOnWriteMemory only needs the uncharge in unchargePages_().

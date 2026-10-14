@@ -7,6 +7,7 @@
 #include <thor-internal/hierarchy.hpp>
 #include <thor-internal/ostrace.hpp>
 #include <thor-internal/kernel-log.hpp>
+#include <thor-internal/main.hpp>
 #include <thor-internal/profile.hpp>
 #include <thor-internal/stream.hpp>
 #include <thor-internal/timer.hpp>
@@ -24,7 +25,6 @@
 
 namespace thor {
 
-extern frg::manual_box<frg::string<KernelAlloc>> kernelCommandLine;
 extern frg::manual_box<LogRingBuffer> allocLog;
 extern ManagarmElfNote<AcpiData> acpiRsdpNote;
 #ifdef THOR_HAS_DTB_SUPPORT
@@ -68,7 +68,8 @@ private:
 
 			managarm::kerncfg::SvrResponse<KernelAlloc> resp(*kernelAlloc);
 			resp.set_error(managarm::kerncfg::Error::SUCCESS);
-			resp.set_size(kernelCommandLine->size());
+			auto cmdline = getKernelCmdline();
+			resp.set_size(cmdline.size());
 
 			frg::unique_memory<KernelAlloc> respBuffer{*kernelAlloc, resp.size_of_head()};
 			bragi::write_head_only(resp, respBuffer);
@@ -76,8 +77,8 @@ private:
 			if(respError != Error::success)
 				co_return respError;
 
-			frg::unique_memory<KernelAlloc> cmdlineBuffer{*kernelAlloc, kernelCommandLine->size()};
-			memcpy(cmdlineBuffer.data(), kernelCommandLine->data(), kernelCommandLine->size());
+			frg::unique_memory<KernelAlloc> cmdlineBuffer{*kernelAlloc, cmdline.size()};
+			memcpy(cmdlineBuffer.data(), cmdline.data(), cmdline.size());
 			auto cmdlineError = co_await sendBuffer(lane, std::move(cmdlineBuffer));
 			if(cmdlineError != Error::success)
 				co_return cmdlineError;
