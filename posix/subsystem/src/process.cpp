@@ -409,6 +409,7 @@ std::shared_ptr<FsContext> FsContext::create() {
 std::shared_ptr<FsContext> FsContext::clone(std::shared_ptr<FsContext> original) {
 	auto context = std::make_shared<FsContext>();
 
+	std::lock_guard lock{original->_mutex};
 	context->_root = original->_root;
 	context->_workDir = original->_workDir;
 	context->_umask = original->_umask;
@@ -417,32 +418,38 @@ std::shared_ptr<FsContext> FsContext::clone(std::shared_ptr<FsContext> original)
 }
 
 ViewPath FsContext::getRoot() {
+	std::lock_guard lock{_mutex};
 	return _root;
 }
 
 ViewPath FsContext::getWorkingDirectory() {
+	std::lock_guard lock{_mutex};
 	return _workDir;
 }
 
 std::expected<void, Error> FsContext::changeRoot(ViewPath root) {
 	if(root.second->getTarget()->getType() != VfsType::directory)
 		return std::unexpected(Error::notDirectory);
-	_root = std::move(root);
+	std::lock_guard lock{_mutex};
+	std::swap(_root, root);
 	return {};
 }
 
 std::expected<void, Error> FsContext::changeWorkingDirectory(ViewPath workdir) {
 	if(workdir.second->getTarget()->getType() != VfsType::directory)
 		return std::unexpected(Error::notDirectory);
-	_workDir = std::move(workdir);
+	std::lock_guard lock{_mutex};
+	std::swap(_workDir, workdir);
 	return {};
 }
 
 mode_t FsContext::getUmask() {
+	std::lock_guard lock{_mutex};
 	return _umask;
 }
 
 mode_t FsContext::setUmask(mode_t mask) {
+	std::lock_guard lock{_mutex};
 	mode_t old = _umask;
 	_umask = mask & 0777;
 	return old;

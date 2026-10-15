@@ -171,8 +171,13 @@ struct FsContext {
 	mode_t setUmask(mode_t mask);
 
 private:
+	// Leaf lock; replaced paths are dropped after releasing it.
+	std::mutex _mutex;
+	// Protected by _mutex.
 	ViewPath _root;
+	// Protected by _mutex.
 	ViewPath _workDir;
+	// Protected by _mutex.
 	mode_t _umask = 0022;
 };
 
