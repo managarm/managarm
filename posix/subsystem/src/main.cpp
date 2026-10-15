@@ -2,6 +2,7 @@
 
 #include <linux/vt.h>
 
+#include <async/oneshot-event.hpp>
 #include <helix/dispatcher-pool.hpp>
 #include <protocols/mbus/client.hpp>
 
@@ -89,6 +90,7 @@ async::result<void> serve(std::shared_ptr<Process> self, std::shared_ptr<Generat
 namespace {
 	helix::UniqueLane kerncfgLane;
 	helix::UniqueLane pmLane;
+	async::oneshot_event foundPm;
 	size_t affinityMaskSize = 0;
 };
 
@@ -96,8 +98,9 @@ helix::UniqueLane &getKerncfgLane() {
 	return kerncfgLane;
 }
 
-helix::UniqueLane &getPmLane() {
-	return pmLane;
+async::result<helix::BorrowedLane> getPmLane() {
+	co_await foundPm.wait();
+	co_return pmLane;
 }
 
 size_t getAffinityMaskSize() {
@@ -186,6 +189,7 @@ async::result<void> enumeratePm() {
 
 	auto entity = co_await mbus_ng::Instance::global().getEntity(events[0].id);
 	pmLane = (co_await entity.getRemoteLane()).unwrap();
+	foundPm.raise();
 }
 
 // --------------------------------------------------------

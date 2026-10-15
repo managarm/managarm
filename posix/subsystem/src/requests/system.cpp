@@ -28,8 +28,9 @@ HandleRequest::operator()(managarm::posix::RebootRequest &&req,
 
 	managarm::hw::RebootRequest hwRequest;
 	hwRequest.set_cmd(req.cmd());
+	auto pmLane = co_await getPmLane();
 	auto [offer, hwSendResp, hwResp] = co_await helix_ng::exchangeMsgs(
-		getPmLane(),
+		pmLane,
 		helix_ng::offer(
 			helix_ng::sendBragiHeadOnly(hwRequest, frg::stl_allocator{}),
 			helix_ng::recvInline()
