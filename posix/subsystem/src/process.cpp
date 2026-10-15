@@ -2005,6 +2005,7 @@ async::result<void> Process::terminate(bool *lastInGroup) {
 	});
 	if (lastInGroup)
 		*lastInGroup = tgPointer_->threads_.empty();
+	tgPointer_->processTerminationSeq_.fetch_add(1, std::memory_order_release);
 	tgPointer_->processTerminationEvent_.raise();
 }
 
@@ -2060,11 +2061,13 @@ Process::wait(int pid, WaitFlags flags, async::cancellation_token ct) {
 		}
 	};
 
-	if(!hasMatchingChildren() || (pid > 0 && !hasChild(pid)))
-		co_return Error::noChildProcesses;
-
 	std::optional<WaitResult> result{};
 	while(true) {
+		auto seq = threadGroup()->notifySeq_.load(std::memory_order_acquire);
+		// Checked after reading the sequence number, such that a concurrent reap wakes us up.
+		if(!hasMatchingChildren() || (pid > 0 && !hasChild(pid)))
+			co_return Error::noChildProcesses;
+
 		for(auto it = threadGroup()->_notifyQueue.begin(); it != threadGroup()->_notifyQueue.end(); ++it) {
 			if(!notificationMatch(*it))
 				continue;
@@ -2095,11 +2098,11 @@ Process::wait(int pid, WaitFlags flags, async::cancellation_token ct) {
 		else if(flags & waitNonBlocking)
 			co_return Error::wouldBlock;
 
-		if (!co_await threadGroup()->_notifyBell.async_wait(ct))
+		auto waitResult = co_await threadGroup()->_notifyBell.async_wait_if([&] {
+			return threadGroup()->notifySeq_.load(std::memory_order_acquire) == seq;
+		}, ct);
+		if (!waitResult)
 			co_return Error::interrupted;
-
-		if (!hasMatchingChildren())
-			co_return Error::noChildProcesses;
 	}
 }
 
@@ -2110,7 +2113,10 @@ bool Process::hasChild(int pid) {
 }
 
 async::result<bool> ThreadGroup::awaitNotifyTypeChange(async::cancellation_token token) {
-	co_return co_await notifyTypeChange_.async_wait(token);
+	auto result = co_await notifyTypeChange_.async_wait_if([&] {
+		return notifyType_.load() == NotifyType::null;
+	}, token);
+	co_return bool(result);
 }
 
 ThreadGroup::ThreadGroup(std::shared_ptr<PidHull> hull, ThreadGroup *parent)
@@ -2310,6 +2316,7 @@ async::result<void> ThreadGroup::terminateGroup(TerminationState state) {
 	// Note that the process that caused the thread group termination has already called terminate() by now,
 	// so we do not need to worry about that process deadlocking if it waits for terminateGroup().
 	while (true) {
+		auto seq = processTerminationSeq_.load(std::memory_order_acquire);
 		for (auto &process : threads_) {
 			if (process->forceTermination)
 				continue;
@@ -2319,7 +2326,9 @@ async::result<void> ThreadGroup::terminateGroup(TerminationState state) {
 
 		if (threads_.empty())
 			break;
-		co_await processTerminationEvent_.async_wait();
+		co_await processTerminationEvent_.async_wait_if([&] {
+			return processTerminationSeq_.load(std::memory_order_acquire) == seq;
+		});
 	}
 
 	std::shared_ptr<IntervalTimer> timer;
@@ -2363,7 +2372,7 @@ async::result<void> ThreadGroup::terminateGroup(TerminationState state) {
 	}
 
 	if(ringReparent)
-		reparentTo->_notifyBell.raise();
+		reparentTo->raiseNotifyBell();
 
 	// Notify the parent of our status change.
 	// We need to do that even when not sending SIGCHLD since it wakes up pidfd.
@@ -2374,7 +2383,7 @@ async::result<void> ThreadGroup::terminateGroup(TerminationState state) {
 	auto sigchldHandling = parent_->signalContext()->getHandler(SIGCHLD);
 	if (sigchldHandling.disposition != SignalDisposition::ignore && !(sigchldHandling.flags & signalNoChildWait)) {
 		parent_->_notifyQueue.push_back(this);
-		parent_->_notifyBell.raise();
+		parent_->raiseNotifyBell();
 
 		// Send SIGCHLD to the parent.
 		ChildSignal info;
@@ -2413,7 +2422,7 @@ void ThreadGroup::retire(ThreadGroup *tg) {
 
 	// We need to ring _notifyBell once the process is retired
 	// since waitpid() returns an error once no children are left.
-	tg->parent_->_notifyBell.raise();
+	tg->parent_->raiseNotifyBell();
 }
 
 void ThreadGroup::associateProcess(std::shared_ptr<Process> process) {

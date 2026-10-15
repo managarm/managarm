@@ -1034,6 +1034,7 @@ struct ThreadGroup : std::enable_shared_from_this<ThreadGroup> {
 	id_allocator<int> timerIdAllocator{};
 
 	void raiseNotifyBell() {
+		notifySeq_.fetch_add(1, std::memory_order_release);
 		_notifyBell.raise();
 	}
 
@@ -1061,7 +1062,8 @@ private:
 
 	std::vector<gid_t> supplementaryGids_;
 
-	// Raised by Process::terminate().
+	// Raised by Process::terminate() after incrementing processTerminationSeq_.
+	std::atomic<uint64_t> processTerminationSeq_ = 0;
 	async::recurring_event processTerminationEvent_;
 
 	std::mutex usageMutex_;
@@ -1073,7 +1075,7 @@ private:
 	ResourceUsage _childrenUsage = {};
 
 	// The following intrusive queue stores notifications for wait().
-	NotifyType notifyType_ = NotifyType::null;
+	std::atomic<NotifyType> notifyType_ = NotifyType::null;
 	async::recurring_event notifyTypeChange_;
 	TerminationState _state;
 
@@ -1084,6 +1086,8 @@ private:
 		ThreadGroup,
 		frg::locate_member<ThreadGroup, frg::default_list_hook<ThreadGroup>, &ThreadGroup::notifyHook_>
 	> _notifyQueue;
+	// Raised by raiseNotifyBell() after incrementing notifySeq_.
+	std::atomic<uint64_t> notifySeq_ = 0;
 	async::recurring_event _notifyBell;
 
 	smarter::shared_ptr<procfs::Link, LinkRc> procfsLink_;
