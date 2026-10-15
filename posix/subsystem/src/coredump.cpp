@@ -290,8 +290,8 @@ async::result<void> Process::coredump(TerminationState state) {
 		info.pr_uid = threadGroup()->uid();
 		info.pr_gid = threadGroup()->gid();
 		info.pr_flag = 0x600;
-		strncpy(info.pr_fname, _name.c_str(), sizeof(info.pr_fname));
-		strncpy(info.pr_psargs, _path.c_str(), sizeof(info.pr_psargs));
+		strncpy(info.pr_fname, this->name().c_str(), sizeof(info.pr_fname));
+		strncpy(info.pr_psargs, this->path().c_str(), sizeof(info.pr_psargs));
 		write(&info, sizeof(info));
 	}
 

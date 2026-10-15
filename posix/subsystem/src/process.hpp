@@ -583,14 +583,17 @@ public:
 	int tid();
 
 	std::string path() {
+		std::lock_guard lock{taskMutex_};
 		return _path;
 	}
 
 	std::string name() {
+		std::lock_guard lock{taskMutex_};
 		return _name;
 	}
 
 	void setName(std::string name) {
+		std::lock_guard lock{taskMutex_};
 		_name = name;
 	}
 
@@ -716,7 +719,7 @@ public:
 	}
 
 	// Forces terminate() to be called on next kHelObserveInterrupt.
-	bool forceTermination = false;
+	std::atomic<bool> forceTermination = false;
 
 	SignalQueue signalQueue;
 
@@ -737,7 +740,10 @@ public:
 
 private:
 	std::shared_ptr<PidHull> hull_;
+	std::mutex taskMutex_;
+	// Protected by taskMutex_.
 	std::string _path;
+	// Protected by taskMutex_.
 	std::string _name;
 	helix::UniqueLane _posixLane;
 	helix::UniqueDescriptor _threadDescriptor;
@@ -913,11 +919,13 @@ struct ThreadGroup : std::enable_shared_from_this<ThreadGroup> {
 		return Error::success;
 	}
 
-	ResourceUsage selfUsage() const {
+	ResourceUsage selfUsage() {
+		std::lock_guard lock{usageMutex_};
 		return _generationUsage;
 	}
 
-	ResourceUsage accumulatedUsage() const {
+	ResourceUsage accumulatedUsage() {
+		std::lock_guard lock{usageMutex_};
 		return _childrenUsage;
 	}
 
@@ -948,7 +956,7 @@ struct ThreadGroup : std::enable_shared_from_this<ThreadGroup> {
 	void issueThreadGroupSignal(int sn, SignalInfo info);
 
 	void setParentDeathSignal(std::optional<int> sig) {
-		parentDeathSignal_ = sig;
+		parentDeathSignal_ = sig.value_or(0);
 	}
 
 	async::result<bool> awaitNotifyTypeChange(async::cancellation_token token = {});
@@ -1039,7 +1047,7 @@ private:
 
 	std::shared_ptr<SignalContext> _signalContext;
 
-	bool didExecute_ = false;
+	std::atomic<bool> didExecute_ = false;
 
 	std::shared_ptr<ProcessGroup> pgPointer_;
 	frg::default_list_hook<ThreadGroup> pgHook_;
@@ -1056,9 +1064,12 @@ private:
 	// Raised by Process::terminate().
 	async::recurring_event processTerminationEvent_;
 
+	std::mutex usageMutex_;
 	// Resource usage accumulated from previous generations.
+	// Protected by usageMutex_.
 	ResourceUsage _generationUsage = {};
 	// Resource usage accumulated from children.
+	// Protected by usageMutex_.
 	ResourceUsage _childrenUsage = {};
 
 	// The following intrusive queue stores notifications for wait().
@@ -1083,10 +1094,11 @@ private:
 	uint64_t currentSignalSeq_ = 1;
 	// ThreadGroup-wide signal queue for signals with no thread to accept them.
 	SignalQueue signalQueue_;
-	std::optional<int> parentDeathSignal_ = std::nullopt;
+	// Zero if no signal is requested.
+	std::atomic<int> parentDeathSignal_ = 0;
 
 	// equivalent to PR_[SG]ET_DUMPABLE
-	bool dumpable_ = true;
+	std::atomic<bool> dumpable_ = true;
 
 	std::vector<std::shared_ptr<Process>> threads_;
 };

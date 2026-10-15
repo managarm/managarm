@@ -1929,8 +1929,11 @@ async::result<Error> Process::exec(std::shared_ptr<Process> process,
 	// "Commit" the exec() operation.
 	size_t pos = path.rfind('/');
 	assert(pos != std::string::npos);
-	process->_name = path.substr(pos + 1);
-	process->_path = std::move(path);
+	{
+		std::lock_guard lock{process->taskMutex_};
+		process->_name = path.substr(pos + 1);
+		process->_path = std::move(path);
+	}
 	process->_posixLane = std::move(server_lane);
 	process->_threadDescriptor = std::move(execResult.thread);
 	process->_vmContext = std::move(exec_vm_context);
@@ -1977,7 +1980,12 @@ async::result<void> Process::terminate(bool *lastInGroup) {
 	// TODO: Do the accumulation + _currentGeneration reset after the thread has really terminated?
 	HelThreadStats stats;
 	HEL_CHECK(helQueryThreadStats(_threadDescriptor.getHandle(), &stats));
-	threadGroup()->_generationUsage.userTime += stats.userTime;
+	uint64_t groupUserTime;
+	{
+		std::lock_guard lock{threadGroup()->usageMutex_};
+		threadGroup()->_generationUsage.userTime += stats.userTime;
+		groupUserTime = threadGroup()->_generationUsage.userTime;
+	}
 
 	_posixLane = {};
 	_threadDescriptor = {};
@@ -1987,7 +1995,10 @@ async::result<void> Process::terminate(bool *lastInGroup) {
 	//_signalContext = nullptr; // TODO: Migrate the notifications to PID 1.
 	_currentGeneration = nullptr;
 
-	parent->_childrenUsage.userTime += threadGroup()->_generationUsage.userTime;
+	{
+		std::lock_guard lock{parent->usageMutex_};
+		parent->_childrenUsage.userTime += groupUserTime;
+	}
 
 	std::erase_if(tgPointer_->threads_, [&](auto e) {
 		return e.get() == this;
@@ -2333,10 +2344,10 @@ async::result<void> ThreadGroup::terminateGroup(TerminationState state) {
 		reparentTo->_children.push_back((*it));
 
 		// send the signal if it requested one on parent death
-		if((*it)->parentDeathSignal_) {
+		if(int sig = (*it)->parentDeathSignal_; sig) {
 			UserSignal info;
 			info.pid = hull_->getPid();
-			(*it)->issueThreadGroupSignal((*it)->parentDeathSignal_.value(), info);
+			(*it)->issueThreadGroupSignal(sig, info);
 		}
 
 		it = _children.erase(it);
@@ -2368,7 +2379,7 @@ async::result<void> ThreadGroup::terminateGroup(TerminationState state) {
 		// Send SIGCHLD to the parent.
 		ChildSignal info;
 		info.pid = hull_->getPid();
-		info.utime = _generationUsage.userTime;
+		info.utime = selfUsage().userTime;
 
 		if(std::get_if<TerminationByExit>(&_state)) {
 			info.status = std::get<TerminationByExit>(_state).code;
