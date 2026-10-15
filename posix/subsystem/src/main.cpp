@@ -1,4 +1,5 @@
 #include <memory>
+#include <mutex>
 
 #include <linux/vt.h>
 
@@ -31,6 +32,10 @@
 
 #include "debug-options.hpp"
 
+// Protects globalCredentialsMap.
+std::mutex globalCredentialsMutex;
+
+// Entries are removed before serve() drops its reference to the Process.
 std::map<
 	std::array<char, 16>,
 	Process *
@@ -39,6 +44,7 @@ std::map<
 std::optional<std::shared_ptr<Process>> findProcessWithCredentials(helix_ng::CredentialsView credentials) {
 	std::array<char, 16> creds;
 	memcpy(creds.data(), credentials.data(), 16);
+	std::lock_guard lock{globalCredentialsMutex};
 	auto it = globalCredentialsMap.find(creds);
 	if(it == globalCredentialsMap.end())
 		return std::nullopt;
@@ -71,8 +77,11 @@ async::result<void> serve(std::shared_ptr<Process> self, std::shared_ptr<Generat
 
 	std::array<char, 16> creds;
 	HEL_CHECK(helGetCredentials(thread.getHandle(), 0, creds.data()));
-	auto res = globalCredentialsMap.insert({creds, self.get()});
-	assert(res.second);
+	{
+		std::lock_guard lock{globalCredentialsMutex};
+		auto res = globalCredentialsMap.insert({creds, self.get()});
+		assert(res.second);
+	}
 
 	co_await async::when_all(
 		observeThread(self, generation),
@@ -80,9 +89,8 @@ async::result<void> serve(std::shared_ptr<Process> self, std::shared_ptr<Generat
 		serveRequests(self, generation)
 	);
 
-	std::erase_if(globalCredentialsMap, [&](const auto &p) {
-		return !memcmp(p.first.data(), creds.data(), 16);
-	});
+	std::lock_guard lock{globalCredentialsMutex};
+	globalCredentialsMap.erase(creds);
 }
 
 // --------------------------------------------------------
