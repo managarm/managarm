@@ -1,7 +1,9 @@
 
 #include <signal.h>
 #include <string.h>
+#include <atomic>
 #include <limits>
+#include <mutex>
 #include <print>
 
 #include <async/scope.hpp>
@@ -1142,68 +1144,88 @@ Generation::~Generation() {
 // ----------------------------------------------------------------------------
 
 // PID 1 is reserved for the init process, therefore we start at 2.
-ProcessId nextPid = 2;
+std::atomic<ProcessId> nextPid = 2;
+
+namespace {
+
+// Leaf lock that protects globalPidMap and the weak pointers in all PidHulls.
+// ~PidHull erases its entry under this lock, so mapped hulls stay alive while it is held.
+std::mutex pidMapMutex;
 std::map<ProcessId, PidHull *> globalPidMap;
+
+} // anonymous namespace
 
 PidHull::PidHull(pid_t pid)
 : pid_{pid} {
+	std::lock_guard lock{pidMapMutex};
 	auto [it, success] = globalPidMap.insert({pid_, this});
 	assert(success);
 	(void)it;
 }
 
 PidHull::~PidHull() {
+	std::lock_guard lock{pidMapMutex};
 	auto it = globalPidMap.find(pid_);
 	assert(it != globalPidMap.end());
 	globalPidMap.erase(it);
 }
 
 void PidHull::initializeThreadGroup(ThreadGroup *tg) {
+	std::lock_guard lock{pidMapMutex};
 	threadGroup_ = tg->weak_from_this();
 }
 
 void PidHull::initializeProcess(Process *process) {
+	std::lock_guard lock{pidMapMutex};
 	process_ = process->weak_from_this();
 }
 
 void PidHull::initializeTerminalSession(TerminalSession *session) {
+	std::lock_guard lock{pidMapMutex};
 	// TODO: verify that no terminal session is associated with this PidHull.
 	terminalSession_ = session->weak_from_this();
 }
 
 void PidHull::initializeProcessGroup(ProcessGroup *group) {
+	std::lock_guard lock{pidMapMutex};
 	// TODO: verify that no process group is associated with this PidHull.
 	processGroup_ = group->weak_from_this();
 }
 
 std::shared_ptr<ThreadGroup> PidHull::getThreadGroup() {
+	std::lock_guard lock{pidMapMutex};
 	return threadGroup_.lock();
 }
 
 std::shared_ptr<Process> PidHull::getProcess() {
+	std::lock_guard lock{pidMapMutex};
 	return process_.lock();
 }
 
 std::shared_ptr<ProcessGroup> PidHull::getProcessGroup() {
+	std::lock_guard lock{pidMapMutex};
 	return processGroup_.lock();
 }
 
 std::shared_ptr<TerminalSession> PidHull::getTerminalSession() {
+	std::lock_guard lock{pidMapMutex};
 	return terminalSession_.lock();
 }
 
 std::shared_ptr<ThreadGroup> ThreadGroup::findThreadGroup(ProcessId pid) {
+	std::lock_guard lock{pidMapMutex};
 	auto it = globalPidMap.find(pid);
 	if(it == globalPidMap.end())
 		return nullptr;
-	return it->second->getThreadGroup();
+	return it->second->threadGroup_.lock();
 }
 
 std::shared_ptr<Process> Process::findProcess(ProcessId pid) {
+	std::lock_guard lock{pidMapMutex};
 	auto it = globalPidMap.find(pid);
 	if(it == globalPidMap.end())
 		return nullptr;
-	return it->second->getProcess();
+	return it->second->process_.lock();
 }
 
 Process::Process(ThreadGroup *threadGroup, std::shared_ptr<PidHull> tidHull)
@@ -2277,10 +2299,11 @@ std::shared_ptr<Process> ThreadGroup::findThread(pid_t tid) {
 // --------------------------------------------------------------------------------------
 
 std::shared_ptr<ProcessGroup> ProcessGroup::findProcessGroup(ProcessId pid) {
+	std::lock_guard lock{pidMapMutex};
 	auto it = globalPidMap.find(pid);
 	if(it == globalPidMap.end())
 		return nullptr;
-	return it->second->getProcessGroup();
+	return it->second->processGroup_.lock();
 }
 
 ProcessGroup::ProcessGroup(std::shared_ptr<PidHull> hull)
