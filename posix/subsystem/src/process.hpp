@@ -214,11 +214,11 @@ public:
 		return _clientMbusLane;
 	}
 
-	const std::unordered_map<int, FileDescriptor> &fileTable() {
-		return _fileTable;
-	}
+	// Returns a copy of the file table.
+	std::unordered_map<int, FileDescriptor> snapshotFileTable();
 
 	void setFdLimit(uint64_t limit) {
+		std::lock_guard lock{_mutex};
 		// TODO: increase the limit once we allow more than one shared fd -> HelHandle mapping page
 		fdLimit_ = std::min(limit, 0x1000 / sizeof(HelHandle));
 	}
@@ -230,13 +230,19 @@ private:
 
 	helix::UniqueDescriptor _universe;
 
+	// Leaf lock; displaced files are dropped after releasing it since that can close them.
+	std::mutex _mutex;
+
 	// TODO: replace this by a tree that remembers gaps between keys.
+	// Protected by _mutex.
 	std::unordered_map<int, FileDescriptor> _fileTable;
 
 	helix::UniqueDescriptor _fileTableMemory;
+	// Contents protected by _mutex.
 	helix::Mapping fileTableWindow_;
 
 	// TODO: increase the limit once we allow more than one shared fd -> HelHandle mapping page
+	// Protected by _mutex.
 	uint64_t fdLimit_ = 0x1000 / sizeof(HelHandle);
 
 	HelHandle _clientMbusLane;

@@ -496,7 +496,7 @@ std::shared_ptr<FileContext> FileContext::clone(std::shared_ptr<FileContext> ori
 	context->_fileTableMemory = helix::UniqueDescriptor(memory);
 	context->fileTableWindow_ = helix::Mapping{context->_fileTableMemory, 0, 0x1000};
 
-	for(auto entry : original->_fileTable) {
+	for(auto entry : original->snapshotFileTable()) {
 		//std::cout << "Clone FD " << entry.first << std::endl;
 
 		// the new number of fd in the file context is always <= the number of fd in the original
@@ -533,6 +533,7 @@ std::expected<int, Error> FileContext::attachFile(smarter::shared_ptr<File, File
 		&handle
 	));
 
+	std::lock_guard lock{_mutex};
 	for(int fd = startAt; ; fd++) {
 		if(_fileTable.find(fd) != _fileTable.end())
 			continue;
@@ -551,8 +552,11 @@ std::expected<int, Error> FileContext::attachFile(smarter::shared_ptr<File, File
 
 std::expected<void, Error> FileContext::attachFile(int fd, smarter::shared_ptr<File, FileHandle> file,
 		bool close_on_exec) {
-	if (static_cast<uint64_t>(fd) >= fdLimit_)
-		return std::unexpected{Error::noFileDescriptorsAvailable};
+	{
+		std::lock_guard lock{_mutex};
+		if (static_cast<uint64_t>(fd) >= fdLimit_)
+			return std::unexpected{Error::noFileDescriptorsAvailable};
+	}
 
 	HelHandle handle;
 	HEL_CHECK(helTransferDescriptor(
@@ -567,9 +571,11 @@ std::expected<void, Error> FileContext::attachFile(int fd, smarter::shared_ptr<F
 	if(logFileAttach)
 		std::cout << "posix: Attaching fixed FD " << fd << std::endl;
 
+	FileDescriptor displaced;
+	std::lock_guard lock{_mutex};
 	auto it = _fileTable.find(fd);
 	if(it != _fileTable.end()) {
-		it->second = {std::move(file), close_on_exec};
+		displaced = std::exchange(it->second, {std::move(file), close_on_exec});
 	}else{
 		_fileTable.insert({fd, {std::move(file), close_on_exec}});
 	}
@@ -579,6 +585,7 @@ std::expected<void, Error> FileContext::attachFile(int fd, smarter::shared_ptr<F
 }
 
 std::optional<FileDescriptor> FileContext::getDescriptor(int fd) {
+	std::lock_guard lock{_mutex};
 	auto file = _fileTable.find(fd);
 	if(file == _fileTable.end())
 		return std::nullopt;
@@ -586,6 +593,7 @@ std::optional<FileDescriptor> FileContext::getDescriptor(int fd) {
 }
 
 Error FileContext::setDescriptor(int fd, bool close_on_exec) {
+	std::lock_guard lock{_mutex};
 	auto it = _fileTable.find(fd);
 	if(it == _fileTable.end()) {
 		return Error::noSuchFile;
@@ -595,6 +603,7 @@ Error FileContext::setDescriptor(int fd, bool close_on_exec) {
 }
 
 smarter::shared_ptr<File, FileHandle> FileContext::getFile(int fd) {
+	std::lock_guard lock{_mutex};
 	auto file = _fileTable.find(fd);
 	if(file == _fileTable.end())
 		return smarter::shared_ptr<File, FileHandle>{};
@@ -604,6 +613,8 @@ smarter::shared_ptr<File, FileHandle> FileContext::getFile(int fd) {
 Error FileContext::closeFile(int fd) {
 	if(logFileAttach)
 		std::cout << "posix: Closing FD " << fd << std::endl;
+	FileDescriptor closed;
+	std::lock_guard lock{_mutex};
 	auto it = _fileTable.find(fd);
 	if(it == _fileTable.end()) {
 		return Error::noSuchFile;
@@ -612,22 +623,31 @@ Error FileContext::closeFile(int fd) {
 	HEL_CHECK(helCloseDescriptor(_universe.getHandle(), fileTableWindow()[fd]));
 
 	fileTableWindow()[fd] = 0;
+	closed = std::move(it->second);
 	_fileTable.erase(it);
 	return Error::success;
 }
 
 void FileContext::closeOnExec() {
+	std::vector<FileDescriptor> closed;
+	std::lock_guard lock{_mutex};
 	auto it = _fileTable.begin();
 	while(it != _fileTable.end()) {
 		if(it->second.closeOnExec) {
 			HEL_CHECK(helCloseDescriptor(_universe.getHandle(), fileTableWindow()[it->first]));
 
 			fileTableWindow()[it->first] = 0;
+			closed.push_back(std::move(it->second));
 			it = _fileTable.erase(it);
 		}else{
 			it++;
 		}
 	}
+}
+
+std::unordered_map<int, FileDescriptor> FileContext::snapshotFileTable() {
+	std::lock_guard lock{_mutex};
+	return _fileTable;
 }
 
 // ----------------------------------------------------------------------------
