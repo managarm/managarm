@@ -2,6 +2,7 @@
 
 #include <async/cancellation.hpp>
 #include <helix/timer.hpp>
+#include <atomic>
 #include <memory>
 #include <stdint.h>
 
@@ -9,7 +10,7 @@ namespace posix {
 
 struct IntervalTimer {
 	IntervalTimer(uint64_t initial, uint64_t interval)
-		: initial_(initial), interval_(interval) {
+		: initial_(initial), interval_(interval), nextExpiration_(initial) {
 	}
 
 	virtual ~IntervalTimer() {}
@@ -33,7 +34,8 @@ struct IntervalTimer {
 protected:
 	uint64_t initial_ = 0;
 	uint64_t interval_ = 0;
-	uint64_t nextExpiration_ = 0;
+	// Set at construction and advanced by arm(); read by getTime().
+	std::atomic<uint64_t> nextExpiration_ = 0;
 
 private:
 	async::cancellation_event cancelEvt_;

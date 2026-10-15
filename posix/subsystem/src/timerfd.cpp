@@ -1,3 +1,4 @@
+#include <mutex>
 #include <print>
 #include <stdint.h>
 #include <string.h>
@@ -38,23 +39,29 @@ private:
 
 		void raise(bool success) override {
 			auto f = smarter::static_pointer_cast<OpenFile>(file_.lock());
-			if(!f || !f->_activeTimer || f->_activeTimer.get() != this)
+			if(!f || !success)
 				return;
 
-			if(success) {
+			{
+				std::lock_guard lock{f->mutex_};
+				if(f->_activeTimer.get() != this)
+					return;
 				f->_expirations++;
 				f->_theSeq++;
-				f->_seqBell.raise();
 			}
+			f->_seqBell.raise();
 		}
 
 		void expired() override {
 			auto f = smarter::static_pointer_cast<OpenFile>(file_.lock());
-
-			if(!f || f->_activeTimer.get() != this)
+			if(!f)
 				return;
 
-			f->_activeTimer = nullptr;
+			std::shared_ptr<Timer> self;
+			std::lock_guard lock{f->mutex_};
+			if(f->_activeTimer.get() != this)
+				return;
+			self = std::move(f->_activeTimer);
 		}
 
 	private:
@@ -81,10 +88,13 @@ public:
 	}
 
 	void handleClose() override {
-		if(_activeTimer) {
-			_activeTimer->cancel();
-			_activeTimer.reset();
+		std::shared_ptr<Timer> timer;
+		{
+			std::lock_guard lock{mutex_};
+			timer = std::move(_activeTimer);
 		}
+		if(timer)
+			timer->cancel();
 		_seqBell.raise();
 		_cancelServe.cancel();
 	}
@@ -94,12 +104,19 @@ public:
 		if(max_length < sizeof(uint64_t))
 			co_return std::unexpected{Error::illegalArguments};
 
+		std::unique_lock lock{mutex_};
 		if(!_expirations && nonBlock_)
 			co_return std::unexpected{Error::wouldBlock};
 
 		while(!_expirations) {
-			if (!co_await _seqBell.async_wait(ct))
+			lock.unlock();
+			auto result = co_await _seqBell.async_wait_if([&] {
+				std::lock_guard lock{mutex_};
+				return !_expirations;
+			}, ct);
+			if (!result)
 				co_return std::unexpected{Error::interrupted};
+			lock.lock();
 		}
 
 		memcpy(data, &_expirations, sizeof(uint64_t));
@@ -113,21 +130,32 @@ public:
 		if(logTimerfd)
 			std::cout << "posix: timerfd::pollWait(" << in_seq << ")" << std::endl;
 
+		std::unique_lock lock{mutex_};
 		assert(in_seq <= _theSeq);
+
+		auto computeEdges = [&] {
+			int edges = 0;
+			if (_theSeq > in_seq)
+				edges |= EPOLLIN;
+			return edges;
+		};
 
 		int edges = 0;
 		while(true) {
 			if(!isOpen())
 				co_return Error::fileClosed;
 
-			edges = 0;
-			if (_theSeq > in_seq)
-				edges |= EPOLLIN;
-
+			edges = computeEdges();
 			if (edges & mask)
 				break;
 
-			if (!co_await _seqBell.async_wait(cancellation))
+			lock.unlock();
+			auto result = co_await _seqBell.async_wait_if([&] {
+				std::lock_guard lock{mutex_};
+				return isOpen() && !(computeEdges() & mask);
+			}, cancellation);
+			lock.lock();
+			if (!result)
 				break;
 		}
 
@@ -136,6 +164,7 @@ public:
 
 	async::result<frg::expected<Error, PollStatusResult>>
 	pollStatus(Process *) override {
+		std::lock_guard lock{mutex_};
 		co_return PollStatusResult(_theSeq, _expirations ? EPOLLIN : 0);
 	}
 
@@ -167,8 +196,11 @@ public:
 				bragi::preamble, OpenFile *self) {
 			switch(req.command()) {
 				case TFD_IOC_SET_TICKS: {
-					self->_expirations = req.ticks();
-					self->_theSeq++;
+					{
+						std::lock_guard lock{self->mutex_};
+						self->_expirations = req.ticks();
+						self->_theSeq++;
+					}
 					self->_seqBell.raise();
 
 					managarm::fs::GenericIoctlReply resp;
@@ -210,7 +242,9 @@ public:
 		return _passthrough;
 	}
 
-	void setTime(bool relative, const timespec initial, const timespec interval) {
+	// Returns the previous setting in oldInitial and oldInterval.
+	void setTime(bool relative, const timespec initial, const timespec interval,
+			timespec &oldInitial, timespec &oldInterval) {
 		uint64_t initialNanos = 0;
 		uint64_t intervalNanos = 0;
 
@@ -219,25 +253,41 @@ public:
 			intervalNanos = posix::convertToNanos(interval, CLOCK_MONOTONIC);
 		}
 
-		if(_activeTimer)
-			_activeTimer->cancel();
-		// Pending expirations belong to the old setting, so disarming must drop them too.
-		_expirations = 0;
-		if(initialNanos || intervalNanos) {
-			_activeTimer = std::make_shared<Timer>(weakFile(), initialNanos, intervalNanos);
-			Timer::arm(_activeTimer);
-		} else {
-			// disarm timer
-			_activeTimer = nullptr;
+		std::shared_ptr<Timer> newTimer;
+		if(initialNanos || intervalNanos)
+			newTimer = std::make_shared<Timer>(weakFile(), initialNanos, intervalNanos);
+
+		std::shared_ptr<Timer> oldTimer;
+		{
+			std::lock_guard lock{mutex_};
+			oldTimer = std::exchange(_activeTimer, newTimer);
+			// Pending expirations belong to the old setting, so disarming must drop them too.
+			_expirations = 0;
 		}
+
+		timeOf(oldTimer.get(), oldInitial, oldInterval);
+		if(oldTimer)
+			oldTimer->cancel();
+		if(newTimer)
+			Timer::arm(std::move(newTimer));
 	}
 
 	void getTime(timespec &initial, timespec &interval) {
-		if(_activeTimer) {
+		std::shared_ptr<Timer> timer;
+		{
+			std::lock_guard lock{mutex_};
+			timer = _activeTimer;
+		}
+		timeOf(timer.get(), initial, interval);
+	}
+
+private:
+	static void timeOf(Timer *timer, timespec &initial, timespec &interval) {
+		if(timer) {
 			uint64_t initialNanos = 0;
 			uint64_t intervalNanos = 0;
 
-			_activeTimer->getTime(initialNanos, intervalNanos);
+			timer->getTime(initialNanos, intervalNanos);
 
 			initial.tv_sec = initialNanos / 1'000'000'000;
 			initial.tv_nsec = initialNanos % 1'000'000'000;
@@ -251,18 +301,23 @@ public:
 		}
 	}
 
-private:
 	helix::UniqueLane _passthrough;
 	async::cancellation_event _cancelServe;
 	int _clock;
 	std::atomic<bool> nonBlock_;
 
+	// Leaf lock; _seqBell is raised and timers are cancelled after releasing it.
+	std::mutex mutex_;
+
 	// Currently active timer.
+	// Protected by mutex_.
 	std::shared_ptr<Timer> _activeTimer;
 
 	// Number of expirations since last read().
+	// Protected by mutex_.
 	uint64_t _expirations;
 
+	// Protected by mutex_.
 	uint64_t _theSeq;
 	async::recurring_event _seqBell;
 };
@@ -278,13 +333,14 @@ smarter::shared_ptr<File, FileHandle> createFile(int clock, bool non_block) {
 	return File::constructHandle(std::move(file));
 }
 
-void setTime(File *file, int flags, struct timespec initial, struct timespec interval) {
+void setTime(File *file, int flags, struct timespec initial, struct timespec interval,
+		timespec &oldInitial, timespec &oldInterval) {
 	if(logTimerfd)
 		std::cout << "setTime() initial: " << initial.tv_sec << " + " << initial.tv_nsec
 				<< ", interval: " << interval.tv_sec << " + " << interval.tv_nsec << std::endl;
 
 	auto timerfd = static_cast<OpenFile *>(file);
-	timerfd->setTime(!(flags & TFD_TIMER_ABSTIME), initial, interval);
+	timerfd->setTime(!(flags & TFD_TIMER_ABSTIME), initial, interval, oldInitial, oldInterval);
 }
 
 void getTime(File *file, timespec &initial, timespec &interval) {

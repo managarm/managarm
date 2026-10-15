@@ -21,9 +21,6 @@ async::detached IntervalTimer::arm(std::shared_ptr<IntervalTimer> timer) {
 	if(!timer->initial_ && !timer->interval_)
 		co_return;
 
-	// Next expiration of the timer.
-	timer->nextExpiration_ = timer->initial_;
-
 	if(timer->initial_) {
 		bool awaited = co_await helix::sleepUntil(timer->nextExpiration_, timer->cancelEvt_);
 
@@ -47,9 +44,10 @@ async::detached IntervalTimer::arm(std::shared_ptr<IntervalTimer> timer) {
 
 void IntervalTimer::getTime(uint64_t &initial, uint64_t &interval) {
 	auto now = helix::getClock();
+	uint64_t nextExpiration = nextExpiration_;
 
-	if(nextExpiration_ > now)
-		initial = nextExpiration_ - now;
+	if(nextExpiration > now)
+		initial = nextExpiration - now;
 	else
 		initial = 1;
 
