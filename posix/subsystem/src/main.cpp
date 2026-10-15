@@ -2,6 +2,7 @@
 
 #include <linux/vt.h>
 
+#include <helix/dispatcher-pool.hpp>
 #include <protocols/mbus/client.hpp>
 
 #include "net.hpp"
@@ -204,7 +205,9 @@ async::detached runInit() {
 int main() {
 	std::cout << "Starting posix-subsystem" << std::endl;
 
-	async::run(clk::enumerateTracker(), helix::currentDispatcher);
+	// posix-subsystem is not thread-safe yet; run the pool single threaded.
+	helix::DispatcherPool::global().setThreadCount(1);
+	helix::DispatcherPool::global().blockOn(clk::enumerateTracker());
 
 //	HEL_CHECK(helSetPriority(kHelThisThread, 1));
 
@@ -225,5 +228,6 @@ int main() {
 
 	runInit();
 
-	async::run_forever(helix::currentDispatcher);
+	helix::DispatcherPool::global().blockOn(
+			async::suspend_indefinitely(async::cancellation_token{}));
 }
