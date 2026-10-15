@@ -464,6 +464,8 @@ struct SignalContext {
 	async::result<void> restoreContext(helix::BorrowedDescriptor thread, Process *process);
 
 private:
+	std::mutex _mutex;
+	// Protected by _mutex.
 	SignalHandler _handlers[64];
 };
 

@@ -744,6 +744,7 @@ std::shared_ptr<SignalContext> SignalContext::clone(std::shared_ptr<SignalContex
 	auto context = std::make_shared<SignalContext>();
 
 	// Copy the current signal handler table.
+	std::lock_guard lock{original->_mutex};
 	for(int sn = 1; sn <= 64; sn++)
 		context->_handlers[sn - 1] = original->_handlers[sn - 1];
 
@@ -751,6 +752,7 @@ std::shared_ptr<SignalContext> SignalContext::clone(std::shared_ptr<SignalContex
 }
 
 void SignalContext::resetHandlers() {
+	std::lock_guard lock{_mutex};
 	for(int sn = 1; sn <= 64; sn++)
 		if(_handlers[sn - 1].disposition == SignalDisposition::handle)
 			_handlers[sn - 1] = SignalHandler{SignalDisposition::none};
@@ -759,12 +761,14 @@ void SignalContext::resetHandlers() {
 SignalHandler SignalContext::getHandler(int sn) {
 	assert(sn > 0);
 	assert(sn - 1 < 64);
+	std::lock_guard lock{_mutex};
 	return _handlers[sn - 1];
 }
 
 SignalHandler SignalContext::changeHandler(int sn, SignalHandler handler) {
 	assert(sn > 0);
 	assert(sn - 1 < 64);
+	std::lock_guard lock{_mutex};
 	return std::exchange(_handlers[sn - 1], handler);
 }
 
@@ -952,17 +956,21 @@ static const auto simdStateSize = [] () -> size_t {
 }();
 
 SignalContext::SignalHandling SignalContext::acceptSignal(SignalItem *item, Process *process) {
-	SignalHandler handler = _handlers[item->signalNumber - 1];
+	SignalHandler handler;
+	{
+		std::lock_guard lock{_mutex};
+		handler = _handlers[item->signalNumber - 1];
+
+		// Implement SA_RESETHAND by resetting the signal disposition to default.
+		if(handler.flags & signalOnce)
+			_handlers[item->signalNumber - 1].disposition = SignalDisposition::none;
+	}
 
 	process->enterSignal();
 
 	SignalContext::SignalHandling result {
 		.handler = handler,
 	};
-
-	// Implement SA_RESETHAND by resetting the signal disposition to default.
-	if(handler.flags & signalOnce)
-		_handlers[item->signalNumber - 1].disposition = SignalDisposition::none;
 
 	// Handle default dispositions properly
 	if(handler.disposition == SignalDisposition::none) {
