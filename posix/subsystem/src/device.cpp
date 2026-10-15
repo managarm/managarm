@@ -34,8 +34,11 @@ FutureMaybe<smarter::shared_ptr<FsLink, LinkRc>> UnixDevice::mount(std::string) 
 
 void UnixDeviceRegistry::install(std::shared_ptr<UnixDevice> device) {
 	assert(device->getId() != DeviceId(0, 0));
-	// TODO: Ensure that the insert succeeded.
-	_devices.insert(device);
+	{
+		std::unique_lock lock{_mutex};
+		// TODO: Ensure that the insert succeeded.
+		_devices.insert(device);
+	}
 
 	// Create the node synchronously such that it exists once install() returns.
 	// Like Linux, we do not fail the device if its node cannot be created
@@ -51,6 +54,7 @@ void UnixDeviceRegistry::install(std::shared_ptr<UnixDevice> device) {
 }
 
 std::shared_ptr<UnixDevice> UnixDeviceRegistry::get(DeviceId id) {
+	std::shared_lock lock{_mutex};
 	auto it = _devices.find(id);
 	if(it == _devices.end())
 		return nullptr;
