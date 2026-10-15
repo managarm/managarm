@@ -778,23 +778,36 @@ void SignalQueue::issueSignal(int sn, SignalInfo info, uint64_t seq) {
 	slots_[sn - 1].raiseSeq = seq;
 	slots_[sn - 1].asyncQueue.push_back(item);
 	activeSet_ |= (UINT64_C(1) << (sn - 1));
-	signalBell_.raise();
 }
 
 void ThreadGroup::issueThreadGroupSignal(int sn, SignalInfo info) {
-	signalQueue_.issueSignal(sn, info, ++currentSignalSeq_);
+	{
+		std::lock_guard lock{signalMutex_};
+		signalQueue_.issueSignal(sn, info, ++currentSignalSeq_);
+	}
+	signalQueue_.signalBell_.raise();
 }
 
 void Process::issueThreadSignal(int sn, SignalInfo info) {
-	signalQueue.issueSignal(sn, info, ++threadGroup()->currentSignalSeq_);
+	auto tg = threadGroup();
+	{
+		std::lock_guard lock{tg->signalMutex_};
+		signalQueue.issueSignal(sn, info, ++tg->currentSignalSeq_);
+	}
+	signalQueue.signalBell_.raise();
 }
 
 async::result<PollSignalResult>
 Process::pollSignal(uint64_t in_seq, uint64_t mask, async::cancellation_token cancellation) {
-	assert(in_seq <= threadGroup()->currentSignalSeq_);
+	auto tg = threadGroup();
+	{
+		std::lock_guard lock{tg->signalMutex_};
+		assert(in_seq <= tg->currentSignalSeq_);
+	}
 
 	auto threadSignalUnavailable = [&]() {
-		if (in_seq == threadGroup()->currentSignalSeq_)
+		std::lock_guard lock{tg->signalMutex_};
+		if (in_seq == tg->currentSignalSeq_)
 			return true;
 		if (!(signalQueue.activeSet_ & mask))
 			return true;
@@ -802,9 +815,10 @@ Process::pollSignal(uint64_t in_seq, uint64_t mask, async::cancellation_token ca
 	};
 
 	auto processSignalUnavailable = [&]() {
-		if (in_seq == threadGroup()->currentSignalSeq_)
+		std::lock_guard lock{tg->signalMutex_};
+		if (in_seq == tg->currentSignalSeq_)
 			return true;
-		if (!(threadGroup()->signalQueue_.activeSet_ & mask))
+		if (!(tg->signalQueue_.activeSet_ & mask))
 			return true;
 		return false;
 	};
@@ -831,22 +845,25 @@ Process::pollSignal(uint64_t in_seq, uint64_t mask, async::cancellation_token ca
 		);
 	}
 
+	std::lock_guard lock{tg->signalMutex_};
 	uint64_t edges = 0;
 	for(int sn = 1; sn <= 64; sn++) {
 		if (signalQueue.slots_[sn - 1].raiseSeq > in_seq)
 			edges |= UINT64_C(1) << (sn - 1);
-		else if (threadGroup()->signalQueue().slots_[sn - 1].raiseSeq > in_seq)
+		else if (tg->signalQueue().slots_[sn - 1].raiseSeq > in_seq)
 			edges |= UINT64_C(1) << (sn - 1);
 	}
 
-	co_return PollSignalResult{threadGroup()->currentSignalSeq_, edges & mask};
+	co_return PollSignalResult{tg->currentSignalSeq_, edges & mask};
 }
 
 CheckSignalResult Process::checkSignal() {
+	std::lock_guard lock{threadGroup()->signalMutex_};
 	return CheckSignalResult(threadGroup()->currentSignalSeq_, signalQueue.activeSet_ | threadGroup()->signalQueue_.activeSet_);
 }
 
 SignalItem * Process::tryFetchSignal(uint64_t mask) {
+	std::lock_guard lock{threadGroup()->signalMutex_};
 	for(int sn = 1; sn <= 64; sn++) {
 		if(!(mask & (UINT64_C(1) << (sn - 1))))
 			continue;
@@ -874,7 +891,11 @@ SignalItem * Process::tryFetchSignal(uint64_t mask) {
 }
 
 async::result<SignalItem *> Process::fetchSignal(uint64_t mask, bool nonBlock, async::cancellation_token ct) {
-	auto seq = threadGroup()->currentSignalSeq_;
+	uint64_t seq;
+	{
+		std::lock_guard lock{threadGroup()->signalMutex_};
+		seq = threadGroup()->currentSignalSeq_;
+	}
 
 	while(true) {
 		auto item = tryFetchSignal(mask);

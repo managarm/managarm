@@ -417,10 +417,13 @@ private:
 		> asyncQueue;
 	};
 
+	// Must be called with the ThreadGroup's signalMutex_ held. The caller raises signalBell_.
 	void issueSignal(int sn, SignalInfo info, uint64_t seq);
 
+	// Protected by the ThreadGroup's signalMutex_.
 	SignalSlot slots_[64];
 	async::recurring_event signalBell_;
+	// Protected by the ThreadGroup's signalMutex_.
 	uint64_t activeSet_ = 0;
 };
 
@@ -1076,6 +1079,9 @@ private:
 
 	smarter::shared_ptr<procfs::Link, LinkRc> procfsLink_;
 
+	// Leaf lock; the signal bells are raised after releasing it.
+	std::mutex signalMutex_;
+	// Protected by signalMutex_.
 	uint64_t currentSignalSeq_ = 1;
 	// ThreadGroup-wide signal queue for signals with no thread to accept them.
 	SignalQueue signalQueue_;
