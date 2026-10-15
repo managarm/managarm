@@ -2,6 +2,7 @@
 #include <linux/magic.h>
 #include <string.h>
 #include <sys/sysmacros.h>
+#include <mutex>
 
 #include "fs.hpp"
 
@@ -9,7 +10,7 @@ namespace {
 
 struct AnonymousSuperblock : FsSuperblock {
 	AnonymousSuperblock() {
-		deviceMinor_ = getUnnamedDeviceIdAllocator().allocate();
+		deviceMinor_ = allocateUnnamedDeviceId();
 	}
 
 	FutureMaybe<smarter::shared_ptr<FsNode>> createRegular(Process *) override {
@@ -49,9 +50,11 @@ FsSuperblock *getAnonymousSuperblock() {
 	return &sb;
 }
 
-id_allocator<unsigned int> &getUnnamedDeviceIdAllocator() {
+unsigned int allocateUnnamedDeviceId() {
+	static std::mutex mutex;
 	static id_allocator<unsigned int> unnamedDeviceIdAllocator{1};
-	return unnamedDeviceIdAllocator;
+	std::lock_guard lock{mutex};
+	return unnamedDeviceIdAllocator.allocate();
 }
 
 // --------------------------------------------------------

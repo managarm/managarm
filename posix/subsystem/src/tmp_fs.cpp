@@ -582,7 +582,7 @@ private:
 
 struct Superblock final : FsSuperblock {
 	Superblock(std::string name = "tmpfs") : fsType_{name} {
-		deviceMinor_ = getUnnamedDeviceIdAllocator().allocate();
+		deviceMinor_ = allocateUnnamedDeviceId();
 	}
 
 	FutureMaybe<smarter::shared_ptr<FsNode>> createRegular(Process *) override {

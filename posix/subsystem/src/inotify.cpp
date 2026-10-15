@@ -280,7 +280,7 @@ private:
 	uint64_t _currentSeq = 1;
 	uint64_t _inSeq = 0;
 
-	bool nonBlock_;
+	std::atomic<bool> nonBlock_;
 };
 
 } // anonymous namespace

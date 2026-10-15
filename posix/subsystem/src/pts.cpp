@@ -32,7 +32,7 @@ struct RootNode;
 bool logReadWrite = false;
 bool logAttrs = false;
 
-int nextPtsIndex = 0;
+std::atomic<int> nextPtsIndex = 0;
 
 extern smarter::shared_ptr<RootLink, LinkRc> globalRootLink;
 
@@ -289,7 +289,7 @@ void processIn(const char character, Packet &packet, std::shared_ptr<Channel> ch
 struct PtsSuperblock final : FsSuperblock {
 public:
 	PtsSuperblock() {
-		deviceMinor_ = getUnnamedDeviceIdAllocator().allocate();
+		deviceMinor_ = allocateUnnamedDeviceId();
 	}
 
 	FutureMaybe<smarter::shared_ptr<FsNode>> createRegular(Process *) override {
@@ -426,7 +426,7 @@ private:
 	std::shared_ptr<Channel> _channel;
 	Packet _packet{};
 
-	bool _nonBlocking;
+	std::atomic<bool> _nonBlocking;
 };
 
 struct SlaveFile final : FileWithDefaults {
@@ -498,7 +498,7 @@ private:
 	std::shared_ptr<Channel> _channel;
 	Packet _packet{};
 
-	bool nonBlock_;
+	std::atomic<bool> nonBlock_;
 	bool read_;
 	bool write_;
 };

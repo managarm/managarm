@@ -291,7 +291,7 @@ private:
 
 	bool isReader_;
 	bool isWriter_;
-	bool nonBlock_;
+	std::atomic<bool> nonBlock_;
 };
 
 } // anonymous namespace

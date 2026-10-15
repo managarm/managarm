@@ -1,5 +1,6 @@
 #pragma once
 
+#include <atomic>
 #include <iostream>
 #include <format>
 #include <iterator>
@@ -10,8 +11,8 @@
 
 struct StructName {
 	static StructName get(const char *type) {
-		static uint64_t idCounter = 1;
-		return StructName{type, idCounter++};
+		static std::atomic<uint64_t> idCounter{1};
+		return StructName{type, idCounter.fetch_add(1, std::memory_order_relaxed)};
 	}
 
 	std::string type() const {

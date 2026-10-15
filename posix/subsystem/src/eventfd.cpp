@@ -151,7 +151,7 @@ private:
 	uint64_t _writeableSeq;
 
 	uint64_t _counter;
-	bool _nonBlock;
+	std::atomic<bool> _nonBlock;
 	bool _semaphore;
 };
 

@@ -122,7 +122,7 @@ protected:
 struct SuperBlock final : FsSuperblock {
 public:
 	SuperBlock() {
-		deviceMinor_ = getUnnamedDeviceIdAllocator().allocate();
+		deviceMinor_ = allocateUnnamedDeviceId();
 	}
 
 	FutureMaybe<smarter::shared_ptr<FsNode>> createRegular(Process *) override;

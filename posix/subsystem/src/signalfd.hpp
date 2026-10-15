@@ -37,7 +37,7 @@ private:
 	helix::UniqueLane _passthrough;
 	async::cancellation_event cancelServe_;
 	uint64_t _mask;
-	bool _nonBlock;
+	std::atomic<bool> _nonBlock;
 };
 
 } // namespace signal_fd
