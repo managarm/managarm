@@ -2311,8 +2311,13 @@ async::result<void> ThreadGroup::terminateGroup(TerminationState state) {
 		co_await processTerminationEvent_.async_wait();
 	}
 
-	if(realTimer)
-		realTimer->cancel();
+	std::shared_ptr<IntervalTimer> timer;
+	{
+		std::lock_guard lock{timerMutex};
+		timer = realTimer;
+	}
+	if(timer)
+		timer->cancel();
 
 	// Walk up the chain until we hit a process that has no parent.
 	if (!parent_) {

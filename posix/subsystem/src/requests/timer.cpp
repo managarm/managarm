@@ -16,19 +16,7 @@ HandleRequest::operator()(managarm::posix::SetIntervalTimerRequest &&req,
 		logRequest(logRequests, self, "SETITIMER", "value={}.{:06d}s interval={}.{:06d}s",
 			req.value_sec(), req.value_usec(), req.interval_sec(), req.interval_usec());
 
-		uint64_t value = 0;
-		uint64_t interval = 0;
-		if(self->threadGroup()->realTimer)
-			self->threadGroup()->realTimer->getTime(value, interval);
-
-		resp.set_value_sec(value / 1'000'000'000);
-		resp.set_value_usec((value % 1'000'000'000) / 1'000);
-		resp.set_interval_sec(interval / 1'000'000'000);
-		resp.set_interval_usec((interval % 1'000'000'000) / 1'000);
-
-		if(self->threadGroup()->realTimer)
-			self->threadGroup()->realTimer->cancel();
-
+		std::shared_ptr<ThreadGroup::IntervalTimer> newTimer;
 		if (req.value_sec() || req.value_usec()) {
 			auto valueNanos = posix::convertToNanos(
 				timespec{static_cast<time_t>(req.value_sec()), static_cast<long>(req.value_usec() * 1000)},
@@ -37,10 +25,30 @@ HandleRequest::operator()(managarm::posix::SetIntervalTimerRequest &&req,
 				timespec{static_cast<time_t>(req.interval_sec()), static_cast<long>(req.interval_usec() * 1000)},
 				CLOCK_MONOTONIC);
 
-			self->threadGroup()->realTimer = std::make_shared<ThreadGroup::IntervalTimer>(self,
+			newTimer = std::make_shared<ThreadGroup::IntervalTimer>(self,
 					valueNanos, intervalNanos);
-			self->threadGroup()->realTimer->arm(self->threadGroup()->realTimer);
 		}
+
+		std::shared_ptr<ThreadGroup::IntervalTimer> oldTimer;
+		{
+			std::lock_guard lock{self->threadGroup()->timerMutex};
+			oldTimer = std::exchange(self->threadGroup()->realTimer, newTimer);
+		}
+
+		uint64_t value = 0;
+		uint64_t interval = 0;
+		if(oldTimer) {
+			oldTimer->getTime(value, interval);
+			oldTimer->cancel();
+		}
+
+		resp.set_value_sec(value / 1'000'000'000);
+		resp.set_value_usec((value % 1'000'000'000) / 1'000);
+		resp.set_interval_sec(interval / 1'000'000'000);
+		resp.set_interval_usec((interval % 1'000'000'000) / 1'000);
+
+		if(newTimer)
+			posix::IntervalTimer::arm(std::move(newTimer));
 
 		resp.set_error(managarm::posix::Errors::SUCCESS);
 	} else {
@@ -70,15 +78,20 @@ HandleRequest::operator()(managarm::posix::TimerCreateRequest &&req,
 
 	managarm::posix::TimerCreateResponse resp;
 	if(req.clockid() == CLOCK_MONOTONIC || req.clockid() == CLOCK_REALTIME) {
-		auto timerId = self->threadGroup()->timerIdAllocator.allocate();
-		assert(!self->threadGroup()->timers.contains(timerId));
-
-		self->threadGroup()->timers[timerId] = std::make_shared<ThreadGroup::PosixTimerContext>(
+		auto timerContext = std::make_shared<ThreadGroup::PosixTimerContext>(
 			req.clockid(),
 			nullptr,
 			req.sigev_tid() ? std::optional{req.sigev_tid()} : std::nullopt,
 			req.sigev_signo()
 		);
+
+		int timerId;
+		{
+			std::lock_guard lock{self->threadGroup()->timerMutex};
+			timerId = self->threadGroup()->timerIdAllocator.allocate();
+			assert(!self->threadGroup()->timers.contains(timerId));
+			self->threadGroup()->timers[timerId] = std::move(timerContext);
+		}
 
 		resp.set_error(managarm::posix::Errors::SUCCESS);
 		resp.set_timer_id(timerId);
@@ -109,26 +122,20 @@ HandleRequest::operator()(managarm::posix::TimerSetRequest &&req,
 	managarm::posix::TimerSetResponse resp;
 	resp.set_error(managarm::posix::Errors::ILLEGAL_ARGUMENTS);
 
-	if(self->threadGroup()->timers.contains(req.timer())) {
-		auto timerContext = self->threadGroup()->timers[req.timer()];
+	std::shared_ptr<ThreadGroup::PosixTimerContext> timerContext;
+	{
+		std::lock_guard lock{self->threadGroup()->timerMutex};
+		auto it = self->threadGroup()->timers.find(req.timer());
+		if(it != self->threadGroup()->timers.end())
+			timerContext = it->second;
+	}
 
-		uint64_t value = 0;
-		uint64_t interval = 0;
-		if(timerContext->timer)
-			timerContext->timer->getTime(value, interval);
-
-		resp.set_value_sec(value / 1'000'000'000);
-		resp.set_value_nsec(value % 1'000'000'000);
-		resp.set_interval_sec(interval / 1'000'000'000);
-		resp.set_interval_nsec(interval % 1'000'000'000);
-
-		if(timerContext->timer)
-			timerContext->timer->cancel();
-
+	if(timerContext) {
 		auto targetThread = self;
 		if(timerContext->tid && targetThread->tid() != *timerContext->tid)
 			targetThread = self->threadGroup()->findThread(*timerContext->tid);
 
+		std::shared_ptr<ThreadGroup::PosixTimer> newTimer;
 		if(targetThread) {
 			uint64_t valueNanos = 0;
 			uint64_t intervalNanos = 0;
@@ -142,9 +149,39 @@ HandleRequest::operator()(managarm::posix::TimerSetRequest &&req,
 					CLOCK_MONOTONIC);
 			}
 
-			timerContext->timer = std::make_shared<ThreadGroup::PosixTimer>(targetThread,
+			newTimer = std::make_shared<ThreadGroup::PosixTimer>(targetThread,
 				timerContext->tid, timerContext->signo, req.timer(), valueNanos, intervalNanos);
-			timerContext->timer->arm(timerContext->timer);
+		}
+
+		std::shared_ptr<ThreadGroup::PosixTimer> oldTimer;
+		{
+			std::lock_guard lock{self->threadGroup()->timerMutex};
+			// timer_delete() may have removed the timer since we looked it up; then nothing
+			// could cancel a timer that we install.
+			auto it = self->threadGroup()->timers.find(req.timer());
+			if(it == self->threadGroup()->timers.end() || it->second != timerContext) {
+				newTimer = nullptr;
+			}else{
+				oldTimer = timerContext->timer;
+				if(newTimer)
+					timerContext->timer = newTimer;
+			}
+		}
+
+		uint64_t value = 0;
+		uint64_t interval = 0;
+		if(oldTimer) {
+			oldTimer->getTime(value, interval);
+			oldTimer->cancel();
+		}
+
+		resp.set_value_sec(value / 1'000'000'000);
+		resp.set_value_nsec(value % 1'000'000'000);
+		resp.set_interval_sec(interval / 1'000'000'000);
+		resp.set_interval_nsec(interval % 1'000'000'000);
+
+		if(newTimer) {
+			posix::IntervalTimer::arm(std::move(newTimer));
 			resp.set_error(managarm::posix::Errors::SUCCESS);
 		}
 	}
@@ -169,14 +206,24 @@ HandleRequest::operator()(managarm::posix::TimerGetRequest &&req,
 	logRequest(logRequests, self, "TIMER_GET", "timer={}", req.timer());
 
 	managarm::posix::TimerGetResponse resp;
-	if(self->threadGroup()->timers.contains(req.timer())) {
-		auto timerContext = self->threadGroup()->timers[req.timer()];
+	bool found = false;
+	std::shared_ptr<ThreadGroup::PosixTimer> timer;
+	{
+		std::lock_guard lock{self->threadGroup()->timerMutex};
+		auto it = self->threadGroup()->timers.find(req.timer());
+		if(it != self->threadGroup()->timers.end()) {
+			found = true;
+			timer = it->second->timer;
+		}
+	}
+
+	if(found) {
 		resp.set_error(managarm::posix::Errors::SUCCESS);
 
 		uint64_t value = 0;
 		uint64_t interval = 0;
-		if(timerContext->timer)
-			timerContext->timer->getTime(value, interval);
+		if(timer)
+			timer->getTime(value, interval);
 
 		resp.set_value_sec(value / 1'000'000'000);
 		resp.set_value_nsec(value % 1'000'000'000);
@@ -206,14 +253,22 @@ HandleRequest::operator()(managarm::posix::TimerDeleteRequest &&req,
 	logRequest(logRequests, self, "TIMER_DELETE", "timer={}", req.timer());
 
 	managarm::posix::TimerDeleteResponse resp;
-	if(self->threadGroup()->timers.contains(req.timer())) {
-		auto timerCtx = self->threadGroup()->timers[req.timer()];
-		if(timerCtx->timer) {
-			timerCtx->timer->cancel();
-			timerCtx->timer = nullptr;
+	bool found = false;
+	std::shared_ptr<ThreadGroup::PosixTimer> timer;
+	{
+		std::lock_guard lock{self->threadGroup()->timerMutex};
+		auto it = self->threadGroup()->timers.find(req.timer());
+		if(it != self->threadGroup()->timers.end()) {
+			found = true;
+			timer = std::exchange(it->second->timer, nullptr);
+			self->threadGroup()->timers.erase(it);
+			self->threadGroup()->timerIdAllocator.free(req.timer());
 		}
-		self->threadGroup()->timers.erase(req.timer());
-		self->threadGroup()->timerIdAllocator.free(req.timer());
+	}
+
+	if(found) {
+		if(timer)
+			timer->cancel();
 		resp.set_error(managarm::posix::Errors::SUCCESS);
 	} else {
 		resp.set_error(managarm::posix::Errors::ILLEGAL_ARGUMENTS);

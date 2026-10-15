@@ -977,6 +977,7 @@ struct ThreadGroup : std::enable_shared_from_this<ThreadGroup> {
 
 	struct PosixTimerContext {
 		clockid_t clockid;
+		// Protected by timerMutex.
 		std::shared_ptr<PosixTimer> timer = {};
 		std::optional<int> tid = std::nullopt;
 		int signo;
@@ -1012,11 +1013,16 @@ struct ThreadGroup : std::enable_shared_from_this<ThreadGroup> {
 		std::optional<int> tid = std::nullopt;
 		int signo;
 		int timerId;
-		bool isExpired = false;
+		std::atomic<bool> isExpired = false;
 	};
 
+	// Leaf lock; timers are armed and cancelled after releasing it.
+	std::mutex timerMutex;
+	// Protected by timerMutex.
 	std::shared_ptr<IntervalTimer> realTimer;
+	// Protected by timerMutex.
 	std::unordered_map<int, std::shared_ptr<PosixTimerContext>> timers;
+	// Protected by timerMutex.
 	id_allocator<int> timerIdAllocator{};
 
 	void raiseNotifyBell() {
