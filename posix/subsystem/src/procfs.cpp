@@ -643,9 +643,9 @@ async::result<std::expected<std::string, Error>> MapNode::show(Process *) {
 	if (!p)
 		co_return std::unexpected(Error::noSuchProcess);
 
-	auto vmContext = p->vmContext();
+	auto areas = co_await p->vmContext()->snapshotAreas();
 	std::stringstream stream;
-	for (auto area : *vmContext) {
+	for (auto &area : areas) {
 		stream << std::hex << area.baseAddress();
 		stream << "-";
 		stream << std::hex << area.baseAddress() + area.size();

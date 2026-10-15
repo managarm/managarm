@@ -8,6 +8,7 @@
 #include <print>
 
 #include <async/scope.hpp>
+#include <frg/mutex.hpp>
 #include <frg/std_compat.hpp>
 
 #include "common.hpp"
@@ -135,6 +136,10 @@ async::result<std::shared_ptr<VmContext>> VmContext::clone(
 	HEL_CHECK(helCreateSpace(&space));
 	context->_space = helix::UniqueDescriptor(space);
 
+	// The forks borrow the copy views of the original areas.
+	co_await original->_mutex.async_lock_shared();
+	frg::shared_lock lock{frg::adopt_lock, original->_mutex};
+
 	co_await async::dynamic_scope<async::result<void>>(frg::stl_allocator{}, [&] (auto &spawn) {
 		for(const auto &entry : original->_areaTree) {
 			const auto &[address, area] = entry;
@@ -229,6 +234,11 @@ VmContext::mapFile(uintptr_t hint, helix::UniqueDescriptor memory,
 		intptr_t offset, size_t size, bool copyOnWrite, uint32_t nativeFlags) {
 	size_t alignedSize = (size + 0xFFF) & ~size_t(0xFFF);
 
+	// Files of replaced areas are dropped after unlocking since that can close them.
+	std::vector<smarter::shared_ptr<File, FileHandle>> dropped;
+	co_await _mutex.async_lock();
+	frg::unique_lock lock{frg::adopt_lock, _mutex};
+
 	// Perform the actual mapping.
 	// POSIX specifies that non-page-size mappings are rounded up and filled with zeros.
 	helix::UniqueDescriptor copyView;
@@ -278,11 +288,13 @@ VmContext::mapFile(uintptr_t hint, helix::UniqueDescriptor memory,
 	auto [startIt, endIt] = splitAreaOn_(address, alignedSize);
 
 	for (auto it = startIt; it != endIt;) {
-		const auto &[addr, area] = *it;
-		if (addr >= address && (addr + area.areaSize) <= (address + alignedSize))
+		auto &[addr, area] = *it;
+		if (addr >= address && (addr + area.areaSize) <= (address + alignedSize)) {
+			dropped.push_back(std::move(area.file));
 			it = _areaTree.erase(it);
-		else
+		} else {
 			++it;
+		}
 	}
 
 	// Construct the new area.
@@ -304,6 +316,9 @@ async::result<void *> VmContext::remapFile(void *oldPointer,
 		size_t oldSize, size_t newSize) {
 	size_t alignedOldSize = (oldSize + 0xFFF) & ~size_t(0xFFF);
 	size_t alignedNewSize = (newSize + 0xFFF) & ~size_t(0xFFF);
+
+	co_await _mutex.async_lock();
+	frg::unique_lock lock{frg::adopt_lock, _mutex};
 
 //	std::cout << "posix: Remapping " << oldPointer << std::endl;
 	auto it = _areaTree.find(reinterpret_cast<uintptr_t>(oldPointer));
@@ -357,6 +372,9 @@ async::result<void> VmContext::protectFile(void *pointer, size_t size, uint32_t 
 	size_t alignedSize = (size + 0xFFF) & ~size_t(0xFFF);
 	auto address = reinterpret_cast<uintptr_t>(pointer);
 
+	co_await _mutex.async_lock();
+	frg::unique_lock lock{frg::adopt_lock, _mutex};
+
 	helix::ProtectMemory protect;
 	auto &&submit = helix::submitProtectMemory(_space, &protect,
 			pointer, alignedSize, protectionFlags, helix::Dispatcher::global());
@@ -378,6 +396,11 @@ async::result<void> VmContext::unmapFile(void *pointer, size_t size) {
 	size_t alignedSize = (size + 0xFFF) & ~size_t(0xFFF);
 	auto address = reinterpret_cast<uintptr_t>(pointer);
 
+	// Files of unmapped areas are dropped after unlocking since that can close them.
+	std::vector<smarter::shared_ptr<File, FileHandle>> dropped;
+	co_await _mutex.async_lock();
+	frg::unique_lock lock{frg::adopt_lock, _mutex};
+
 	auto unmapResult = co_await helix_ng::unmapMemory(_space, pointer, alignedSize);
 	HEL_CHECK(unmapResult.error());
 
@@ -386,11 +409,40 @@ async::result<void> VmContext::unmapFile(void *pointer, size_t size) {
 	for (auto it = startIt; it != endIt;) {
 		auto &[addr, area] = *it;
 		if (addr >= address && (addr + area.areaSize) <= (address + alignedSize)) {
+			dropped.push_back(std::move(area.file));
 			it = _areaTree.erase(it);
 		} else {
 			++it;
 		}
 	}
+}
+
+async::result<std::vector<VmContext::AreaSnapshot>> VmContext::snapshotAreas() {
+	co_await _mutex.async_lock_shared();
+	frg::shared_lock lock{frg::adopt_lock, _mutex};
+	co_return snapshotAreasLocked_();
+}
+
+std::optional<std::vector<VmContext::AreaSnapshot>> VmContext::trySnapshotAreas() {
+	if(!_mutex.try_lock_shared())
+		return std::nullopt;
+	frg::shared_lock lock{frg::adopt_lock, _mutex};
+	return snapshotAreasLocked_();
+}
+
+std::vector<VmContext::AreaSnapshot> VmContext::snapshotAreasLocked_() {
+	std::vector<AreaSnapshot> areas;
+	for(const auto &[address, area] : _areaTree) {
+		areas.push_back(AreaSnapshot{
+			.baseAddress_ = address,
+			.size_ = area.areaSize,
+			.copyOnWrite_ = area.copyOnWrite,
+			.nativeFlags_ = area.nativeFlags,
+			.file_ = area.file,
+			.offset_ = area.offset,
+		});
+	}
+	return areas;
 }
 
 // ----------------------------------------------------------------------------
@@ -1395,7 +1447,10 @@ void Process::dumpRegisters() {
 #endif
 
 	printf("Mappings:\n");
-	for (auto mapping : *(vmContext())) {
+	auto areas = vmContext()->trySnapshotAreas();
+	if(!areas)
+		printf("(unavailable while the address space is being modified)\n");
+	for (auto &mapping : areas.value_or(std::vector<VmContext::AreaSnapshot>{})) {
 		uintptr_t start = mapping.baseAddress();
 		uintptr_t end = start + mapping.size();
 

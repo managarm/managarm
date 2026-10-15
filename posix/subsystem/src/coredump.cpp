@@ -48,10 +48,11 @@ async::result<size_t> ntAuxvSize(Process *p, std::vector<std::byte> &buffer) {
 	co_return buffer.size();
 }
 
-size_t ntFileSize(Process *p, std::vector<std::string> &noteFiles) {
+size_t ntFileSize(Process *p, const std::vector<VmContext::AreaSnapshot> &areas,
+		std::vector<std::string> &noteFiles) {
 	size_t noteSize = sizeof(long) + sizeof(long);
 
-	for(auto area : *p->vmContext()) {
+	for(auto &area : areas) {
 		if(!area.backingFile())
 			continue;
 		noteSize += 3 * sizeof(long);
@@ -73,7 +74,7 @@ static const auto simdStateSize = [] () -> size_t {
 	return regInfo.setSize;
 }();
 
-bool dumpArea(VmContext::AreaAccessor &area) {
+bool dumpArea(const VmContext::AreaSnapshot &area) {
 	return !area.backingFile() || (area.isWritable() || area.isExecutable());
 }
 
@@ -99,7 +100,10 @@ async::result<void> Process::coredump(TerminationState state) {
 	Elf64_Half phdrCount = 1;
 	size_t memoryDumpSize = 0;
 
-	for(auto area : *vmContext()) {
+	// All passes below need to agree on the set of areas.
+	auto areas = co_await vmContext()->snapshotAreas();
+
+	for(auto &area : areas) {
 		phdrCount++;
 		if(dumpArea(area))
 			memoryDumpSize += area.size();
@@ -118,7 +122,7 @@ async::result<void> Process::coredump(TerminationState state) {
 	// NT_AUXV
 	noteSize += sizeof(Elf64_Nhdr) + 8 + co_await ntAuxvSize(this, auxv);
 	// NT_FILE
-	noteSize += sizeof(Elf64_Nhdr) + 8 + ntFileSize(this, noteFiles);
+	noteSize += sizeof(Elf64_Nhdr) + 8 + ntFileSize(this, areas, noteFiles);
 	noteSize = ntSizeAlign(noteSize);
 	// NT_PRFPREG
 	noteSize += sizeof(Elf64_Nhdr) + 8 + sizeof(user_fpregs_struct);
@@ -178,7 +182,7 @@ async::result<void> Process::coredump(TerminationState state) {
 	write(&notePhdr, sizeof(notePhdr));
 
 	size_t dumpRegionOffset = 0;
-	for(auto area : *vmContext()) {
+	for(auto &area : areas) {
 		Elf64_Word areaFlags = 0;
 		if(area.isReadable())
 			areaFlags |= PF_R;
@@ -350,7 +354,7 @@ async::result<void> Process::coredump(TerminationState state) {
 
 		write(&info, sizeof(info));
 
-		for(auto area : *vmContext()) {
+		for(auto &area : areas) {
 			if(!area.backingFile())
 				continue;
 
@@ -396,7 +400,7 @@ async::result<void> Process::coredump(TerminationState state) {
 	fileOffset = memoryDumpOffset;
 
 	std::vector<std::byte> buffer(0x10000);
-	for(auto area : *vmContext()) {
+	for(auto &area : areas) {
 		if(!dumpArea(area))
 			continue;
 

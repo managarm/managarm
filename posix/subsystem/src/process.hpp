@@ -2,9 +2,13 @@
 
 #include <map>
 #include <memory>
+#include <mutex>
+#include <optional>
 #include <sys/signalfd.h>
 #include <unordered_map>
+#include <vector>
 
+#include <async/mutex.hpp>
 #include <async/result.hpp>
 #include <async/oneshot-event.hpp>
 #include <async/recurring-event.hpp>
@@ -86,76 +90,62 @@ private:
 	helix::UniqueDescriptor _hierarchy;
 	helix::UniqueDescriptor _space;
 
+	// Held across the hel calls that change the address space,
+	// such that the area tree stays consistent with the address space.
+	async::shared_mutex _mutex;
+	// Protected by _mutex.
 	std::map<uintptr_t, Area> _areaTree;
 
 public:
-	struct AreaAccessor {
-		AreaAccessor(std::map<uintptr_t, Area>::iterator iter)
-		:_it{iter} {}
-
-		uintptr_t baseAddress() {
-			return _it->first;
+	// Copy of an area that remains valid when the area tree changes.
+	struct AreaSnapshot {
+		uintptr_t baseAddress() const {
+			return baseAddress_;
 		}
 
-		size_t size() {
-			return _it->second.areaSize;
+		size_t size() const {
+			return size_;
 		}
 
-		bool isPrivate() {
-			return _it->second.copyOnWrite;
+		bool isPrivate() const {
+			return copyOnWrite_;
 		}
 
-		bool isReadable() {
-			return _it->second.nativeFlags & kHelMapProtRead;
+		bool isReadable() const {
+			return nativeFlags_ & kHelMapProtRead;
 		}
 
-		bool isWritable() {
-			return _it->second.nativeFlags & kHelMapProtWrite;
+		bool isWritable() const {
+			return nativeFlags_ & kHelMapProtWrite;
 		}
 
-		bool isExecutable() {
-			return _it->second.nativeFlags & kHelMapProtExecute;
+		bool isExecutable() const {
+			return nativeFlags_ & kHelMapProtExecute;
 		}
 
-		smarter::borrowed_ptr<File, FileHandle> backingFile() {
-			return _it->second.file;
+		const smarter::shared_ptr<File, FileHandle> &backingFile() const {
+			return file_;
 		}
 
-		intptr_t backingFileOffset() {
-			return _it->second.offset;
+		intptr_t backingFileOffset() const {
+			return offset_;
 		}
 
-	private:
-		std::map<uintptr_t, Area>::iterator _it;
+		uintptr_t baseAddress_;
+		size_t size_;
+		bool copyOnWrite_;
+		uint32_t nativeFlags_;
+		smarter::shared_ptr<File, FileHandle> file_;
+		intptr_t offset_;
 	};
 
-	struct AreaIterator {
-		AreaIterator(std::map<uintptr_t, Area>::iterator iter)
-		:_it{iter} {}
+	async::result<std::vector<AreaSnapshot>> snapshotAreas();
 
-		AreaIterator &operator++() {
-			_it++;
-			return *this;
-		}
+	// Returns std::nullopt if the area tree is currently being modified.
+	std::optional<std::vector<AreaSnapshot>> trySnapshotAreas();
 
-		AreaAccessor operator*() {
-			return AreaAccessor{_it};
-		}
-
-		bool operator!=(const AreaIterator &other) {
-			return _it != other._it;
-		}
-	private:
-		std::map<uintptr_t, Area>::iterator _it;
-	};
-
-	AreaIterator begin() {
-		return AreaIterator{_areaTree.begin()};
-	}
-
-	AreaIterator end() {
-		return AreaIterator{_areaTree.end()};
-	}
+private:
+	std::vector<AreaSnapshot> snapshotAreasLocked_();
 };
 
 struct FsContext {
