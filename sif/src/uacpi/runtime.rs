@@ -11,12 +11,15 @@
 //! thread that keeps serving interrupts while AML blocks.
 
 use std::cell::Cell;
+use std::collections::BTreeMap;
 use std::marker::PhantomData;
 use std::pin::Pin;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{OnceLock, mpsc};
+use std::sync::{Condvar, Mutex, OnceLock, mpsc};
 
 use uacpi_sys::uacpi_work_type;
+
+use crate::EXPECT_LOCK;
 
 /// Proof that the current thread is an AML thread, i.e., that it may run AML.
 #[derive(Clone, Copy)]
@@ -43,6 +46,8 @@ thread_local! {
     /// The AML thread that runs on this thread, if any.
     static CURRENT_THREAD: Cell<*const AmlThread> = const { Cell::new(std::ptr::null()) };
     static ON_INTERRUPT_THREAD: Cell<bool> = const { Cell::new(false) };
+    /// The epoch of the uACPI work that runs on this thread, if any.
+    static WORK_EPOCH: Cell<Option<u64>> = const { Cell::new(None) };
 }
 
 type Work = Box<dyn FnOnce(Aml) + Send>;
@@ -98,11 +103,6 @@ impl AmlThread {
         });
         receiver.recv().expect("sif: AML thread terminated")
     }
-
-    /// Waits until the work that was posted before has finished.
-    fn flush(&self) {
-        self.run_blocking(|_| ());
-    }
 }
 
 /// The thread that runs AML on behalf of sif itself.
@@ -153,8 +153,45 @@ fn notify_thread() -> &'static AmlThread {
     THREAD.get_or_init(|| AmlThread::spawn("acpi-notify"))
 }
 
+/// The work that uACPI has scheduled and that has not finished yet, counted per epoch.
+struct PendingWork {
+    /// The epoch of work that is scheduled from outside of other work.
+    epoch: u64,
+    counts: BTreeMap<u64, usize>,
+}
+
+static PENDING_WORK: Mutex<PendingWork> = Mutex::new(PendingWork {
+    epoch: 0,
+    counts: BTreeMap::new(),
+});
+static WORK_DONE: Condvar = Condvar::new();
+
 /// Implements uacpi_kernel_schedule_work().
 pub fn schedule_work(work_type: uacpi_work_type, f: impl FnOnce(Aml) + Send + 'static) {
+    // Work inherits the epoch of the work that schedules it, which waiters must cover as well.
+    let epoch = {
+        let mut pending = PENDING_WORK.lock().expect(EXPECT_LOCK);
+        let epoch = WORK_EPOCH.get().unwrap_or(pending.epoch);
+        *pending.counts.entry(epoch).or_default() += 1;
+        epoch
+    };
+    let f = move |aml| {
+        WORK_EPOCH.set(Some(epoch));
+        f(aml);
+        WORK_EPOCH.set(None);
+
+        let mut pending = PENDING_WORK.lock().expect(EXPECT_LOCK);
+        let count = pending
+            .counts
+            .get_mut(&epoch)
+            .expect("sif: uACPI work was not counted");
+        *count -= 1;
+        if *count == 0 {
+            pending.counts.remove(&epoch);
+            WORK_DONE.notify_all();
+        }
+    };
+
     match work_type {
         uacpi_sys::UACPI_WORK_GPE_EXECUTION => gpe_thread().post(f),
         _ => notify_thread().post(f),
@@ -201,8 +238,9 @@ where
 /// Asserts that the current thread is none that uACPI waits for, i.e., that it does not run
 /// uACPI's interrupt handlers, GPE methods or Notify() handlers.
 ///
-/// uACPI holds the event lock while it waits for work, hence functions that take the event lock
-/// must not run there either, as they would deadlock against such a waiter.
+/// uACPI holds the event config lock while it waits for work, hence functions that take it (e.g.,
+/// those that install or uninstall GPE or fixed event handlers, or that mask GPEs) must not run
+/// there either, as they would deadlock against such a waiter.
 pub fn assert_not_on_work_thread(what: &str) {
     assert!(
         !ON_INTERRUPT_THREAD.get() && !gpe_thread().is_current() && !notify_thread().is_current(),
@@ -222,7 +260,14 @@ pub fn wait_for_work_completion() {
     });
     receiver.recv().expect("sif: interrupt thread terminated");
 
-    // GPE methods can queue Notify() handlers, but not the other way around.
-    gpe_thread().flush();
-    notify_thread().flush();
+    // Later work gets a new epoch, such that a steady stream of it (e.g., a GPE storm) cannot
+    // starve this.
+    let mut pending = PENDING_WORK.lock().expect(EXPECT_LOCK);
+    let epoch = pending.epoch;
+    pending.epoch += 1;
+    let _pending = WORK_DONE
+        .wait_while(pending, |pending| {
+            pending.counts.range(..=epoch).next().is_some()
+        })
+        .expect(EXPECT_LOCK);
 }

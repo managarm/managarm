@@ -361,7 +361,7 @@ pub async fn init_events() -> Result<()> {
     .await?;
 
     println!("sif: acpi: enabling EC GPE {index}");
-    // uacpi_enable_gpe() takes the event lock, which uACPI holds while it waits for work.
+    // uacpi_enable_gpe() can wait for AML (via the event and namespace locks), hence not here.
     let enabled = runtime::run(move |_aml| handlers::enable_gpe(None, index)).await;
     if let Err(err) = enabled {
         println!("sif: acpi: failed to enable EC GPE {index}: {err}");

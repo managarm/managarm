@@ -141,8 +141,9 @@ where
 
 /// Wraps uacpi_install_notify_handler(); the handler receives the value of AML's Notify().
 ///
-/// uACPI blocks while AML runs here (on the namespace lock and on GPE and Notify() work), hence
-/// this runs on the acpi thread. A wrapper for uacpi_uninstall_notify_handler() must do the same.
+/// uACPI takes the namespace lock here, which is held while AML runs, hence this runs on the acpi
+/// thread. A wrapper for uacpi_uninstall_notify_handler(), which also waits for Notify() work, must
+/// do the same.
 pub async fn install_notify_handler<F>(node: NamespaceNode, handler: F) -> Result<()>
 where
     F: Fn(Aml, NamespaceNode, u64) + Send + Sync + 'static,
@@ -237,8 +238,8 @@ where
 ///
 /// The handler runs in interrupt context, hence it must not run AML.
 ///
-/// uACPI takes the event lock here, which it holds while it waits for work, hence this runs on
-/// the acpi thread. A wrapper for uacpi_uninstall_fixed_event_handler() must do the same.
+/// uACPI takes the event config lock here, which it holds while it waits for work, hence this runs
+/// on the acpi thread. A wrapper for uacpi_uninstall_fixed_event_handler() must do the same.
 pub async fn install_fixed_event_handler<F>(event: FixedEvent, handler: F) -> Result<()>
 where
     F: Fn() + Send + Sync + 'static,
@@ -257,7 +258,6 @@ where
 }
 
 pub fn finish_handling_gpe(device: GpeDevice, index: u16) -> Result<()> {
-    runtime::assert_not_on_work_thread("uacpi_finish_handling_gpe()");
     let device = as_gpe_device(device);
 
     unsafe {
@@ -269,7 +269,6 @@ pub fn finish_handling_gpe(device: GpeDevice, index: u16) -> Result<()> {
 }
 
 pub fn finalize_gpe_initialization() -> Result<()> {
-    runtime::assert_not_on_work_thread("uacpi_finalize_gpe_initialization()");
     unsafe {
         check(
             "uacpi_finalize_gpe_initialization",
@@ -279,7 +278,6 @@ pub fn finalize_gpe_initialization() -> Result<()> {
 }
 
 pub fn enable_gpe(device: GpeDevice, index: u16) -> Result<()> {
-    runtime::assert_not_on_work_thread("uacpi_enable_gpe()");
     let device = as_gpe_device(device);
 
     unsafe {
