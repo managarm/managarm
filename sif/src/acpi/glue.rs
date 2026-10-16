@@ -3,12 +3,12 @@ use managarm::svrctl::hardware_access_handle;
 use std::collections::BTreeMap;
 use std::ffi::{CStr, c_void};
 use std::ptr::NonNull;
-use std::sync::Condvar;
 use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::{Condvar, Mutex};
 use std::time::Duration;
 
 use lock_api::RawMutex as _;
-use parking_lot::{Mutex, RawMutex};
+use parking_lot::RawMutex;
 
 use uacpi_sys::{
     uacpi_char, uacpi_cpu_flags, uacpi_firmware_request, uacpi_handle, uacpi_interrupt_handler,
@@ -81,14 +81,18 @@ pub unsafe extern "C" fn uacpi_kernel_map(addr: uacpi_phys_addr, len: uacpi_size
         None => return UACPI_MAP_FAILED,
     };
 
-    MAPPINGS.lock().map.insert(base as usize, mapping);
+    MAPPINGS
+        .lock()
+        .expect(EXPECT_LOCK)
+        .map
+        .insert(base as usize, mapping);
     unsafe { base.byte_add(page_off) as *mut c_void }
 }
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn uacpi_kernel_unmap(addr: *mut c_void, _len: uacpi_size) {
     let base = (addr as usize) & !PAGE_MASK;
-    MAPPINGS.lock().map.remove(&base);
+    MAPPINGS.lock().expect(EXPECT_LOCK).map.remove(&base);
 }
 
 #[unsafe(no_mangle)]
@@ -432,14 +436,14 @@ pub unsafe extern "C" fn uacpi_kernel_sleep(msec: uacpi_u64) {
 }
 
 struct Semaphore {
-    units: std::sync::Mutex<u64>,
+    units: Mutex<u64>,
     cond: Condvar,
 }
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn uacpi_kernel_create_semaphore(initial_units: uacpi_u32) -> uacpi_handle {
     Box::into_raw(Box::new(Semaphore {
-        units: std::sync::Mutex::new(initial_units.into()),
+        units: Mutex::new(initial_units.into()),
         cond: Condvar::new(),
     })) as uacpi_handle
 }
