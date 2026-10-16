@@ -3,6 +3,7 @@
 #include <atomic>
 #include <cstddef>
 #include <expected>
+#include <span>
 
 #include <async/algorithm.hpp>
 #include <async/oneshot-event.hpp>
@@ -234,7 +235,11 @@ inline constexpr FetchFlags fetchDisallowBacking = 2;
 using CachingFlags = uint32_t;
 inline constexpr CachingFlags cacheWriteCombine = 1;
 
-// Helper to perform tryCharge() and allocation in one call.
+// Charges size bytes to hierarchy, then allocates a frame of that size.
+coroutine<std::expected<PhysicalAddr, Error>>
+chargeAndAllocate(Hierarchy *hierarchy, size_t size, PhysicalKind kind, int addressBits);
+
+// Like chargeAndAllocate() but fails instead of waiting.
 std::expected<PhysicalAddr, Error>
 tryChargeAndAllocate(Hierarchy *hierarchy, size_t size, PhysicalKind kind, int addressBits);
 
@@ -909,6 +914,15 @@ struct ManagedSpace : CacheBundle {
 	void installPage(ManagedPage *page, PhysicalAddr physical, bool dirty,
 			unsigned int extraLockCount, bool &raiseDirty, bool &raiseExpedite);
 
+	// Attaches a frame to a missing page.
+	// Faulting threads attach frames before they request initialization via the manage protocol,
+	// such that the manager does not need to allocate them.
+	// Must be called under mutex.
+	// Precondition: The page is missing and has no frame.
+	// Precondition: The caller owns the zero-filled frame, which is charged to hierarchy
+	//               and not in the pfn-db yet.
+	void attachFrame(ManagedPage *page, PhysicalAddr physical);
+
 	// Discards the given page. The entry is either immediately erased
 	// or once the in-flight transaction is completed. The frames are freed by
 	// the reclamation behind an RCU grace period.
@@ -1029,14 +1043,32 @@ struct ManagedSpace : CacheBundle {
 	// Must be called under mutex.
 	bool touchPresentPage(ManagedPage *page);
 
+	// Frames that the faulting thread provides for readahead.
+	struct ReadaheadFrames {
+		// initializePage() resets the entries that it attaches to -1.
+		std::span<PhysicalAddr> physicals;
+		// Set by initializePage() to the number of frames that readahead needs beyond physicals.
+		size_t missing = 0;
+	};
+
 	// Requests the initialization of a missing page via the manage protocol.
 	// Fails on fetchDisallowBacking.
+	// The faulting thread provides the page's frame such that the manager does not need to
+	// allocate it: if the page has no frame, freshPhysical is attached (and reset to -1).
+	// If freshPhysical is -1 in that case, returns a null monitor without requesting initialization.
+	// Also requests readahead (if enabled) for the readahead pages that already have a frame
+	// or that readaheadFrames provides one for; the others are counted in readaheadFrames->missing.
+	// A null monitor also requests no readahead, but readaheadFrames->missing is still set.
+	// readaheadFrames can be null if readahead is disabled.
 	// Returns the monitor that is raised once the page is initialized.
 	// Must be called under mutex.
 	// The caller must raise the appended management requests before awaiting the monitor.
 	// Precondition: on a SwapSpace, the page has a valid disk copy (i.e., page->swapCopyValid is true).
+	// Precondition: freshPhysical and all entries of readaheadFrames->physicals are zero-filled,
+	//               charged to hierarchy and not in the pfn-db yet.
 	std::expected<frg::intrusive_shared_ptr<TransactionMonitor, Allocator>, Error>
-	initializePage(ManagedPage *page, FetchFlags flags, ManageList &pendingManagement);
+	initializePage(ManagedPage *page, FetchFlags flags, PhysicalAddr &freshPhysical,
+			ReadaheadFrames *readaheadFrames, ManageList &pendingManagement);
 
 	void submitManagement(ManageNode *node);
 	void _progressManagement(ManageList &pending);
@@ -1070,6 +1102,7 @@ struct ManagedSpace : CacheBundle {
 
 	size_t numPages;
 	bool readahead;
+	static constexpr size_t numReadaheadPages = 3;
 
 	// Whether this space is a SwapSpace.
 	bool isSwapSpace = false;
@@ -1401,7 +1434,7 @@ private:
 	void unchargePages_(size_t n);
 
 	// Allocate/free an owned copy of a page.
-	std::expected<PhysicalAddr, Error> _allocateCopy();
+	coroutine<std::expected<PhysicalAddr, Error>> _allocateCopy();
 	void _freeCopy(PhysicalAddr physical);
 
 public:
