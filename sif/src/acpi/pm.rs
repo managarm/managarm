@@ -3,7 +3,7 @@
 
 use std::collections::HashMap;
 use std::ffi::CStr;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use anyhow::Result;
 use managarm::hw::Error as HwError;
@@ -11,19 +11,26 @@ use managarm::hw::server::{PmInterface, RebootCommand, serve_pm_interface};
 use managarm::mbus::create_entity;
 
 use crate::entity::{serve_entity_lanes, string};
-use crate::leak;
 use crate::uacpi::handlers::{self, FixedEvent};
 use crate::uacpi::namespace::{self, IterationDecision, NamespaceNode};
 use crate::uacpi::runtime::{self, Aml};
 use crate::uacpi::sleep::{self, SleepState};
+use crate::{EXPECT_LOCK, leak};
 
 const HID_POWER_BUTTON: &CStr = c"PNP0C0C";
 
 /// The Notify() value of a power button device that reports a press in S0.
 const NOTIFY_POWER_BUTTON_PRESSED: u64 = 0x80;
 
+/// Serializes power transitions, as firmware need not cope with running _PTS concurrently.
+///
+/// Transitions only start on AML threads, which may block, and while uACPI holds none of its
+/// locks; they take this before any of them.
+static TRANSITION: Mutex<()> = Mutex::new(());
+
 /// Enters S5. Only returns if that failed.
 fn power_off(aml: Aml) -> HwError {
+    let _transition = TRANSITION.lock().expect(EXPECT_LOCK);
     if let Err(err) = sleep::prepare_for_sleep_state(aml, SleepState::S5) {
         println!("sif: acpi: preparing to enter S5 failed: {err}");
     }
@@ -49,6 +56,7 @@ fn ps2_reset() -> hel::Result<()> {
 
 /// Resets the system. Only returns if that failed.
 fn restart(aml: Aml) -> HwError {
+    let _transition = TRANSITION.lock().expect(EXPECT_LOCK);
     // Firmware may expect _PTS to run before a reset, which preparing for S5 does.
     if let Err(err) = sleep::prepare_for_sleep_state(aml, SleepState::S5) {
         println!("sif: acpi: preparing for reset failed: {err}");
@@ -117,16 +125,13 @@ pub async fn init_power_button() -> Result<()> {
 
     // Modern hardware uses power button devices instead of the fixed event.
     for node in runtime::run(find_power_buttons).await? {
-        let installed = handlers::install_notify_handler(node, |_aml, _node, value| {
+        let installed = handlers::install_notify_handler(node, |aml, _node, value| {
             if value != NOTIFY_POWER_BUTTON_PRESSED {
                 println!("sif: acpi: ignoring power button Notify() value {value:#x}");
                 return;
             }
             println!("sif: acpi: shutting down because of a power button notification");
-            // Entering S5 takes the event lock, hence it cannot run on the Notify() thread.
-            runtime::post(|aml| {
-                power_off(aml);
-            });
+            power_off(aml);
         })
         .await;
         if let Err(err) = installed {
