@@ -235,8 +235,8 @@ class PhysicalChunkAllocator {
 	typedef frg::ticket_spinlock Mutex;
 
 	struct WaitNode {
-		WaitNode(AllocationClass cls, PhysicalKind kind)
-		: cls{cls}, kind{kind} { }
+		WaitNode(AllocationClass cls, PhysicalKind kind, size_t numPages)
+		: cls{cls}, kind{kind}, numPages{numPages} { }
 
 		WaitNode(const WaitNode &) = delete;
 
@@ -244,13 +244,14 @@ class PhysicalChunkAllocator {
 
 		AllocationClass cls;
 		PhysicalKind kind;
+		size_t numPages;
 		// Protected by _mutex.
 		bool queued = false;
 		// Protected by _mutex.
 		frg::default_list_hook<WaitNode> hook;
 		// Written by the code path that dequeues the node.
 		// Protected by _mutex.
-		std::expected<PhysicalAddr, Error> result{std::unexpected{Error::noMemory}};
+		std::expected<PageChain, Error> result{std::unexpected{Error::noMemory}};
 		// Raised when the wait completes.
 		async::oneshot_primitive event;
 	};
@@ -282,6 +283,9 @@ public:
 	static constexpr size_t maxRootsPerRegion = 64;
 	static constexpr size_t numRootClasses = 3;
 
+	// Maximum number of pages that a WaitNode can wait for.
+	static constexpr size_t maxPagesPerWait = 256;
+
 	PhysicalChunkAllocator();
 
 	void bootstrapRegion(PhysicalAddr address,
@@ -301,7 +305,40 @@ public:
 	// Precondition: isFungibleAllocation_() is true.
 	auto allocateAwaitable(AllocationClass cls, PhysicalKind kind, async::cancellation_token ct) {
 		return async::let(
-			[=] { return WaitNode{cls, kind}; },
+			[=] { return WaitNode{cls, kind, 1}; },
+			[this, ct] (WaitNode &node) {
+				startWait_(&node);
+				return async::with_cancel_cb(
+					async::transform(
+						node.event.wait(),
+						[&node] -> std::expected<PhysicalAddr, Error> {
+							if(!node.result)
+								return std::unexpected{node.result.error()};
+							return node.result->pop();
+						}
+					),
+					[this, &node] {
+						cancelWait_(&node);
+					},
+					ct
+				);
+			}
+		);
+	}
+
+	// Like allocateAwaitable() but blocks.
+	// Cancelled on thread termination (returning Error::cancelled).
+	std::expected<PhysicalAddr, Error> allocateBlocking(AllocationClass cls, PhysicalKind kind);
+
+	// Like tryAllocate() but for chains of fungible pages.
+	std::expected<PageChain, Error> tryAllocateChain(AllocationClass cls, PhysicalKind kind,
+			size_t numPages);
+
+	// Like allocateAwaitable() but for chains of fungible pages.
+	auto allocateChainAwaitable(AllocationClass cls, PhysicalKind kind, size_t numPages,
+			async::cancellation_token ct) {
+		return async::let(
+			[=] { return WaitNode{cls, kind, numPages}; },
 			[this, ct] (WaitNode &node) {
 				startWait_(&node);
 				return async::with_cancel_cb(
@@ -318,9 +355,9 @@ public:
 		);
 	}
 
-	// Like allocateAwaitable() but blocks.
-	// Cancelled on thread termination (returning Error::cancelled).
-	std::expected<PhysicalAddr, Error> allocateBlocking(AllocationClass cls, PhysicalKind kind);
+	// Like allocateBlocking() but for chains of fungible pages.
+	std::expected<PageChain, Error> allocateChainBlocking(AllocationClass cls, PhysicalKind kind,
+			size_t numPages);
 
 	// Allocates a naturally aligned power-of-two sized chunk in the kernel class.
 	// Blocks for fungible pages if possible (i.e., if canBlockForMemory() is true).
@@ -385,14 +422,14 @@ private:
 	// Callers must hold _mutex.
 	size_t pinnableBudget_(size_t floor);
 
-	// Whether a single page allocation of a fungible page will succeed or not.
+	// Whether an allocation of numPages fungible pages will succeed or not.
 	// Exact: if this returns true, then allocateFungible_() must succeed.
 	// Callers must hold _mutex.
-	bool canAllocateFungible_(size_t floor);
+	bool canAllocateFungible_(size_t numPages, size_t floor);
 
-	// Allocate a single fungible page.
+	// Allocate numPages fungible pages.
 	// Callers must hold _mutex.
-	PhysicalAddr allocateFungible_(PhysicalKind kind, size_t floor);
+	PageChain allocateFungible_(PhysicalKind kind, size_t numPages, size_t floor);
 
 	// Never takes pinnable pages that the floor holds back.
 	// Callers must hold _mutex.

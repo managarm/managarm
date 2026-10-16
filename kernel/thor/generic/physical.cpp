@@ -114,6 +114,7 @@ void PhysicalChunkAllocator::updateFloors_() {
 	// Clamp to minimum/maximum sizes to avoid wasting too much RAM.
 	constexpr size_t minBase = size_t{1} << (20 - kPageShift);
 	constexpr size_t maxBase = size_t{32} << (20 - kPageShift);
+	static_assert(maxPagesPerWait <= minBase);
 	if(base < minBase)
 		base = minBase;
 	if(base > maxBase)
@@ -235,23 +236,50 @@ std::expected<PhysicalAddr, Error> PhysicalChunkAllocator::allocateBlocking(Allo
 	);
 }
 
+std::expected<PageChain, Error> PhysicalChunkAllocator::tryAllocateChain(AllocationClass cls,
+		PhysicalKind kind, size_t numPages) {
+	assert(numPages);
+	assert(kind != PhysicalKind::contiguous);
+	auto irqLock = frg::guard(&irqMutex());
+	auto lock = frg::guard(&_mutex);
+
+	auto floor = floorFor_(cls) + deficitAhead_(cls);
+	if(!canAllocateFungible_(numPages, floor))
+		return std::unexpected{Error::noMemory};
+	return allocateFungible_(kind, numPages, floor);
+}
+
+std::expected<PageChain, Error> PhysicalChunkAllocator::allocateChainBlocking(AllocationClass cls,
+		PhysicalKind kind, size_t numPages) {
+	assert(canBlockForMemory());
+	return Thread::asyncBlockCurrentInterruptible(
+		[&] (async::cancellation_token ct) {
+			return allocateChainAwaitable(cls, kind, numPages, ct);
+		},
+		nullptr,
+		condition::interrupt
+	);
+}
+
 void PhysicalChunkAllocator::startWait_(WaitNode *node) {
 	assert(node->cls == AllocationClass::kernel || node->cls == AllocationClass::user);
 	assert(node->kind != PhysicalKind::contiguous);
+	assert(node->numPages);
+	assert(node->numPages <= maxPagesPerWait);
 
 	{
 		auto irqLock = frg::guard(&irqMutex());
 		auto lock = frg::guard(&_mutex);
 
 		auto floor = floorFor_(node->cls) + deficitAhead_(node->cls);
-		if(!canAllocateFungible_(floor)) {
+		if(!canAllocateFungible_(node->numPages, floor)) {
 			auto &queue = queueOf_(node->cls);
-			queue.deficit += 1;
+			queue.deficit += node->numPages;
 			node->queued = true;
 			queue.list.push_back(node);
 			return;
 		}
-		node->result = allocateFungible_(node->kind, floor);
+		node->result = allocateFungible_(node->kind, node->numPages, floor);
 	}
 
 	node->event.raise();
@@ -268,7 +296,7 @@ void PhysicalChunkAllocator::cancelWait_(WaitNode *node) {
 			return;
 		auto &queue = queueOf_(node->cls);
 		queue.list.erase(queue.list.iterator_to(node));
-		queue.deficit -= 1;
+		queue.deficit -= node->numPages;
 		node->queued = false;
 		node->result = std::unexpected{Error::cancelled};
 		served.push_back(node);
@@ -319,18 +347,23 @@ size_t PhysicalChunkAllocator::pinnableBudget_(size_t floor) {
 	return pinnable - floor;
 }
 
-bool PhysicalChunkAllocator::canAllocateFungible_(size_t floor) {
-	// A fungible allocation takes exactly one pinnable page.
+bool PhysicalChunkAllocator::canAllocateFungible_(size_t numPages, size_t floor) {
+	// N fungible allocations take exactly N pinnable pages.
 	// Note that fragmentation (or other restrictions) do not apply to fungible allocation,
-	// so this is exact: the allocation necessarily succeeds as long as the page is available.
-	return pinnableBudget_(floor) >= 1;
+	// so this is exact: the allocation necessarily succeeds as long as the pages are available.
+	return pinnableBudget_(floor) >= numPages;
 }
 
-PhysicalAddr PhysicalChunkAllocator::allocateFungible_(PhysicalKind kind, size_t floor) {
+PageChain PhysicalChunkAllocator::allocateFungible_(PhysicalKind kind, size_t numPages,
+		size_t floor) {
 	assert(kind != PhysicalKind::contiguous);
-	auto physical = allocateChunk_(kPageSize, kind, 64, floor);
-	assert(physical != static_cast<PhysicalAddr>(-1));
-	return physical;
+	PageChain chain;
+	for(size_t k = 0; k < numPages; k++) {
+		auto physical = allocateChunk_(kPageSize, kind, 64, floor);
+		assert(physical != static_cast<PhysicalAddr>(-1));
+		chain.push(physical);
+	}
+	return chain;
 }
 
 PhysicalAddr PhysicalChunkAllocator::allocateChunk_(size_t size, PhysicalKind kind,
@@ -546,12 +579,12 @@ void PhysicalChunkAllocator::serveWaiters_(WaitList &served) {
 			auto node = queue.list.front();
 			// The nodes behind the front have more pages ahead of them, so they cannot be
 			// served either.
-			if(!canAllocateFungible_(floor))
+			if(!canAllocateFungible_(node->numPages, floor))
 				break;
 			queue.list.pop_front();
-			queue.deficit -= 1;
+			queue.deficit -= node->numPages;
 			node->queued = false;
-			node->result = allocateFungible_(node->kind, floor);
+			node->result = allocateFungible_(node->kind, node->numPages, floor);
 			served.push_back(node);
 		}
 		ahead += queue.deficit;
