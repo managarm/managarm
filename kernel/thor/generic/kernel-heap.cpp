@@ -1,6 +1,7 @@
 #include <thor-internal/arch-generic/ints.hpp>
 #include <thor-internal/cpu-data.hpp>
 #include <thor-internal/debug.hpp>
+#include <thor-internal/executor-context.hpp>
 #include <thor-internal/fiber.hpp>
 #include <thor-internal/kasan.hpp>
 #include <thor-internal/kernel-heap.hpp>
@@ -8,6 +9,7 @@
 #include <thor-internal/main.hpp>
 #include <thor-internal/physical.hpp>
 #include <thor-internal/ring-buffer.hpp>
+#include <thor-internal/thread.hpp>
 #include <thor-internal/arch-generic/paging.hpp>
 
 namespace thor {
@@ -198,6 +200,27 @@ KernelVirtualMemory &KernelVirtualMemory::global() {
 }
 
 void *HeapSlabPolicy::map(size_t length) {
+	assert(!(length % kPageSize));
+	size_t numPages = length / kPageSize;
+
+	auto ctx = currentExecutorContext();
+	HeapMagazine scratch;
+	auto &magazine = ctx ? ctx->heapMagazine : scratch;
+	if(magazine.pages.size() < numPages) {
+		// Contexts without an ExecutorContext cannot sleep, so they use the emergency class.
+		// Other contexts try to allocate here and let refillAndAllocate_() deal with failure.
+		auto cls = ctx ? AllocationClass::kernel : AllocationClass::emergency;
+		auto deficit = numPages - magazine.pages.size();
+		auto pages = physicalAllocator->tryAllocateChain(cls, PhysicalKind::pinned, deficit);
+		if(!pages) {
+			if(!ctx)
+				panicLogger() << "thor: Out of memory for the kernel heap" << frg::endlog;
+			magazine.wanted = deficit;
+			return nullptr;
+		}
+		magazine.pages.splice(std::move(*pages));
+	}
+
 	auto p = KernelVirtualMemory::global().allocate(length);
 
 	// TODO: The slab_pool unpoisons memory before calling this.
@@ -205,9 +228,7 @@ void *HeapSlabPolicy::map(size_t length) {
 	poisonKasanShadow(p, length);
 
 	for(size_t offset = 0; offset < length; offset += kPageSize) {
-		PhysicalAddr physical = physicalAllocator->allocate(kPageSize);
-		assert(physical != static_cast<PhysicalAddr>(-1) && "OOM");
-		KernelPageSpace::global().mapSingle4k(VirtualAddr(p) + offset, physical,
+		KernelPageSpace::global().mapSingle4k(VirtualAddr(p) + offset, magazine.pages.pop(),
 				page_access::write, CachingMode::null);
 	}
 	kernelHeapUsage.fetch_add(length, std::memory_order_relaxed);
@@ -247,6 +268,55 @@ void HeapSlabPolicy::unmap(void *ptr, size_t length) {
 			}
 		)
 	);
+}
+
+HeapMagazine::~HeapMagazine() {
+	while(!pages.empty())
+		physicalAllocator->free(pages.pop(), kPageSize);
+}
+
+void *Allocator::refillAndAllocate_(size_t size) const {
+	// map() panics instead of failing if there is no ExecutorContext.
+	auto ctx = currentExecutorContext();
+	if(!ctx)
+		panicLogger() << "thor: Kernel heap allocation failed outside of ExecutorContext" << frg::endlog;
+	auto &magazine = ctx->heapMagazine;
+	auto canBlock = canBlockForMemory();
+
+	while(true) {
+		// Read wanted before blocking since blocking can allocate (and fail) in this context.
+		auto wanted = magazine.wanted;
+		magazine.wanted = 0;
+		// The pool failed without calling map() (e.g., due to an overflowing size).
+		if(!wanted)
+			return nullptr;
+
+		PageChain refill;
+		while(canBlock && refill.size() < wanted) {
+			auto batch = frg::min(wanted - refill.size(), PhysicalChunkAllocator::maxPagesPerWait);
+			auto pages = physicalAllocator->allocateChainBlocking(
+				AllocationClass::kernel, PhysicalKind::pinned, batch
+			);
+			// If blocking failed, fall back to the emergency tryAllocateChain() below.
+			if(!pages)
+				break;
+			refill.splice(std::move(*pages));
+		}
+		// Try the emergency class if we either cannot block or if blocking failed above.
+		if(refill.size() < wanted) {
+			auto pages = physicalAllocator->tryAllocateChain(AllocationClass::emergency,
+					PhysicalKind::pinned, wanted - refill.size());
+			if(!pages)
+				panicLogger() << "thor: Out of memory for the kernel heap" << frg::endlog;
+			refill.splice(std::move(*pages));
+		}
+
+		Guard guard;
+		// Retry the allocation after filling the magazine.
+		magazine.pages.splice(std::move(refill));
+		if(auto p = heapSlabPool.get().allocate(size); p)
+			return p;
+	}
 }
 
 frg::manual_box<LogRingBuffer> allocLog;
