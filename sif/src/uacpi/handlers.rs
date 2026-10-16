@@ -257,6 +257,7 @@ where
     .await
 }
 
+/// Only takes a spinlock, hence this may run on any thread.
 pub fn finish_handling_gpe(device: GpeDevice, index: u16) -> Result<()> {
     let device = as_gpe_device(device);
 
@@ -268,7 +269,7 @@ pub fn finish_handling_gpe(device: GpeDevice, index: u16) -> Result<()> {
     }
 }
 
-pub fn finalize_gpe_initialization() -> Result<()> {
+pub fn finalize_gpe_initialization(_aml: Aml) -> Result<()> {
     unsafe {
         check(
             "uacpi_finalize_gpe_initialization",
@@ -277,7 +278,7 @@ pub fn finalize_gpe_initialization() -> Result<()> {
     }
 }
 
-pub fn enable_gpe(device: GpeDevice, index: u16) -> Result<()> {
+pub fn enable_gpe(_aml: Aml, device: GpeDevice, index: u16) -> Result<()> {
     let device = as_gpe_device(device);
 
     unsafe {

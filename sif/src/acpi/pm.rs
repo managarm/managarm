@@ -27,7 +27,7 @@ fn power_off(aml: Aml) -> HwError {
     if let Err(err) = sleep::prepare_for_sleep_state(aml, SleepState::S5) {
         println!("sif: acpi: preparing to enter S5 failed: {err}");
     }
-    if let Err(err) = sleep::enter_sleep_state(SleepState::S5) {
+    if let Err(err) = sleep::enter_sleep_state(aml, SleepState::S5) {
         println!("sif: acpi: entering S5 failed: {err}");
     }
     HwError::DeviceError

@@ -127,7 +127,7 @@ impl NamespaceNode {
         self.node
     }
 
-    pub fn find(self, path: &CStr) -> Result<Option<NamespaceNode>> {
+    pub fn find(self, _aml: Aml, path: &CStr) -> Result<Option<NamespaceNode>> {
         let mut node: *mut uacpi_namespace_node = std::ptr::null_mut();
         let status =
             unsafe { uacpi_sys::uacpi_namespace_node_find(self.node, path.as_ptr(), &mut node) };
@@ -160,7 +160,7 @@ impl NamespaceNode {
     }
 
     /// Wraps uacpi_namespace_for_each_child(), restricted to device nodes at any depth.
-    pub fn for_each_child_device<F>(self, mut f: F) -> Result<()>
+    pub fn for_each_child_device<F>(self, _aml: Aml, mut f: F) -> Result<()>
     where
         F: FnMut(NamespaceNode) -> IterationDecision,
     {

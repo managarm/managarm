@@ -229,7 +229,7 @@ fn install_handlers(aml: Aml, device: &'static EcDevice) -> Result<()> {
     Ok(())
 }
 
-fn init_from_ecdt() -> Result<Option<EcDevice>> {
+fn init_from_ecdt(aml: Aml) -> Result<Option<EcDevice>> {
     let Some(table) = Table::find_by_signature(c"ECDT")? else {
         println!("sif: acpi: no ECDT detected");
         return Ok(None);
@@ -252,7 +252,7 @@ fn init_from_ecdt() -> Result<Option<EcDevice>> {
     };
     println!("sif: acpi: found ECDT, EC@{}", path.to_string_lossy());
 
-    let Some(node) = NamespaceNode::root().find(path)? else {
+    let Some(node) = NamespaceNode::root().find(aml, path)? else {
         println!("sif: acpi: invalid EC path {}", path.to_string_lossy());
         return Ok(None);
     };
@@ -307,7 +307,7 @@ fn init_from_namespace(aml: Aml) -> Result<Option<EcDevice>> {
 
 pub fn init(aml: Aml) -> Result<()> {
     let mut early_reg = true;
-    let device = match init_from_ecdt()? {
+    let device = match init_from_ecdt(aml)? {
         Some(device) => device,
         None => {
             early_reg = false;
@@ -331,7 +331,7 @@ pub fn init(aml: Aml) -> Result<()> {
 
 pub async fn init_events() -> Result<()> {
     let device = runtime::run(|aml| {
-        if let Err(err) = handlers::finalize_gpe_initialization() {
+        if let Err(err) = handlers::finalize_gpe_initialization(aml) {
             println!("sif: acpi: failed to finalize the GPEs: {err}");
         }
 
@@ -361,8 +361,7 @@ pub async fn init_events() -> Result<()> {
     .await?;
 
     println!("sif: acpi: enabling EC GPE {index}");
-    // uacpi_enable_gpe() can wait for AML (via the event and namespace locks), hence not here.
-    let enabled = runtime::run(move |_aml| handlers::enable_gpe(None, index)).await;
+    let enabled = runtime::run(move |aml| handlers::enable_gpe(aml, None, index)).await;
     if let Err(err) = enabled {
         println!("sif: acpi: failed to enable EC GPE {index}: {err}");
     }

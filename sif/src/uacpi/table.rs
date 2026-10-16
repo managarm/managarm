@@ -12,7 +12,8 @@ pub struct Table {
 }
 
 impl Table {
-    /// Wraps uacpi_table_find_by_signature().
+    /// Wraps uacpi_table_find_by_signature(). The table lock never covers AML, hence this may run
+    /// on any thread.
     pub fn find_by_signature(signature: &CStr) -> Result<Option<Table>> {
         let mut table = uacpi_sys::uacpi_table::default();
         // SAFETY: uACPI only reads the signature and only writes to the table.

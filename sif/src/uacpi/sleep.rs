@@ -1,6 +1,6 @@
 use uacpi_sys::uacpi_sleep_state;
 
-use super::runtime::{self, Aml};
+use super::runtime::Aml;
 use super::{Result, check};
 
 /// A sleep state of the system.
@@ -27,11 +27,7 @@ pub fn prepare_for_sleep_state(_aml: Aml, state: SleepState) -> Result<()> {
 }
 
 /// Wraps uacpi_enter_sleep_state(), which only returns if the system did not enter the state.
-///
-/// This does not run AML, but it takes the event lock, hence it must not run on a thread that
-/// uACPI waits for.
-pub fn enter_sleep_state(state: SleepState) -> Result<()> {
-    runtime::assert_not_on_work_thread("uacpi_enter_sleep_state()");
+pub fn enter_sleep_state(_aml: Aml, state: SleepState) -> Result<()> {
     // SAFETY: uACPI does not take any arguments that we could get wrong.
     check("uacpi_enter_sleep_state", unsafe {
         uacpi_sys::uacpi_enter_sleep_state(state.to_raw())

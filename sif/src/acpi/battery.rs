@@ -290,8 +290,8 @@ async fn publish_battery(node: NamespaceNode, id: usize) -> Result<()> {
 fn find_batteries(aml: Aml) -> Result<Vec<NamespaceNode>> {
     let mut nodes = Vec::new();
     namespace::find_devices_at(aml, NamespaceNode::root(), &[HID_BATTERY], |node| {
-        if node.find(c"_BIF").ok().flatten().is_some()
-            && node.find(c"_BST").ok().flatten().is_some()
+        if node.find(aml, c"_BIF").ok().flatten().is_some()
+            && node.find(aml, c"_BST").ok().flatten().is_some()
         {
             nodes.push(node);
         }

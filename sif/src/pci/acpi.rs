@@ -311,7 +311,7 @@ fn find_bridge_node(aml: Aml, parent: NamespaceNode, bridge_adr: u64) -> Option<
         _ => IterationDecision::Continue,
     };
 
-    if let Err(err) = parent.for_each_child_device(&mut match_adr) {
+    if let Err(err) = parent.for_each_child_device(aml, &mut match_adr) {
         println!("sif: Failed to search for the ACPI node of a PCI bridge: {err}");
     }
     node

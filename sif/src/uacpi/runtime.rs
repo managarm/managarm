@@ -4,6 +4,12 @@
 //! dedicated AML threads and never on an executor. Wrappers that may run AML take an [`Aml`]
 //! token, which only exists on these threads.
 //!
+//! The same goes for wrappers that may wait for AML: uACPI holds the namespace lock while AML
+//! runs and takes it while holding its other locks (e.g., the event lock), hence only functions
+//! that merely take uACPI's spinlocks or its table lock (which never covers AML) need no token.
+//! Functions that wait for uACPI's work or take its event config lock must, in addition, not run
+//! on the threads that run that work, see [`assert_not_on_work_thread`].
+//!
 //! Each source of AML gets a thread of its own, such that AML that waits for an event from
 //! another source cannot block that source: sif's own requests, uACPI's GPE methods and
 //! uACPI's Notify() handlers each run on one thread here, and drivers can add their own
@@ -21,7 +27,7 @@ use uacpi_sys::uacpi_work_type;
 
 use crate::EXPECT_LOCK;
 
-/// Proof that the current thread is an AML thread, i.e., that it may run AML.
+/// Proof that the current thread is an AML thread, i.e., that it may run AML or wait for it.
 #[derive(Clone, Copy)]
 pub struct Aml {
     // Keeps the token on the thread that it belongs to.
