@@ -260,7 +260,8 @@ impl Device {
     }
 
     pub async fn enable_msi(&self) -> Result<()> {
-        self.simple_request(&bindings::EnableMsiRequest::new()).await
+        self.simple_request(&bindings::EnableMsiRequest::new())
+            .await
     }
 
     pub async fn install_msi(&self, index: usize) -> Result<Handle> {

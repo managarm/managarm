@@ -520,7 +520,10 @@ impl Attribute for UeventAttribute {
         // Linux has a similar mechanism (i.e., uevent_suppress()) but only some devices opt into it
         // (e.g., disks, partitions, ACPI devices, ttys and netdevs).
         // We are more general and suppress synthetic uevents for all devices.
-        if matches!(device.lifecycle(), Lifecycle::Created | Lifecycle::Announcing) {
+        if matches!(
+            device.lifecycle(),
+            Lifecycle::Created | Lifecycle::Announcing
+        ) {
             return Ok(());
         }
 

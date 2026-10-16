@@ -281,7 +281,11 @@ impl DomainPolicy {
 
     /// Returns the domain that an entity is placed in. A candidate domain that a different
     /// IOMMU translates cannot hold the entity, hence a new domain is cut in that case.
-    fn domain_for(&mut self, candidate: Option<usize>, entity: &'static PciEntity) -> Option<usize> {
+    fn domain_for(
+        &mut self,
+        candidate: Option<usize>,
+        entity: &'static PciEntity,
+    ) -> Option<usize> {
         let unit = find_iommu(entity)?;
         match candidate {
             Some(domain) if std::ptr::eq(self.domains[domain].unit, unit) => Some(domain),
@@ -472,7 +476,9 @@ impl DomainPolicy {
                 continue;
             }
 
-            println!("sif: Punching through RMRR at {base:#012x} (size {size:#x}) for domain {domain}");
+            println!(
+                "sif: Punching through RMRR at {base:#012x} (size {size:#x}) for domain {domain}"
+            );
             regions.push(DmaReservedRegion {
                 base,
                 size,
