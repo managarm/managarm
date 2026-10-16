@@ -2,20 +2,23 @@ use arch::{PioAccess, PioSpace};
 use managarm::svrctl::hardware_access_handle;
 use std::collections::BTreeMap;
 use std::ffi::{CStr, c_void};
+use std::ptr::NonNull;
+use std::sync::Condvar;
 use std::sync::atomic::{AtomicUsize, Ordering};
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
-use lock_api::{RawMutex as _, RawMutexTimed as _};
-use parking_lot::{Condvar, Mutex, RawMutex};
+use lock_api::RawMutex as _;
+use parking_lot::{Mutex, RawMutex};
 
 use uacpi_sys::{
-    uacpi_bool, uacpi_char, uacpi_cpu_flags, uacpi_firmware_request, uacpi_handle,
-    uacpi_interrupt_handler, uacpi_interrupt_state, uacpi_io_addr, uacpi_log_level,
-    uacpi_pci_address, uacpi_phys_addr, uacpi_size, uacpi_status, uacpi_thread_id, uacpi_u8,
-    uacpi_u16, uacpi_u32, uacpi_u64, uacpi_work_handler, uacpi_work_type,
+    uacpi_char, uacpi_cpu_flags, uacpi_firmware_request, uacpi_handle, uacpi_interrupt_handler,
+    uacpi_interrupt_state, uacpi_io_addr, uacpi_log_level, uacpi_pci_address, uacpi_phys_addr,
+    uacpi_size, uacpi_status, uacpi_thread_id, uacpi_u8, uacpi_u16, uacpi_u32, uacpi_u64,
+    uacpi_work_handler, uacpi_work_type,
 };
 
 use super::{PAGE_MASK, RSDP};
+use crate::EXPECT_LOCK;
 use crate::pci::config;
 use crate::pio::PioWindow;
 use crate::uacpi::runtime;
@@ -428,106 +431,59 @@ pub unsafe extern "C" fn uacpi_kernel_sleep(msec: uacpi_u64) {
     std::thread::sleep(Duration::from_millis(msec));
 }
 
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn uacpi_kernel_create_mutex() -> uacpi_handle {
-    Box::into_raw(Box::new(RawMutex::INIT)) as uacpi_handle
-}
-
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn uacpi_kernel_free_mutex(handle: uacpi_handle) {
-    unsafe { drop(Box::from_raw(handle as *mut RawMutex)) };
-}
-
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn uacpi_kernel_acquire_mutex(
-    handle: uacpi_handle,
-    timeout: uacpi_u16,
-) -> uacpi_status {
-    let mutex = unsafe { &*(handle as *const RawMutex) };
-    let acquired = match timeout {
-        0xFFFF => {
-            mutex.lock();
-            true
-        }
-        0 => mutex.try_lock(),
-        ms => mutex.try_lock_for(Duration::from_millis(ms as u64)),
-    };
-    if acquired {
-        uacpi_sys::UACPI_STATUS_OK
-    } else {
-        uacpi_sys::UACPI_STATUS_TIMEOUT
-    }
-}
-
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn uacpi_kernel_release_mutex(handle: uacpi_handle) {
-    let mutex = unsafe { &*(handle as *const RawMutex) };
-    unsafe { mutex.unlock() };
-}
-
-struct Event {
-    count: Mutex<u64>,
+struct Semaphore {
+    units: std::sync::Mutex<u64>,
     cond: Condvar,
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn uacpi_kernel_create_event() -> uacpi_handle {
-    Box::into_raw(Box::new(Event {
-        count: Mutex::new(0),
+pub unsafe extern "C" fn uacpi_kernel_create_semaphore(initial_units: uacpi_u32) -> uacpi_handle {
+    Box::into_raw(Box::new(Semaphore {
+        units: std::sync::Mutex::new(initial_units.into()),
         cond: Condvar::new(),
     })) as uacpi_handle
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn uacpi_kernel_free_event(handle: uacpi_handle) {
-    unsafe { drop(Box::from_raw(handle as *mut Event)) };
+pub unsafe extern "C" fn uacpi_kernel_free_semaphore(handle: uacpi_handle) {
+    unsafe { drop(Box::from_raw(handle as *mut Semaphore)) };
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn uacpi_kernel_wait_for_event(
+pub unsafe extern "C" fn uacpi_kernel_wait_for_semaphore(
     handle: uacpi_handle,
     timeout: uacpi_u16,
-) -> uacpi_bool {
-    let event = unsafe { &*(handle as *const Event) };
-    let mut count = event.count.lock();
-
-    if *count == 0 {
-        match timeout {
-            0 => return false,
-            0xFFFF => {
-                while *count == 0 {
-                    event.cond.wait(&mut count);
-                }
-            }
-            ms => {
-                let deadline = Instant::now() + Duration::from_millis(ms as u64);
-                while *count == 0 {
-                    if event.cond.wait_until(&mut count, deadline).timed_out() {
-                        if *count == 0 {
-                            return false;
-                        }
-                        break;
-                    }
-                }
-            }
+) -> uacpi_status {
+    let semaphore = unsafe { &*(handle as *const Semaphore) };
+    let units = semaphore.units.lock().expect(EXPECT_LOCK);
+    let mut units = match timeout {
+        0xFFFF => semaphore
+            .cond
+            .wait_while(units, |units| *units == 0)
+            .expect(EXPECT_LOCK),
+        ms => {
+            semaphore
+                .cond
+                .wait_timeout_while(units, Duration::from_millis(ms as u64), |units| *units == 0)
+                .expect(EXPECT_LOCK)
+                .0
         }
+    };
+
+    if *units == 0 {
+        return uacpi_sys::UACPI_STATUS_TIMEOUT;
     }
-
-    *count -= 1;
-    true
+    *units -= 1;
+    uacpi_sys::UACPI_STATUS_OK
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn uacpi_kernel_signal_event(handle: uacpi_handle) {
-    let event = unsafe { &*(handle as *const Event) };
-    *event.count.lock() += 1;
-    event.cond.notify_one();
-}
-
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn uacpi_kernel_reset_event(handle: uacpi_handle) {
-    let event = unsafe { &*(handle as *const Event) };
-    *event.count.lock() = 0;
+pub unsafe extern "C" fn uacpi_kernel_signal_semaphore(handle: uacpi_handle) {
+    let semaphore = unsafe { &*(handle as *const Semaphore) };
+    let mut units = semaphore.units.lock().expect(EXPECT_LOCK);
+    *units += 1;
+    // A waiter may free the semaphore once it gets the unit, hence notify before unlocking.
+    semaphore.cond.notify_one();
 }
 
 #[unsafe(no_mangle)]
@@ -573,19 +529,27 @@ pub unsafe extern "C" fn uacpi_kernel_unlock_spinlock(
 }
 
 #[unsafe(no_mangle)]
+pub unsafe extern "C" fn uacpi_kernel_create_work_item() -> uacpi_handle {
+    // Interrupt handlers run on a thread that may allocate, hence work items carry no state.
+    NonNull::<c_void>::dangling().as_ptr()
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn uacpi_kernel_free_work_item(_handle: uacpi_handle) {}
+
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn uacpi_kernel_schedule_work(
     work_type: uacpi_work_type,
+    _work_item: uacpi_handle,
     handler: uacpi_work_handler,
     ctx: uacpi_handle,
-) -> uacpi_status {
+) {
     if let Some(handler) = handler {
         let ctx = ctx as usize;
         runtime::schedule_work(work_type, move |_aml| unsafe {
             handler(ctx as uacpi_handle)
         });
     }
-
-    uacpi_sys::UACPI_STATUS_OK
 }
 
 #[unsafe(no_mangle)]
