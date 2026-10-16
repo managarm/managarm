@@ -4,7 +4,11 @@
 #include <expected>
 #include <new>
 
+#include <async/algorithm.hpp>
+#include <async/cancellation.hpp>
+#include <async/oneshot-event.hpp>
 #include <eir/interface.hpp>
+#include <frg/list.hpp>
 #include <frg/optional.hpp>
 #include <frg/spinlock.hpp>
 #include <frg/manual_box.hpp>
@@ -224,8 +228,55 @@ enum class RootClass : uint8_t {
 	admitsPinned,
 };
 
+// Whether the current context may block for memory allocations.
+bool canBlockForMemory();
+
 class PhysicalChunkAllocator {
 	typedef frg::ticket_spinlock Mutex;
+
+	struct WaitNode {
+		WaitNode(AllocationClass cls, PhysicalKind kind)
+		: cls{cls}, kind{kind} { }
+
+		WaitNode(const WaitNode &) = delete;
+
+		WaitNode &operator= (const WaitNode &) = delete;
+
+		AllocationClass cls;
+		PhysicalKind kind;
+		// Protected by _mutex.
+		bool queued = false;
+		// Protected by _mutex.
+		frg::default_list_hook<WaitNode> hook;
+		// Written by the code path that dequeues the node.
+		// Protected by _mutex.
+		std::expected<PhysicalAddr, Error> result{std::unexpected{Error::noMemory}};
+		// Raised when the wait completes.
+		async::oneshot_primitive event;
+	};
+
+	using WaitList = frg::intrusive_list<
+		WaitNode,
+		frg::locate_member<
+			WaitNode,
+			frg::default_list_hook<WaitNode>,
+			&WaitNode::hook
+		>
+	>;
+
+	struct WaitQueue {
+		WaitList list;
+		// Number of pages requested by WaitNodes in the list.
+		size_t deficit = 0;
+	};
+
+	// We call an allocation fungible if it consists only of single (i.e., non-contiguous) pages
+	// with no additional address restrictions.
+	// Callers can block for fungible allocations.
+	static bool isFungibleAllocation_(size_t size, PhysicalKind kind, int addressBits) {
+		return size == kPageSize && addressBits >= 64 && kind != PhysicalKind::contiguous;
+	}
+
 public:
 	// Guaranteed by BuddyAccessor::suitableOrder().
 	static constexpr size_t maxRootsPerRegion = 64;
@@ -245,7 +296,34 @@ public:
 	std::expected<PhysicalAddr, Error> tryAllocate(AllocationClass cls, size_t size,
 			PhysicalKind kind, int addressBits = 64);
 
+	// Asynchronously performs a fungible allocation.
+	// Completes with Error::cancelled on cancellation.
+	// Precondition: isFungibleAllocation_() is true.
+	auto allocateAwaitable(AllocationClass cls, PhysicalKind kind, async::cancellation_token ct) {
+		return async::let(
+			[=] { return WaitNode{cls, kind}; },
+			[this, ct] (WaitNode &node) {
+				startWait_(&node);
+				return async::with_cancel_cb(
+					async::transform(
+						node.event.wait(),
+						[&node] { return std::move(node.result); }
+					),
+					[this, &node] {
+						cancelWait_(&node);
+					},
+					ct
+				);
+			}
+		);
+	}
+
+	// Like allocateAwaitable() but blocks.
+	// Cancelled on thread termination (returning Error::cancelled).
+	std::expected<PhysicalAddr, Error> allocateBlocking(AllocationClass cls, PhysicalKind kind);
+
 	// Allocates a naturally aligned power-of-two sized chunk in the kernel class.
+	// Blocks for fungible pages if possible (i.e., if canBlockForMemory() is true).
 	// Falls back to the emergency class.
 	std::expected<PhysicalAddr, Error> allocate(size_t size, PhysicalKind kind,
 			int addressBits = 64);
@@ -272,10 +350,30 @@ public:
 	}
 
 private:
+	WaitQueue &queueOf_(AllocationClass cls) {
+		switch(cls) {
+		case AllocationClass::kernel:
+			return kernelWaitQueue_;
+		case AllocationClass::user:
+			return userWaitQueue_;
+		default:
+			__builtin_trap();
+		}
+	}
+
 	void updateFloors_();
+
+	// Called by allocateAwaitable() to start the wait.
+	void startWait_(WaitNode *node);
+	// Called by allocateAwaitable() to cancel the wait.
+	void cancelWait_(WaitNode *node);
 
 	// Callers must hold _mutex.
 	size_t floorFor_(AllocationClass cls);
+
+	// Sum of WaitQueue::deficit for classes equal or higher than cls.
+	// Callers must hold _mutex.
+	size_t deficitAhead_(AllocationClass cls);
 
 	// Free pages outside of contiguousReserve roots. Every kind can use these pages,
 	// so floors are measured in them.
@@ -287,12 +385,28 @@ private:
 	// Callers must hold _mutex.
 	size_t pinnableBudget_(size_t floor);
 
+	// Whether a single page allocation of a fungible page will succeed or not.
+	// Exact: if this returns true, then allocateFungible_() must succeed.
+	// Callers must hold _mutex.
+	bool canAllocateFungible_(size_t floor);
+
+	// Allocate a single fungible page.
+	// Callers must hold _mutex.
+	PhysicalAddr allocateFungible_(PhysicalKind kind, size_t floor);
+
 	// Never takes pinnable pages that the floor holds back.
 	// Callers must hold _mutex.
 	PhysicalAddr allocateChunk_(size_t size, PhysicalKind kind, int addressBits, size_t floor);
 
 	// Callers must hold _mutex.
 	void freeChunk_(PhysicalAddr address, size_t size, PhysicalKind kind);
+
+	// Completes waiting allocations until no more progress is possible.
+	// Callers must hold _mutex.
+	void serveWaiters_(WaitList &served);
+
+	// Must be called without holding _mutex.
+	static void completeServed_(WaitList &served);
 
 	struct Region {
 		PhysicalAddr physicalBase;
@@ -352,6 +466,11 @@ private:
 	// Floors in pages; see AllocationClass. Set by updateFloors_().
 	size_t kernelFloor_ = 0;
 	size_t userFloor_ = 0;
+
+	// Wait queues accessed through queueOf_().
+	// All are protected by _mutex.
+	WaitQueue kernelWaitQueue_;
+	WaitQueue userWaitQueue_;
 
 	std::atomic<size_t> _totalPages{0};
 	std::atomic<size_t> _usedPages{0};
