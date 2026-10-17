@@ -43,6 +43,7 @@ public:
 	KernelVirtualMemory &operator= (const KernelVirtualMemory &other) = delete;
 
 	void *allocate(size_t length);
+	void *allocate(size_t length, size_t align);
 	void deallocate(void *pointer, size_t length);
 
 private:

@@ -1,3 +1,5 @@
+#include <bit>
+
 #include <thor-internal/arch-generic/ints.hpp>
 #include <thor-internal/cpu-data.hpp>
 #include <thor-internal/debug.hpp>
@@ -58,8 +60,20 @@ struct KernelVirtualHole {
 	uintptr_t address = 0;
 	size_t size = 0;
 	frg::rbtree_hook treeHook;
-	size_t largestHole = 0;
+	// Largest order of any naturally aligned power-of-two block that fits into a hole of this subtree.
+	int largestOrder = 0;
 };
+
+// Order of the largest naturally aligned power-of-two block that fits into the given range.
+int orderOfRange(uintptr_t address, size_t size) {
+	assert(size);
+	int order = std::bit_width(size) - 1;
+	// If the 2^order block does not fit, a 2^(order - 1) block does since size >= 2^order.
+	size_t block = size_t{1} << order;
+	if(((-address) & (block - 1)) > size - block)
+		return order - 1;
+	return order;
+}
 
 struct KernelVirtualLess {
 	bool operator() (const KernelVirtualHole &a, const KernelVirtualHole &b) {
@@ -78,15 +92,15 @@ using KernelVirtualTree = frg::rbtree<
 
 struct KernelVirtualAggregator {
 	static bool aggregate(KernelVirtualHole *node) {
-		size_t size = node->size;
-		if(auto left = KernelVirtualTree::get_left(node); left && left->largestHole > size)
-			size = left->largestHole;
-		if(auto right = KernelVirtualTree::get_right(node); right && right->largestHole > size)
-			size = right->largestHole;
+		int order = orderOfRange(node->address, node->size);
+		if(auto left = KernelVirtualTree::get_left(node); left && left->largestOrder > order)
+			order = left->largestOrder;
+		if(auto right = KernelVirtualTree::get_right(node); right && right->largestOrder > order)
+			order = right->largestOrder;
 
-		if(node->largestHole == size)
+		if(node->largestOrder == order)
 			return false;
-		node->largestHole = size;
+		node->largestOrder = order;
 		return true;
 	}
 
@@ -110,21 +124,34 @@ KernelVirtualMemory::KernelVirtualMemory() {
 	auto initialHole = frg::construct<KernelVirtualHole>(getCoreAllocator());
 	initialHole->address = vmBase;
 	initialHole->size = desiredSize;
-	initialHole->largestHole = desiredSize;
 	virtualTree->insert(initialHole);
 }
 
 void *KernelVirtualMemory::allocate(size_t size) {
+	return allocate(size, kPageSize);
+}
+
+void *KernelVirtualMemory::allocate(size_t size, size_t align) {
+	assert(std::has_single_bit(align));
 	// Round up to page size.
 	size = (size + kPageSize - 1) & ~(kPageSize - 1);
+	align = frg::max(align, size_t{kPageSize});
+
+	// Search for a hole that contains a naturally aligned power-of-two block covering the request.
+	// This is exact for naturally aligned power-of-two requests (such as sharded_slab chunks);
+	// other requests are rounded up to the next power of two.
+	int order = std::countr_zero(std::bit_ceil(frg::max(size, align)));
+	size_t block = size_t{1} << order;
 
 	auto irqLock = frg::guard(&irqMutex());
 	auto lock = frg::guard(&mutex_);
 	void *pointer;
 	{
-		if(virtualTree->get_root()->largestHole < size) {
+		if(!virtualTree->get_root() || virtualTree->get_root()->largestOrder < order) {
+			// TODO: Before giving up, fall back to a linear search for a hole that fits without rounding.
 			infoLogger() << "thor: Failed to allocate 0x" << frg::hex_fmt(size)
-					<< " bytes of kernel virtual memory" << frg::endlog;
+					<< " bytes of kernel virtual memory with alignment 0x" << frg::hex_fmt(align)
+					<< " (order " << order << ")" << frg::endlog;
 			infoLogger() << "thor:"
 					" Physical usage: " << (physicalAllocator->numUsedPages() * 4) << " KiB,"
 					" kernel VM: " << (kernelVirtualUsage.load(std::memory_order_relaxed) / 1024) << " KiB"
@@ -137,30 +164,47 @@ void *KernelVirtualMemory::allocate(size_t size) {
 		while(true) {
 			// Try to allocate memory at the bottom of the range.
 			if(KernelVirtualTree::get_left(current)
-					&& KernelVirtualTree::get_left(current)->largestHole >= size) {
+					&& KernelVirtualTree::get_left(current)->largestOrder >= order) {
 				current = KernelVirtualTree::get_left(current);
 				continue;
 			}
 
-			if(current->size >= size)
+			if(orderOfRange(current->address, current->size) >= order)
 				break;
 
 			assert(KernelVirtualTree::get_right(current));
-			assert(KernelVirtualTree::get_right(current)->largestHole >= size);
+			assert(KernelVirtualTree::get_right(current)->largestOrder >= order);
 			current = KernelVirtualTree::get_right(current);
 		}
 
-		// Remember the address before the hole might be deallocated.
-		pointer = reinterpret_cast<void *>(current->address);
-		virtualTree->remove(current);
+		// The hole contains an aligned 2^order block, so the first such block fits.
+		// Placing the request at a block boundary lets the same request reuse the range once it is freed.
+		auto address = (current->address + block - 1) & ~(block - 1);
+		pointer = reinterpret_cast<void *>(address);
 
-		if(current->size == size) {
-			frg::destruct(getCoreAllocator(), current);
+		// Work with offsets since the end of the hole may not be representable.
+		auto prefixSize = address - current->address;
+		assert(prefixSize + size <= current->size);
+		auto suffixSize = current->size - prefixSize - size;
+		// Shrinking a hole in place keeps its position in the tree, so only the aggregates need updating.
+		if(prefixSize) {
+			current->size = prefixSize;
+			virtualTree->aggregate_path(current);
+			if(suffixSize) {
+				// TODO: Allocate the hole before taking the locks. This only helps once the kernel heap
+				//       stops calling into the virtual allocator from non-sleepable contexts.
+				auto suffix = frg::construct<KernelVirtualHole>(getCoreAllocator());
+				suffix->address = address + size;
+				suffix->size = suffixSize;
+				virtualTree->insert(suffix);
+			}
+		}else if(suffixSize) {
+			current->address = address + size;
+			current->size = suffixSize;
+			virtualTree->aggregate_path(current);
 		}else{
-			assert(current->size > size);
-			current->address += size;
-			current->size -= size;
-			virtualTree->insert(current);
+			virtualTree->remove(current);
+			frg::destruct(getCoreAllocator(), current);
 		}
 	}
 
@@ -216,7 +260,6 @@ void KernelVirtualMemory::deallocate(void *pointer, size_t size) {
 			auto hole = frg::construct<KernelVirtualHole>(getCoreAllocator());
 			hole->address = address;
 			hole->size = size;
-			hole->largestHole = size;
 			virtualTree->insert(hole);
 		}
 	}
