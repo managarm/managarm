@@ -38,7 +38,7 @@ static constexpr bool logSockets = false;
 struct OpenFile;
 
 // This map associates bound sockets with FS nodes.
-// TODO: Store a shared_ptr to the node inside the OpenFile.
+// Entries are kept alive by the OpenFile's reference to the node.
 std::map<FsNode *, OpenFile *> globalBindMap;
 std::unordered_map<std::string, OpenFile *> abstractSocketsBindMap;
 
@@ -137,6 +137,11 @@ public:
 		if (!_isInherited && _nameType == NameType::abstract) {
 			assert(abstractSocketsBindMap.find(_sockpath) != abstractSocketsBindMap.end());
 			abstractSocketsBindMap.erase(_sockpath);
+		}
+		if(_boundNode) {
+			assert(globalBindMap.find(_boundNode.get()) != globalBindMap.end());
+			globalBindMap.erase(_boundNode.get());
+			_boundNode = nullptr;
 		}
 
 		if(_currentState == State::connected) {
@@ -407,7 +412,10 @@ public:
 					path.resize(addr_length - sizeof(sa.sun_family) - 1);
 					memcpy(path.data(), sa.sun_path + 1, addr_length - sizeof(sa.sun_family) - 1);
 
-					remote = abstractSocketsBindMap.at(path);
+					auto it = abstractSocketsBindMap.find(path);
+					if(it == abstractSocketsBindMap.end())
+						co_return protocols::fs::Error::connectionRefused;
+					remote = it->second;
 				} else {
 					path.resize(strnlen(sa.sun_path, addr_length - offsetof(sockaddr_un, sun_path)));
 					memcpy(path.data(), sa.sun_path, strnlen(sa.sun_path, addr_length - offsetof(sockaddr_un, sun_path)));
@@ -424,7 +432,10 @@ public:
 
 					// Lookup the socket associated with the node.
 					auto node = resolver.currentLink()->getTarget();
-					remote = globalBindMap.at(node.get());
+					auto it = globalBindMap.find(node.get());
+					if(it == globalBindMap.end())
+						co_return protocols::fs::Error::connectionRefused;
+					remote = it->second;
 				}
 
 			}
@@ -549,6 +560,10 @@ public:
 		if(addr_length <= offsetof(struct sockaddr_un, sun_path)) {
 			co_return protocols::fs::Error::illegalArguments;
 		}
+		// Sockets can only be bound once. Note that accepted sockets inherit the name
+		// of their listening socket and cannot be bound either.
+		if(_nameType != NameType::unnamed)
+			co_return protocols::fs::Error::illegalArguments;
 
 		// Create a new socket node in the FS.
 		struct sockaddr_un sa;
@@ -593,11 +608,12 @@ public:
 				co_return protocols::fs::Error::alreadyExists;
 			}
 			assert(nodeResult);
-			auto node = nodeResult.value();
+			auto node = nodeResult.value()->getTarget();
 			// Associate the current socket with the node.
-			auto res = globalBindMap.insert({node->getTarget().get(), this});
+			auto res = globalBindMap.insert({node.get(), this});
 			if(!res.second)
 				co_return protocols::fs::Error::addressInUse;
+			_boundNode = std::move(node);
 			co_return protocols::fs::Error::none;
 		}
 	}
@@ -679,7 +695,10 @@ public:
 
 			// Lookup the socket associated with the node.
 			auto node = resolver.currentLink()->getTarget();
-			auto server = globalBindMap.at(node.get());
+			auto it = globalBindMap.find(node.get());
+			if(it == globalBindMap.end())
+				co_return protocols::fs::Error::connectionRefused;
+			auto server = it->second;
 			if(socktype_ == SOCK_STREAM) {
 				server->_acceptQueue.push_back(this);
 				server->_inSeq = ++server->_currentSeq;
@@ -979,6 +998,9 @@ private:
 	bool nonBlock_;
 
 	std::string _sockpath;
+
+	// For sockets bound to a path, the node that this socket is bound to.
+	smarter::shared_ptr<FsNode> _boundNode;
 
 	NameType _nameType;
 
