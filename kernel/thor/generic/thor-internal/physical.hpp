@@ -11,6 +11,7 @@
 #include <thor-internal/arch-generic/paging-consts.hpp>
 #include <thor-internal/elf-notes.hpp>
 #include <thor-internal/error.hpp>
+#include <thor-internal/mm-base.hpp>
 #include <thor-internal/types.hpp>
 
 namespace thor {
@@ -157,7 +158,7 @@ public:
 	static constexpr size_t numRootClasses = 3;
 
 	PhysicalChunkAllocator();
-	
+
 	void bootstrapRegion(PhysicalAddr address,
 			int order, size_t numRoots, int8_t *buddyTree);
 	// Assigns the initial class of each root: roots that Eir allocated from admit pinned frames,
@@ -167,10 +168,15 @@ public:
 	void assignRootClasses(size_t reserveBytes);
 
 	// Allocates a naturally aligned power-of-two sized chunk.
-	std::expected<PhysicalAddr, Error> tryAllocate(size_t size, PhysicalKind kind,
+	std::expected<PhysicalAddr, Error> tryAllocate(AllocationClass cls, size_t size,
+			PhysicalKind kind, int addressBits = 64);
+
+	// Allocates a naturally aligned power-of-two sized chunk in the kernel class.
+	// Falls back to the emergency class.
+	std::expected<PhysicalAddr, Error> allocate(size_t size, PhysicalKind kind,
 			int addressBits = 64);
 
-	// Like tryAllocate() for PhysicalKind::pinned but returns -1 on failure.
+	// Like allocate() for PhysicalKind::pinned but returns -1 on failure.
 	PhysicalAddr allocate(size_t size, int addressBits = 64);
 
 	// kind must match the kind that the chunk was allocated with.
@@ -192,8 +198,24 @@ public:
 	}
 
 private:
+	void updateFloors_();
+
 	// Callers must hold _mutex.
-	PhysicalAddr allocateChunk_(size_t size, PhysicalKind kind, int addressBits);
+	size_t floorFor_(AllocationClass cls);
+
+	// Free pages outside of contiguousReserve roots. Every kind can use these pages,
+	// so floors are measured in them.
+	// Callers must hold _mutex.
+	size_t pinnablePages_();
+
+	// Pinnable pages beyond the floor, i.e., the ones that allocateChunk_() may take.
+	// floor is the number of pinnable pages that must stay free.
+	// Callers must hold _mutex.
+	size_t pinnableBudget_(size_t floor);
+
+	// Never takes pinnable pages that the floor holds back.
+	// Callers must hold _mutex.
+	PhysicalAddr allocateChunk_(size_t size, PhysicalKind kind, int addressBits, size_t floor);
 
 	// Callers must hold _mutex.
 	void freeChunk_(PhysicalAddr address, size_t size, PhysicalKind kind);
@@ -234,8 +256,10 @@ private:
 	frg::optional<Allocation> allocateInClass_(int order, int addressBits, RootClass cls);
 
 	// Allocates from an evictableOnly root and converts that root to the given class.
+	// Takes at most budget pinnable pages.
 	// Callers must hold _mutex.
-	frg::optional<Allocation> allocateByConverting_(int order, int addressBits, RootClass to);
+	frg::optional<Allocation> allocateByConverting_(int order, int addressBits, RootClass to,
+			size_t pinnableBudget);
 
 	// Callers must hold _mutex.
 	void convertRoot_(Region &region, size_t rootIndex, RootClass to);
@@ -248,6 +272,12 @@ private:
 	Region _allRegions[eirMaxMemoryRegions];
 	int _numRegions = 0;
 	bool _classesAssigned = false;
+	// Indexed by RootClass. Set by assignRootClasses(). Protected by _mutex.
+	size_t freePagesOfClass_[numRootClasses] = {};
+
+	// Floors in pages; see AllocationClass. Set by updateFloors_().
+	size_t kernelFloor_ = 0;
+	size_t userFloor_ = 0;
 
 	std::atomic<size_t> _totalPages{0};
 	std::atomic<size_t> _usedPages{0};
