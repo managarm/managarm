@@ -279,7 +279,7 @@ KernelVirtualMemory &KernelVirtualMemory::global() {
 	return *kernelVirtualMemory;
 }
 
-void *HeapSlabPolicy::map(size_t length) {
+void *HeapSlabPolicy::map(size_t length, size_t align) {
 	assert(!(length % kPageSize));
 	size_t numPages = length / kPageSize;
 
@@ -301,7 +301,7 @@ void *HeapSlabPolicy::map(size_t length) {
 		magazine.pages.splice(std::move(*pages));
 	}
 
-	auto p = KernelVirtualMemory::global().allocate(length);
+	auto p = KernelVirtualMemory::global().allocate(length, align);
 
 	// TODO: The slab_pool unpoisons memory before calling this.
 	//       It would be better not to unpoison in the kernel's VMM code.

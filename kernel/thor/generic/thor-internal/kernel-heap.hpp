@@ -52,7 +52,10 @@ private:
 
 class HeapSlabPolicy {
 public:
-	void *map(size_t length);
+	void *map(size_t length) {
+		return map(length, kPageSize);
+	}
+	void *map(size_t length, size_t align);
 	void unmap(void *ptr, size_t length);
 
 	bool enable_trace() {
@@ -75,6 +78,7 @@ public:
 	void output_trace(void *buffer, size_t size);
 };
 
+static_assert(frg::sharded_slab::aligned_map_policy<HeapSlabPolicy>);
 static_assert(frg::slab::has_poisoning_support<HeapSlabPolicy>);
 #ifdef KERNEL_LOG_ALLOCATIONS
 static_assert(frg::slab::has_trace_support<HeapSlabPolicy>);
