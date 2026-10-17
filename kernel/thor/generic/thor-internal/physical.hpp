@@ -135,15 +135,16 @@ enum class PhysicalKind {
 };
 
 // Class of a buddy root, i.e., the PhysicalKinds that it admits.
-// Roots can be converted from evictableOnly to a less restricted class.
-// However, we forbid transitions between less restricted classes;
-// for example, admitsContiguous -> admitsPinned is forbidden
+// Roots can be converted from evictableOnly to one of the other classes.
+// However, we forbid transitions between the other classes;
+// for example, contiguousReserve -> admitsPinned is forbidden
 // to make it easier to satisfy contiguous allocations.
 enum class RootClass : uint8_t {
-	// Can only satisfy evictable allocation.
+	// Can only satisfy evictable allocations.
 	evictableOnly,
-	// Can satisfy evictable and contiguous allocations.
-	admitsContiguous,
+	// Can only satisfy contiguous allocations.
+	// May hold evictable frames that were allocated prior to conversion.
+	contiguousReserve,
 	// Can satisfy evictable, contiguous and pinned allocations.
 	admitsPinned,
 };

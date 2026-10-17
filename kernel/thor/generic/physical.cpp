@@ -139,7 +139,7 @@ void PhysicalChunkAllocator::assignRootClasses(size_t reserveBytes) {
 				continue;
 			if(numReservedRoots >= maxReservedRoots)
 				break;
-			convertRoot_(region, r, RootClass::admitsContiguous);
+			convertRoot_(region, r, RootClass::contiguousReserve);
 			numReservedRoots++;
 			reservedBytes += rootBytes;
 			largestReservedRoot = frg::max(largestReservedRoot, rootBytes);
@@ -164,8 +164,8 @@ void PhysicalChunkAllocator::assignRootClasses(size_t reserveBytes) {
 			<< " MiB evictable only, "
 			<< (classBytes[static_cast<size_t>(RootClass::admitsPinned)] >> 20)
 			<< " MiB admit pinned, "
-			<< (classBytes[static_cast<size_t>(RootClass::admitsContiguous)] >> 20)
-			<< " MiB admit contiguous (largest reserved root: " << (largestReservedRoot >> 20)
+			<< (classBytes[static_cast<size_t>(RootClass::contiguousReserve)] >> 20)
+			<< " MiB contiguous reserve (largest reserved root: " << (largestReservedRoot >> 20)
 			<< " MiB)" << frg::endlog;
 }
 
@@ -204,13 +204,10 @@ PhysicalAddr PhysicalChunkAllocator::allocateChunk_(size_t size, PhysicalKind ki
 	frg::optional<Allocation> allocation;
 	switch(kind) {
 	case PhysicalKind::evictable:
-		// If possible, keep holes in admitsPinned roots for pinned frames,
-		// and use admitsContiguous roots only once everything else is full.
-		for(auto cls : {RootClass::evictableOnly, RootClass::admitsPinned, RootClass::admitsContiguous}) {
-			allocation = allocateInClass_(target, addressBits, cls);
-			if(allocation)
-				break;
-		}
+		// If possible, keep holes in admitsPinned roots for pinned frames.
+		allocation = allocateInClass_(target, addressBits, RootClass::evictableOnly);
+		if(!allocation)
+			allocation = allocateInClass_(target, addressBits, RootClass::admitsPinned);
 		break;
 	case PhysicalKind::pinned:
 		allocation = allocateInClass_(target, addressBits, RootClass::admitsPinned);
@@ -219,15 +216,15 @@ PhysicalAddr PhysicalChunkAllocator::allocateChunk_(size_t size, PhysicalKind ki
 					RootClass::admitsPinned);
 		break;
 	case PhysicalKind::contiguous:
+		// contiguousReserve roots serve nothing else, so they come first.
 		// Holes in admitsPinned roots cost nothing since these roots are never emptied anyway.
 		// Converting an evictableOnly root shrinks the memory that can be emptied, so it comes last.
-		allocation = allocateInClass_(target, addressBits, RootClass::admitsPinned);
+		allocation = allocateInClass_(target, addressBits, RootClass::contiguousReserve);
 		if(!allocation)
-			allocation = allocateInClass_(target, addressBits,
-					RootClass::admitsContiguous);
+			allocation = allocateInClass_(target, addressBits, RootClass::admitsPinned);
 		if(!allocation)
 			allocation = allocateByConverting_(target, addressBits,
-					RootClass::admitsContiguous);
+					RootClass::contiguousReserve);
 		break;
 	}
 	if(!allocation)
