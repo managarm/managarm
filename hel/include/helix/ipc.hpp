@@ -126,21 +126,7 @@ protected:
 };
 
 struct Operation : OperationBase {
-	Operation()
-	: _asyncId{0} { }
-
-	uint64_t asyncId() {
-		return _asyncId;
-	}
-
-	void setAsyncId(uint64_t async_id) {
-		_asyncId = async_id;
-	}
-
 	virtual void parse(const void *) = 0;
-
-private:
-	uint64_t _asyncId;
 };
 
 struct Context {
@@ -518,19 +504,6 @@ inline ElementHandle::ElementHandle(const ElementHandle &other) {
 	_dispatcher->_reference(_cn);
 }
 
-struct AwaitClock : Operation {
-	HelError error() {
-		return result_.error;
-	}
-
-private:
-	void parse(const void *ptr) override {
-		memcpy(&result_, ptr, sizeof(result_));
-	}
-
-	HelSimpleResult result_;
-};
-
 struct ProtectMemory : Operation {
 	HelError error() {
 		return result_.error;
@@ -614,21 +587,6 @@ private:
 // ----------------------------------------------------------------------------
 
 struct Submission : private Context {
-	Submission(AwaitClock *operation,
-			uint64_t counter, Dispatcher &dispatcher)
-	: _result(operation) {
-		auto asyncId = dispatcher.makeAsyncId();
-
-		HelSqAwaitClock sqData;
-		sqData.counter = counter;
-		sqData.cancellationTag = asyncId;
-		std::array segments{std::as_bytes(std::span{&sqData, 1})};
-		dispatcher.pushSq(kHelSubmitAwaitClock,
-				reinterpret_cast<uintptr_t>(context()), segments);
-
-		operation->setAsyncId(asyncId);
-	}
-
 	Submission(BorrowedDescriptor space, ProtectMemory *operation,
 			void *pointer, size_t length, uint32_t flags,
 			Dispatcher &dispatcher)
@@ -713,11 +671,6 @@ private:
 	Operation *_result;
 	async::oneshot_primitive _ev;
 };
-
-inline Submission submitAwaitClock(AwaitClock *operation, uint64_t counter,
-		Dispatcher &dispatcher) {
-	return {operation, counter, dispatcher};
-}
 
 inline Submission submitProtectMemory(BorrowedDescriptor memory, ProtectMemory *operation,
 		void *pointer, size_t length, uint32_t flags,
