@@ -270,11 +270,8 @@ async::detached Controller::_refreshFrame() {
 
 		auto tick = helix::getClock();
 
-		helix::AwaitClock await_clock;
-		auto &&submit = helix::submitAwaitClock(&await_clock, tick + 500'000'000,
-				helix::Dispatcher::global());
-		co_await submit.async_wait();
-		HEL_CHECK(await_clock.error());
+		auto error = co_await helix_ng::awaitClock(tick + 500'000'000);
+		HEL_CHECK(error);
 	}
 }
 
@@ -357,11 +354,8 @@ Controller::RootHub::issueReset(int port) {
 
 	auto tick = helix::getClock();
 
-	helix::AwaitClock await_clock;
-	auto &&submit = helix::submitAwaitClock(&await_clock, tick + 50'000'000,
-			helix::Dispatcher::global());
-	co_await submit.async_wait();
-	HEL_CHECK(await_clock.error());
+	auto error = co_await helix_ng::awaitClock(tick + 50'000'000);
+	HEL_CHECK(error);
 
 	// Disable the reset line.
 	port_space.store(port_regs::statusCtrl, port_status_ctrl::portReset(false));
