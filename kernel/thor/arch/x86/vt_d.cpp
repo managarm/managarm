@@ -493,6 +493,11 @@ struct IntelIommuOperations final : PageSpace, VirtualOperations {
 		return domainId_;
 	}
 
+	// Shootdowns that wait for space in the IOMMU's invalidation queue.
+	// Both fields are protected by the invalidation queue's lock.
+	ShootQueue shootBacklog_;
+	frg::default_list_hook<IntelIommuOperations> backlogHook_;
+
 private:
 	IntelIommu *iommu_;
 	uint16_t domainId_;
@@ -645,7 +650,7 @@ struct IntelIommu final : Iommu, IrqSink {
 			iommu_->regs_.store(regs::invalidationCompletionStatus, invalidationCompletionStatus::complete(true));
 			iommu_->regs_.store(regs::invalidationEventControl, invalidationEventControl::interruptMask(false));
 
-			spawnOnWorkQueue(*kernelAlloc, WorkQueue::generalQueue().lock(), runSubmissionLoop());
+			spawnOnWorkQueue(*kernelAlloc, WorkQueue::generalQueue().lock(), drainBacklog());
 			return {};
 		}
 
@@ -695,6 +700,15 @@ struct IntelIommu final : Iommu, IrqSink {
 			async::oneshot_event event;
 		};
 
+		using BackloggedSpaceList = frg::intrusive_list<
+			IntelIommuOperations,
+			frg::locate_member<
+				IntelIommuOperations,
+				frg::default_list_hook<IntelIommuOperations>,
+				&IntelIommuOperations::backlogHook_
+			>
+		>;
+
 		IrqStatus raise() override {
 			if (!(iommu_->regs_.load(regs::invalidationCompletionStatus)
 			      & invalidationCompletionStatus::complete))
@@ -742,12 +756,6 @@ struct IntelIommu final : Iommu, IrqSink {
 			uint32_t seq = qiTail_++;
 			return {QueueIndex<invalidationQueueSize>{seq}, seq};
 		}
-
-		struct InvalidationRequest {
-			uint16_t domain;
-			ShootNode *node;
-			frg::default_list_hook<InvalidationRequest> hook;
-		};
 
 		template <typename F>
 		coroutine<void> doInvalidation(F func) {
@@ -810,28 +818,26 @@ struct IntelIommu final : Iommu, IrqSink {
 			});
 		}
 
-		void invalidateRange(uint16_t domain, ShootNode *node) {
+		void invalidateRange(IntelIommuOperations *space, ShootNode *node) {
 			auto [psi, required] = calculateRangeInvalidationParameters(node->address, node->size);
-			bool pending = false;
+			bool backlogged = false;
 			{
 				auto lock = frg::guard(&qiRingLock_);
 
-				if (pendingQueue_.empty() && freeSlots_.try_acquire(required)) {
-					submitRange(domain, node, required, psi);
+				if (backloggedSpaces_.empty() && freeSlots_.try_acquire(required)) {
+					submitRange(space->domainId(), node, required, psi);
 				} else {
-					auto req = frg::construct<InvalidationRequest>(*kernelAlloc);
-					req->domain = domain;
-					req->node = node;
-
-					pendingQueue_.push_back(req);
-					pending = true;
+					if (space->shootBacklog_.empty())
+						backloggedSpaces_.push_back(space);
+					space->shootBacklog_.push_back(node);
+					backlogged = true;
 				}
 			}
 
 			// Raise outside of `qiRingLock_`: waiters take that lock while they hold the
 			// event's lock to evaluate their condition.
-			if (pending)
-				pendingQueueEvent_.raise();
+			if (backlogged)
+				backlogEvent_.raise();
 		}
 
 	private:
@@ -955,30 +961,31 @@ struct IntelIommu final : Iommu, IrqSink {
 			}
 		}
 
-		coroutine<void> runSubmissionLoop() {
+		coroutine<void> drainBacklog() {
 			while (true) {
-				while (co_await pendingQueueEvent_.async_wait_if([&] {
+				while (co_await backlogEvent_.async_wait_if([&] {
 					auto irqLock = frg::guard(&qiRingLock_);
-					return pendingQueue_.empty();
+					return backloggedSpaces_.empty();
 				}))
 					;
 
-				InvalidationRequest *req;
+				IntelIommuOperations *space;
+				ShootNode *node;
 				{
 					auto irqLock = frg::guard(&qiRingLock_);
-					assert(!pendingQueue_.empty());
-					req = pendingQueue_.pop_front();
+					assert(!backloggedSpaces_.empty());
+					space = backloggedSpaces_.pop_front();
+					node = space->shootBacklog_.front();
+					space->shootBacklog_.erase(node);
+					if (!space->shootBacklog_.empty())
+						backloggedSpaces_.push_back(space);
 				}
 
-				auto [psi, slots] =
-				    calculateRangeInvalidationParameters(req->node->address, req->node->size);
+				auto [psi, slots] = calculateRangeInvalidationParameters(node->address, node->size);
 				co_await freeSlots_.async_acquire(slots);
 
-				{
-					auto irqLock = frg::guard(&qiRingLock_);
-					submitRange(req->domain, req->node, slots, psi);
-				}
-				frg::destruct(*kernelAlloc, req);
+				auto irqLock = frg::guard(&qiRingLock_);
+				submitRange(space->domainId(), node, slots, psi);
 			}
 		}
 
@@ -1000,19 +1007,9 @@ struct IntelIommu final : Iommu, IrqSink {
 		// Shootdown submissions, indexed by their first ring slot.
 		std::array<ShootSubmission, invalidationQueueSize> shootSubmissions_{};
 
-		// Pending queue of requests waiting to be submitted to the QI ring
-		async::recurring_event pendingQueueEvent_;
-
-		using PendingQueue = frg::intrusive_list<
-			InvalidationRequest,
-			frg::locate_member<
-				InvalidationRequest,
-				frg::default_list_hook<InvalidationRequest>,
-				&InvalidationRequest::hook
-			>
-		>;
-
-		PendingQueue pendingQueue_;
+		// DMA spaces with shootdowns that wait for space in the QI ring
+		BackloggedSpaceList backloggedSpaces_;
+		async::recurring_event backlogEvent_;
 	};
 
 	coroutine<std::expected<void, thor::Error>> init() {
@@ -1345,7 +1342,7 @@ private:
 };
 
 bool IntelIommuOperations::submitShootdown(ShootNode *node) {
-	iommu()->qi_.invalidateRange(domainId(), node);
+	iommu()->qi_.invalidateRange(this, node);
 	return false;
 }
 
