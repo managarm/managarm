@@ -98,7 +98,7 @@ using CoreAllocator = frg::slab_allocator<CoreSlabPolicy, IrqSpinlock>;
 CoreAllocator &getCoreAllocator();
 
 struct Allocator {
-	struct Guard : IplGuard<ipl::noPreemption> {
+	struct Guard : IplGuard<ipl::noSchedule> {
 		Guard() {
 			auto cpu = getCpuData();
 			assert(!inSlabPool.get(cpu).load(std::memory_order_relaxed));
@@ -113,9 +113,13 @@ struct Allocator {
 	};
 
 	void *allocate(size_t size) const {
-		Guard guard;
-		auto &pool = heapSlabPool.get();
-		return pool.allocate(size);
+		{
+			Guard guard;
+			auto &pool = heapSlabPool.get();
+			if(auto p = pool.allocate(size); p) [[likely]]
+				return p;
+		}
+		return refillAndAllocate_(size);
 	}
 
 	void deallocate(void *p, size_t size) const {
@@ -130,6 +134,10 @@ struct Allocator {
 		auto &pool = heapSlabPool.get();
 		pool.deallocate(p);
 	}
+
+private:
+	// Slow path of allocate() if the pool needs a refill.
+	void *refillAndAllocate_(size_t size) const;
 };
 
 // TODO: KernelAlloc the kernelAlloc global should be removed in favor of the Allocator class.

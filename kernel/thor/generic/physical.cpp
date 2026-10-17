@@ -5,6 +5,7 @@
 #include <thor-internal/cpu-data.hpp>
 #include <thor-internal/debug.hpp>
 #include <thor-internal/physical.hpp>
+#include <thor-internal/thread.hpp>
 
 namespace thor {
 
@@ -67,6 +68,13 @@ void poisonPhysicalWriteAccess(PhysicalAddr physical) {
 PhysicalChunkAllocator::PhysicalChunkAllocator() {
 }
 
+bool canBlockForMemory() {
+	// Right now only threads can block for memory.
+	// Letting fibers block for memory would potentially stall RCU and thus make it harder to free memory.
+	// TODO: Run RCU work on separate fibers that don't allocate. Also audit other fibers.
+	return getCurrentThread() && currentIpl() < ipl::noSchedule;
+}
+
 void PhysicalChunkAllocator::bootstrapRegion(PhysicalAddr address,
 		int order, size_t numRoots, int8_t *buddyTree) {
 	if(_numRegions >= static_cast<int>(eirMaxMemoryRegions)) {
@@ -106,6 +114,7 @@ void PhysicalChunkAllocator::updateFloors_() {
 	// Clamp to minimum/maximum sizes to avoid wasting too much RAM.
 	constexpr size_t minBase = size_t{1} << (20 - kPageShift);
 	constexpr size_t maxBase = size_t{32} << (20 - kPageShift);
+	static_assert(maxPagesPerWait <= minBase);
 	if(base < minBase)
 		base = minBase;
 	if(base > maxBase)
@@ -189,6 +198,10 @@ std::expected<PhysicalAddr, Error> PhysicalChunkAllocator::allocate(size_t size,
 		int addressBits) {
 	if(auto outcome = tryAllocate(AllocationClass::kernel, size, kind, addressBits); outcome)
 		return outcome;
+	if(isFungibleAllocation_(size, kind, addressBits) && canBlockForMemory()) {
+		if(auto outcome = allocateBlocking(AllocationClass::kernel, kind); outcome)
+			return outcome;
+	}
 	return tryAllocate(AllocationClass::emergency, size, kind, addressBits);
 }
 
@@ -204,10 +217,94 @@ std::expected<PhysicalAddr, Error> PhysicalChunkAllocator::tryAllocate(Allocatio
 	auto irqLock = frg::guard(&irqMutex());
 	auto lock = frg::guard(&_mutex);
 
-	auto physical = allocateChunk_(size, kind, addressBits, floorFor_(cls));
+	auto floor = floorFor_(cls) + deficitAhead_(cls);
+	auto physical = allocateChunk_(size, kind, addressBits, floor);
 	if(physical == static_cast<PhysicalAddr>(-1))
 		return std::unexpected{Error::noMemory};
 	return physical;
+}
+
+std::expected<PhysicalAddr, Error> PhysicalChunkAllocator::allocateBlocking(AllocationClass cls,
+		PhysicalKind kind) {
+	assert(canBlockForMemory());
+	return Thread::asyncBlockCurrentInterruptible(
+		[&] (async::cancellation_token ct) {
+			return allocateAwaitable(cls, kind, ct);
+		},
+		nullptr,
+		condition::interrupt
+	);
+}
+
+std::expected<PageChain, Error> PhysicalChunkAllocator::tryAllocateChain(AllocationClass cls,
+		PhysicalKind kind, size_t numPages) {
+	assert(numPages);
+	assert(kind != PhysicalKind::contiguous);
+	auto irqLock = frg::guard(&irqMutex());
+	auto lock = frg::guard(&_mutex);
+
+	auto floor = floorFor_(cls) + deficitAhead_(cls);
+	if(!canAllocateFungible_(numPages, floor))
+		return std::unexpected{Error::noMemory};
+	return allocateFungible_(kind, numPages, floor);
+}
+
+std::expected<PageChain, Error> PhysicalChunkAllocator::allocateChainBlocking(AllocationClass cls,
+		PhysicalKind kind, size_t numPages) {
+	assert(canBlockForMemory());
+	return Thread::asyncBlockCurrentInterruptible(
+		[&] (async::cancellation_token ct) {
+			return allocateChainAwaitable(cls, kind, numPages, ct);
+		},
+		nullptr,
+		condition::interrupt
+	);
+}
+
+void PhysicalChunkAllocator::startWait_(WaitNode *node) {
+	assert(node->cls == AllocationClass::kernel || node->cls == AllocationClass::user);
+	assert(node->kind != PhysicalKind::contiguous);
+	assert(node->numPages);
+	assert(node->numPages <= maxPagesPerWait);
+
+	{
+		auto irqLock = frg::guard(&irqMutex());
+		auto lock = frg::guard(&_mutex);
+
+		auto floor = floorFor_(node->cls) + deficitAhead_(node->cls);
+		if(!canAllocateFungible_(node->numPages, floor)) {
+			auto &queue = queueOf_(node->cls);
+			queue.deficit += node->numPages;
+			node->queued = true;
+			queue.list.push_back(node);
+			return;
+		}
+		node->result = allocateFungible_(node->kind, node->numPages, floor);
+	}
+
+	node->event.raise();
+}
+
+void PhysicalChunkAllocator::cancelWait_(WaitNode *node) {
+	WaitList served;
+	{
+		auto irqLock = frg::guard(&irqMutex());
+		auto lock = frg::guard(&_mutex);
+
+		// Otherwise, the node was already served and its completion is on the way.
+		if(!node->queued)
+			return;
+		auto &queue = queueOf_(node->cls);
+		queue.list.erase(queue.list.iterator_to(node));
+		queue.deficit -= node->numPages;
+		node->queued = false;
+		node->result = std::unexpected{Error::cancelled};
+		served.push_back(node);
+		// The node may have prevented later waiters from being served.
+		serveWaiters_(served);
+	}
+
+	completeServed_(served);
 }
 
 size_t PhysicalChunkAllocator::floorFor_(AllocationClass cls) {
@@ -217,6 +314,21 @@ size_t PhysicalChunkAllocator::floorFor_(AllocationClass cls) {
 	case AllocationClass::user: return userFloor_;
 	}
 	__builtin_trap();
+}
+
+size_t PhysicalChunkAllocator::deficitAhead_(AllocationClass cls) {
+	size_t ahead = 0;
+	switch(cls) {
+	case AllocationClass::user:
+		ahead += queueOf_(AllocationClass::user).deficit;
+		[[fallthrough]];
+	case AllocationClass::kernel:
+		ahead += queueOf_(AllocationClass::kernel).deficit;
+		[[fallthrough]];
+	case AllocationClass::emergency:
+		;
+	}
+	return ahead;
 }
 
 // The floor of a class holds pages back for requests of earlier classes.
@@ -233,6 +345,25 @@ size_t PhysicalChunkAllocator::pinnableBudget_(size_t floor) {
 	if(pinnable <= floor)
 		return 0;
 	return pinnable - floor;
+}
+
+bool PhysicalChunkAllocator::canAllocateFungible_(size_t numPages, size_t floor) {
+	// N fungible allocations take exactly N pinnable pages.
+	// Note that fragmentation (or other restrictions) do not apply to fungible allocation,
+	// so this is exact: the allocation necessarily succeeds as long as the pages are available.
+	return pinnableBudget_(floor) >= numPages;
+}
+
+PageChain PhysicalChunkAllocator::allocateFungible_(PhysicalKind kind, size_t numPages,
+		size_t floor) {
+	assert(kind != PhysicalKind::contiguous);
+	PageChain chain;
+	for(size_t k = 0; k < numPages; k++) {
+		auto physical = allocateChunk_(kPageSize, kind, 64, floor);
+		assert(physical != static_cast<PhysicalAddr>(-1));
+		chain.push(physical);
+	}
+	return chain;
 }
 
 PhysicalAddr PhysicalChunkAllocator::allocateChunk_(size_t size, PhysicalKind kind,
@@ -387,10 +518,16 @@ void PhysicalChunkAllocator::accountAllocation_(Allocation allocation, size_t nu
 }
 
 void PhysicalChunkAllocator::free(PhysicalAddr address, size_t size, PhysicalKind kind) {
-	auto irqLock = frg::guard(&irqMutex());
-	auto lock = frg::guard(&_mutex);
+	WaitList served;
+	{
+		auto irqLock = frg::guard(&irqMutex());
+		auto lock = frg::guard(&_mutex);
 
-	freeChunk_(address, size, kind);
+		freeChunk_(address, size, kind);
+		serveWaiters_(served);
+	}
+
+	completeServed_(served);
 }
 
 void PhysicalChunkAllocator::freeChunk_(PhysicalAddr address, size_t size, PhysicalKind kind) {
@@ -429,6 +566,34 @@ void PhysicalChunkAllocator::freeChunk_(PhysicalAddr address, size_t size, Physi
 	}
 
 	assert(!"Physical page is not part of any region");
+}
+
+void PhysicalChunkAllocator::serveWaiters_(WaitList &served) {
+	// Serving a node only takes pages beyond the deficit of the earlier queues,
+	// so a single pass in class order suffices.
+	size_t ahead = 0;
+	for(auto cls : {AllocationClass::kernel, AllocationClass::user}) {
+		auto &queue = queueOf_(cls);
+		auto floor = floorFor_(cls) + ahead;
+		while(!queue.list.empty()) {
+			auto node = queue.list.front();
+			// The nodes behind the front have more pages ahead of them, so they cannot be
+			// served either.
+			if(!canAllocateFungible_(node->numPages, floor))
+				break;
+			queue.list.pop_front();
+			queue.deficit -= node->numPages;
+			node->queued = false;
+			node->result = allocateFungible_(node->kind, node->numPages, floor);
+			served.push_back(node);
+		}
+		ahead += queue.deficit;
+	}
+}
+
+void PhysicalChunkAllocator::completeServed_(WaitList &served) {
+	while(!served.empty())
+		served.pop_front()->event.raise();
 }
 
 PhysicalWindow::PhysicalWindow(PhysicalAddr physical, size_t size, CachingMode caching)
