@@ -224,12 +224,9 @@ void HeapSlabPolicy::unmap(void *ptr, size_t length) {
 	//       It would be better not to poison in the kernel's VMM code.
 	unpoisonKasanShadow(reinterpret_cast<void *>(address), length);
 
-	PhysicalAddr physicalStack = ~PhysicalAddr{0};
-	for(size_t offset = 0; offset < length; offset += kPageSize) {
-		auto physical = KernelPageSpace::global().unmapSingle4k(address + offset);
-		new (mapDirectPhysical(physical)) PhysicalAddr{physicalStack};
-		physicalStack = physical;
-	}
+	PageChain pages;
+	for(size_t offset = 0; offset < length; offset += kPageSize)
+		pages.push(KernelPageSpace::global().unmapSingle4k(address + offset));
 
 	spawnOnWorkQueue(
 		getCoreAllocator(),
@@ -241,13 +238,9 @@ void HeapSlabPolicy::unmap(void *ptr, size_t length) {
 				length,
 				WorkQueue::generalQueue().get()
 			),
-			[address, length, physicalStack] {
-				auto physical = physicalStack;
-				while(physical != ~PhysicalAddr{0}) {
-					auto next = *reinterpret_cast<PhysicalAddr *>(mapDirectPhysical(physical));
-					physicalAllocator->free(physical, kPageSize);
-					physical = next;
-				}
+			[address, length, pages = std::move(pages)] mutable {
+				while(!pages.empty())
+					physicalAllocator->free(pages.pop(), kPageSize);
 				KernelVirtualMemory::global().deallocate(reinterpret_cast<void *>(address), length);
 				auto usage = kernelHeapUsage.fetch_sub(length, std::memory_order_relaxed);
 				assert(usage >= length);

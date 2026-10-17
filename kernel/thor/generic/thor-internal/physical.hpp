@@ -2,6 +2,7 @@
 
 #include <atomic>
 #include <expected>
+#include <new>
 
 #include <eir/interface.hpp>
 #include <frg/optional.hpp>
@@ -31,6 +32,79 @@ inline void *mapDirectPhysical(PhysicalAddr physical) {
 inline PhysicalAddr reverseDirectPhysical(void *pointer) {
 	return reinterpret_cast<uintptr_t>(pointer) - directPhysicalOffset();
 }
+
+// List of unused physical pages; each page stores the address of the next one at offset 0.
+// Does not own the pages: they must be freed or handed on before the chain is destroyed.
+struct PageChain {
+	friend void swap(PageChain &a, PageChain &b) {
+		using std::swap;
+		swap(a.head_, b.head_);
+		swap(a.tail_, b.tail_);
+		swap(a.size_, b.size_);
+	}
+
+	PageChain() = default;
+
+	PageChain(const PageChain &) = delete;
+
+	PageChain(PageChain &&other)
+	: PageChain{} {
+		swap(*this, other);
+	}
+
+	~PageChain() {
+		assert(!size_);
+	}
+
+	PageChain &operator= (PageChain other) {
+		swap(*this, other);
+		return *this;
+	}
+
+	bool empty() {
+		return !size_;
+	}
+
+	size_t size() {
+		return size_;
+	}
+
+	void push(PhysicalAddr physical) {
+		new (mapDirectPhysical(physical)) PhysicalAddr{head_};
+		if(!size_)
+			tail_ = physical;
+		head_ = physical;
+		size_++;
+	}
+
+	PhysicalAddr pop() {
+		assert(size_);
+		auto physical = head_;
+		head_ = *reinterpret_cast<PhysicalAddr *>(mapDirectPhysical(physical));
+		if(!--size_)
+			tail_ = static_cast<PhysicalAddr>(-1);
+		return physical;
+	}
+
+	// Moves the pages of other to the front of this chain.
+	void splice(PageChain other) {
+		if(!other.size_)
+			return;
+		*reinterpret_cast<PhysicalAddr *>(mapDirectPhysical(other.tail_)) = head_;
+		if(!size_)
+			tail_ = other.tail_;
+		head_ = other.head_;
+		size_ += other.size_;
+		other.head_ = static_cast<PhysicalAddr>(-1);
+		other.tail_ = static_cast<PhysicalAddr>(-1);
+		other.size_ = 0;
+	}
+
+private:
+	PhysicalAddr head_ = static_cast<PhysicalAddr>(-1);
+	PhysicalAddr tail_ = static_cast<PhysicalAddr>(-1);
+	size_t size_ = 0;
+};
 
 // Determines the caching mode with which the given physical range may be mapped,
 // based on the firmware memory map. Ranges that the firmware memory map does not
