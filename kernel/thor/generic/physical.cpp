@@ -98,6 +98,20 @@ void PhysicalChunkAllocator::bootstrapRegion(PhysicalAddr address,
 	_totalPages.store(currentTotal + (numRoots << order), std::memory_order_relaxed);
 	_usedPages.store(currentUsed + usedPages, std::memory_order_relaxed);
 	_freePages.store(currentFree + (numRoots << order) - usedPages, std::memory_order_relaxed);
+	updateFloors_();
+}
+
+void PhysicalChunkAllocator::updateFloors_() {
+	auto base = numTotalPages() / 256;
+	// Clamp to minimum/maximum sizes to avoid wasting too much RAM.
+	constexpr size_t minBase = size_t{1} << (20 - kPageShift);
+	constexpr size_t maxBase = size_t{32} << (20 - kPageShift);
+	if(base < minBase)
+		base = minBase;
+	if(base > maxBase)
+		base = maxBase;
+	kernelFloor_ = base;
+	userFloor_ = 2 * base;
 }
 
 void PhysicalChunkAllocator::assignRootClasses(size_t reserveBytes) {
@@ -112,6 +126,8 @@ void PhysicalChunkAllocator::assignRootClasses(size_t reserveBytes) {
 		for(size_t r = 0; r < numRoots; r++) {
 			auto cls = region.usedPagesOfRoot[r] ? RootClass::admitsPinned : RootClass::evictableOnly;
 			region.rootClasses[r] = cls;
+			freePagesOfClass_[static_cast<size_t>(cls)]
+					+= region.pagesPerRoot() - region.usedPagesOfRoot[r];
 			if(cls == RootClass::evictableOnly)
 				numFreeRoots++;
 		}
@@ -139,7 +155,7 @@ void PhysicalChunkAllocator::assignRootClasses(size_t reserveBytes) {
 				continue;
 			if(numReservedRoots >= maxReservedRoots)
 				break;
-			convertRoot_(region, r, RootClass::admitsContiguous);
+			convertRoot_(region, r, RootClass::contiguousReserve);
 			numReservedRoots++;
 			reservedBytes += rootBytes;
 			largestReservedRoot = frg::max(largestReservedRoot, rootBytes);
@@ -164,67 +180,116 @@ void PhysicalChunkAllocator::assignRootClasses(size_t reserveBytes) {
 			<< " MiB evictable only, "
 			<< (classBytes[static_cast<size_t>(RootClass::admitsPinned)] >> 20)
 			<< " MiB admit pinned, "
-			<< (classBytes[static_cast<size_t>(RootClass::admitsContiguous)] >> 20)
-			<< " MiB admit contiguous (largest reserved root: " << (largestReservedRoot >> 20)
+			<< (classBytes[static_cast<size_t>(RootClass::contiguousReserve)] >> 20)
+			<< " MiB contiguous reserve (largest reserved root: " << (largestReservedRoot >> 20)
 			<< " MiB)" << frg::endlog;
 }
 
+std::expected<PhysicalAddr, Error> PhysicalChunkAllocator::allocate(size_t size, PhysicalKind kind,
+		int addressBits) {
+	if(auto outcome = tryAllocate(AllocationClass::kernel, size, kind, addressBits); outcome)
+		return outcome;
+	return tryAllocate(AllocationClass::emergency, size, kind, addressBits);
+}
+
 PhysicalAddr PhysicalChunkAllocator::allocate(size_t size, int addressBits) {
-	auto outcome = tryAllocate(size, PhysicalKind::pinned, addressBits);
+	auto outcome = allocate(size, PhysicalKind::pinned, addressBits);
 	if(!outcome)
 		return static_cast<PhysicalAddr>(-1);
 	return *outcome;
 }
 
-std::expected<PhysicalAddr, Error> PhysicalChunkAllocator::tryAllocate(size_t size,
-		PhysicalKind kind, int addressBits) {
+std::expected<PhysicalAddr, Error> PhysicalChunkAllocator::tryAllocate(AllocationClass cls,
+		size_t size, PhysicalKind kind, int addressBits) {
+	auto irqLock = frg::guard(&irqMutex());
+	auto lock = frg::guard(&_mutex);
+
+	auto physical = allocateChunk_(size, kind, addressBits, floorFor_(cls));
+	if(physical == static_cast<PhysicalAddr>(-1))
+		return std::unexpected{Error::noMemory};
+	return physical;
+}
+
+size_t PhysicalChunkAllocator::floorFor_(AllocationClass cls) {
+	switch(cls) {
+	case AllocationClass::emergency: return 0;
+	case AllocationClass::kernel: return kernelFloor_;
+	case AllocationClass::user: return userFloor_;
+	}
+	__builtin_trap();
+}
+
+// The floor of a class holds pages back for requests of earlier classes.
+// These requests can be of any kind, so the held-back pages must be usable by all kinds.
+// pinnablePages_() returns the number of pages that can be used by all kinds of allocations.
+size_t PhysicalChunkAllocator::pinnablePages_() {
+	// Pinned frames can convert evictableOnly roots, which does not change this count.
+	return freePagesOfClass_[static_cast<size_t>(RootClass::admitsPinned)]
+			+ freePagesOfClass_[static_cast<size_t>(RootClass::evictableOnly)];
+}
+
+size_t PhysicalChunkAllocator::pinnableBudget_(size_t floor) {
+	auto pinnable = pinnablePages_();
+	if(pinnable <= floor)
+		return 0;
+	return pinnable - floor;
+}
+
+PhysicalAddr PhysicalChunkAllocator::allocateChunk_(size_t size, PhysicalKind kind,
+		int addressBits, size_t floor) {
+	assert(_classesAssigned);
+
 	// TODO: This could be solved better.
 	int target = 0;
 	while(size > (size_t(kPageSize) << target))
 		target++;
 	assert(size == (size_t(kPageSize) << target));
 
-	auto irq_lock = frg::guard(&irqMutex());
-	auto lock = frg::guard(&_mutex);
-	assert(_classesAssigned);
-
 	if(logPhysicalAllocs)
 		infoLogger() << "thor: Allocating physical memory of order "
 					<< (target + kPageShift) << frg::endlog;
 
+	auto pinnableBudget = pinnableBudget_(floor);
+	bool mayUsePinnableRoots = pinnableBudget >= (size >> kPageShift);
+	auto pinnableBefore = pinnablePages_();
+
 	frg::optional<Allocation> allocation;
 	switch(kind) {
 	case PhysicalKind::evictable:
-		// If possible, keep holes in admitsPinned roots for pinned frames,
-		// and use admitsContiguous roots only once everything else is full.
-		for(auto cls : {RootClass::evictableOnly, RootClass::admitsPinned, RootClass::admitsContiguous}) {
-			allocation = allocateInClass_(target, addressBits, cls);
-			if(allocation)
-				break;
-		}
+		if(!mayUsePinnableRoots)
+			break;
+		// If possible, keep holes in admitsPinned roots for pinned frames.
+		allocation = allocateInClass_(target, addressBits, RootClass::evictableOnly);
+		if(!allocation)
+			allocation = allocateInClass_(target, addressBits, RootClass::admitsPinned);
 		break;
 	case PhysicalKind::pinned:
+		if(!mayUsePinnableRoots)
+			break;
 		allocation = allocateInClass_(target, addressBits, RootClass::admitsPinned);
 		if(!allocation)
 			allocation = allocateByConverting_(target, addressBits,
-					RootClass::admitsPinned);
+					RootClass::admitsPinned, pinnableBudget);
 		break;
 	case PhysicalKind::contiguous:
+		// contiguousReserve roots serve nothing else, so they come first.
 		// Holes in admitsPinned roots cost nothing since these roots are never emptied anyway.
 		// Converting an evictableOnly root shrinks the memory that can be emptied, so it comes last.
-		allocation = allocateInClass_(target, addressBits, RootClass::admitsPinned);
-		if(!allocation)
-			allocation = allocateInClass_(target, addressBits,
-					RootClass::admitsContiguous);
-		if(!allocation)
+		allocation = allocateInClass_(target, addressBits, RootClass::contiguousReserve);
+		if(!allocation && mayUsePinnableRoots)
+			allocation = allocateInClass_(target, addressBits, RootClass::admitsPinned);
+		if(!allocation && mayUsePinnableRoots)
 			allocation = allocateByConverting_(target, addressBits,
-					RootClass::admitsContiguous);
+					RootClass::contiguousReserve, pinnableBudget);
 		break;
 	}
 	if(!allocation)
-		return std::unexpected{Error::noMemory};
+		return static_cast<PhysicalAddr>(-1);
 
 	accountAllocation_(*allocation, size / kPageSize, kind);
+	// We must keep at least the floor available, or,
+	// if the floor was already violated, we must not take any additional pinnable pages.
+	assert(pinnablePages_() >= frg::min(pinnableBefore, floor));
 	return allocation->physical;
 }
 
@@ -254,24 +319,36 @@ PhysicalChunkAllocator::search_(int order, int addressBits, F rootFilter) {
 }
 
 frg::optional<PhysicalChunkAllocator::Allocation>
-PhysicalChunkAllocator::allocateInClass_(int order, int addressBits, RootClass cls, bool requireFreeRoot) {
+PhysicalChunkAllocator::allocateInClass_(int order, int addressBits, RootClass cls) {
 	return search_(order, addressBits, [&] (Region &region, size_t rootIndex) {
-		if(region.rootClasses[rootIndex] != cls)
-			return false;
-		if(requireFreeRoot && region.buddyAccessor.rootFreeOrder(rootIndex)
-				!= region.buddyAccessor.tableOrder())
-			return false;
-		return true;
+		return region.rootClasses[rootIndex] == cls;
 	});
 }
 
 frg::optional<PhysicalChunkAllocator::Allocation>
-PhysicalChunkAllocator::allocateByConverting_(int order, int addressBits, RootClass to) {
+PhysicalChunkAllocator::allocateByConverting_(int order, int addressBits, RootClass to,
+		size_t pinnableBudget) {
 	// Prefer entirely free roots: converting a partially used root traps its evictable frames
 	// in a root that can no longer be emptied.
-	auto allocation = allocateInClass_(order, addressBits, RootClass::evictableOnly, true);
-	if(!allocation)
-		allocation = allocateInClass_(order, addressBits, RootClass::evictableOnly);
+	frg::optional<Allocation> allocation;
+	for(bool requireFreeRoot : {true, false}) {
+		allocation = search_(order, addressBits, [&] (Region &region, size_t rootIndex) {
+			if(region.rootClasses[rootIndex] != RootClass::evictableOnly)
+				return false;
+			if(requireFreeRoot && region.buddyAccessor.rootFreeOrder(rootIndex)
+					!= region.buddyAccessor.tableOrder())
+				return false;
+			// Converting to contiguousReserve makes all free pages of the root non-pinnable.
+			if(to == RootClass::contiguousReserve) {
+				auto freeInThisRoot = region.pagesPerRoot() - region.usedPagesOfRoot[rootIndex];
+				if(freeInThisRoot > pinnableBudget)
+					return false;
+			}
+			return true;
+		});
+		if(allocation)
+			break;
+	}
 	if(!allocation)
 		return frg::null_opt;
 
@@ -281,6 +358,11 @@ PhysicalChunkAllocator::allocateByConverting_(int order, int addressBits, RootCl
 }
 
 void PhysicalChunkAllocator::convertRoot_(Region &region, size_t rootIndex, RootClass to) {
+	auto freePages = region.pagesPerRoot() - region.usedPagesOfRoot[rootIndex];
+	auto &fromCount = freePagesOfClass_[static_cast<size_t>(region.rootClasses[rootIndex])];
+	assert(fromCount >= freePages);
+	fromCount -= freePages;
+	freePagesOfClass_[static_cast<size_t>(to)] += freePages;
 	region.rootClasses[rootIndex] = to;
 }
 
@@ -293,6 +375,9 @@ void PhysicalChunkAllocator::accountAllocation_(Allocation allocation, size_t nu
 	region.usedPagesOfRoot[rootIndex] += numPages;
 	if(kind != PhysicalKind::evictable)
 		region.unevictablePagesOfRoot[rootIndex] += numPages;
+	auto &classCount = freePagesOfClass_[static_cast<size_t>(region.rootClasses[rootIndex])];
+	assert(classCount >= numPages);
+	classCount -= numPages;
 
 	auto currentFree = _freePages.load(std::memory_order_relaxed);
 	auto currentUsed = _usedPages.load(std::memory_order_relaxed);
@@ -302,9 +387,13 @@ void PhysicalChunkAllocator::accountAllocation_(Allocation allocation, size_t nu
 }
 
 void PhysicalChunkAllocator::free(PhysicalAddr address, size_t size, PhysicalKind kind) {
-	auto irq_lock = frg::guard(&irqMutex());
+	auto irqLock = frg::guard(&irqMutex());
 	auto lock = frg::guard(&_mutex);
-	
+
+	freeChunk_(address, size, kind);
+}
+
+void PhysicalChunkAllocator::freeChunk_(PhysicalAddr address, size_t size, PhysicalKind kind) {
 	int target = 0;
 	while(size > (size_t(kPageSize) << target))
 		target++;
@@ -322,6 +411,7 @@ void PhysicalChunkAllocator::free(PhysicalAddr address, size_t size, PhysicalKin
 		auto rootIndex = region.rootOfAddress(address);
 		assert(region.usedPagesOfRoot[rootIndex] >= numPages);
 		region.usedPagesOfRoot[rootIndex] -= numPages;
+		freePagesOfClass_[static_cast<size_t>(region.rootClasses[rootIndex])] += numPages;
 		if(kind != PhysicalKind::evictable) {
 			assert(region.unevictablePagesOfRoot[rootIndex] >= numPages);
 			region.unevictablePagesOfRoot[rootIndex] -= numPages;

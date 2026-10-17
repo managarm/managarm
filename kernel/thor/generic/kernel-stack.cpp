@@ -31,13 +31,10 @@ UniqueKernelStack::~UniqueKernelStack() {
 	size_t guardedSize = kSize + kPageSize;
 	auto address = reinterpret_cast<uintptr_t>(_base - guardedSize);
 
-	PhysicalAddr physicalStack = ~PhysicalAddr{0};
-	for(size_t offset = 0; offset < kSize; offset += kPageSize) {
-		auto physical = KernelPageSpace::global().unmapSingle4k(
-				address + guardedSize - kSize + offset);
-		new (mapDirectPhysical(physical)) PhysicalAddr{physicalStack};
-		physicalStack = physical;
-	}
+	PageChain pages;
+	for(size_t offset = 0; offset < kSize; offset += kPageSize)
+		pages.push(KernelPageSpace::global().unmapSingle4k(
+				address + guardedSize - kSize + offset));
 
 	spawnOnWorkQueue(
 		*kernelAlloc,
@@ -49,13 +46,9 @@ UniqueKernelStack::~UniqueKernelStack() {
 				guardedSize,
 				WorkQueue::generalQueue().get()
 			),
-			[address, guardedSize, physicalStack] {
-				auto physical = physicalStack;
-				while(physical != ~PhysicalAddr{0}) {
-					auto next = *reinterpret_cast<PhysicalAddr *>(mapDirectPhysical(physical));
-					physicalAllocator->free(physical, kPageSize);
-					physical = next;
-				}
+			[address, guardedSize, pages = std::move(pages)] mutable {
+				while(!pages.empty())
+					physicalAllocator->free(pages.pop(), kPageSize);
 				KernelVirtualMemory::global().deallocate(
 						reinterpret_cast<void *>(address), guardedSize);
 			}

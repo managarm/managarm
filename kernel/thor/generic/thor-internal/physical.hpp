@@ -2,6 +2,7 @@
 
 #include <atomic>
 #include <expected>
+#include <new>
 
 #include <eir/interface.hpp>
 #include <frg/optional.hpp>
@@ -11,6 +12,7 @@
 #include <thor-internal/arch-generic/paging-consts.hpp>
 #include <thor-internal/elf-notes.hpp>
 #include <thor-internal/error.hpp>
+#include <thor-internal/mm-base.hpp>
 #include <thor-internal/types.hpp>
 
 namespace thor {
@@ -30,6 +32,79 @@ inline void *mapDirectPhysical(PhysicalAddr physical) {
 inline PhysicalAddr reverseDirectPhysical(void *pointer) {
 	return reinterpret_cast<uintptr_t>(pointer) - directPhysicalOffset();
 }
+
+// List of unused physical pages; each page stores the address of the next one at offset 0.
+// Does not own the pages: they must be freed or handed on before the chain is destroyed.
+struct PageChain {
+	friend void swap(PageChain &a, PageChain &b) {
+		using std::swap;
+		swap(a.head_, b.head_);
+		swap(a.tail_, b.tail_);
+		swap(a.size_, b.size_);
+	}
+
+	PageChain() = default;
+
+	PageChain(const PageChain &) = delete;
+
+	PageChain(PageChain &&other)
+	: PageChain{} {
+		swap(*this, other);
+	}
+
+	~PageChain() {
+		assert(!size_);
+	}
+
+	PageChain &operator= (PageChain other) {
+		swap(*this, other);
+		return *this;
+	}
+
+	bool empty() {
+		return !size_;
+	}
+
+	size_t size() {
+		return size_;
+	}
+
+	void push(PhysicalAddr physical) {
+		new (mapDirectPhysical(physical)) PhysicalAddr{head_};
+		if(!size_)
+			tail_ = physical;
+		head_ = physical;
+		size_++;
+	}
+
+	PhysicalAddr pop() {
+		assert(size_);
+		auto physical = head_;
+		head_ = *reinterpret_cast<PhysicalAddr *>(mapDirectPhysical(physical));
+		if(!--size_)
+			tail_ = static_cast<PhysicalAddr>(-1);
+		return physical;
+	}
+
+	// Moves the pages of other to the front of this chain.
+	void splice(PageChain other) {
+		if(!other.size_)
+			return;
+		*reinterpret_cast<PhysicalAddr *>(mapDirectPhysical(other.tail_)) = head_;
+		if(!size_)
+			tail_ = other.tail_;
+		head_ = other.head_;
+		size_ += other.size_;
+		other.head_ = static_cast<PhysicalAddr>(-1);
+		other.tail_ = static_cast<PhysicalAddr>(-1);
+		other.size_ = 0;
+	}
+
+private:
+	PhysicalAddr head_ = static_cast<PhysicalAddr>(-1);
+	PhysicalAddr tail_ = static_cast<PhysicalAddr>(-1);
+	size_t size_ = 0;
+};
 
 // Determines the caching mode with which the given physical range may be mapped,
 // based on the firmware memory map. Ranges that the firmware memory map does not
@@ -135,15 +210,16 @@ enum class PhysicalKind {
 };
 
 // Class of a buddy root, i.e., the PhysicalKinds that it admits.
-// Roots can be converted from evictableOnly to a less restricted class.
-// However, we forbid transitions between less restricted classes;
-// for example, admitsContiguous -> admitsPinned is forbidden
+// Roots can be converted from evictableOnly to one of the other classes.
+// However, we forbid transitions between the other classes;
+// for example, contiguousReserve -> admitsPinned is forbidden
 // to make it easier to satisfy contiguous allocations.
 enum class RootClass : uint8_t {
-	// Can only satisfy evictable allocation.
+	// Can only satisfy evictable allocations.
 	evictableOnly,
-	// Can satisfy evictable and contiguous allocations.
-	admitsContiguous,
+	// Can only satisfy contiguous allocations.
+	// May hold evictable frames that were allocated prior to conversion.
+	contiguousReserve,
 	// Can satisfy evictable, contiguous and pinned allocations.
 	admitsPinned,
 };
@@ -156,7 +232,7 @@ public:
 	static constexpr size_t numRootClasses = 3;
 
 	PhysicalChunkAllocator();
-	
+
 	void bootstrapRegion(PhysicalAddr address,
 			int order, size_t numRoots, int8_t *buddyTree);
 	// Assigns the initial class of each root: roots that Eir allocated from admit pinned frames,
@@ -166,10 +242,15 @@ public:
 	void assignRootClasses(size_t reserveBytes);
 
 	// Allocates a naturally aligned power-of-two sized chunk.
-	std::expected<PhysicalAddr, Error> tryAllocate(size_t size, PhysicalKind kind,
+	std::expected<PhysicalAddr, Error> tryAllocate(AllocationClass cls, size_t size,
+			PhysicalKind kind, int addressBits = 64);
+
+	// Allocates a naturally aligned power-of-two sized chunk in the kernel class.
+	// Falls back to the emergency class.
+	std::expected<PhysicalAddr, Error> allocate(size_t size, PhysicalKind kind,
 			int addressBits = 64);
 
-	// Like tryAllocate() for PhysicalKind::pinned but returns -1 on failure.
+	// Like allocate() for PhysicalKind::pinned but returns -1 on failure.
 	PhysicalAddr allocate(size_t size, int addressBits = 64);
 
 	// kind must match the kind that the chunk was allocated with.
@@ -191,6 +272,28 @@ public:
 	}
 
 private:
+	void updateFloors_();
+
+	// Callers must hold _mutex.
+	size_t floorFor_(AllocationClass cls);
+
+	// Free pages outside of contiguousReserve roots. Every kind can use these pages,
+	// so floors are measured in them.
+	// Callers must hold _mutex.
+	size_t pinnablePages_();
+
+	// Pinnable pages beyond the floor, i.e., the ones that allocateChunk_() may take.
+	// floor is the number of pinnable pages that must stay free.
+	// Callers must hold _mutex.
+	size_t pinnableBudget_(size_t floor);
+
+	// Never takes pinnable pages that the floor holds back.
+	// Callers must hold _mutex.
+	PhysicalAddr allocateChunk_(size_t size, PhysicalKind kind, int addressBits, size_t floor);
+
+	// Callers must hold _mutex.
+	void freeChunk_(PhysicalAddr address, size_t size, PhysicalKind kind);
+
 	struct Region {
 		PhysicalAddr physicalBase;
 		PhysicalAddr regionSize;
@@ -224,12 +327,13 @@ private:
 
 	// Allocate from roots of a specific class.
 	// Callers must hold _mutex.
-	frg::optional<Allocation> allocateInClass_(int order, int addressBits, RootClass cls,
-			bool requireFreeRoot = false);
+	frg::optional<Allocation> allocateInClass_(int order, int addressBits, RootClass cls);
 
 	// Allocates from an evictableOnly root and converts that root to the given class.
+	// Takes at most budget pinnable pages.
 	// Callers must hold _mutex.
-	frg::optional<Allocation> allocateByConverting_(int order, int addressBits, RootClass to);
+	frg::optional<Allocation> allocateByConverting_(int order, int addressBits, RootClass to,
+			size_t pinnableBudget);
 
 	// Callers must hold _mutex.
 	void convertRoot_(Region &region, size_t rootIndex, RootClass to);
@@ -242,6 +346,12 @@ private:
 	Region _allRegions[eirMaxMemoryRegions];
 	int _numRegions = 0;
 	bool _classesAssigned = false;
+	// Indexed by RootClass. Set by assignRootClasses(). Protected by _mutex.
+	size_t freePagesOfClass_[numRootClasses] = {};
+
+	// Floors in pages; see AllocationClass. Set by updateFloors_().
+	size_t kernelFloor_ = 0;
+	size_t userFloor_ = 0;
 
 	std::atomic<size_t> _totalPages{0};
 	std::atomic<size_t> _usedPages{0};
