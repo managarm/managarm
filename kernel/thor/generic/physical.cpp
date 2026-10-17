@@ -178,15 +178,24 @@ PhysicalAddr PhysicalChunkAllocator::allocate(size_t size, int addressBits) {
 
 std::expected<PhysicalAddr, Error> PhysicalChunkAllocator::tryAllocate(size_t size,
 		PhysicalKind kind, int addressBits) {
+	auto irqLock = frg::guard(&irqMutex());
+	auto lock = frg::guard(&_mutex);
+
+	auto physical = allocateChunk_(size, kind, addressBits);
+	if(physical == static_cast<PhysicalAddr>(-1))
+		return std::unexpected{Error::noMemory};
+	return physical;
+}
+
+PhysicalAddr PhysicalChunkAllocator::allocateChunk_(size_t size, PhysicalKind kind,
+		int addressBits) {
+	assert(_classesAssigned);
+
 	// TODO: This could be solved better.
 	int target = 0;
 	while(size > (size_t(kPageSize) << target))
 		target++;
 	assert(size == (size_t(kPageSize) << target));
-
-	auto irq_lock = frg::guard(&irqMutex());
-	auto lock = frg::guard(&_mutex);
-	assert(_classesAssigned);
 
 	if(logPhysicalAllocs)
 		infoLogger() << "thor: Allocating physical memory of order "
@@ -222,7 +231,7 @@ std::expected<PhysicalAddr, Error> PhysicalChunkAllocator::tryAllocate(size_t si
 		break;
 	}
 	if(!allocation)
-		return std::unexpected{Error::noMemory};
+		return static_cast<PhysicalAddr>(-1);
 
 	accountAllocation_(*allocation, size / kPageSize, kind);
 	return allocation->physical;
@@ -302,9 +311,13 @@ void PhysicalChunkAllocator::accountAllocation_(Allocation allocation, size_t nu
 }
 
 void PhysicalChunkAllocator::free(PhysicalAddr address, size_t size, PhysicalKind kind) {
-	auto irq_lock = frg::guard(&irqMutex());
+	auto irqLock = frg::guard(&irqMutex());
 	auto lock = frg::guard(&_mutex);
-	
+
+	freeChunk_(address, size, kind);
+}
+
+void PhysicalChunkAllocator::freeChunk_(PhysicalAddr address, size_t size, PhysicalKind kind) {
 	int target = 0;
 	while(size > (size_t(kPageSize) << target))
 		target++;

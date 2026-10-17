@@ -191,6 +191,12 @@ public:
 	}
 
 private:
+	// Callers must hold _mutex.
+	PhysicalAddr allocateChunk_(size_t size, PhysicalKind kind, int addressBits);
+
+	// Callers must hold _mutex.
+	void freeChunk_(PhysicalAddr address, size_t size, PhysicalKind kind);
+
 	struct Region {
 		PhysicalAddr physicalBase;
 		PhysicalAddr regionSize;
