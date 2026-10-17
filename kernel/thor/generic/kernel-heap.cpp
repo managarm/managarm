@@ -176,11 +176,49 @@ void KernelVirtualMemory::deallocate(void *pointer, size_t size) {
 	auto irqLock = frg::guard(&irqMutex());
 	auto lock = frg::guard(&mutex_);
 	{
-		auto hole = frg::construct<KernelVirtualHole>(getCoreAllocator());
-		hole->address = reinterpret_cast<uintptr_t>(pointer);
-		hole->size = size;
-		hole->largestHole = size;
-		virtualTree->insert(hole);
+		auto address = reinterpret_cast<uintptr_t>(pointer);
+
+		// Find the holes directly below and above the freed range.
+		KernelVirtualHole *previous = nullptr;
+		auto current = virtualTree->get_root();
+		while(current) {
+			if(current->address < address) {
+				previous = current;
+				current = KernelVirtualTree::get_right(current);
+			}else{
+				current = KernelVirtualTree::get_left(current);
+			}
+		}
+		auto next = previous ? KernelVirtualTree::successor(previous) : virtualTree->first();
+		assert(!previous || previous->address + previous->size <= address);
+		assert(!next || address + size <= next->address);
+
+		// Merge with adjacent holes such that the range can be handed out in one piece again.
+		// Growing a hole in place keeps its position in the tree, so only the aggregates need updating.
+		bool mergePrevious = previous && previous->address + previous->size == address;
+		bool mergeNext = next && address + size == next->address;
+		if(mergePrevious && mergeNext) {
+			auto nextSize = next->size;
+			virtualTree->remove(next);
+			frg::destruct(getCoreAllocator(), next);
+			previous->size += size + nextSize;
+			virtualTree->aggregate_path(previous);
+		}else if(mergePrevious) {
+			previous->size += size;
+			virtualTree->aggregate_path(previous);
+		}else if(mergeNext) {
+			next->address = address;
+			next->size += size;
+			virtualTree->aggregate_path(next);
+		}else{
+			// TODO: Allocate the hole before taking the locks. This only helps once the kernel heap
+			//       stops calling into the virtual allocator from non-sleepable contexts.
+			auto hole = frg::construct<KernelVirtualHole>(getCoreAllocator());
+			hole->address = address;
+			hole->size = size;
+			hole->largestHole = size;
+			virtualTree->insert(hole);
+		}
 	}
 
 	auto usage = kernelVirtualUsage.fetch_sub(size, std::memory_order_relaxed);
