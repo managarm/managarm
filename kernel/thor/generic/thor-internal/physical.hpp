@@ -231,8 +231,7 @@ private:
 
 	// Allocate from roots of a specific class.
 	// Callers must hold _mutex.
-	frg::optional<Allocation> allocateInClass_(int order, int addressBits, RootClass cls,
-			bool requireFreeRoot = false);
+	frg::optional<Allocation> allocateInClass_(int order, int addressBits, RootClass cls);
 
 	// Allocates from an evictableOnly root and converts that root to the given class.
 	// Callers must hold _mutex.

@@ -260,14 +260,9 @@ PhysicalChunkAllocator::search_(int order, int addressBits, F rootFilter) {
 }
 
 frg::optional<PhysicalChunkAllocator::Allocation>
-PhysicalChunkAllocator::allocateInClass_(int order, int addressBits, RootClass cls, bool requireFreeRoot) {
+PhysicalChunkAllocator::allocateInClass_(int order, int addressBits, RootClass cls) {
 	return search_(order, addressBits, [&] (Region &region, size_t rootIndex) {
-		if(region.rootClasses[rootIndex] != cls)
-			return false;
-		if(requireFreeRoot && region.buddyAccessor.rootFreeOrder(rootIndex)
-				!= region.buddyAccessor.tableOrder())
-			return false;
-		return true;
+		return region.rootClasses[rootIndex] == cls;
 	});
 }
 
@@ -275,9 +270,19 @@ frg::optional<PhysicalChunkAllocator::Allocation>
 PhysicalChunkAllocator::allocateByConverting_(int order, int addressBits, RootClass to) {
 	// Prefer entirely free roots: converting a partially used root traps its evictable frames
 	// in a root that can no longer be emptied.
-	auto allocation = allocateInClass_(order, addressBits, RootClass::evictableOnly, true);
-	if(!allocation)
-		allocation = allocateInClass_(order, addressBits, RootClass::evictableOnly);
+	frg::optional<Allocation> allocation;
+	for(bool requireFreeRoot : {true, false}) {
+		allocation = search_(order, addressBits, [&] (Region &region, size_t rootIndex) {
+			if(region.rootClasses[rootIndex] != RootClass::evictableOnly)
+				return false;
+			if(requireFreeRoot && region.buddyAccessor.rootFreeOrder(rootIndex)
+					!= region.buddyAccessor.tableOrder())
+				return false;
+			return true;
+		});
+		if(allocation)
+			break;
+	}
 	if(!allocation)
 		return frg::null_opt;
 
