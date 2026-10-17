@@ -235,11 +235,12 @@ inline constexpr FetchFlags fetchDisallowBacking = 2;
 using CachingFlags = uint32_t;
 inline constexpr CachingFlags cacheWriteCombine = 1;
 
-// Charges size bytes to hierarchy, then allocates a frame of that size.
+// Charges a single page to hierarchy, then allocates a fungible frame.
 coroutine<std::expected<PhysicalAddr, Error>>
-chargeAndAllocate(Hierarchy *hierarchy, size_t size, PhysicalKind kind, int addressBits);
+chargeAndAllocate(Hierarchy *hierarchy, PhysicalKind kind);
 
 // Like chargeAndAllocate() but fails instead of waiting.
+// In contrast to chargeAndAllocate(), this can handle non-fungible allocations.
 std::expected<PhysicalAddr, Error>
 tryChargeAndAllocate(Hierarchy *hierarchy, size_t size, PhysicalKind kind, int addressBits);
 
