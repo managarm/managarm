@@ -1,13 +1,16 @@
 #pragma once
 
 #include <assert.h>
+#include <atomic>
 #include <tuple>
 #include <array>
 #include <vector>
 #include <span>
 
 #include <async/basic.hpp>
+#include <async/cancellation.hpp>
 #include <async/oneshot-event.hpp>
+#include <frg/container_of.hpp>
 
 // This is here since ipc-structs.hpp needs ElementHandle
 namespace helix {
@@ -123,21 +126,7 @@ protected:
 };
 
 struct Operation : OperationBase {
-	Operation()
-	: _asyncId{0} { }
-
-	uint64_t asyncId() {
-		return _asyncId;
-	}
-
-	void setAsyncId(uint64_t async_id) {
-		_asyncId = async_id;
-	}
-
 	virtual void parse(const void *) = 0;
-
-private:
-	uint64_t _asyncId;
 };
 
 struct Context {
@@ -515,19 +504,6 @@ inline ElementHandle::ElementHandle(const ElementHandle &other) {
 	_dispatcher->_reference(_cn);
 }
 
-struct AwaitClock : Operation {
-	HelError error() {
-		return result_.error;
-	}
-
-private:
-	void parse(const void *ptr) override {
-		memcpy(&result_, ptr, sizeof(result_));
-	}
-
-	HelSimpleResult result_;
-};
-
 struct ProtectMemory : Operation {
 	HelError error() {
 		return result_.error;
@@ -611,21 +587,6 @@ private:
 // ----------------------------------------------------------------------------
 
 struct Submission : private Context {
-	Submission(AwaitClock *operation,
-			uint64_t counter, Dispatcher &dispatcher)
-	: _result(operation) {
-		auto asyncId = dispatcher.makeAsyncId();
-
-		HelSqAwaitClock sqData;
-		sqData.counter = counter;
-		sqData.cancellationTag = asyncId;
-		std::array segments{std::as_bytes(std::span{&sqData, 1})};
-		dispatcher.pushSq(kHelSubmitAwaitClock,
-				reinterpret_cast<uintptr_t>(context()), segments);
-
-		operation->setAsyncId(asyncId);
-	}
-
 	Submission(BorrowedDescriptor space, ProtectMemory *operation,
 			void *pointer, size_t length, uint32_t flags,
 			Dispatcher &dispatcher)
@@ -710,11 +671,6 @@ private:
 	Operation *_result;
 	async::oneshot_primitive _ev;
 };
-
-inline Submission submitAwaitClock(AwaitClock *operation, uint64_t counter,
-		Dispatcher &dispatcher) {
-	return {operation, counter, dispatcher};
-}
 
 inline Submission submitProtectMemory(BorrowedDescriptor memory, ProtectMemory *operation,
 		void *pointer, size_t length, uint32_t flags,
@@ -1100,54 +1056,110 @@ inline auto writeMemory(BorrowedDescriptor descriptor,
 }
 
 // --------------------------------------------------------------------
+// Cancellable SQ operations
+// --------------------------------------------------------------------
+
+// Base class for SQ operations whose cancellation can be requested from any thread.
+// Dispatcher::cancel() must run on the thread that owns the dispatcher,
+// hence the cancellation is posted to the dispatcher's run queue.
+// finish_() runs once the completion has arrived and the posted cancellation (if any) has run.
+struct CancellableContext : Context, private async::run_queue_item {
+	CancellableContext() {
+		async::run_queue_item::setup([] (async::run_queue_item *base) {
+			auto self = static_cast<CancellableContext *>(base);
+			self->dispatcher_->cancel(self->asyncId_);
+			self->release_();
+		});
+	}
+
+protected:
+	// Must be called after the SQ element has been pushed.
+	void listen_(Dispatcher &dispatcher, uint64_t asyncId, async::cancellation_token ct) {
+		dispatcher_ = &dispatcher;
+		asyncId_ = asyncId;
+		resolver_.listen(ct);
+	}
+
+	// Must be called by complete().
+	void completed_() {
+		resolver_.complete();
+	}
+
+	virtual void finish_() = 0;
+
+private:
+	struct TryCancel {
+		bool operator() (auto *resolver) {
+			auto self = frg::container_of(resolver, &CancellableContext::resolver_);
+			self->pending_.fetch_add(1, std::memory_order_relaxed);
+			self->dispatcher_->runQueue()->post(self);
+			return false;
+		}
+	};
+
+	struct Resume {
+		void operator() (auto *resolver) {
+			auto self = frg::container_of(resolver, &CancellableContext::resolver_);
+			self->release_();
+		}
+	};
+
+	void release_() {
+		if(pending_.fetch_sub(1, std::memory_order_acq_rel) == 1)
+			finish_();
+	}
+
+	Dispatcher *dispatcher_ = nullptr;
+	uint64_t asyncId_ = 0;
+	// Number of code paths (resolver resume and posted cancellation) that still need to run.
+	std::atomic<unsigned int> pending_{1};
+	async::cancellation_resolver<TryCancel, Resume> resolver_;
+};
+
+// --------------------------------------------------------------------
 // AwaitEvent
 // --------------------------------------------------------------------
 
 template <typename Receiver>
-struct AwaitEventOperation : private Context {
+struct AwaitEventOperation final : private CancellableContext {
 	AwaitEventOperation(BorrowedDescriptor event, uint64_t sequence, async::cancellation_token ct, Receiver receiver)
 	: event_{std::move(event)}, sequence_{sequence}, ct_{ct}, receiver_{std::move(receiver)} { }
 
 	void start() {
-		asyncId_ = Dispatcher::global().makeAsyncId();
+		auto &dispatcher = Dispatcher::global();
+		auto asyncId = dispatcher.makeAsyncId();
 
 		HelSqAwaitEvent header;
 		header.handle = event_.getHandle();
 		header.sequence = sequence_;
-		header.cancellationTag = asyncId_;
+		header.cancellationTag = asyncId;
 
 		std::array segments{
 			std::as_bytes(std::span{&header, 1})
 		};
 
 		auto context = static_cast<Context *>(this);
-		Dispatcher::global().pushSq(kHelSubmitAwaitEvent,
+		dispatcher.pushSq(kHelSubmitAwaitEvent,
 				reinterpret_cast<uintptr_t>(context), segments);
 
-		cb_.emplace(ct_, this);
+		listen_(dispatcher, asyncId, ct_);
 	}
 
 private:
 	void complete(ElementHandle element) override {
-		cb_ = std::nullopt;
-
-		AwaitEventResult result;
 		void *ptr = element.data();
-
-		result.parse(ptr, element);
-
-		async::execution::set_value(receiver_, std::move(result));
+		result_.parse(ptr, element);
+		completed_();
 	}
 
-	void cancel() {
-		Dispatcher::global().cancel(asyncId_);
+	void finish_() override {
+		async::execution::set_value(receiver_, std::move(result_));
 	}
 
 	BorrowedDescriptor event_;
 	uint64_t sequence_;
 	async::cancellation_token ct_;
-	std::optional<async::cancellation_callback<frg::bound_mem_fn<&AwaitEventOperation::cancel>>> cb_ = std::nullopt;
-	uint64_t asyncId_;
+	AwaitEventResult result_;
 	Receiver receiver_;
 };
 
@@ -1179,6 +1191,75 @@ inline auto awaitEvent(BorrowedDescriptor event, uint64_t sequence, async::cance
 		sequence,
 		ct
 	};
+}
+
+// --------------------------------------------------------------------
+// AwaitClock
+// --------------------------------------------------------------------
+
+template <typename Receiver>
+struct AwaitClockOperation final : private CancellableContext {
+	AwaitClockOperation(uint64_t counter, async::cancellation_token ct, Receiver receiver)
+	: counter_{counter}, ct_{ct}, receiver_{std::move(receiver)} { }
+
+	void start() {
+		auto &dispatcher = Dispatcher::global();
+		auto asyncId = dispatcher.makeAsyncId();
+
+		HelSqAwaitClock header;
+		header.counter = counter_;
+		header.cancellationTag = asyncId;
+
+		std::array segments{
+			std::as_bytes(std::span{&header, 1})
+		};
+
+		auto context = static_cast<Context *>(this);
+		dispatcher.pushSq(kHelSubmitAwaitClock,
+				reinterpret_cast<uintptr_t>(context), segments);
+
+		listen_(dispatcher, asyncId, ct_);
+	}
+
+private:
+	void complete(ElementHandle element) override {
+		HelSimpleResult result;
+		memcpy(&result, element.data(), sizeof(HelSimpleResult));
+		error_ = result.error;
+		completed_();
+	}
+
+	void finish_() override {
+		async::execution::set_value(receiver_, error_);
+	}
+
+	uint64_t counter_;
+	async::cancellation_token ct_;
+	HelError error_ = kHelErrNone;
+	Receiver receiver_;
+};
+
+struct [[nodiscard]] AwaitClockSender {
+	using value_type = HelError;
+
+	template<typename Receiver>
+	AwaitClockOperation<Receiver> connect(Receiver receiver) {
+		return {counter, ct, std::move(receiver)};
+	}
+
+	uint64_t counter;
+	async::cancellation_token ct;
+};
+
+inline async::sender_awaiter<AwaitClockSender, HelError>
+operator co_await (AwaitClockSender sender) {
+	return {std::move(sender)};
+}
+
+// Waits until the clock reaches the given counter.
+// Returns kHelErrCancelled on cancellation.
+inline auto awaitClock(uint64_t counter, async::cancellation_token ct = {}) {
+	return AwaitClockSender{counter, ct};
 }
 
 // --------------------------------------------------------------------

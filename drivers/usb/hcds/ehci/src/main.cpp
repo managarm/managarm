@@ -1086,11 +1086,8 @@ Controller::resetPort(int number) {
 
 	auto tick = helix::getClock();
 
-	helix::AwaitClock await_clock;
-	auto &&submit = helix::submitAwaitClock(&await_clock, tick + 50'000'000,
-			helix::Dispatcher::global());
-	co_await submit.async_wait();
-	HEL_CHECK(await_clock.error());
+	auto error = co_await helix_ng::awaitClock(tick + 50'000'000);
+	HEL_CHECK(error);
 
 	port_space.store(port_regs::sc, portsc::portReset(false));
 

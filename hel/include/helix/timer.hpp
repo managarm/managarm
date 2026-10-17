@@ -28,22 +28,10 @@ struct TimeoutCallback {
 
 private:
 	async::detached _runTimer(uint64_t duration) {
-		auto tick = getClock();
+		auto error = co_await helix_ng::awaitClock(getClock() + duration, _cancelTimer);
 
-		helix::AwaitClock await;
-		auto &&submit = helix::submitAwaitClock(&await, tick + duration,
-				helix::Dispatcher::global());
-		auto async_id = await.asyncId();
-
-		{
-			async::cancellation_callback cb{_cancelTimer, [&] {
-				helix::Dispatcher::global().cancel(async_id);
-			}};
-			co_await submit.async_wait();
-		}
-
-		if(await.error() != kHelErrCancelled) {
-			HEL_CHECK(await.error());
+		if(error != kHelErrCancelled) {
+			HEL_CHECK(error);
 			_function();
 		}
 
@@ -77,41 +65,18 @@ private:
 };
 
 inline async::result<bool> sleepFor(uint64_t duration, async::cancellation_token cancel = {}) {
-	auto tick = getClock();
-
-	helix::AwaitClock await;
-	auto &&submit = helix::submitAwaitClock(&await, tick + duration,
-			helix::Dispatcher::global());
-	auto async_id = await.asyncId();
-
-	{
-		async::cancellation_callback cb{cancel, [&] {
-			helix::Dispatcher::global().cancel(async_id);
-		}};
-		co_await submit.async_wait();
-	}
-
-	if(await.error() == kHelErrCancelled)
+	auto error = co_await helix_ng::awaitClock(getClock() + duration, cancel);
+	if(error == kHelErrCancelled)
 		co_return false;
-	HEL_CHECK(await.error());
+	HEL_CHECK(error);
 	co_return true;
 }
 
 inline async::result<bool> sleepUntil(uint64_t tick, async::cancellation_token cancelToken) {
-	helix::AwaitClock await;
-	auto &&submit = helix::submitAwaitClock(&await, tick,
-			helix::Dispatcher::global());
-	auto asyncId = await.asyncId();
-	{
-		async::cancellation_callback cb{cancelToken, [&] {
-			helix::Dispatcher::global().cancel(asyncId);
-		}};
-		co_await submit.async_wait();
-	}
-
-	if(await.error() == kHelErrCancelled)
+	auto error = co_await helix_ng::awaitClock(tick, cancelToken);
+	if(error == kHelErrCancelled)
 		co_return false;
-	HEL_CHECK(await.error());
+	HEL_CHECK(error);
 	co_return true;
 }
 
