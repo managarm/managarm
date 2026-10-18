@@ -315,11 +315,15 @@ async::result<protocols::fs::Error> OpenFile::bind(Process *,
 		for(int i = 0; i < MAX_BITMAP_GROUP_ID; i++) {
 			if(!(sa.nl_groups & (1 << i)))
 				continue;
+			if(joinedGroups_ & (1 << i))
+				continue;
+			// Like Linux, ignore groups that the protocol does not have.
+			auto it = globalGroupMap.find({_protocol, i + 1});
+			if(it == globalGroupMap.end())
+				continue;
 			std::cout << "posix: Join netlink group "
 					<< _protocol << "." << (i + 1) << std::endl;
 
-			auto it = globalGroupMap.find({_protocol, i + 1});
-			assert(it != globalGroupMap.end());
 			auto group = it->second.get();
 			group->subscriptions.push_back(this);
 			joinedGroups_ |= 1 << i;
@@ -354,16 +358,25 @@ async::result<frg::expected<protocols::fs::Error>> OpenFile::setSocketOption(int
 
 		filter_ = optbuf;
 	} else if(layer == SOL_NETLINK && number == NETLINK_ADD_MEMBERSHIP) {
+		if(optbuf.size() < sizeof(int))
+			co_return protocols::fs::Error::illegalArguments;
+		// The socket may have been closed concurrently.
+		if(_isClosed)
+			co_return protocols::fs::Error::illegalArguments;
 		auto val = *reinterpret_cast<int *>(optbuf.data());
 		std::cout << "posix: Join netlink group "
 					<< _protocol << "." << val << std::endl;
-		if(val >= MAX_SUPPORTED_GROUP_ID)
+		// Group val is recorded as bit val - 1 of joinedGroups_.
+		if(val < 1 || val > MAX_SUPPORTED_GROUP_ID)
 			co_return protocols::fs::Error::illegalArguments;
 		auto it = globalGroupMap.find({_protocol, val});
-		assert(it != globalGroupMap.end());
-		auto group = it->second.get();
-		group->subscriptions.push_back(this);
-		joinedGroups_ |= 1 << val;
+		if(it == globalGroupMap.end())
+			co_return protocols::fs::Error::illegalArguments;
+		if(!(joinedGroups_ & (1 << (val - 1)))) {
+			auto group = it->second.get();
+			group->subscriptions.push_back(this);
+			joinedGroups_ |= 1 << (val - 1);
+		}
 	} else if(layer == SOL_NETLINK && number == NETLINK_PKTINFO) {
 		auto val = *reinterpret_cast<int *>(optbuf.data());
 		pktinfo_ = (val != 0);
