@@ -86,12 +86,15 @@ inline constexpr int globalBindingId = -1;
 struct PageSpace;
 
 struct PageBinding {
+	friend struct PageSpace;
+
 	friend void swap(PageBinding &a, PageBinding &b) {
 		using std::swap;
 		swap(a.id_, b.id_);
 		swap(a.boundSpace_, b.boundSpace_);
 		swap(a.primaryStamp_, b.primaryStamp_);
 		swap(a.alreadyShotSequence_, b.alreadyShotSequence_);
+		swap(a.lazy_, b.lazy_);
 	}
 
 	PageBinding() = default;
@@ -159,6 +162,15 @@ private:
 	void doShootdown_(PageSpace *space);
 	void drainShootdown_(PageSpace *space, uint64_t afterSequence, uint64_t upToSequence);
 
+	// Stop counting this binding in shootdowns of its space while keeping its TLB entries.
+	void makeLazy_();
+	// Count this binding in shootdowns again.
+	// Returns whether it missed shootdowns, i.e., whether the caller needs to invalidate the ASID.
+	bool makeActive_();
+
+	// Make this binding the primary one; the previous primary binding becomes lazy.
+	void makePrimary_();
+
 	int id_ = 0;
 
 	// TODO: Once we can use libsmarter in the kernel, we should make this a shared_ptr
@@ -169,6 +181,10 @@ private:
 	uint64_t primaryStamp_ = 0;
 
 	uint64_t alreadyShotSequence_ = 0;
+
+	// Lazy bindings are not counted by shootdowns of their space.
+	// For them, alreadyShotSequence_ is the sequence up to which their TLB entries are known to be up to date.
+	bool lazy_ = false;
 };
 
 
@@ -221,6 +237,11 @@ private:
 	unsigned int numBindings_;
 	// CPUs that hold this space in a non-global binding.
 	frg::dyn_bitset<KernelAlloc> boundCpus_;
+
+	// Bindings that are not lazy, i.e., that shootdowns wait for.
+	unsigned int numActiveBindings_;
+	// CPUs that hold this space in a non-global binding that is not lazy.
+	frg::dyn_bitset<KernelAlloc> activeCpus_;
 
 	uint64_t shootSequence_;
 

@@ -22,5 +22,7 @@ inline ostrace::Counter remoteUserShootdownsCounter{"thor.asid.shootdowns.remote
 inline ostrace::Counter userShootdownTargetsCounter{"thor.asid.shootdowns.targets"};
 // Number of CPUs that PageSpace::retire() targeted with an IPI (including offline CPUs that are skipped).
 inline ostrace::Counter retireTargetsCounter{"thor.asid.retire.targets"};
+// ASID invalidations of lazy bindings that missed shootdowns, when they become active again.
+inline ostrace::Counter staleBindingFlushesCounter{"thor.asid.stale-flushes"};
 
 } // namespace thor
