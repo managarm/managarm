@@ -38,7 +38,7 @@ static constexpr bool logSockets = false;
 struct OpenFile;
 
 // This map associates bound sockets with FS nodes.
-// TODO: Store a shared_ptr to the node inside the OpenFile.
+// Sockets remove their entries when they are closed; they keep the node alive until then.
 std::map<FsNode *, OpenFile *> globalBindMap;
 std::unordered_map<std::string, OpenFile *> abstractSocketsBindMap;
 
@@ -100,8 +100,8 @@ public:
 	static void connectPair(OpenFile *a, OpenFile *b) {
 		assert(a->_currentState == State::null);
 		assert(b->_currentState == State::null);
-		a->_remote = b;
-		b->_remote = a;
+		a->_remote = b->weakFile();
+		b->_remote = a->weakFile();
 		a->_currentState = State::connected;
 		b->_currentState = State::connected;
 		a->_statusBell.raise();
@@ -122,7 +122,7 @@ public:
 		SpecialLink::makeSpecialLink(VfsType::socket, 0777),
 			File::defaultPipeLikeSeek}, _currentState{State::null},
 			_currentSeq{1}, _inSeq{0}, _ownerPid{0}, _ownerUid{0}, _ownerGid{0},
-			_remote{nullptr}, _passCreds{false}, nonBlock_{nonBlock},
+			_passCreds{false}, nonBlock_{nonBlock},
 			_sockpath{}, _nameType{NameType::unnamed}, _isInherited{false}, socktype_{socktype}, socketpair_{socketpair}, listen_{false} {
 		if(process) {
 			_ownerPid = process->pid();
@@ -135,23 +135,48 @@ public:
 		if(logSockets)
 			std::cout << "posix: Closing socket \e[1;34m" << structName() << "\e[0m" << std::endl;
 		if (!_isInherited && _nameType == NameType::abstract) {
-			assert(abstractSocketsBindMap.find(_sockpath) != abstractSocketsBindMap.end());
-			abstractSocketsBindMap.erase(_sockpath);
+			auto it = abstractSocketsBindMap.find(_sockpath);
+			assert(it != abstractSocketsBindMap.end() && it->second == this);
+			abstractSocketsBindMap.erase(it);
+		}
+		if(_bindNode) {
+			auto it = globalBindMap.find(_bindNode.get());
+			assert(it != globalBindMap.end() && it->second == this);
+			globalBindMap.erase(it);
+			_bindNode = nullptr;
 		}
 
 		if(_currentState == State::connected) {
-			auto rf = _remote;
-			if(logSockets)
-				std::cout << "posix: Remote \e[1;34m" << rf->structName() << "\e[0m" << std::endl;
-			rf->_currentState = State::remoteShutDown;
-			if(socktype_ == SOCK_STREAM) {
-				rf->_hupSeq = ++rf->_currentSeq;
-				rf->_statusBell.raise();
+			// Datagram sockets connect() one-way; only tear down mutual connections.
+			if(auto rf = remote(); rf && rf->remote().get() == this) {
+				if(logSockets)
+					std::cout << "posix: Remote \e[1;34m" << rf->structName() << "\e[0m" << std::endl;
+				rf->_currentState = State::remoteShutDown;
+				if(socktype_ == SOCK_STREAM) {
+					rf->_hupSeq = ++rf->_currentSeq;
+					rf->_statusBell.raise();
+				}
+				rf->_remote = {};
 			}
-			rf->_remote = nullptr;
-			_remote = nullptr;
 		}
+		_remote = {};
+
+		auto connectors = std::move(_acceptQueue);
+		_acceptQueue.clear();
+
+		// Packets can carry files; drop them now such that destructing the socket does not
+		// dispose other files. They are dropped at the end, since that can close other sockets.
+		auto packets = std::move(_recvQueue);
+		_recvQueue.clear();
+
 		_currentState = State::closed;
+
+		// Wake up connectors that wait in our accept queue; they fail with ECONNREFUSED.
+		// Only after setting the state since a woken connector can resume inline.
+		for(auto &weak : connectors) {
+			if(auto connector = weak.lock(); connector)
+				static_cast<OpenFile *>(connector.get())->_statusBell.raise();
+		}
 		_statusBell.raise();
 		_cancelServe.cancel();
 	}
@@ -159,8 +184,9 @@ public:
 public:
 	async::result<std::expected<size_t, Error>>
 	readSome(Process *, void *data, size_t max_length, async::cancellation_token ct) override {
+		auto rf = remote();
 		if(socktype_ == SOCK_STREAM && _recvQueue.empty() && (_currentState == State::remoteShutDown
-				|| (_remote && _remote->shutdownFlags_ & shutdownWrite)))
+				|| (rf && rf->shutdownFlags_ & shutdownWrite)))
 			co_return std::unexpected{Error::eof};
 		if(socktype_ == SOCK_STREAM && _currentState != State::connected && _currentState != State::remoteShutDown)
 			co_return std::unexpected{Error::notConnected};
@@ -246,9 +272,12 @@ public:
 		auto now = clk::getRealtime();
 		TIMESPEC_TO_TIMEVAL(&packet.recvTimestamp, &now);
 
-		_remote->_recvQueue.push_back(std::move(packet));
-		_remote->_inSeq = ++_remote->_currentSeq;
-		_remote->_statusBell.raise();
+		auto rf = remote();
+		if(!rf || rf->_currentState == State::closed)
+			co_return Error::notConnected;
+		rf->_recvQueue.push_back(std::move(packet));
+		rf->_inSeq = ++rf->_currentSeq;
+		rf->_statusBell.raise();
 		co_return length;
 	}
 
@@ -365,7 +394,7 @@ public:
 	sendMsg(Process *process, uint32_t flags, const void *data, size_t max_length,
 			const void *addr_ptr, size_t addr_length,
 			std::vector<smarter::shared_ptr<File, FileHandle>> files, struct ucred ucreds) override {
-		OpenFile *remote = nullptr;
+		smarter::shared_ptr<OpenFile> remote;
 		assert(!(flags & ~(MSG_DONTWAIT | MSG_NOSIGNAL)));
 
 		if(shutdownFlags_ & shutdownWrite) {
@@ -385,16 +414,21 @@ public:
 			if(_currentState != State::connected)
 				co_return protocols::fs::Error::notConnected;
 
-			remote = _remote;
+			remote = this->remote();
+			if(!remote)
+				co_return protocols::fs::Error::notConnected;
 		} else if(socktype_ == SOCK_DGRAM) {
 			if(addr_length == 0) {
-				if(!_remote) {
+				remote = this->remote();
+				if(!remote) {
 					// While returning ENOTCONN is not what the man page makes you believe
 					// should happen here, this is what Linux does. Linux does not return
 					// EDESTADDRREQ for unix sockets, even datagram ones. Make it make sense.
+					// A peer that was destructed since we connected refuses, like a closed one.
+					if(_currentState == State::connected)
+						co_return protocols::fs::Error::connectionRefused;
 					co_return protocols::fs::Error::notConnected;
 				}
-				remote = _remote;
 			} else {
 				struct sockaddr_un sa;
 				assert(addr_length <= sizeof(struct sockaddr_un));
@@ -411,7 +445,7 @@ public:
 					auto it = abstractSocketsBindMap.find(path);
 					if(it == abstractSocketsBindMap.end())
 						co_return protocols::fs::Error::connectionRefused;
-					remote = it->second;
+					remote = it->second->sharedFromThis();
 				} else {
 					path.resize(strnlen(sa.sun_path, addr_length - offsetof(sockaddr_un, sun_path)));
 					memcpy(path.data(), sa.sun_path, strnlen(sa.sun_path, addr_length - offsetof(sockaddr_un, sun_path)));
@@ -431,7 +465,7 @@ public:
 					auto it = globalBindMap.find(node.get());
 					if(it == globalBindMap.end())
 						co_return protocols::fs::Error::connectionRefused;
-					remote = it->second;
+					remote = it->second->sharedFromThis();
 				}
 
 			}
@@ -439,6 +473,10 @@ public:
 
 		if(logSockets)
 			std::cout << "posix: Send to socket \e[1;34m" << structName() << "\e[0m" << std::endl;
+
+		// The peer may have been closed since we connected to it.
+		if(remote->_currentState == State::closed)
+			co_return protocols::fs::Error::connectionRefused;
 
 		protocols::fs::utils::handleSoPasscred(remote->_passCreds, ucreds, process->pid(), process->threadGroup()->uid(), process->threadGroup()->gid());
 
@@ -469,25 +507,32 @@ public:
 	}
 
 	async::result<frg::expected<Error, AcceptResult>> accept(Process *process) override {
-		if(_acceptQueue.empty() && nonBlock_) {
-			if(logSockets)
-				std::cout << "posix: UNIX socket would block on accept" << std::endl;
-			co_return Error::wouldBlock;
-		}
-
-		co_await async::race_and_cancel(
-			[&](async::cancellation_token c) { return raceReceiveTimeout(c); },
-			[&](async::cancellation_token c) -> async::result<void> {
-				while (_acceptQueue.empty() && !c.is_cancellation_requested())
-					co_await _statusBell.async_wait(c);
+		smarter::shared_ptr<OpenFile> remote;
+		while(!remote) {
+			if(_acceptQueue.empty() && nonBlock_) {
+				if(logSockets)
+					std::cout << "posix: UNIX socket would block on accept" << std::endl;
+				co_return Error::wouldBlock;
 			}
-		);
 
-		if(_acceptQueue.empty())
-			co_return Error::wouldBlock;
+			co_await async::race_and_cancel(
+				[&](async::cancellation_token c) { return raceReceiveTimeout(c); },
+				[&](async::cancellation_token c) -> async::result<void> {
+					while (_acceptQueue.empty() && !c.is_cancellation_requested())
+						co_await _statusBell.async_wait(c);
+				}
+			);
 
-		auto remote = std::move(_acceptQueue.front());
-		_acceptQueue.pop_front();
+			if(_acceptQueue.empty())
+				co_return Error::wouldBlock;
+
+			// Connectors leave the queue when they give up, but they might be closed already.
+			auto file = _acceptQueue.front().lock();
+			_acceptQueue.pop_front();
+			if(!file || static_cast<OpenFile *>(file.get())->_currentState != State::null)
+				continue;
+			remote = smarter::static_pointer_cast<OpenFile>(std::move(file));
+		}
 
 		// Create a new socket and connect it to the queued one.
 		auto local = smarter::make_shared<OpenFile>(process);
@@ -496,7 +541,7 @@ public:
 		local->_isInherited = true;
 		local->setupWeakFile(local);
 		OpenFile::serve(local);
-		connectPair(remote, local.get());
+		connectPair(remote.get(), local.get());
 		co_return File::constructHandle(std::move(local));
 	}
 
@@ -557,31 +602,39 @@ public:
 			co_return protocols::fs::Error::illegalArguments;
 		}
 
+		// Like Linux, sockets can only be bound once (accepted sockets inherit their name).
+		// handleClose() relies on this to remove the bind map entries; it has to run after us.
+		if(!isOpen() || _nameType != NameType::unnamed)
+			co_return protocols::fs::Error::illegalArguments;
+
 		// Create a new socket node in the FS.
 		struct sockaddr_un sa;
 		assert(addr_length <= sizeof(struct sockaddr_un));
 		memcpy(&sa, addr_ptr, addr_length);
 		std::string path;
+		NameType nameType;
 
 		if(sa.sun_path[0] == '\0') {
 			path.resize(addr_length - sizeof(sa.sun_family) - 1);
 			memcpy(path.data(), sa.sun_path + 1, addr_length - sizeof(sa.sun_family) - 1);
-			_nameType = NameType::abstract;
+			nameType = NameType::abstract;
 		} else {
 			path.resize(strnlen(sa.sun_path, addr_length - offsetof(sockaddr_un, sun_path)));
 			memcpy(path.data(), sa.sun_path, strnlen(sa.sun_path, addr_length - offsetof(sockaddr_un, sun_path)));
-			_nameType = NameType::path;
+			nameType = NameType::path;
 		}
-		_sockpath = path;
 		if(logSockets)
 			std::cout << "posix: Bind to " << path << std::endl;
 
-		if (_nameType == NameType::abstract) {
+		if (nameType == NameType::abstract) {
 			auto res = abstractSocketsBindMap.emplace(path, this);
 			if(!res.second)
 				co_return protocols::fs::Error::addressInUse;
+			_nameType = nameType;
+			_sockpath = std::move(path);
 			co_return protocols::fs::Error::none;
 		} else {
+			auto sockpath = path;
 			PathResolver resolver;
 			resolver.setup(process->fsContext()->getRoot(),
 					process->fsContext()->getWorkingDirectory(), std::move(path), process);
@@ -601,10 +654,16 @@ public:
 			}
 			assert(nodeResult);
 			auto node = nodeResult.value();
+			// A concurrent bind() or close of this socket may have completed while we suspended.
+			if(!isOpen() || _nameType != NameType::unnamed)
+				co_return protocols::fs::Error::illegalArguments;
 			// Associate the current socket with the node.
 			auto res = globalBindMap.insert({node->getTarget().get(), this});
 			if(!res.second)
 				co_return protocols::fs::Error::addressInUse;
+			_bindNode = node->getTarget();
+			_nameType = nameType;
+			_sockpath = std::move(sockpath);
 			co_return protocols::fs::Error::none;
 		}
 	}
@@ -623,7 +682,7 @@ public:
 			// POSIX 1003.1-2024: If the sa_family member of address is AF_UNSPEC,
 			// the socket's peer address shall be reset.
 			_currentState = State::null;
-			_remote = nullptr;
+			_remote = {};
 			co_return protocols::fs::Error::none;
 		} else if(sa.sun_family != AF_UNIX) {
 			co_return protocols::fs::Error::illegalArguments;
@@ -655,22 +714,7 @@ public:
 			if(!abstractSocketsBindMap.contains(path))
 				co_return protocols::fs::Error::connectionRefused;
 			auto server = abstractSocketsBindMap.at(path);
-			server->_acceptQueue.push_back(this);
-			server->_inSeq = ++server->_currentSeq;
-			server->_statusBell.raise();
-
-			co_await async::race_and_cancel(
-				async::lambda([&](async::cancellation_token c) { return raceSendTimeout(c); }),
-				async::lambda([&](async::cancellation_token c) -> async::result<void> {
-					while (_currentState == State::null && !c.is_cancellation_requested())
-						co_await _statusBell.async_wait(c);
-				})
-			);
-
-			if(_currentState != State::connected)
-				co_return protocols::fs::Error::wouldBlock;
-
-			co_return protocols::fs::Error::none;
+			co_return co_await _connectTo(server->sharedFromThis());
 		} else {
 			PathResolver resolver;
 			resolver.setup(process->fsContext()->getRoot(),
@@ -693,37 +737,62 @@ public:
 			if(it == globalBindMap.end())
 				co_return protocols::fs::Error::connectionRefused;
 			auto server = it->second;
-			if(socktype_ == SOCK_STREAM) {
-				server->_acceptQueue.push_back(this);
-				server->_inSeq = ++server->_currentSeq;
-				server->_statusBell.raise();
-
-				co_await async::race_and_cancel(
-					[&](async::cancellation_token c) { return raceSendTimeout(c); },
-					[&](async::cancellation_token c) -> async::result<void> {
-						while (_currentState == State::null && !c.is_cancellation_requested())
-							co_await _statusBell.async_wait(c);
-					}
-				);
-
-				if(_currentState != State::connected)
-					co_return protocols::fs::Error::wouldBlock;
-
-				assert(_currentState == State::connected);
-				assert(_remote != nullptr);
-			} else if(socktype_ == SOCK_DGRAM) {
-				_remote = server;
-				// POSIX 1003.1-2024: Note that despite no connection being made, the term "connected"
-				// is used to describe a connectionless-mode socket for which a peer address has been set.
-				_currentState = State::connected;
-
-				// connect(2)ing on a datagram socket just sets the address to which datagrams
-				// are sent by default; the remote remains untouched.
-			}
-
-			co_return protocols::fs::Error::none;
+			co_return co_await _connectTo(server->sharedFromThis());
 		}
 	}
+
+private:
+	// Connects to a bound socket.
+	async::result<protocols::fs::Error> _connectTo(smarter::shared_ptr<OpenFile> server) {
+		if(socktype_ == SOCK_DGRAM) {
+			_remote = server->weakFile();
+			// POSIX 1003.1-2024: Note that despite no connection being made, the term "connected"
+			// is used to describe a connectionless-mode socket for which a peer address has been set.
+			_currentState = State::connected;
+
+			// connect(2)ing on a datagram socket just sets the address to which datagrams
+			// are sent by default; the remote remains untouched.
+			co_return protocols::fs::Error::none;
+		}
+
+		server->_acceptQueue.push_back(weakFile());
+		server->_inSeq = ++server->_currentSeq;
+		server->_statusBell.raise();
+
+		co_await async::race_and_cancel(
+			async::lambda([&](async::cancellation_token c) { return raceSendTimeout(c); }),
+			async::lambda([&](async::cancellation_token c) -> async::result<void> {
+				while (_currentState == State::null && server->_currentState != State::closed
+						&& !c.is_cancellation_requested())
+					co_await _statusBell.async_wait(c);
+			})
+		);
+
+		if(_currentState == State::connected)
+			co_return protocols::fs::Error::none;
+
+		// Leave the accept queue unless accept() already removed us.
+		std::erase_if(server->_acceptQueue, [&] (const smarter::weak_ptr<File> &weak) {
+			return weak.lock().get() == this;
+		});
+		if(server->_currentState == State::closed)
+			co_return protocols::fs::Error::connectionRefused;
+		co_return protocols::fs::Error::wouldBlock;
+	}
+
+	// Returns the peer, or null if there is none.
+	smarter::shared_ptr<OpenFile> remote() {
+		auto file = _remote.lock();
+		if(!file)
+			return nullptr;
+		return smarter::static_pointer_cast<OpenFile>(std::move(file));
+	}
+
+	smarter::shared_ptr<OpenFile> sharedFromThis() {
+		return smarter::static_pointer_cast<OpenFile>(weakFile().lock());
+	}
+
+public:
 
 	async::result<protocols::fs::Error> shutdown(int how) override {
 		if(_currentState != State::connected)
@@ -783,10 +852,11 @@ public:
 			// man page:
 			// "The use of this option is possible only for connected AF_UNIX stream sockets
 			// and for AF_UNIX stream and datagram socket pairs created using socketpair(2)."
-			if(_remote && ((_currentState == State::connected && socktype_ == SOCK_STREAM) || socketpair_)) {
-				creds.pid = _remote->_ownerPid;
-				creds.uid = _remote->_ownerUid;
-				creds.gid = _remote->_ownerGid;
+			auto rf = remote();
+			if(rf && ((_currentState == State::connected && socktype_ == SOCK_STREAM) || socketpair_)) {
+				creds.pid = rf->_ownerPid;
+				creds.uid = rf->_ownerUid;
+				creds.gid = rf->_ownerGid;
 			} else {
 				creds.pid = 0;
 				creds.uid = -1;
@@ -801,7 +871,8 @@ public:
 			int listen = listen_;
 			memcpy(optbuf.data(), &listen, std::min(optbuf.size(), sizeof(listen)));
 		} else if(layer == SOL_SOCKET && number == SO_PEERPIDFD) {
-			pid_t pid = _remote ? _remote->_ownerPid : 0;
+			auto rf = remote();
+			pid_t pid = rf ? rf->_ownerPid : 0;
 			int result = 0;
 
 			if(!pid) {
@@ -954,7 +1025,10 @@ public:
 			co_return protocols::fs::Error::notConnected;
 		}
 
-		co_return getNameFor(_remote, addrPtr, maxAddrLength);
+		auto rf = remote();
+		if (!rf)
+			co_return protocols::fs::Error::notConnected;
+		co_return getNameFor(rf.get(), addrPtr, maxAddrLength);
 	}
 
 	async::result<size_t> sockname(void *addrPtr, size_t maxAddrLength) override {
@@ -973,8 +1047,8 @@ private:
 	uint64_t _hupSeq = 0;
 	uint64_t _inSeq;
 
-	// TODO: Use weak_ptrs here!
-	std::deque<OpenFile *> _acceptQueue;
+	// Sockets whose connect() waits for us to accept() them.
+	std::deque<smarter::weak_ptr<File>> _acceptQueue;
 
 	// The actual receive queue of the socket.
 	std::deque<Packet> _recvQueue;
@@ -984,7 +1058,7 @@ private:
 	int _ownerGid;
 
 	// For connected sockets, this is the socket we are connected to.
-	OpenFile *_remote;
+	smarter::weak_ptr<File> _remote;
 
 	// Socket options.
 	bool _passCreds;
@@ -992,6 +1066,9 @@ private:
 	std::atomic<bool> nonBlock_;
 
 	std::string _sockpath;
+
+	// Node that we are bound to, keeps our globalBindMap key alive.
+	smarter::shared_ptr<FsNode> _bindNode;
 
 	NameType _nameType;
 
