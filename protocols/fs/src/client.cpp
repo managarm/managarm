@@ -1,4 +1,5 @@
 
+#include <atomic>
 #include <bragi/helpers-std.hpp>
 #include <iostream>
 
@@ -7,6 +8,13 @@
 
 namespace protocols {
 namespace fs {
+
+namespace {
+
+// A File can be used from several threads, but a std::atomic member would make it immovable.
+std::atomic<uint64_t> nextCancellationId{1};
+
+} // anonymous namespace
 
 async::result<Error> synchronize(helix::BorrowedDescriptor lane, SynchronizeFlags flags) {
 	managarm::fs::SynchronizeRequest req;
@@ -116,7 +124,7 @@ async::result<int64_t> File::seekEof(int64_t offset) {
 
 async::result<ReadResult>
 File::readSome(void *data, size_t max_length, async::cancellation_token ct) {
-	auto cancelId = cancellationId_++;
+	auto cancelId = nextCancellationId.fetch_add(1, std::memory_order_relaxed);
 
 	managarm::fs::ReadRequest req;
 	req.set_size(max_length);
@@ -213,7 +221,7 @@ async::result<size_t> File::writeSome(const void *data, size_t maxLength) {
 
 async::result<frg::expected<Error, PollWaitResult>> File::pollWait(uint64_t sequence, int mask,
 		async::cancellation_token ct) {
-	auto cancelId = cancellationId_++;
+	auto cancelId = nextCancellationId.fetch_add(1, std::memory_order_relaxed);
 
 	managarm::fs::FilePollRequest req;
 	req.set_sequence(sequence);
