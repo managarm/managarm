@@ -1,5 +1,8 @@
 #pragma once
 
+#include <optional>
+#include <string>
+
 #include <async/cancellation.hpp>
 #include <protocols/fs/server.hpp>
 
@@ -73,7 +76,9 @@ private:
 	async::cancellation_event _cancelServe;
 
 	DotEntriesPhase _dots = DotEntriesPhase::dot;
-	std::set<smarter::shared_ptr<Link, LinkRc>, LinkCompare>::iterator _iter;
+	// Name of the last entry that readEntries() returned.
+	std::optional<std::string> _lastName;
+	size_t _numEntries = 0;
 };
 
 struct Link final : FsLink {
@@ -148,7 +153,6 @@ struct DirectoryNode final : FsNode {
 			smarter::shared_ptr<RegularNode> regular);
 	smarter::shared_ptr<Link, LinkRc> directMknode(FsLink *parent, std::string name,
 			smarter::shared_ptr<FsNode> node);
-	smarter::shared_ptr<Link, LinkRc> directMkdir(FsLink *parent, std::string name);
 	async::result<std::variant<Error, smarter::shared_ptr<FsLink, LinkRc>>>
 	mkdir(FsLink *parent, Process *, std::string name, mode_t mode) override;
 
@@ -168,10 +172,12 @@ struct DirectoryNode final : FsNode {
 		co_return Error::success;
 	}
 
+	// Returns nullptr if the name already exists.
 	smarter::shared_ptr<Link, LinkRc> createCgroupDirectory(FsLink *parent, std::string name);
 	void createCgroupFiles(FsLink *parent);
 
 private:
+	// Protected by treeMutex in cgroupfs.cpp.
 	std::set<smarter::shared_ptr<Link, LinkRc>, LinkCompare> _entries;
 };
 
