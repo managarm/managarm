@@ -1,7 +1,9 @@
 #include <async/cancellation.hpp>
 #include <sys/epoll.h>
 #include <algorithm>
+#include <atomic>
 #include <map>
+#include <mutex>
 #include <vector>
 
 #include <bragi/helpers-std.hpp>
@@ -36,15 +38,13 @@ size_t nameCacheHash(FsNode *dir, const std::string &name) {
 // If a namecache is enabled for a superblock, links double as namecache entries.
 struct Link final : FsLink {
 public:
-	smarter::shared_ptr<FsLink, LinkRc> getParent() override {
-		return _owner;
-	}
+	smarter::shared_ptr<FsLink, LinkRc> getParent() override;
 
 	async::result<frg::expected<Error>> obstruct() override;
 
 	// Whether this link was obstructed by a mount; cached path walks must not descend past it.
 	bool isObstructed() {
-		return _obstructed;
+		return _obstructed.load(std::memory_order_acquire);
 	}
 
 	smarter::shared_ptr<FsNode> getTarget() override {
@@ -57,18 +57,19 @@ public:
 		return !_target;
 	}
 
-	void renameTo(smarter::shared_ptr<FsLink, LinkRc> owner, std::string name) {
+	// Callers must hold the superblock mutex.
+	// Returns the previous owner, which must be dropped after releasing the mutex.
+	smarter::shared_ptr<FsLink, LinkRc> renameTo(smarter::shared_ptr<FsLink, LinkRc> owner, std::string name) {
 		assert(_owner); // The root link is never renamed.
-		_owner = std::move(owner);
+		assert(!_cacheHashHook.in_list); // The name is the name cache key.
 		_name = std::move(name);
+		return std::exchange(_owner, std::move(owner));
 	}
 
-	std::string getName() override {
-		assert(_owner);
-		return _name;
-	}
+	std::string getName() override;
 
 	// Same as getParentNode() but avoids refcount churn.
+	// Callers must hold the superblock mutex, unless the link is being destructed.
 	FsNode *ownerNode() {
 		return static_cast<Link *>(_owner.get())->_target.get();
 	}
@@ -96,23 +97,25 @@ private:
 	friend struct DirectoryNode;
 
 	Superblock *_sb;
+	// Protected by the superblock mutex; they are the link's name cache key.
 	smarter::shared_ptr<FsLink, LinkRc> _owner;
 	std::string _name;
 	smarter::shared_ptr<FsNode> _target;
-	bool _obstructed = false;
+	std::atomic<bool> _obstructed = false;
 
 	// Serial of the last rename applied to this link, so that renames whose responses
 	// are processed out of order do not leave the link with an older name.
+	// Protected by the superblock mutex.
 	uint64_t _renameSerial = 0;
 
-	// Name cache state.
+	// Name cache state, protected by the superblock mutex.
 	size_t _cacheHash = 0;
 	// Hook for the name cache's hash table chain.
 	frg::default_list_hook<Link> _cacheHashHook;
 	frg::default_list_hook<Link> _cacheOwnerHook;
 };
 
-// Keeps the meta object of a link alive (but not the link itself) such that the link
+// Keeps the meta object of a link alive (but not the link itself), e.g., such that the link
 // can be handed to the reclaimer once the superblock is done with it.
 struct PendingReclaim {
 	explicit PendingReclaim(LinkMetaObjectBase *meta)
@@ -193,8 +196,22 @@ struct Superblock final : FsSuperblock, LinkReclaimer {
 		return nameCacheEnabled() ? this : nullptr;
 	}
 
-	std::optional<smarter::shared_ptr<FsLink, LinkRc>> nameCacheLookup(FsNode *dir, const std::string &name);
-	void nameCacheInsert(Link *link);
+	// Protects the intern tables, the name cache and the mutable state of links and directories.
+	// Lock order: LinkReclaimer::_mutex -> this mutex, since the reclaimer calls onReclaim().
+	// Hence, nothing may call into the reclaimer or drop a link reference while holding this
+	// mutex (dropping a reference may enlist the link). Evicted links are collected in an
+	// EvictionList and handed to the reclaimer after unlocking. Nothing suspends under it.
+	std::mutex &mutex() {
+		return _mutex;
+	}
+
+	// Returns std::nullopt on a miss and a null pointer for a negative entry.
+	std::optional<smarter::shared_ptr<FsLink, LinkRc>> nameCacheLookup(DirectoryNode *dir,
+			const std::string &name);
+	// Caches the result of a lookup that the server stamped with serial (see fs.bragi).
+	// Passing nullptr for link creates a negative cache entry.
+	void nameCacheInsert(DirectoryNode *dir, FsLink *parent, const std::string &name,
+			Link *link, uint64_t serial);
 
 	// Brackets a mutation of a directory entry.
 	// Until endMutation(), lookups of the name bypass the cache and are not cached,
@@ -218,14 +235,21 @@ private:
 			frg::locate_member<Link, frg::default_list_hook<Link>, &Link::_cacheHashHook>>;
 
 	void onReclaim(LinkMetaObjectBase *meta) override;
+
+	// The following functions must be called with the mutex held.
 	void popMutation(DirectoryNode *dir, const std::string &name);
 	void endMutation(DirectoryNode *dir, const std::string &name, EvictionList &evicted);
+	void endMutation(DirectoryNode *dir, const std::string &name, uint64_t serial,
+			EvictionList &evicted);
 	Link *nameCacheFind(FsNode *dir, const std::string &name, size_t hash);
 	void nameCacheUnhash(Link *link);
 	void nameCacheEvict(Link *link, EvictionList &evicted);
 	void nameCachePurge(DirectoryNode *dir, EvictionList &evicted);
-	// Hands evicted links to the reclaimer.
+
+	// Hands evicted links to the reclaimer. Must be called without holding the mutex.
 	void reclaimEvicted(EvictionList &evicted);
+
+	std::mutex _mutex;
 
 	helix::UniqueLane _lane;
 	std::map<uint64_t, smarter::weak_ptr<DirectoryNode>> _activeStructural;
@@ -260,6 +284,11 @@ struct PendingMutation {
 	// Mirrors the serial that the server reported, or zero if it did not mutate the directory.
 	void complete(uint64_t serial) {
 		_sb->endMutation(_dir, _name, serial);
+		_dir = nullptr;
+	}
+
+	// Disarms the guard once the caller completed the mutation itself.
+	void release() {
 		_dir = nullptr;
 	}
 
@@ -598,8 +627,11 @@ private:
 	}
 
 	expected<std::string> readSymlink(FsLink *, Process *) override {
-		if(_cachedTarget)
-			co_return *_cachedTarget;
+		{
+			std::lock_guard lock{_sb->mutex()};
+			if(_cachedTarget)
+				co_return *_cachedTarget;
+		}
 
 		managarm::fs::CntRequest req;
 		req.set_req_type(managarm::fs::CntReqType::NODE_READ_SYMLINK);
@@ -626,8 +658,10 @@ private:
 		std::string target{static_cast<char *>(recv_target.data()), recv_target.length()};
 		// On client-exclusive mounts, symlink contents cannot change:
 		// there is no way to rewrite a symlink in place, and replacing it creates a new inode.
-		if(_sb->nameCacheEnabled())
+		if(_sb->nameCacheEnabled()) {
+			std::lock_guard lock{_sb->mutex()};
 			_cachedTarget = target;
+		}
 		co_return target;
 	}
 
@@ -640,18 +674,36 @@ public:
 	}
 
 private:
+	// Protected by the superblock mutex.
 	std::optional<std::string> _cachedTarget;
 };
 
-async::result<frg::expected<Error>> Link::obstruct() {
+smarter::shared_ptr<FsLink, LinkRc> Link::getParent() {
+	std::lock_guard lock{_sb->mutex()};
+	return _owner;
+}
+
+std::string Link::getName() {
+	std::lock_guard lock{_sb->mutex()};
 	assert(_owner);
+	return _name;
+}
+
+async::result<frg::expected<Error>> Link::obstruct() {
 	// Obstructions only stop server-side traversals, which posix does not use without the cap.
 	if(!_sb->traverseLinksSupported())
 		co_return Error::illegalOperationTarget;
 	managarm::fs::ObstructLinkRequest req;
-	req.set_link_name(_name);
+	smarter::shared_ptr<FsLink, LinkRc> owner;
+	{
+		std::lock_guard lock{_sb->mutex()};
+		assert(_owner);
+		req.set_link_name(_name);
+		owner = _owner;
+	}
 
-	auto lane = static_cast<Node *>(ownerNode())->getLane();
+	// The owner keeps the directory node, and hence its lane, alive across the request.
+	auto lane = static_cast<Node *>(owner->getTarget().get())->getLane();
 
 	auto [offer, send_req, send_tail, recv_resp] = co_await helix_ng::exchangeMsgs(
 		lane,
@@ -670,7 +722,7 @@ async::result<frg::expected<Error>> Link::obstruct() {
 	recv_resp.reset();
 	if(resp.error() != managarm::fs::Errors::SUCCESS)
 		co_return resp.error() | toPosixError;
-	_obstructed = true;
+	_obstructed.store(true, std::memory_order_release);
 	co_return frg::success_tag{};
 }
 
@@ -1185,12 +1237,10 @@ private:
 
 public:
 	std::optional<smarter::shared_ptr<FsLink, LinkRc>> lookupCache(const std::string &name) {
-		// The server may already have applied an in-flight mutation of the name.
-		if(hasPendingMutation(name))
-			return std::nullopt;
 		return _sb->nameCacheLookup(this, name);
 	}
 
+	// Callers must hold the superblock mutex.
 	bool hasPendingMutation(const std::string &name) {
 		return std::find(_pendingMutations.begin(), _pendingMutations.end(), name)
 				!= _pendingMutations.end();
@@ -1201,32 +1251,14 @@ public:
 	void cacheLink(FsLink *parent, const std::string &name, FsLink *link, uint64_t serial) {
 		if(!_sb->nameCacheEnabled())
 			return;
-		// A lookup that raced the removal of this directory must not revive it.
-		if(_removed)
-			return;
-		// The lookup observed a state older than a mutation that we already mirrored.
-		if(serial < _mutationSerial)
-			return;
-		// The lookup might predate a mutation that the server already applied.
-		if(hasPendingMutation(name))
-			return;
 		// PathResolver never resolves these through the cache.
 		if(name == "." || name == "..")
 			return;
-		smarter::shared_ptr<Link, LinkRc> negative;
-		if(!link) {
-			negative = makeReclaimableLink<Link>(_sb->linkReclaimer(), _sb,
-					parent->sharedFromThis(), name);
-			link = negative.get();
-		}
-		auto entry = static_cast<Link *>(link);
-		// Links are interned under, and renamed in place to, the owner and name they are
-		// resolved through, so the cache key always agrees with what the link carries.
-		assert(entry->_owner.get() == parent && entry->_name == name);
-		_sb->nameCacheInsert(entry);
+		_sb->nameCacheInsert(this, parent, name, static_cast<Link *>(link), serial);
 	}
 
 	// Records that a mutation of this directory with the given serial completed.
+	// Callers must hold the superblock mutex.
 	void observeMutation(uint64_t serial) {
 		_mutationSerial = std::max(_mutationSerial, serial);
 	}
@@ -1242,6 +1274,8 @@ public:
 
 private:
 	friend struct Superblock;
+
+	// All of the following are protected by the superblock mutex.
 
 	// Entries that a directory owns, so that they can be dropped when the directory itself is removed.
 	Superblock::NameCacheOwnerList _cacheEntries;
@@ -1312,9 +1346,16 @@ async::result<frg::expected<Error, smarter::shared_ptr<FsLink, LinkRc>>>
 
 	managarm::fs::RenameRequest req;
 	Link *slink = static_cast<Link *>(source);
-	auto oldName = source->getName();
+	// Read the name and the owner in one hold such that they belong to the same rename.
+	std::string oldName;
+	smarter::shared_ptr<FsLink, LinkRc> sourceOwner;
+	{
+		std::lock_guard lock{_mutex};
+		oldName = slink->_name;
+		sourceOwner = slink->_owner;
+	}
 	// Hold the directories: a concurrent rename of the same link may drop its owner.
-	auto source_node = smarter::static_pointer_cast<DirectoryNode>(slink->getParentNode());
+	auto source_node = smarter::static_pointer_cast<DirectoryNode>(sourceOwner->getTarget());
 	auto target_node = smarter::static_pointer_cast<DirectoryNode>(directory->getTarget());
 	smarter::shared_ptr<Node> shared_node = smarter::static_pointer_cast<Node>(source->getTarget());
 	req.set_inode_source(source_node->getInode());
@@ -1346,27 +1387,49 @@ async::result<frg::expected<Error, smarter::shared_ptr<FsLink, LinkRc>>>
 	managarm::fs::SvrResponse resp;
 	resp.ParseFromArray(recv_resp.data(), recv_resp.length());
 	recv_resp.reset();
-	// Complete the pending mutations before slink->renameTo()
-	// such that the old name does not persist in the cache.
-	sourcePending.complete(resp.serial());
-	targetPending.complete(resp.serial());
+
+	auto sourceRef = source->sharedFromThis();
+	auto directoryRef = directory->sharedFromThis();
+	// Dropped after releasing the mutex.
+	smarter::shared_ptr<FsLink, LinkRc> oldOwner;
+	EvictionList evicted;
+	{
+		std::lock_guard lock{_mutex};
+		// Complete the pending mutations before slink->renameTo()
+		// such that the old name does not persist in the cache. Mirroring the rename in the same
+		// critical section prevents lookups that complete after the pending mutations end from
+		// interning and caching a second link under the new name.
+		endMutation(source_node.get(), oldName, resp.serial(), evicted);
+		endMutation(target_node.get(), name, resp.serial(), evicted);
+		sourcePending.release();
+		targetPending.release();
+
+		// Skip the rename if a later one of the same link was mirrored before this one.
+		// A rename of a name onto another name of the same inode (serial zero) changes nothing.
+		if(resp.error() == managarm::fs::Errors::SUCCESS && resp.serial()
+				&& resp.serial() > slink->_renameSerial) {
+			// A rename that was mirrored since we read oldName may have moved the link (in that case,
+			// the server renamed whatever was at oldName by then). Hence, erase the link's current
+			// key, and unhash it since renameTo() must not change the key of a hashed link.
+			_activeLinks.erase({static_cast<Node *>(slink->ownerNode())->getInode(), slink->_name,
+					shared_node->getInode()});
+			if(slink->_cacheHashHook.in_list)
+				nameCacheEvict(slink, evicted);
+			oldOwner = slink->renameTo(std::move(directoryRef), name);
+			_activeLinks[{target_node->getInode(), name, shared_node->getInode()}] = sourceRef;
+			slink->_renameSerial = resp.serial();
+		}
+	}
+	reclaimEvicted(evicted);
+
 	if(resp.error() != managarm::fs::Errors::SUCCESS)
 		co_return resp.error() | toPosixError;
-	// A rename of a name onto another name of the same inode changes nothing.
 	if(!resp.serial())
-		co_return source->sharedFromThis();
-
-	// Skip the rename if a later one of the same link was mirrored before this one.
-	if(resp.serial() > slink->_renameSerial) {
-		_activeLinks.erase({source_node->getInode(), oldName, shared_node->getInode()});
-		slink->renameTo(directory->sharedFromThis(), name);
-		_activeLinks[{target_node->getInode(), name, shared_node->getInode()}] = source->sharedFromThis();
-		slink->_renameSerial = resp.serial();
-	}
+		co_return sourceRef;
 
 	if(resp.id() && resp.file_type() == managarm::fs::FileType::DIRECTORY)
 		retireDirectory(resp.id());
-	co_return source->sharedFromThis();
+	co_return sourceRef;
 }
 
 smarter::shared_ptr<FsLink, LinkRc> Superblock::internalizeRoot(uint64_t id, helix::UniqueLane lane) {
@@ -1374,6 +1437,7 @@ smarter::shared_ptr<FsLink, LinkRc> Superblock::internalizeRoot(uint64_t id, hel
 }
 
 smarter::shared_ptr<Node> Superblock::internalizeDirectory(uint64_t id, helix::UniqueLane lane) {
+	std::lock_guard lock{_mutex};
 	auto entry = &_activeStructural[id];
 	if(auto intern = entry->lock(); intern)
 		return intern;
@@ -1391,6 +1455,7 @@ smarter::shared_ptr<FsLink, LinkRc> Superblock::internalizeStructural(FsLink *pa
 
 smarter::shared_ptr<Node> Superblock::internalizePeripheralNode(int64_t type,
 		int id, helix::UniqueLane lane) {
+	std::lock_guard lock{_mutex};
 	auto entry = &_activePeripheralNodes[id];
 	auto intern = entry->lock();
 	if(intern)
@@ -1414,31 +1479,50 @@ smarter::shared_ptr<Node> Superblock::internalizePeripheralNode(int64_t type,
 smarter::shared_ptr<FsLink, LinkRc> Superblock::internalizeLink(FsLink *parent,
 		std::string name, smarter::shared_ptr<Node> target) {
 	auto parentInode = static_cast<Node *>(parent->getTarget().get())->getInode();
+	auto parentRef = parent->sharedFromThis();
+	std::lock_guard lock{_mutex};
 	auto entry = &_activeLinks[{parentInode, name, target->getInode()}];
 	if(auto intern = entry->lock(); intern)
 		return intern;
 
-	auto link = makeReclaimableLink<Link>(linkReclaimer(), this, parent->sharedFromThis(),
+	auto link = makeReclaimableLink<Link>(linkReclaimer(), this, std::move(parentRef),
 			std::move(name), std::move(target));
 	*entry = link;
 	return link;
 }
 
+// The forget*() functions drop the references that they take after releasing the mutex.
+
 void Superblock::forgetStructural(uint64_t id) {
+	smarter::shared_ptr<DirectoryNode> intern;
+	std::lock_guard lock{_mutex};
 	auto it = _activeStructural.find(id);
-	if(it != _activeStructural.end() && !it->second.lock())
+	if(it == _activeStructural.end())
+		return;
+	intern = it->second.lock();
+	if(!intern)
 		_activeStructural.erase(it);
 }
 
 void Superblock::forgetPeripheralNode(uint64_t id) {
+	smarter::shared_ptr<Node> intern;
+	std::lock_guard lock{_mutex};
 	auto it = _activePeripheralNodes.find(id);
-	if(it != _activePeripheralNodes.end() && !it->second.lock())
+	if(it == _activePeripheralNodes.end())
+		return;
+	intern = it->second.lock();
+	if(!intern)
 		_activePeripheralNodes.erase(it);
 }
 
 void Superblock::forgetLink(uint64_t ownerId, const std::string &name, uint64_t targetId) {
+	smarter::shared_ptr<FsLink, LinkRc> intern;
+	std::lock_guard lock{_mutex};
 	auto it = _activeLinks.find({ownerId, name, targetId});
-	if(it != _activeLinks.end() && !it->second.lock())
+	if(it == _activeLinks.end())
+		return;
+	intern = it->second.lock();
+	if(!intern)
 		_activeLinks.erase(it);
 }
 
@@ -1454,39 +1538,86 @@ Link *Superblock::nameCacheFind(FsNode *dir, const std::string &name, size_t has
 	return nullptr;
 }
 
-std::optional<smarter::shared_ptr<FsLink, LinkRc>> Superblock::nameCacheLookup(FsNode *dir,
+std::optional<smarter::shared_ptr<FsLink, LinkRc>> Superblock::nameCacheLookup(DirectoryNode *dir,
 		const std::string &name) {
-	auto link = nameCacheFind(dir, name, nameCacheHash(dir, name));
-	if(!link)
-		return std::nullopt;
-	auto ref = link->sharedFromThis();
-	touch(ref.policy().meta());
-	if(link->isNegative())
+	smarter::shared_ptr<FsLink, LinkRc> ref;
+	// Negative hits only need the meta object for touch(): a strong reference would re-enlist
+	// a negative link that is evicted concurrently, although it can never be found again.
+	std::optional<PendingReclaim> negative;
+	{
+		std::lock_guard lock{_mutex};
+		// The server may already have applied an in-flight mutation of the name.
+		if(dir->hasPendingMutation(name))
+			return std::nullopt;
+		auto link = nameCacheFind(dir, name, nameCacheHash(dir, name));
+		if(!link)
+			return std::nullopt;
+		// A hashed link has no references between the reclaimer's CAS in tryReclaim() and
+		// onReclaim(). Report a miss for such a positive link: the refetch interns a fresh link.
+		auto self = link->selfPtr();
+		if(link->isNegative()) {
+			negative.emplace(self.policy().meta());
+		}else{
+			if(!self.policy().try_increment())
+				return std::nullopt;
+			ref = smarter::shared_ptr<FsLink, LinkRc>{smarter::adopt_rc, self.get(), self.policy()};
+		}
+	}
+	if(negative) {
+		touch(negative->meta());
 		return smarter::shared_ptr<FsLink, LinkRc>{};
+	}
+	touch(ref.policy().meta());
 	return ref;
 }
 
-void Superblock::nameCacheInsert(Link *link) {
+void Superblock::nameCacheInsert(DirectoryNode *dir, FsLink *parent, const std::string &name,
+		Link *link, uint64_t serial) {
 	assert(!_nameCacheBuckets.empty());
-	assert(link->_owner);
+	// The hash and the owner list below are keyed by dir, while lookups and unhashing use ownerNode().
+	assert(static_cast<Link *>(parent)->_target.get() == dir);
+	// Dropped after releasing the mutex.
+	smarter::shared_ptr<Link, LinkRc> negative;
 	EvictionList evicted;
-	auto hash = nameCacheHash(link->ownerNode(), link->_name);
 	bool present_already = false;
-	if(auto present = nameCacheFind(link->ownerNode(), link->_name, hash)) {
-		if(present == link) {
-			present_already = true;
-		}else{
-			// The name was re-created and now refers to a different link.
-			nameCacheEvict(present, evicted);
+	{
+		std::lock_guard lock{_mutex};
+		// A lookup that raced the removal of this directory must not revive it.
+		if(dir->_removed)
+			return;
+		// The lookup observed a state older than a mutation that we already mirrored.
+		if(serial < dir->_mutationSerial)
+			return;
+		// The lookup might predate a mutation that the server already applied.
+		if(dir->hasPendingMutation(name))
+			return;
+		// Only create negative links that are actually cached: an unhashed one would linger
+		// in the reclaimer's LRU. Creating a link does not call into the reclaimer.
+		if(!link) {
+			negative = makeReclaimableLink<Link>(linkReclaimer(), this, parent->sharedFromThis(), name);
+			link = negative.get();
 		}
-	}
-	if(!present_already) {
-		// The link stays alive on its own: the reclaimer holds a reference from construction on.
-		link->_cacheHash = hash;
-		_nameCacheBuckets[hash & (nameCacheBuckets - 1)].push_front(link);
-		// Let the containing directory remember the link such that we can purge it on rmdir().
-		assert(link->ownerNode()->getType() == VfsType::directory);
-		static_cast<DirectoryNode *>(link->ownerNode())->_cacheEntries.push_front(link);
+		// Links are interned under, and renamed in place to, the owner and name they are
+		// resolved through; a link that was renamed since then no longer belongs to this entry.
+		if(link->_owner.get() != parent || link->_name != name)
+			return;
+
+		auto hash = nameCacheHash(dir, name);
+		if(auto present = nameCacheFind(dir, name, hash)) {
+			if(present == link) {
+				present_already = true;
+			}else{
+				// The name was re-created and now refers to a different link.
+				nameCacheEvict(present, evicted);
+			}
+		}
+		if(!present_already) {
+			// The link stays alive on its own: the reclaimer holds a reference from construction on.
+			link->_cacheHash = hash;
+			_nameCacheBuckets[hash & (nameCacheBuckets - 1)].push_front(link);
+			// Let the containing directory remember the link such that we can purge it on rmdir().
+			dir->_cacheEntries.push_front(link);
+		}
 	}
 
 	// The caller holds a reference to the link.
@@ -1496,6 +1627,7 @@ void Superblock::nameCacheInsert(Link *link) {
 }
 
 void Superblock::beginMutation(DirectoryNode *dir, const std::string &name) {
+	std::lock_guard lock{_mutex};
 	dir->_pendingMutations.push_back(name);
 }
 
@@ -1514,19 +1646,30 @@ void Superblock::endMutation(DirectoryNode *dir, const std::string &name, Evicti
 
 void Superblock::endMutation(DirectoryNode *dir, const std::string &name) {
 	EvictionList evicted;
-	endMutation(dir, name, evicted);
+	{
+		std::lock_guard lock{_mutex};
+		endMutation(dir, name, evicted);
+	}
 	reclaimEvicted(evicted);
 }
 
-void Superblock::endMutation(DirectoryNode *dir, const std::string &name, uint64_t serial) {
+void Superblock::endMutation(DirectoryNode *dir, const std::string &name, uint64_t serial,
+		EvictionList &evicted) {
 	// The server did not mutate the directory, hence the cached entry is still valid.
 	if(!serial) {
 		popMutation(dir, name);
 		return;
 	}
-	EvictionList evicted;
 	endMutation(dir, name, evicted);
 	dir->observeMutation(serial);
+}
+
+void Superblock::endMutation(DirectoryNode *dir, const std::string &name, uint64_t serial) {
+	EvictionList evicted;
+	{
+		std::lock_guard lock{_mutex};
+		endMutation(dir, name, serial, evicted);
+	}
 	reclaimEvicted(evicted);
 }
 
@@ -1551,11 +1694,14 @@ void Superblock::reclaimEvicted(EvictionList &evicted) {
 }
 
 void Superblock::onReclaim(LinkMetaObjectBase *meta) {
+	std::lock_guard lock{_mutex};
 	auto link = static_cast<LinkMetaObject<Link> *>(meta)->get();
-	// Entries reference the link of the directory that owns them; hence a directory
-	// with cache entries is never reclaimable here.
-	assert(!link->_target || link->_target->getType() != VfsType::directory
-			|| static_cast<DirectoryNode *>(link->_target.get())->_cacheEntries.empty());
+	// Entries reference the link of the directory that owns them; hence they are never owned
+	// by a link that is being reclaimed. The directory itself may have other links.
+	if(link->_target && link->_target->getType() == VfsType::directory) {
+		for(auto entry : static_cast<DirectoryNode *>(link->_target.get())->_cacheEntries)
+			assert(entry->_owner.get() != link);
+	}
 	if(link->_cacheHashHook.in_list)
 		nameCacheUnhash(link);
 }
@@ -1567,13 +1713,17 @@ void Superblock::nameCachePurge(DirectoryNode *dir, EvictionList &evicted) {
 
 void Superblock::retireDirectory(uint64_t inode) {
 	// There is nothing to drop for a directory that we never interned.
+	// The reference that pins the directory is only dropped after releasing the mutex.
 	smarter::shared_ptr<DirectoryNode> dir;
 	EvictionList evicted;
-	if(auto it = _activeStructural.find(inode); it != _activeStructural.end())
-		dir = it->second.lock();
-	if(dir) {
-		dir->_removed = true;
-		nameCachePurge(dir.get(), evicted);
+	{
+		std::lock_guard lock{_mutex};
+		if(auto it = _activeStructural.find(inode); it != _activeStructural.end())
+			dir = it->second.lock();
+		if(dir) {
+			dir->_removed = true;
+			nameCachePurge(dir.get(), evicted);
+		}
 	}
 	reclaimEvicted(evicted);
 }
