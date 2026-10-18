@@ -8,6 +8,7 @@
 #include <print>
 #include <vector>
 
+#include <async/algorithm.hpp>
 #include <helix/ipc.hpp>
 
 #include <core/cancel-events.hpp>
@@ -2301,38 +2302,43 @@ async::result<void> servePassthrough(helix::UniqueLane lane,
 	// Handlers can outlive servePassthrough(), hence the shared ownership.
 	auto cancellationEvents = std::make_shared<CancelEventRegistry>();
 
-	async::cancellation_callback cancel_callback{cancellation, [&] {
-		HEL_CHECK(helShutdownLane(lane.getHandle()));
-	}};
-
-	while(true) {
-		auto res = co_await dispatchRequest<
-			managarm::fs::CntRequest,
-			managarm::fs::RecvMsgRequest,
-			managarm::fs::SendMsgRequest,
-			managarm::fs::IoctlRequest,
-			managarm::fs::SetSockOpt,
-			managarm::fs::GetSockOpt,
-			managarm::fs::ShutdownSocket,
-			managarm::fs::ReadEntriesRequest,
-			managarm::fs::CancelOperation,
-			managarm::fs::FilePollRequest,
-			managarm::fs::AcceptRequest,
-			managarm::fs::ReadRequest,
-			managarm::fs::PreadRequest,
-			managarm::fs::WriteRequest,
-			managarm::fs::PwriteRequest,
-			managarm::fs::TruncateRequest,
-			managarm::fs::FallocateRequest
-		>(lane, DetachHandlers{}, HandleFileRequest{.cancellationEvents = cancellationEvents},
-				file, file_ops);
-		if(!res) {
-			if(res.error() == DispatchError::shutdown)
-				co_return;
-			std::cout << "protocols/fs: dispatch error on passthrough lane" << std::endl;
-			continue;
-		}
-	}
+	// Cancellation can come from any thread; completing after the shutdown keeps the lane alive.
+	co_await async::with_cancel_cb(
+		async::lambda([&]() -> async::result<void> {
+			while(true) {
+				auto res = co_await dispatchRequest<
+					managarm::fs::CntRequest,
+					managarm::fs::RecvMsgRequest,
+					managarm::fs::SendMsgRequest,
+					managarm::fs::IoctlRequest,
+					managarm::fs::SetSockOpt,
+					managarm::fs::GetSockOpt,
+					managarm::fs::ShutdownSocket,
+					managarm::fs::ReadEntriesRequest,
+					managarm::fs::CancelOperation,
+					managarm::fs::FilePollRequest,
+					managarm::fs::AcceptRequest,
+					managarm::fs::ReadRequest,
+					managarm::fs::PreadRequest,
+					managarm::fs::WriteRequest,
+					managarm::fs::PwriteRequest,
+					managarm::fs::TruncateRequest,
+					managarm::fs::FallocateRequest
+				>(lane, DetachHandlers{}, HandleFileRequest{.cancellationEvents = cancellationEvents},
+						file, file_ops);
+				if(!res) {
+					if(res.error() == DispatchError::shutdown)
+						co_return;
+					std::cout << "protocols/fs: dispatch error on passthrough lane" << std::endl;
+					continue;
+				}
+			}
+		})(),
+		[&] {
+			HEL_CHECK(helShutdownLane(lane.getHandle()));
+		},
+		cancellation
+	);
 }
 
 StatusPageProvider::StatusPageProvider() {
