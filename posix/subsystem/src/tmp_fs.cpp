@@ -633,6 +633,14 @@ struct Superblock final : FsSuperblock {
 
 		auto target = src_link->getTarget();
 
+		// Moving a directory into its own subtree would detach it into a cycle.
+		if(target->getType() == VfsType::directory) {
+			for(auto ancestor = dest_fs_link->sharedFromThis(); ancestor; ancestor = ancestor->getParent()) {
+				if(ancestor.get() == src_link)
+					co_return Error::illegalArguments;
+			}
+		}
+
 		// Unlink an existing link if such a link exists.
 		if(auto dest_it = dest_dir->_entries.find(dest_name);
 				dest_it != dest_dir->_entries.end()) {
