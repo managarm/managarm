@@ -193,9 +193,15 @@ public:
 		if(mask & ~supportedFlags)
 			std::println("posix: inotify mask {:#x} is partially ignored", mask);
 
-		for(const auto &[desc, watch] : watches_)
-			if(watch->file.lock().get() == this)
-				return desc;
+		for(const auto &[desc, watch] : watches_) {
+			if(watch->node.lock().get() != node.get())
+				continue;
+			if(mask & IN_MASK_ADD)
+				watch->mask |= mask;
+			else
+				watch->mask = mask;
+			return desc;
+		}
 
 		auto descriptor = descriptorAllocator_.allocate();
 		auto watch = std::make_shared<Watch>(weakFile(), descriptor, mask, node);
