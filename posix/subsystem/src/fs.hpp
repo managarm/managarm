@@ -2,9 +2,11 @@
 
 #include <concepts>
 #include <iostream>
+#include <mutex>
 #include <set>
 #include <deque>
 #include <unordered_map>
+#include <vector>
 
 #include <async/result.hpp>
 #include <core/id-allocator.hpp>
@@ -275,7 +277,10 @@ private:
 	FsSuperblock *_superblock;
 	DefaultOps _defaultOps;
 
+	std::mutex _observersMutex;
 	// Observers, for example for inotify.
+	// Protected by _observersMutex. Observers are notified without holding the mutex,
+	// hence they can still be notified after removeObserver() returns.
 	std::unordered_map<FsObserver *, std::shared_ptr<FsObserver>> _observers;
 };
 
