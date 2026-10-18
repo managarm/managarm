@@ -149,6 +149,13 @@ struct PageBinding {
 	void shootdown();
 
 private:
+	// Acknowledges the shootdown requests in (afterSequence, upToSequence] that count this binding,
+	// calling invalidate() on each of them first.
+	// Returns the sequence of the last request seen.
+	template<typename F>
+	uint64_t processShootdowns_(PageSpace *space,
+			uint64_t afterSequence, uint64_t upToSequence, F invalidate);
+
 	void doShootdown_(PageSpace *space);
 	void drainShootdown_(PageSpace *space, uint64_t afterSequence, uint64_t upToSequence);
 

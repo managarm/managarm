@@ -27,8 +27,9 @@ void invalidateNode(int asid, ShootNode *node) {
 
 } // namespace anonymous
 
-void
-PageBinding::doShootdown_(PageSpace *space) {
+template<typename F>
+uint64_t PageBinding::processShootdowns_(PageSpace *space,
+		uint64_t afterSequence, uint64_t upToSequence, F invalidate) {
 	assert(!intsAreEnabled());
 
 	// In the code below, note that we cannot assume that nodes are processed in
@@ -38,11 +39,11 @@ PageBinding::doShootdown_(PageSpace *space) {
 	// Find the first unprocessed node by scanning backward from the back of the queue.
 	// We may miss nodes that are concurrently removed but that does not impact correctness.
 	ShootNode *current = space->shootQueue_.back();
-	if(!current || current->sequence_ <= alreadyShotSequence_)
-		return;
+	if(!current || current->sequence_ <= afterSequence)
+		return afterSequence;
 	while(true) {
 		auto prev = current->queueNode.previous.load(std::memory_order_acquire);
-		if(!prev || prev->sequence_ <= alreadyShotSequence_)
+		if(!prev || prev->sequence_ <= afterSequence)
 			break;
 		current = prev;
 	}
@@ -51,12 +52,15 @@ PageBinding::doShootdown_(PageSpace *space) {
 	//       we could simply invalidate the entire space and mark everything as invalidated
 	//       on the forward pass below.
 
+	auto lastSequence = afterSequence;
 	while(current) {
 		auto next = current->queueNode.next.load(std::memory_order_acquire);
 		auto seq = current->sequence_;
+		if(seq > upToSequence)
+			break;
 
 		if(current->initiatorCpu_ != getCpuData()) {
-			invalidateNode(id_, current);
+			invalidate(current);
 
 			if(current->bindingsToShoot_.fetch_sub(1, std::memory_order_acq_rel) == 1) {
 				{
@@ -67,46 +71,23 @@ PageBinding::doShootdown_(PageSpace *space) {
 			}
 		}
 
-		alreadyShotSequence_ = seq;
+		lastSequence = seq;
 		current = next;
 	}
+	return lastSequence;
+}
+
+void
+PageBinding::doShootdown_(PageSpace *space) {
+	alreadyShotSequence_ = processShootdowns_(space, alreadyShotSequence_, UINT64_MAX,
+			[&] (ShootNode *node) { invalidateNode(id_, node); });
 }
 
 // Drain the shootdown queue without actually invalidating mappings.
 // This is called after a space was unbound.
 void
 PageBinding::drainShootdown_(PageSpace *space, uint64_t afterSequence, uint64_t upToSequence) {
-	assert(!intsAreEnabled());
-
-	// Same backwards iteration as in doShootdown_().
-	ShootNode *current = space->shootQueue_.back();
-	if(!current || current->sequence_ <= afterSequence)
-		return;
-	while(true) {
-		auto prev = current->queueNode.previous.load(std::memory_order_acquire);
-		if(!prev || prev->sequence_ <= afterSequence)
-			break;
-		current = prev;
-	}
-
-	while(current) {
-		auto next = current->queueNode.next.load(std::memory_order_acquire);
-		auto seq = current->sequence_;
-		if (seq > upToSequence)
-			break;
-
-		if(current->initiatorCpu_ != getCpuData()) {
-			if(current->bindingsToShoot_.fetch_sub(1, std::memory_order_acq_rel) == 1) {
-				{
-					auto lock = frg::guard(&space->mutex_);
-					space->shootQueue_.erase(current);
-				}
-				current->complete();
-			}
-		}
-
-		current = next;
-	}
+	processShootdowns_(space, afterSequence, upToSequence, [] (ShootNode *) { });
 }
 
 bool PageBinding::isPrimary() {
