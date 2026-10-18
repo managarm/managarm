@@ -85,7 +85,7 @@ public:
 				_channel->statusBell.raise();
 			}
 		}
-		_channel = nullptr;
+		// Keep _channel until destruction since epoll can still poll closed files.
 	}
 
 	async::result<std::expected<size_t, Error>>
@@ -123,13 +123,15 @@ public:
 	writeAll(Process *, const void *data, size_t maxLength) override {
 		if (!isWriter_)
 			co_return Error::insufficientPermissions;
-		if (!_channel->readerCount)
-			co_return Error::brokenPipe; // TODO: SIGPIPE
 		if (!maxLength)
 			co_return 0;
 
 		size_t chunk = 0;
 		while (true) {
+			// Check before every enqueue since readers can drain the ring and then close.
+			if (!_channel->readerCount)
+				co_return Error::brokenPipe; // TODO: SIGPIPE
+
 			chunk = _channel->ring.enqueue({static_cast<const uint8_t *>(data), maxLength});
 			if (chunk)
 				break;
@@ -154,7 +156,7 @@ public:
 		int edges = 0;
 
 		while (true) {
-			if(!_channel)
+			if(!isOpen())
 				co_return Error::fileClosed;
 
 			edges = 0;

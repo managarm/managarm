@@ -15,7 +15,7 @@ MemoryFile::seek(off_t delta, VfsSeek whence) {
 		_offset += delta;
 	}else if(whence == VfsSeek::eof) {
 		assert(whence == VfsSeek::eof);
-		_offset += delta;
+		_offset = _fileSize + delta;
 	}
 	co_return _offset;
 }

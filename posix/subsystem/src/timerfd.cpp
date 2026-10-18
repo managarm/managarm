@@ -81,8 +81,10 @@ public:
 	}
 
 	void handleClose() override {
-		if(_activeTimer)
+		if(_activeTimer) {
+			_activeTimer->cancel();
 			_activeTimer.reset();
+		}
 		_seqBell.raise();
 		_cancelServe.cancel();
 	}
