@@ -159,7 +159,8 @@ public:
 public:
 	async::result<std::expected<size_t, Error>>
 	readSome(Process *, void *data, size_t max_length, async::cancellation_token ct) override {
-		if(socktype_ == SOCK_STREAM && _recvQueue.empty() && (_currentState == State::remoteShutDown || _remote->shutdownFlags_ & shutdownWrite))
+		if(socktype_ == SOCK_STREAM && _recvQueue.empty() && (_currentState == State::remoteShutDown
+				|| (_remote && _remote->shutdownFlags_ & shutdownWrite)))
 			co_return std::unexpected{Error::eof};
 		if(socktype_ == SOCK_STREAM && _currentState != State::connected && _currentState != State::remoteShutDown)
 			co_return std::unexpected{Error::notConnected};
@@ -770,7 +771,7 @@ public:
 			// man page:
 			// "The use of this option is possible only for connected AF_UNIX stream sockets
 			// and for AF_UNIX stream and datagram socket pairs created using socketpair(2)."
-			if((_currentState == State::connected && socktype_ == SOCK_STREAM) || socketpair_) {
+			if(_remote && ((_currentState == State::connected && socktype_ == SOCK_STREAM) || socketpair_)) {
 				creds.pid = _remote->_ownerPid;
 				creds.uid = _remote->_ownerUid;
 				creds.gid = _remote->_ownerGid;
@@ -788,7 +789,7 @@ public:
 			int listen = listen_;
 			memcpy(optbuf.data(), &listen, std::min(optbuf.size(), sizeof(listen)));
 		} else if(layer == SOL_SOCKET && number == SO_PEERPIDFD) {
-			pid_t pid = _remote->_ownerPid;
+			pid_t pid = _remote ? _remote->_ownerPid : 0;
 			int result = 0;
 
 			if(!pid) {
