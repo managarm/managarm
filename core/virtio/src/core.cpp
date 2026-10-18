@@ -811,7 +811,12 @@ discover(protocols::hw::Device hw_device, DiscoverMode mode) {
 	auto irq = co_await hw_device.accessIrq();
 	co_await hw_device.enableBusmaster();
 	co_await hw_device.enableDma(false);
-	auto [iommuActive, dmaSpace] = co_await hw_device.getDmaSpace();
+	auto dmaSpaceInfo = co_await hw_device.getDmaSpace();
+	if(!dmaSpaceInfo) {
+		std::cout << "virtio: Failed to get DMA space" << std::endl;
+		co_return nullptr;
+	}
+	auto [iommuActive, dmaSpace, _] = std::move(*dmaSpaceInfo);
 
 	if(mode == DiscoverMode::transitional || mode == DiscoverMode::modernOnly) {
 		std::optional<Mapping> common_mapping;

@@ -1225,7 +1225,12 @@ async::detached bindController(mbus_ng::Entity entity) {
 	co_await device.enableBusmaster();
 	co_await device.enableDma(false);
 
-	auto [iommuActive, dmaSpaceHandle] = co_await device.getDmaSpace();
+	auto dmaSpaceInfo = co_await device.getDmaSpace();
+	if(!dmaSpaceInfo) {
+		std::cout << "ehci: Failed to get DMA space" << std::endl;
+		co_return;
+	}
+	auto [iommuActive, dmaSpaceHandle, _] = std::move(*dmaSpaceInfo);
 
 	auto irq = co_await device.accessIrq();
 

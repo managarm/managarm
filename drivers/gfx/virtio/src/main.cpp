@@ -446,10 +446,12 @@ async::detached GfxDevice::BufferObject::_initHw() {
 // Freestanding PCI discovery functions.
 // ----------------------------------------------------------------
 
-async::result<void> doBind(mbus_ng::Entity hwEntity) {
+async::result<protocols::svrctl::Error> doBind(mbus_ng::Entity hwEntity) {
 	protocols::hw::Device hwDevice((co_await hwEntity.getRemoteLane()).unwrap());
 	auto transport = co_await virtio_core::discover(std::move(hwDevice),
 			virtio_core::DiscoverMode::modernOnly);
+	if(!transport)
+		co_return protocols::svrctl::Error::deviceNotSupported;
 
 	auto gfxDevice = std::make_shared<GfxDevice>(std::move(transport));
 	auto config = co_await gfxDevice->initialize();
@@ -478,6 +480,7 @@ async::result<void> doBind(mbus_ng::Entity hwEntity) {
 	}(gfxDevice, std::move(gfxEntity));
 
 	baseDeviceMap.insert({hwEntity.id(), gfxDevice});
+	co_return protocols::svrctl::Error::success;
 }
 
 async::result<protocols::svrctl::Error> bindDevice(int64_t base_id) {
@@ -497,8 +500,7 @@ async::result<protocols::svrctl::Error> bindDevice(int64_t base_id) {
 			!device_str || device_str->value != "1050")
 		co_return protocols::svrctl::Error::deviceNotSupported;
 
-	co_await doBind(std::move(hwEntity));
-	co_return protocols::svrctl::Error::success;
+	co_return co_await doBind(std::move(hwEntity));
 }
 
 static constexpr protocols::svrctl::ControlOperations controlOps = {

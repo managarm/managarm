@@ -657,7 +657,12 @@ namespace nic::rtl8168 {
 async::result<std::shared_ptr<nic::Link>> makeShared(protocols::hw::Device device) {
 	co_await device.enableBusmaster();
 	co_await device.enableDma(false);
-	auto [iommuActive, dmaSpace] = co_await device.getDmaSpace();
+	auto dmaSpaceInfo = co_await device.getDmaSpace();
+	if(!dmaSpaceInfo) {
+		std::cout << "drivers/rtl8168: Failed to get DMA space" << std::endl;
+		co_return nullptr;
+	}
+	auto [iommuActive, dmaSpace, _] = std::move(*dmaSpaceInfo);
 
 	auto nic = std::make_shared<RealtekNic>(std::move(device), std::move(dmaSpace), iommuActive);
 	co_await nic->init();

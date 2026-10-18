@@ -148,6 +148,8 @@ async::result<std::shared_ptr<nic::Link>> setupVirtioDevice(mbus_ng::Entity &bas
 	}
 
 	auto transport = co_await virtio_core::discover(std::move(hwDevice), discover_mode);
+	if(!transport)
+		co_return nullptr;
 
 	auto nic = co_await nic::virtio::makeShared(base_entity.id(), std::move(transport));
 	co_return std::move(nic);
@@ -217,6 +219,9 @@ async::result<protocols::svrctl::Error> doBindPci(mbus_ng::Entity baseEntity) {
 		std::cout << std::format("netserver: skipping PCI device {}:{}\n", vendor_str->value, device_str->value);
 		co_return protocols::svrctl::Error::deviceNotSupported;
 	}
+
+	if(!device)
+		co_return protocols::svrctl::Error::deviceNotSupported;
 
 	baseDeviceMap.insert({baseEntity.id(), device});
 	nic::runDevice(device);

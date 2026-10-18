@@ -13,6 +13,20 @@
 
 namespace protocols::hw {
 
+namespace {
+
+Error translateError(managarm::hw::Errors error) {
+	switch(error) {
+		case managarm::hw::Errors::OUT_OF_BOUNDS: return Error::outOfBounds;
+		case managarm::hw::Errors::ILLEGAL_ARGUMENTS: return Error::illegalArguments;
+		case managarm::hw::Errors::RESOURCE_EXHAUSTION: return Error::resourceExhaustion;
+		case managarm::hw::Errors::PROPERTY_NOT_FOUND: return Error::propertyNotFound;
+		default: return Error::deviceError;
+	}
+}
+
+} // namespace
+
 async::result<PciInfo> Device::getPciInfo() {
 	managarm::hw::GetPciInfoRequest req;
 
@@ -1132,7 +1146,7 @@ async::result<std::pair<helix::UniqueDescriptor, uint32_t>> Device::getVbt() {
 	co_return { std::move(desc), resp.vbt_size() };
 }
 
-async::result<std::pair<bool, helix::UniqueDescriptor>> Device::getDmaSpace() {
+async::result<std::expected<DmaSpaceInfo, Error>> Device::getDmaSpace() {
 	managarm::hw::GetDmaSpaceRequest req;
 
 	auto [offer, send_req, recv_resp, recv_desc] = co_await helix_ng::exchangeMsgs(
@@ -1149,11 +1163,12 @@ async::result<std::pair<bool, helix::UniqueDescriptor>> Device::getDmaSpace() {
 	HEL_CHECK(recv_resp.error());
 
 	auto resp = *bragi::parse_head_only<managarm::hw::GetDmaSpaceResponse>(recv_resp);
-	assert(resp.error() == managarm::hw::Errors::SUCCESS);
+	if(resp.error() != managarm::hw::Errors::SUCCESS)
+		co_return std::unexpected{translateError(resp.error())};
 
 	HEL_CHECK(recv_desc.error());
 
-	co_return {resp.iommu_active(), recv_desc.descriptor()};
+	co_return DmaSpaceInfo{static_cast<bool>(resp.iommu_active()), recv_desc.descriptor(), static_cast<bool>(resp.dma_coherent())};
 }
 
 } // namespace protocols::hw
