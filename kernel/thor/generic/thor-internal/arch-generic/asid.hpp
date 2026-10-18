@@ -66,6 +66,7 @@ struct PageBinding;
 // Per-CPU context for paging.
 struct PageContext {
 	friend struct PageBinding;
+	friend struct PageSpace;
 
 	PageContext() = default;
 
@@ -194,6 +195,11 @@ struct PageSpace {
 	// Switch to the given page space on this CPU. Picks the least
 	// recently used binding to use for the switch.
 	static void activate(smarter::shared_ptr<PageSpace> space);
+
+	// Stop counting the primary binding of this CPU in shootdowns but keep its page tables loaded.
+	// This is only allowed while the CPU does not access memory owned by the PageSpace (e.g., while it idles).
+	// The next activate() of the same space invalidates its ASID if it missed shootdowns.
+	static void enterLazyMode();
 
 	// Unbind all (non-global) page spaces from this CPU.
 	static void deactivateAll();

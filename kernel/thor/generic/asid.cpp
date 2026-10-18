@@ -317,8 +317,13 @@ void PageSpace::activate(smarter::shared_ptr<PageSpace> space) {
 		// If the space is currently bound, always keep that binding.
 		auto bound = bindings[i].boundSpace();
 		if(bound && bound.get() == space.get()) {
-			if(!bindings[i].isPrimary())
+			if(!bindings[i].isPrimary()) {
 				bindings[i].rebind();
+			} else if(bindings[i].lazy_) {
+				// The page tables are still loaded, but the TLB may hold entries that were shot down.
+				if(bindings[i].makeActive_())
+					invalidateAsid(bindings[i].id());
+			}
 			return;
 		}
 
@@ -328,6 +333,14 @@ void PageSpace::activate(smarter::shared_ptr<PageSpace> space) {
 	}
 
 	bindings[lruIdx].rebind(space);
+}
+
+void PageSpace::enterLazyMode() {
+	assert(!intsAreEnabled());
+
+	auto binding = asidData.get()->pageContext.primaryBinding_;
+	if(binding && binding->boundSpace_ && !binding->lazy_)
+		binding->makeLazy_();
 }
 
 void PageSpace::deactivateAll() {

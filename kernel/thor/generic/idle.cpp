@@ -302,10 +302,14 @@ IdleMethod IdleGovernor::determineState() {
 	}
 
 	// The TLB is lost anyway. Unbinding avoids wakeups due to shootdowns.
-	if(states[selected].losesTlb)
+	// Otherwise, the lazy mode still avoids them for the user page space that stays loaded.
+	if(states[selected].losesTlb) {
 		PageSpace::deactivateAll();
+	} else {
+		PageSpace::enterLazyMode();
+	}
 
-	// PageSpace::deactivateAll() can wake up threads, so check for preemption.
+	// PageSpace::deactivateAll() and enterLazyMode() can wake up threads, so check for preemption.
 	localScheduler.get().checkPreemption();
 
 	// Only update now such that noteIdleWakeup() ends the stretch if checkPreemption() schedules away.
