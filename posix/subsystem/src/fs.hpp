@@ -131,7 +131,7 @@ public:
 FsSuperblock *getAnonymousSuperblock();
 
 // This is used to allocate device IDs for non-device-based file systems such as tmpfs.
-id_allocator<unsigned int> &getUnnamedDeviceIdAllocator();
+unsigned int allocateUnnamedDeviceId();
 
 // ----------------------------------------------------------------------------
 // FsObserver class.

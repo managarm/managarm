@@ -110,7 +110,7 @@ private:
 
 	// Socket options.
 	bool _passCreds;
-	bool nonBlock_;
+	std::atomic<bool> nonBlock_;
 	bool pktinfo_;
 
 	// BPF filter

@@ -513,6 +513,10 @@ struct Generation {
 // This struct owns the PID.
 // It remains alive until the PID can be recycled.
 struct PidHull : std::enable_shared_from_this<PidHull> {
+	friend struct ThreadGroup;
+	friend struct Process;
+	friend struct ProcessGroup;
+
 	PidHull(pid_t pid);
 
 	PidHull(const PidHull &) = delete;

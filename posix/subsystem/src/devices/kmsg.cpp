@@ -135,7 +135,7 @@ private:
 	helix::UniqueLane lane_;
 
 	size_t offset_ = 0;
-	bool nonBlock_;
+	std::atomic<bool> nonBlock_;
 
 public:
 	static void serve(smarter::shared_ptr<KmsgFile> file) {

@@ -42,7 +42,7 @@ public:
 private:
 	helix::UniqueLane passthrough_;
 	async::cancellation_event cancelServe_;
-	bool nonBlock_;
+	std::atomic<bool> nonBlock_;
 	std::weak_ptr<ThreadGroup> process_;
 };
 

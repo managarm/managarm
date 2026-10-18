@@ -255,7 +255,7 @@ private:
 	helix::UniqueLane _passthrough;
 	async::cancellation_event _cancelServe;
 	int _clock;
-	bool nonBlock_;
+	std::atomic<bool> nonBlock_;
 
 	// Currently active timer.
 	std::shared_ptr<Timer> _activeTimer;

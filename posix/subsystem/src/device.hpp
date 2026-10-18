@@ -1,5 +1,7 @@
 #pragma once
 
+#include <shared_mutex>
+
 #include "vfs.hpp"
 
 // --------------------------------------------------------
@@ -66,6 +68,7 @@ private:
 		}
 	};
 
+	std::shared_mutex _mutex;
 	std::set<std::shared_ptr<UnixDevice>, Compare> _devices;
 };
 

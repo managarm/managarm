@@ -1,4 +1,5 @@
 
+#include <atomic>
 #include <fcntl.h>
 #include <string.h>
 #include <limits.h>
@@ -21,7 +22,8 @@ namespace {
 
 constexpr bool debugResolve = false;
 
-id_allocator<uint64_t> mountIdAllocator;
+// Mount IDs are never freed.
+std::atomic<uint64_t> nextMountId{1};
 
 }
 
@@ -31,7 +33,7 @@ id_allocator<uint64_t> mountIdAllocator;
 // --------------------------------------------------------
 
 std::shared_ptr<MountView> MountView::createRoot(smarter::shared_ptr<FsLink, LinkRc> origin) {
-	return std::make_shared<MountView>(mountIdAllocator.allocate(), nullptr, nullptr, std::move(origin), ViewPath{});
+	return std::make_shared<MountView>(nextMountId.fetch_add(1, std::memory_order_relaxed), nullptr, nullptr, std::move(origin), ViewPath{});
 }
 
 std::shared_ptr<MountView> MountView::getParent() const {
@@ -53,7 +55,7 @@ async::result<void> MountView::mount(smarter::shared_ptr<FsLink, LinkRc> anchor,
 		// result is intentionally ignored to supress warnings
 	}
 
-	_mounts.insert(std::make_shared<MountView>(mountIdAllocator.allocate(), shared_from_this(),
+	_mounts.insert(std::make_shared<MountView>(nextMountId.fetch_add(1, std::memory_order_relaxed), shared_from_this(),
 			std::move(anchor), std::move(origin), std::move(deviceLink)));
 	// TODO: check insert return value
 }

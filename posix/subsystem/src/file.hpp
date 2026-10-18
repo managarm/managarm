@@ -1,5 +1,6 @@
 #pragma once
 
+#include <atomic>
 #include <variant>
 #include <string.h> // for hel.h
 #include <print>
@@ -498,7 +499,7 @@ public:
 	}
 
 	bool isOpen() {
-		return _isOpen;
+		return _isOpen.load(std::memory_order_acquire);
 	}
 
 	virtual void handleClose();
@@ -506,7 +507,7 @@ public:
 private:
 	// Called when the FileHandle refcount becomes zero.
 	void dispose() {
-		_isOpen = false;
+		_isOpen.store(false, std::memory_order_release);
 		handleClose();
 	}
 
@@ -635,7 +636,7 @@ private:
 
 	DefaultOps _defaultOps;
 
-	bool _isOpen;
+	std::atomic<bool> _isOpen;
 };
 
 struct FileWithDefaults : File {

@@ -1223,7 +1223,7 @@ Superblock::Superblock(helix::UniqueLane lane, std::shared_ptr<UnixDevice> devic
 	if(nameCacheEnabled())
 		_nameCacheBuckets.resize(nameCacheBuckets);
 	if(!device_)
-		deviceMinor_ = getUnnamedDeviceIdAllocator().allocate();
+		deviceMinor_ = allocateUnnamedDeviceId();
 }
 
 async::result<Error> Superblock::synchronize(protocols::fs::SynchronizeFlags flags) {

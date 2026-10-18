@@ -1,7 +1,10 @@
 #include <memory>
+#include <mutex>
 
 #include <linux/vt.h>
 
+#include <async/oneshot-event.hpp>
+#include <helix/dispatcher-pool.hpp>
 #include <protocols/mbus/client.hpp>
 
 #include "net.hpp"
@@ -29,6 +32,10 @@
 
 #include "debug-options.hpp"
 
+// Protects globalCredentialsMap.
+std::mutex globalCredentialsMutex;
+
+// Entries are removed before serve() drops its reference to the Process.
 std::map<
 	std::array<char, 16>,
 	Process *
@@ -37,6 +44,7 @@ std::map<
 std::optional<std::shared_ptr<Process>> findProcessWithCredentials(helix_ng::CredentialsView credentials) {
 	std::array<char, 16> creds;
 	memcpy(creds.data(), credentials.data(), 16);
+	std::lock_guard lock{globalCredentialsMutex};
 	auto it = globalCredentialsMap.find(creds);
 	if(it == globalCredentialsMap.end())
 		return std::nullopt;
@@ -69,8 +77,11 @@ async::result<void> serve(std::shared_ptr<Process> self, std::shared_ptr<Generat
 
 	std::array<char, 16> creds;
 	HEL_CHECK(helGetCredentials(thread.getHandle(), 0, creds.data()));
-	auto res = globalCredentialsMap.insert({creds, self.get()});
-	assert(res.second);
+	{
+		std::lock_guard lock{globalCredentialsMutex};
+		auto res = globalCredentialsMap.insert({creds, self.get()});
+		assert(res.second);
+	}
 
 	co_await async::when_all(
 		observeThread(self, generation),
@@ -78,9 +89,8 @@ async::result<void> serve(std::shared_ptr<Process> self, std::shared_ptr<Generat
 		serveRequests(self, generation)
 	);
 
-	std::erase_if(globalCredentialsMap, [&](const auto &p) {
-		return !memcmp(p.first.data(), creds.data(), 16);
-	});
+	std::lock_guard lock{globalCredentialsMutex};
+	globalCredentialsMap.erase(creds);
 }
 
 // --------------------------------------------------------
@@ -88,6 +98,7 @@ async::result<void> serve(std::shared_ptr<Process> self, std::shared_ptr<Generat
 namespace {
 	helix::UniqueLane kerncfgLane;
 	helix::UniqueLane pmLane;
+	async::oneshot_event foundPm;
 	size_t affinityMaskSize = 0;
 };
 
@@ -95,8 +106,9 @@ helix::UniqueLane &getKerncfgLane() {
 	return kerncfgLane;
 }
 
-helix::UniqueLane &getPmLane() {
-	return pmLane;
+async::result<helix::BorrowedLane> getPmLane() {
+	co_await foundPm.wait();
+	co_return pmLane;
 }
 
 size_t getAffinityMaskSize() {
@@ -185,6 +197,7 @@ async::result<void> enumeratePm() {
 
 	auto entity = co_await mbus_ng::Instance::global().getEntity(events[0].id);
 	pmLane = (co_await entity.getRemoteLane()).unwrap();
+	foundPm.raise();
 }
 
 // --------------------------------------------------------
@@ -204,7 +217,9 @@ async::detached runInit() {
 int main() {
 	std::cout << "Starting posix-subsystem" << std::endl;
 
-	async::run(clk::enumerateTracker(), helix::currentDispatcher);
+	// posix-subsystem is not thread-safe yet; run the pool single threaded.
+	helix::DispatcherPool::global().setThreadCount(1);
+	helix::DispatcherPool::global().blockOn(clk::enumerateTracker());
 
 //	HEL_CHECK(helSetPriority(kHelThisThread, 1));
 
@@ -225,5 +240,6 @@ int main() {
 
 	runInit();
 
-	async::run_forever(helix::currentDispatcher);
+	helix::DispatcherPool::global().blockOn(
+			async::suspend_indefinitely(async::cancellation_token{}));
 }

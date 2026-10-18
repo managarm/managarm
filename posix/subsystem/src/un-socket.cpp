@@ -976,7 +976,7 @@ private:
 	// Socket options.
 	bool _passCreds;
 	bool timestamp_ = false;
-	bool nonBlock_;
+	std::atomic<bool> nonBlock_;
 
 	std::string _sockpath;
 
