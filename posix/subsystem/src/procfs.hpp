@@ -1,5 +1,8 @@
 #pragma once
 
+#include <optional>
+#include <string>
+
 #include <async/cancellation.hpp>
 #include <protocols/fs/server.hpp>
 
@@ -80,7 +83,9 @@ private:
 	async::cancellation_event _cancelServe;
 
 	DotEntriesPhase _dots = DotEntriesPhase::dot;
-	std::set<smarter::shared_ptr<Link, LinkRc>, LinkCompare>::iterator _iter;
+	// Name of the last entry that readEntries() returned.
+	std::optional<std::string> _lastName;
+	size_t _numEntries = 0;
 };
 
 struct Link final : FsLink {
@@ -175,7 +180,9 @@ struct DirectoryNode final : FsNode {
 
 private:
 	smarter::shared_ptr<Link, LinkRc> createProcDirectory(FsLink *parent, Process *process);
+	void directInsert(smarter::shared_ptr<Link, LinkRc> link);
 
+	// Protected by treeMutex in procfs.cpp.
 	std::set<smarter::shared_ptr<Link, LinkRc>, LinkCompare> _entries;
 };
 
