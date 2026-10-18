@@ -47,6 +47,11 @@ void OpenFile::handleClose() {
 	_isClosed = true;
 	_statusBell.raise();
 	_cancelServe.cancel();
+	if(_socketPort) {
+		auto it = globalPortMap.find(_socketPort);
+		assert(it != globalPortMap.end() && it->second == this);
+		globalPortMap.erase(it);
+	}
 	for(int i = 0; i < MAX_SUPPORTED_GROUP_ID; i++) {
 		if(joinedGroups_ & (1 << i)) {
 			// Remove the netlink socket from the subscription vector
@@ -286,16 +291,24 @@ async::result<protocols::fs::Error> OpenFile::bind(Process *,
 		const void *addr_ptr, size_t addr_length) {
 	if(addr_length < sizeof(struct sockaddr_nl))
 		co_return protocols::fs::Error::illegalArguments;
+	// The file may have been closed concurrently.
+	if(_isClosed)
+		co_return protocols::fs::Error::illegalArguments;
 
 	struct sockaddr_nl sa;
 	memcpy(&sa, addr_ptr, addr_length);
 
-	if(!sa.nl_pid) {
+	if(_socketPort) {
+		// Like Linux, a bound socket can only be bound to the same port again.
+		if(sa.nl_pid != _socketPort)
+			co_return protocols::fs::Error::illegalArguments;
+	} else if(!sa.nl_pid) {
 		_associatePort();
 	} else {
+		auto res = globalPortMap.insert({sa.nl_pid, this});
+		if(!res.second)
+			co_return protocols::fs::Error::addressInUse;
 		_socketPort = sa.nl_pid;
-		auto res = globalPortMap.insert({_socketPort, this});
-		assert(res.second);
 	}
 
 	if(sa.nl_groups) {
@@ -401,6 +414,9 @@ async::result<int> OpenFile::getFileFlags() {
 
 void OpenFile::_associatePort() {
 	assert(!_socketPort);
+	// Skip ports that were bound explicitly, and port 0 since it means "unbound".
+	while(!nextPort || globalPortMap.contains(nextPort))
+		nextPort--;
 	_socketPort = nextPort--;
 	auto res = globalPortMap.insert({_socketPort, this});
 	assert(res.second);

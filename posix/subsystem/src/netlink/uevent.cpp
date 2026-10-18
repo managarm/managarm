@@ -16,7 +16,8 @@ async::result<protocols::fs::Error> uevent::sendMsg(nl_socket::OpenFile *, core:
 	if(sa->nl_pid) {
 		// Deliver to a user-mode socket.
 		auto it = nl_socket::globalPortMap.find(sa->nl_pid);
-		assert(it != nl_socket::globalPortMap.end());
+		if(it == nl_socket::globalPortMap.end())
+			co_return protocols::fs::Error::connectionRefused;
 
 		it->second->deliver(std::move(packet));
 	}else{
