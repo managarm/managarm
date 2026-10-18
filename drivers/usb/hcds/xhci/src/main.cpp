@@ -1365,7 +1365,12 @@ async::detached bindController(mbus_ng::Entity entity) {
 	co_await device.enableBusmaster();
 	co_await device.enableDma(false);
 
-	auto [iommuActive, dmaSpaceHandle] = co_await device.getDmaSpace();
+	auto dmaSpaceInfo = co_await device.getDmaSpace();
+	if(!dmaSpaceInfo) {
+		std::println("xhci: Failed to get DMA space");
+		co_return;
+	}
+	auto [iommuActive, dmaSpaceHandle, _] = std::move(*dmaSpaceInfo);
 
 	helix::Mapping mapping{bar, info.barInfo[0].offset, info.barInfo[0].length};
 

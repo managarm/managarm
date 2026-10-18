@@ -82,7 +82,12 @@ async::result<protocols::svrctl::Error> bindDevice(int64_t base_id) {
 		co_await device.enableBusmaster();
 		co_await device.enableDma(false);
 		auto info = co_await device.getPciInfo();
-		auto [iommuActive, ioSpace] = co_await device.getDmaSpace();
+		auto dmaSpaceInfo = co_await device.getDmaSpace();
+		if(!dmaSpaceInfo) {
+			std::cout << "block/nvme: Failed to get DMA space\n";
+			co_return protocols::svrctl::Error::deviceNotSupported;
+		}
+		auto [iommuActive, ioSpace, _] = std::move(*dmaSpaceInfo);
 
 		auto &barInfo = info.barInfo[0];
 		assert(barInfo.ioType == protocols::hw::IoType::kIoTypeMemory);

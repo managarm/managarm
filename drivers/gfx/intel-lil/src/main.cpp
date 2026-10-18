@@ -15,7 +15,7 @@ std::optional<uint16_t> pch_dev;
 // Freestanding PCI discovery functions.
 // ----------------------------------------------------------------
 
-async::result<void> setupDevice(mbus_ng::Entity entity) {
+async::result<protocols::svrctl::Error> setupDevice(mbus_ng::Entity entity) {
 	protocols::hw::Device dev((co_await entity.getRemoteLane()).unwrap());
 
 	co_await pchRead.wait();
@@ -26,7 +26,12 @@ async::result<void> setupDevice(mbus_ng::Entity entity) {
 
 	co_await dev.enableBusmaster();
 	co_await dev.enableDma(false);
-	auto [iommuActive, dmaSpace] = co_await dev.getDmaSpace();
+	auto dmaSpaceInfo = co_await dev.getDmaSpace();
+	if(!dmaSpaceInfo) {
+		std::cout << "gfx/intel-lil: Failed to get DMA space" << std::endl;
+		co_return protocols::svrctl::Error::deviceNotSupported;
+	}
+	auto [iommuActive, dmaSpace, _] = std::move(*dmaSpaceInfo);
 
 	auto gfx = std::make_shared<GfxDevice>(std::move(dev), *pch_dev, iommuActive, std::move(dmaSpace));
 	auto config = co_await gfx->initialize();
@@ -53,6 +58,8 @@ async::result<void> setupDevice(mbus_ng::Entity entity) {
 			drm_core::serveDrmDevice(device, std::move(localLane));
 		}
 	}(gfx, std::move(gfxEntity));
+
+	co_return protocols::svrctl::Error::success;
 }
 
 std::set<std::string> supported_pci_devices{
@@ -118,7 +125,8 @@ async::result<protocols::svrctl::Error> bindDevice(int64_t base_id) {
 		if(!device_str || !supported_pci_devices.contains(device_str->value))
 			co_return protocols::svrctl::Error::deviceNotSupported;
 
-		co_await setupDevice(base_entity);
+		if(auto error = co_await setupDevice(base_entity); error != protocols::svrctl::Error::success)
+			co_return error;
 	}
 
 	co_return protocols::svrctl::Error::success;

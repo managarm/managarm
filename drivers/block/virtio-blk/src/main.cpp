@@ -25,6 +25,8 @@ async::detached bindDevice(mbus_ng::Entity hwEntity) {
 	protocols::hw::Device hwDevice((co_await hwEntity.getRemoteLane()).unwrap());
 	auto transport = co_await virtio_core::discover(std::move(hwDevice),
 			virtio_core::DiscoverMode::transitional);
+	if(!transport)
+		co_return;
 
 	auto device = new block::virtio::Device{std::move(transport), hwEntity.id()};
 	co_await device->runDevice();

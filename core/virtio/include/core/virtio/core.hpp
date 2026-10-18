@@ -246,6 +246,7 @@ enum class DiscoverMode {
 	modernOnly
 };
 
+// Returns nullptr if device initialization fails.
 async::result<std::unique_ptr<Transport>> discover(protocols::hw::Device hw_device,
 		DiscoverMode mode);
 

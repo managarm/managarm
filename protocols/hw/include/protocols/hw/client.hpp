@@ -2,6 +2,7 @@
 
 #include <async/result.hpp>
 #include <dtb.hpp>
+#include <expected>
 #include <helix/ipc.hpp>
 #include <memory>
 #include <optional>
@@ -21,6 +22,14 @@ enum {
 
 namespace protocols {
 namespace hw {
+
+enum class Error {
+	outOfBounds,
+	illegalArguments,
+	resourceExhaustion,
+	deviceError,
+	propertyNotFound
+};
 
 enum IoType {
 	kIoTypeNone = 0,
@@ -51,6 +60,13 @@ struct PciInfo {
 	std::vector<Capability> caps;
 	unsigned int numMsis;
 	bool msiX = false;
+};
+
+struct DmaSpaceInfo {
+	bool iommuActive;
+	helix::UniqueDescriptor space;
+	// Whether DMA by the device snoops the CPU caches.
+	bool dmaCoherent;
 };
 
 struct FbInfo {
@@ -177,7 +193,7 @@ struct Device {
 	async::result<helix::UniqueDescriptor> accessFbMemory();
 	async::result<std::pair<helix::UniqueDescriptor, uint32_t>> getVbt();
 
-	async::result<std::pair<bool, helix::UniqueDescriptor>> getDmaSpace();
+	async::result<std::expected<DmaSpaceInfo, Error>> getDmaSpace();
 
 	async::result<void> getBatteryState(BatteryState &state, bool block = false);
 

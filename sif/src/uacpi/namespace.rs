@@ -68,6 +68,13 @@ impl NamespaceNode {
         NamespaceNode::from_raw(node).expect("uACPI lacks a predefined namespace node")
     }
 
+    /// Wraps uacpi_namespace_node_parent(). Returns None for the root.
+    pub fn parent(self) -> Option<NamespaceNode> {
+        // SAFETY: uACPI only reads the node.
+        let node = unsafe { uacpi_sys::uacpi_namespace_node_parent(self.node) };
+        NamespaceNode::from_raw(node)
+    }
+
     /// Wraps uacpi_namespace_node_generate_absolute_path().
     pub fn absolute_path(self) -> String {
         // SAFETY: uACPI allocates the path string; we free it below.

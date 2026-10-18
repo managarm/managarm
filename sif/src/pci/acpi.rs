@@ -50,6 +50,29 @@ fn eval_integer_or_zero(aml: Aml, node: NamespaceNode, path: &CStr) -> u64 {
     eval_optional_integer(aml, node, path).unwrap_or(0)
 }
 
+/// Evaluates _CCA of a host bridge. Returns None if the coherency is unknown.
+fn eval_cca(aml: Aml, node: NamespaceNode) -> Option<bool> {
+    // Like Linux, ignore the firmware on x86 since all DMA snoops the CPU caches.
+    if cfg!(target_arch = "x86_64") {
+        return Some(true);
+    }
+    // OSPM ignores _CCA if an ancestor already has one, hence the outermost _CCA applies.
+    let ancestors: Vec<NamespaceNode> = std::iter::successors(Some(node), |n| n.parent()).collect();
+    for ancestor in ancestors.into_iter().rev() {
+        match ancestor.eval_simple_integer(aml, c"_CCA") {
+            Ok(Some(cca)) => return Some(cca != 0),
+            Ok(None) => {}
+            // Like Linux, treat a _CCA that fails to evaluate as absent.
+            Err(err) => println!(
+                "sif: Failed to evaluate _CCA of {}: {err}",
+                ancestor.absolute_path()
+            ),
+        }
+    }
+    // Like Linux, only aarch64 requires _CCA; elsewhere DMA defaults to coherent.
+    (!cfg!(target_arch = "aarch64")).then_some(true)
+}
+
 fn find_root_buses(aml: Aml) -> Vec<RootBus> {
     let mut roots: Vec<RootBus> = Vec::new();
 
@@ -360,8 +383,9 @@ pub async fn discover_root_buses() {
         );
 
         let node = root.bridge.node;
-        let prt = runtime::run(move |aml| evaluate_prt(aml, node)).await;
-        let root_bus = PciBus::new(None, io, root.seg, root.bus);
+        let (prt, dma_coherent) =
+            runtime::run(move |aml| (evaluate_prt(aml, node), eval_cca(aml, node))).await;
+        let root_bus = PciBus::new(None, io, root.seg, root.bus, dma_coherent);
         let router = AcpiPciIrqRouter::new(None, root_bus, Some((node, prt)));
         assert!(
             root_bus.irq_router.set(router).is_ok(),

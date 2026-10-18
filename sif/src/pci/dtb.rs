@@ -186,6 +186,27 @@ impl PciIrqRouter for DtbPciIrqRouter {
     }
 }
 
+/// Follows Linux's of_dma_is_coherent(): the closest dma-coherent or dma-noncoherent applies, and
+/// RISC-V defaults to coherent DMA.
+fn is_dma_coherent(node: &'static DeviceTreeNode) -> bool {
+    // Like Linux, ignore the firmware on x86 since all DMA snoops the CPU caches.
+    if cfg!(target_arch = "x86_64") {
+        return true;
+    }
+    // TODO: Like Linux, continue at the dma-mem entry of interconnects instead of the parent.
+    let mut current = Some(node);
+    while let Some(n) = current {
+        if n.dt_node().find_property("dma-coherent").is_some() {
+            return true;
+        }
+        if n.dt_node().find_property("dma-noncoherent").is_some() {
+            return false;
+        }
+        current = n.parent();
+    }
+    cfg!(target_arch = "riscv64")
+}
+
 async fn init_pci_node(node: &'static DeviceTreeNode) -> Result<(), PciError> {
     println!("sif: Initializing node \"{}\":", node.path());
 
@@ -216,7 +237,7 @@ async fn init_pci_node(node: &'static DeviceTreeNode) -> Result<(), PciError> {
         return Err(PciError::UnsupportedHostBridge);
     };
 
-    let root_bus = PciBus::new(None, io, 0, range.from as u8);
+    let root_bus = PciBus::new(None, io, 0, range.from as u8, Some(is_dma_coherent(node)));
     let router = DtbPciIrqRouter::new(None, root_bus, Some(node));
     assert!(
         root_bus.irq_router.set(router).is_ok(),

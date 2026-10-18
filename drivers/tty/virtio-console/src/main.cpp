@@ -16,6 +16,8 @@ async::detached bindDevice(mbus_ng::Entity hwEntity) {
 	co_await hwDevice.enableBusmaster();
 	auto transport = co_await virtio_core::discover(std::move(hwDevice),
 			virtio_core::DiscoverMode::transitional);
+	if(!transport)
+		co_return;
 
 	auto device = new tty::virtio_console::Device{std::move(transport)};
 	device->runDevice();
