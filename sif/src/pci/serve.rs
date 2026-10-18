@@ -315,6 +315,14 @@ impl managarm::hw::server::PciDevice for ServedEntity {
     fn get_dma_space(&self) -> managarm::hw::Result<(bool, hel::Handle)> {
         Ok(iommu::dma_space(self.entity())?)
     }
+
+    fn dma_coherent(&self) -> managarm::hw::Result<bool> {
+        // Like Linux, refuse DMA if the firmware does not describe coherency.
+        self.entity()
+            .parent_bus
+            .dma_coherent
+            .ok_or(managarm::hw::Error::PropertyNotFound)
+    }
 }
 
 async fn serve_entity(manager: &'static EntityManager, served: ServedEntity) {
