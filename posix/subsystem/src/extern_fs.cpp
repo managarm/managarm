@@ -112,6 +112,38 @@ private:
 	frg::default_list_hook<Link> _cacheOwnerHook;
 };
 
+// Keeps the meta object of a link alive (but not the link itself) such that the link
+// can be handed to the reclaimer once the superblock is done with it.
+struct PendingReclaim {
+	explicit PendingReclaim(LinkMetaObjectBase *meta)
+	: _meta{meta} {
+		_meta->weak_ctr().increment();
+	}
+
+	PendingReclaim(const PendingReclaim &) = delete;
+
+	PendingReclaim(PendingReclaim &&other)
+	: _meta{std::exchange(other._meta, nullptr)} { }
+
+	PendingReclaim &operator=(const PendingReclaim &) = delete;
+
+	~PendingReclaim() {
+		if(_meta)
+			LinkRc{_meta}.decrement_weak();
+	}
+
+	LinkMetaObjectBase *meta() {
+		return _meta;
+	}
+
+private:
+	LinkMetaObjectBase *_meta;
+};
+
+// Links that the name cache evicted. The reclaimer is only called once the superblock
+// is done manipulating the name cache, see Superblock::reclaimEvicted().
+using EvictionList = std::vector<PendingReclaim>;
+
 struct Superblock final : FsSuperblock, LinkReclaimer {
 	Superblock(helix::UniqueLane lane, std::shared_ptr<UnixDevice> device, uint64_t mountCaps,
 			std::string fsType);
@@ -176,7 +208,6 @@ struct Superblock final : FsSuperblock, LinkReclaimer {
 	using NameCacheOwnerList = frg::intrusive_list<Link,
 			frg::locate_member<Link, frg::default_list_hook<Link>, &Link::_cacheOwnerHook>>;
 
-	void nameCachePurge(DirectoryNode *dir);
 
 	// Called once the server reports that it removed the directory with the given inode.
 	// There may still be negative links cached for this directory; retireDirectory() removes them.
@@ -188,9 +219,13 @@ private:
 
 	void onReclaim(LinkMetaObjectBase *meta) override;
 	void popMutation(DirectoryNode *dir, const std::string &name);
+	void endMutation(DirectoryNode *dir, const std::string &name, EvictionList &evicted);
 	Link *nameCacheFind(FsNode *dir, const std::string &name, size_t hash);
 	void nameCacheUnhash(Link *link);
-	void nameCacheEvict(Link *link);
+	void nameCacheEvict(Link *link, EvictionList &evicted);
+	void nameCachePurge(DirectoryNode *dir, EvictionList &evicted);
+	// Hands evicted links to the reclaimer.
+	void reclaimEvicted(EvictionList &evicted);
 
 	helix::UniqueLane _lane;
 	std::map<uint64_t, smarter::weak_ptr<DirectoryNode>> _activeStructural;
@@ -1424,30 +1459,40 @@ std::optional<smarter::shared_ptr<FsLink, LinkRc>> Superblock::nameCacheLookup(F
 	auto link = nameCacheFind(dir, name, nameCacheHash(dir, name));
 	if(!link)
 		return std::nullopt;
-	touch(link->selfPtr().policy().meta());
+	auto ref = link->sharedFromThis();
+	touch(ref.policy().meta());
 	if(link->isNegative())
 		return smarter::shared_ptr<FsLink, LinkRc>{};
-	return link->sharedFromThis();
+	return ref;
 }
 
 void Superblock::nameCacheInsert(Link *link) {
 	assert(!_nameCacheBuckets.empty());
 	assert(link->_owner);
+	EvictionList evicted;
 	auto hash = nameCacheHash(link->ownerNode(), link->_name);
+	bool present_already = false;
 	if(auto present = nameCacheFind(link->ownerNode(), link->_name, hash)) {
 		if(present == link) {
-			touch(link->selfPtr().policy().meta());
-			return;
+			present_already = true;
+		}else{
+			// The name was re-created and now refers to a different link.
+			nameCacheEvict(present, evicted);
 		}
-		// The name was re-created and now refers to a different link.
-		nameCacheEvict(present);
 	}
-	// The link stays alive on its own: the reclaimer holds a reference from construction on.
-	link->_cacheHash = hash;
-	_nameCacheBuckets[hash & (nameCacheBuckets - 1)].push_front(link);
-	// Let the containing directory remember the link such that we can purge it on rmdir().
-	assert(link->ownerNode()->getType() == VfsType::directory);
-	static_cast<DirectoryNode *>(link->ownerNode())->_cacheEntries.push_front(link);
+	if(!present_already) {
+		// The link stays alive on its own: the reclaimer holds a reference from construction on.
+		link->_cacheHash = hash;
+		_nameCacheBuckets[hash & (nameCacheBuckets - 1)].push_front(link);
+		// Let the containing directory remember the link such that we can purge it on rmdir().
+		assert(link->ownerNode()->getType() == VfsType::directory);
+		static_cast<DirectoryNode *>(link->ownerNode())->_cacheEntries.push_front(link);
+	}
+
+	// The caller holds a reference to the link.
+	if(present_already)
+		touch(link->selfPtr().policy().meta());
+	reclaimEvicted(evicted);
 }
 
 void Superblock::beginMutation(DirectoryNode *dir, const std::string &name) {
@@ -1461,10 +1506,16 @@ void Superblock::popMutation(DirectoryNode *dir, const std::string &name) {
 	pending.erase(it);
 }
 
-void Superblock::endMutation(DirectoryNode *dir, const std::string &name) {
+void Superblock::endMutation(DirectoryNode *dir, const std::string &name, EvictionList &evicted) {
 	popMutation(dir, name);
 	if(auto link = nameCacheFind(dir, name, nameCacheHash(dir, name)))
-		nameCacheEvict(link);
+		nameCacheEvict(link, evicted);
+}
+
+void Superblock::endMutation(DirectoryNode *dir, const std::string &name) {
+	EvictionList evicted;
+	endMutation(dir, name, evicted);
+	reclaimEvicted(evicted);
 }
 
 void Superblock::endMutation(DirectoryNode *dir, const std::string &name, uint64_t serial) {
@@ -1473,8 +1524,10 @@ void Superblock::endMutation(DirectoryNode *dir, const std::string &name, uint64
 		popMutation(dir, name);
 		return;
 	}
-	endMutation(dir, name);
+	EvictionList evicted;
+	endMutation(dir, name, evicted);
 	dir->observeMutation(serial);
+	reclaimEvicted(evicted);
 }
 
 void Superblock::nameCacheUnhash(Link *link) {
@@ -1486,9 +1539,15 @@ void Superblock::nameCacheUnhash(Link *link) {
 
 // Drops an entry from the cache: it cannot be found by name anymore, hence it is only worth
 // keeping around while something else still references it.
-void Superblock::nameCacheEvict(Link *link) {
+void Superblock::nameCacheEvict(Link *link, EvictionList &evicted) {
 	nameCacheUnhash(link);
-	reclaim(link->selfPtr().policy().meta());
+	evicted.emplace_back(link->selfPtr().policy().meta());
+}
+
+void Superblock::reclaimEvicted(EvictionList &evicted) {
+	for(auto &pending : evicted)
+		reclaim(pending.meta());
+	evicted.clear();
 }
 
 void Superblock::onReclaim(LinkMetaObjectBase *meta) {
@@ -1501,21 +1560,22 @@ void Superblock::onReclaim(LinkMetaObjectBase *meta) {
 		nameCacheUnhash(link);
 }
 
-void Superblock::nameCachePurge(DirectoryNode *dir) {
-	// Evicting an entry removes it from the list, so re-read the list on every step.
+void Superblock::nameCachePurge(DirectoryNode *dir, EvictionList &evicted) {
 	while(!dir->_cacheEntries.empty())
-		nameCacheEvict(dir->_cacheEntries.front());
+		nameCacheEvict(dir->_cacheEntries.front(), evicted);
 }
 
 void Superblock::retireDirectory(uint64_t inode) {
 	// There is nothing to drop for a directory that we never interned.
 	smarter::shared_ptr<DirectoryNode> dir;
+	EvictionList evicted;
 	if(auto it = _activeStructural.find(inode); it != _activeStructural.end())
 		dir = it->second.lock();
 	if(dir) {
 		dir->_removed = true;
-		nameCachePurge(dir.get());
+		nameCachePurge(dir.get(), evicted);
 	}
+	reclaimEvicted(evicted);
 }
 
 async::result<frg::expected<Error, FsStats>> Superblock::getFsStats() {
