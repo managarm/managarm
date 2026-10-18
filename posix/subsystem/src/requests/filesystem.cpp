@@ -453,6 +453,11 @@ HandleRequest::operator()(managarm::posix::LinkAtRequest &&req,
 		co_await sendErrorResponse<managarm::posix::LinkAtResponse>(conversation, managarm::posix::Errors::CROSS_DEVICE_LINK);
 		co_return {};
 	}
+	// Never create hard links to directories: the directory tree must stay acyclic.
+	if(target->getType() == VfsType::directory) {
+		co_await sendErrorResponse<managarm::posix::LinkAtResponse>(conversation, managarm::posix::Errors::INSUFFICIENT_PERMISSION);
+		co_return {};
+	}
 	auto result = co_await directory->link(directoryLink.get(), new_resolver.nextComponent(), target);
 	if(!result) {
 		co_await sendErrorResponse<managarm::posix::LinkAtResponse>(conversation, result.error() | toPosixProtoError);
