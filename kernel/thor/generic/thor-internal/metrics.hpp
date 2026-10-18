@@ -15,4 +15,12 @@ inline ostrace::Counter selfCallIpisReceivedCounter{"thor.ipi.self-call.received
 // Pings delivered by tryPingIdle() instead of an IPI.
 inline ostrace::Counter pingIpisElidedCounter{"thor.ipi.ping.elided"};
 
+// Shootdowns of user page spaces, the ones among them that had to IPI other CPUs,
+// and the number of CPUs that these IPIs targeted (including offline CPUs that are skipped).
+inline ostrace::Counter userShootdownsCounter{"thor.asid.shootdowns"};
+inline ostrace::Counter remoteUserShootdownsCounter{"thor.asid.shootdowns.remote"};
+inline ostrace::Counter userShootdownTargetsCounter{"thor.asid.shootdowns.targets"};
+// Number of CPUs that PageSpace::retire() targeted with an IPI (including offline CPUs that are skipped).
+inline ostrace::Counter retireTargetsCounter{"thor.asid.retire.targets"};
+
 } // namespace thor

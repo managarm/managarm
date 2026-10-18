@@ -4,6 +4,7 @@
 #include <thor-internal/arch-generic/paging.hpp>
 
 #include <thor-internal/cpu-data.hpp>
+#include <thor-internal/metrics.hpp>
 
 namespace thor {
 
@@ -335,6 +336,7 @@ void PageSpace::retire(RetireNode *node) {
 		node->complete();
 
 	assert(!targets.test(getCpuData()->cpuIndex));
+	retireTargetsCounter.add(targets.count());
 	sendShootdownIpi(targets);
 }
 
@@ -347,6 +349,8 @@ bool PageSpace::submitShootdown(ShootNode *node) {
 	// The zero-sized bitset is required to avoid recursive calls from shootdown to the allocator.
 	bool global = this == &KernelPageSpace::global();
 	frg::dyn_bitset<KernelAlloc> targets{global ? 0 : getCpuCount(), *kernelAlloc};
+	if(!global)
+		userShootdownsCounter.add();
 
 	{
 		auto irqLock = frg::guard(&irqMutex());
@@ -390,6 +394,8 @@ bool PageSpace::submitShootdown(ShootNode *node) {
 		sendShootdownIpi();
 	} else {
 		assert(!targets.test(getCpuData()->cpuIndex));
+		remoteUserShootdownsCounter.add();
+		userShootdownTargetsCounter.add(targets.count());
 		sendShootdownIpi(targets);
 	}
 	return false;
