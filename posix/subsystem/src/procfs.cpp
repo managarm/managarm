@@ -1273,7 +1273,7 @@ async::result<std::expected<std::string, Error>> MountsNode::show(Process *proc)
 			devName, mountPath, fsType);
 	};
 
-	std::function<std::string(const std::set<std::shared_ptr<MountView>, MountView::Compare>&)> processChildren =
+	std::function<std::string(const std::vector<std::shared_ptr<MountView>> &)> processChildren =
 		[&](auto &mounts) -> std::string {
 		std::string ret;
 
@@ -1334,7 +1334,7 @@ async::result<std::expected<std::string, Error>> MountInfoNode::show(Process *pr
 			mountId, parentId, major(devno), minor(devno), "/", mountPath, fsType, devName);
 	};
 
-	std::function<std::string(const std::set<std::shared_ptr<MountView>, MountView::Compare> &)> processChildren =
+	std::function<std::string(const std::vector<std::shared_ptr<MountView>> &)> processChildren =
 		[&](auto &mounts) -> std::string {
 		std::string ret;
 

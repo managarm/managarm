@@ -55,12 +55,20 @@ async::result<void> MountView::mount(smarter::shared_ptr<FsLink, LinkRc> anchor,
 		// result is intentionally ignored to supress warnings
 	}
 
-	_mounts.insert(std::make_shared<MountView>(nextMountId.fetch_add(1, std::memory_order_relaxed), shared_from_this(),
-			std::move(anchor), std::move(origin), std::move(deviceLink)));
+	auto view = std::make_shared<MountView>(nextMountId.fetch_add(1, std::memory_order_relaxed), shared_from_this(),
+			std::move(anchor), std::move(origin), std::move(deviceLink));
+	std::unique_lock lock{_mutex};
+	_mounts.insert(std::move(view));
 	// TODO: check insert return value
 }
 
+std::vector<std::shared_ptr<MountView>> MountView::mounts() const {
+	std::shared_lock lock{_mutex};
+	return {_mounts.begin(), _mounts.end()};
+}
+
 std::shared_ptr<MountView> MountView::getMount(smarter::shared_ptr<FsLink, LinkRc> link) const {
+	std::shared_lock lock{_mutex};
 	auto it = _mounts.find(link);
 	if(it == _mounts.end())
 		return nullptr;
