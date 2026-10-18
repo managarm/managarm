@@ -408,7 +408,10 @@ public:
 					path.resize(addr_length - sizeof(sa.sun_family) - 1);
 					memcpy(path.data(), sa.sun_path + 1, addr_length - sizeof(sa.sun_family) - 1);
 
-					remote = abstractSocketsBindMap.at(path);
+					auto it = abstractSocketsBindMap.find(path);
+					if(it == abstractSocketsBindMap.end())
+						co_return protocols::fs::Error::connectionRefused;
+					remote = it->second;
 				} else {
 					path.resize(strnlen(sa.sun_path, addr_length - offsetof(sockaddr_un, sun_path)));
 					memcpy(path.data(), sa.sun_path, strnlen(sa.sun_path, addr_length - offsetof(sockaddr_un, sun_path)));
@@ -425,7 +428,10 @@ public:
 
 					// Lookup the socket associated with the node.
 					auto node = resolver.currentLink()->getTarget();
-					remote = globalBindMap.at(node.get());
+					auto it = globalBindMap.find(node.get());
+					if(it == globalBindMap.end())
+						co_return protocols::fs::Error::connectionRefused;
+					remote = it->second;
 				}
 
 			}
@@ -636,8 +642,12 @@ public:
 		if(logSockets)
 			std::cout << "posix: Connect to " << path << std::endl;
 
+		// Like Linux, connected stream sockets cannot be connected again, even after the peer closed.
+		if(socktype_ != SOCK_DGRAM && (_currentState == State::connected
+				|| _currentState == State::remoteShutDown))
+			co_return protocols::fs::Error::alreadyConnected;
+
 		if (sa.sun_path[0] == '\0') {
-			assert(!_ownerPid);
 			_ownerPid = process->pid();
 			_ownerUid = process->threadGroup()->uid();
 			_ownerGid = process->threadGroup()->gid();
@@ -673,14 +683,16 @@ public:
 			if(!resolver.currentLink())
 				co_return protocols::fs::Error::fileNotFound;
 
-			assert(!_ownerPid);
 			_ownerPid = process->pid();
 			_ownerUid = process->threadGroup()->uid();
 			_ownerGid = process->threadGroup()->gid();
 
 			// Lookup the socket associated with the node.
 			auto node = resolver.currentLink()->getTarget();
-			auto server = globalBindMap.at(node.get());
+			auto it = globalBindMap.find(node.get());
+			if(it == globalBindMap.end())
+				co_return protocols::fs::Error::connectionRefused;
+			auto server = it->second;
 			if(socktype_ == SOCK_STREAM) {
 				server->_acceptQueue.push_back(this);
 				server->_inSeq = ++server->_currentSeq;
