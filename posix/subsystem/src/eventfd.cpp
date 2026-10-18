@@ -73,10 +73,11 @@ struct OpenFile : FileWithDefaults {
 		if(num == 0xFFFFFFFFFFFFFFFF)
 			co_return Error::illegalArguments;
 
-		if (num && num + _counter <= _counter) {
+		// The counter can hold at most 0xFFFFFFFFFFFFFFFE.
+		if (num > 0xFFFFFFFFFFFFFFFE - _counter) {
 			if (_nonBlock)
 				co_return Error::wouldBlock;
-			else
+			while (num > 0xFFFFFFFFFFFFFFFE - _counter)
 				co_await _doorbell.async_wait(); // wait for read
 		}
 
