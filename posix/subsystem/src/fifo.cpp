@@ -85,7 +85,7 @@ public:
 				_channel->statusBell.raise();
 			}
 		}
-		_channel = nullptr;
+		// Keep _channel until destruction since epoll can still poll closed files.
 	}
 
 	async::result<std::expected<size_t, Error>>
@@ -154,7 +154,7 @@ public:
 		int edges = 0;
 
 		while (true) {
-			if(!_channel)
+			if(!isOpen())
 				co_return Error::fileClosed;
 
 			edges = 0;
