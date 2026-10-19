@@ -87,8 +87,7 @@ struct EptCursorPolicy {
 	}
 
 	static uint64_t pteNewTable() {
-		auto newPtAddr = physicalAllocator->allocate(kPageSize);
-		assert(newPtAddr != PhysicalAddr(-1) && "OOM");
+		auto newPtAddr = physicalAllocator->allocateInfallible(PhysicalKind::pinned);
 
 		PageAccessor accessor{newPtAddr};
 		memset(accessor.get(), 0, kPageSize);

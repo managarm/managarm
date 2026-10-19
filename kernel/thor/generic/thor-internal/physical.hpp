@@ -368,6 +368,11 @@ public:
 	// Like allocate() for PhysicalKind::pinned but returns -1 on failure.
 	PhysicalAddr allocate(size_t size, int addressBits = 64);
 
+	// Like allocate() but for a single fungible page; never fails.
+	// If the emergency class is exhausted, contexts that can block wait for memory
+	// (even if the thread is terminated) while other contexts panic.
+	PhysicalAddr allocateInfallible(PhysicalKind kind);
+
 	// kind must match the kind that the chunk was allocated with.
 	void free(PhysicalAddr address, size_t size, PhysicalKind kind);
 
@@ -444,6 +449,10 @@ private:
 
 	// Must be called without holding _mutex.
 	static void completeServed_(WaitList &served);
+
+	// Logs the state of the allocator and panics.
+	// Must be called without holding _mutex.
+	[[noreturn]] void panicOutOfMemory_(PhysicalKind kind, void *caller);
 
 	struct Region {
 		PhysicalAddr physicalBase;

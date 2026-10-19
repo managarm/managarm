@@ -214,7 +214,7 @@ bool bootSecondary(uint64_t id, size_t cpuIndex, EnableInfo enable) {
 	// Participate in global TLB invalidation *before* paging is used by the target CPU.
 	initializeAsidContext(context);
 
-	auto codePhysPtr = physicalAllocator->allocate(kPageSize);
+	auto codePhysPtr = physicalAllocator->allocateInfallible(PhysicalKind::pinned);
 	auto codeVirtPtr = KernelVirtualMemory::global().allocate(kPageSize);
 
 	// We have to map as normal memory here to avoid mismatch with the AP's view.

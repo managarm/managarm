@@ -34,8 +34,7 @@ frg::manual_box<
 uintptr_t CoreSlabPolicy::map(size_t size, size_t align) {
 	assert(size <= kPageSize);
 	assert(align <= kPageSize);
-	PhysicalAddr physical = physicalAllocator->allocate(kPageSize);
-	assert(physical != static_cast<PhysicalAddr>(-1) && "OOM");
+	PhysicalAddr physical = physicalAllocator->allocateInfallible(PhysicalKind::pinned);
 	kernelCoreUsage.fetch_add(kPageSize, std::memory_order_relaxed);
 	return reinterpret_cast<uintptr_t>(mapDirectPhysical(physical));
 }

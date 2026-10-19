@@ -70,8 +70,7 @@ namespace thor::vmx {
 	bool vmxon() {
 		infoLogger() << "vmx: enabling vmx" << frg::endlog;
 
-		auto vmxonRegion = physicalAllocator->allocate(kPageSize);
-		assert(reinterpret_cast<PhysicalAddr>(vmxonRegion) != static_cast<PhysicalAddr>(-1) && "OOM");
+		auto vmxonRegion = physicalAllocator->allocateInfallible(PhysicalKind::pinned);
 
 		PageAccessor vmxonAccessor{vmxonRegion};
 		memset(vmxonAccessor.get(), 0, kPageSize);
@@ -121,7 +120,7 @@ namespace thor::vmx {
 
 	Vmcs::Vmcs(CtorToken, smarter::shared_ptr<EptSpace> ept) : space(ept) {
 		infoLogger() << "vmx: Creating VMCS" << frg::endlog;
-		region = (void*)physicalAllocator->allocate(kPageSize);
+		region = (void*)physicalAllocator->allocateInfallible(PhysicalKind::pinned);
 		PageAccessor regionAccessor{(PhysicalAddr)region};
 		memset(regionAccessor.get(), 0, kPageSize);
 		uint32_t vmxRevision = common::x86::rdmsr(0x480);
@@ -263,19 +262,15 @@ namespace thor::vmx {
 
 		if(getGlobalCpuFeatures()->haveXsave){
 			hostFstate = (uint8_t*)kernelAlloc->allocate(getGlobalCpuFeatures()->xsaveRegionSize);
-			assert(reinterpret_cast<PhysicalAddr>(hostFstate) != static_cast<PhysicalAddr>(-1) && "OOM");
 			memset((void*)hostFstate, 0, getGlobalCpuFeatures()->xsaveRegionSize);
 
 			guestFstate = (uint8_t*)kernelAlloc->allocate(getGlobalCpuFeatures()->xsaveRegionSize);
-			assert(reinterpret_cast<PhysicalAddr>(guestFstate) != static_cast<PhysicalAddr>(-1) && "OOM");
 			memset((void*)guestFstate, 0, getGlobalCpuFeatures()->xsaveRegionSize);
 		} else {
 			hostFstate = (uint8_t*)kernelAlloc->allocate(512);
-			assert(reinterpret_cast<PhysicalAddr>(hostFstate) != static_cast<PhysicalAddr>(-1) && "OOM");
 			memset((void*)hostFstate, 0, 512);
 
 			guestFstate = (uint8_t*)kernelAlloc->allocate(512);
-			assert(reinterpret_cast<PhysicalAddr>(guestFstate) != static_cast<PhysicalAddr>(-1) && "OOM");
 			memset((void*)guestFstate, 0, 512);
 		}
 	}

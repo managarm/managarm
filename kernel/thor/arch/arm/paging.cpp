@@ -55,8 +55,7 @@ PhysicalAddr nullTable = PhysicalAddr(-1);
 
 void switchAwayFromPageTable(int asid) {
 	if(nullTable == PhysicalAddr(-1)) {
-		nullTable = physicalAllocator->allocate(kPageSize);
-		assert(nullTable != PhysicalAddr(-1) && "OOM");
+		nullTable = physicalAllocator->allocateInfallible(PhysicalKind::pinned);
 
 		PageAccessor accessor;
 		accessor = PageAccessor{nullTable};
@@ -132,9 +131,7 @@ PhysicalAddr KernelPageSpace::unmapSingle4k(VirtualAddr pointer) {
 }
 
 ClientPageSpace::ClientPageSpace()
-: PageSpace{physicalAllocator->allocate(kPageSize)} {
-	assert(rootTable() != PhysicalAddr(-1) && "OOM");
-
+: PageSpace{physicalAllocator->allocateInfallible(PhysicalKind::pinned)} {
 	PageAccessor accessor;
 	accessor = PageAccessor{rootTable()};
 	auto l0 = reinterpret_cast<arch::scalar_variable<uint64_t> *>(accessor.get());

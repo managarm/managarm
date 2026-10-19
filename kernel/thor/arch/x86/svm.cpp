@@ -17,16 +17,15 @@ namespace thor::svm {
 
 		common::x86::wrmsr(0xC0000080, common::x86::rdmsr(0xC0000080) | (1 << 12)); // Enable IA32_EFER.SVME
 
-		auto hsaveRegion = physicalAllocator->allocate(kPageSize);
-		assert(reinterpret_cast<PhysicalAddr>(hsaveRegion) != static_cast<PhysicalAddr>(-1) && "OOM");
+		auto hsaveRegion = physicalAllocator->allocateInfallible(PhysicalKind::pinned);
 		common::x86::wrmsr(0xC0010117, hsaveRegion);
 
 		return true;
 	}
 
 	Vcpu::Vcpu(CtorToken, smarter::shared_ptr<NptSpace> npt) : space{npt} {
-		vmcb_region = physicalAllocator->allocate(kPageSize);
-		host_additional_save_region = physicalAllocator->allocate(kPageSize);
+		vmcb_region = physicalAllocator->allocateInfallible(PhysicalKind::pinned);
+		host_additional_save_region = physicalAllocator->allocateInfallible(PhysicalKind::pinned);
 		PageAccessor regionAccessor{vmcb_region};
 		vmcb = (volatile Vmcb *)regionAccessor.get();
 
@@ -69,11 +68,19 @@ namespace thor::svm {
 		vmcb->guestAsid = 1;
 		vmcb->tlbControl = 1;
 
-		iopm_bitmap = physicalAllocator->allocate(IOPM_BITMAP_SIZE);
+		auto iopmOutcome = physicalAllocator->tryAllocate(AllocationClass::kernel,
+				IOPM_BITMAP_SIZE, PhysicalKind::pinned);
+		if(!iopmOutcome)
+			panicLogger() << "thor: Failed to allocate the SVM I/O permission map" << frg::endlog;
+		iopm_bitmap = *iopmOutcome;
 		PageAccessor iopmAccessor{iopm_bitmap};
 		memset(iopmAccessor.get(), 0xFF, IOPM_BITMAP_SIZE);
 
-		msrpm_bitmap = physicalAllocator->allocate(MSRPM_BITMAP_SIZE);
+		auto msrpmOutcome = physicalAllocator->tryAllocate(AllocationClass::kernel,
+				MSRPM_BITMAP_SIZE, PhysicalKind::pinned);
+		if(!msrpmOutcome)
+			panicLogger() << "thor: Failed to allocate the SVM MSR permission map" << frg::endlog;
+		msrpm_bitmap = *msrpmOutcome;
 		PageAccessor msrpmAccessor{msrpm_bitmap};
 		memset(msrpmAccessor.get(), 0xFF, MSRPM_BITMAP_SIZE);
 
@@ -93,11 +100,9 @@ namespace thor::svm {
 		auto simd_state_size = Executor::determineSimdSize(); 
 
 		host_fpu_state = (uint8_t *)kernelAlloc->allocate(simd_state_size);
-		assert(reinterpret_cast<VirtualAddr>(host_fpu_state) != static_cast<VirtualAddr>(-1) && "OOM");
 		memset((void *)host_fpu_state, 0, simd_state_size);
 
 		guest_fpu_state = (uint8_t *)kernelAlloc->allocate(simd_state_size);
-		assert(reinterpret_cast<VirtualAddr>(guest_fpu_state) != static_cast<VirtualAddr>(-1) && "OOM");
 		memset((void *)guest_fpu_state, 0, simd_state_size);
 	}
 

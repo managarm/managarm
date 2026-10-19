@@ -95,9 +95,8 @@ PhysicalAddr KernelPageSpace::unmapSingle4k(VirtualAddr pointer) {
 // User page management.
 // --------------------------------------------------------
 
-ClientPageSpace::ClientPageSpace() : PageSpace{physicalAllocator->allocate(kPageSize)} {
-	assert(rootTable() != PhysicalAddr(-1) && "OOM");
-
+ClientPageSpace::ClientPageSpace()
+: PageSpace{physicalAllocator->allocateInfallible(PhysicalKind::pinned)} {
 	// Initialize the bottom half to unmapped memory.
 	PageAccessor accessor{rootTable()};
 	auto tbl4 = reinterpret_cast<arch::scalar_variable<uint64_t> *>(accessor.get());
