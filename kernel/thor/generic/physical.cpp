@@ -4,6 +4,7 @@
 #include <thor-internal/arch-generic/paging.hpp>
 #include <thor-internal/cpu-data.hpp>
 #include <thor-internal/debug.hpp>
+#include <thor-internal/fiber.hpp>
 #include <thor-internal/physical.hpp>
 #include <thor-internal/thread.hpp>
 
@@ -210,6 +211,58 @@ PhysicalAddr PhysicalChunkAllocator::allocate(size_t size, int addressBits) {
 	if(!outcome)
 		return static_cast<PhysicalAddr>(-1);
 	return *outcome;
+}
+
+PhysicalAddr PhysicalChunkAllocator::allocateInfallible(PhysicalKind kind) {
+	assert(isFungibleAllocation_(kPageSize, kind, 64));
+	if(auto outcome = allocate(kPageSize, kind); outcome)
+		return *outcome;
+	// allocate() only fails here if the emergency class is exhausted and blocking was either
+	// impossible or cancelled by termination. The caller cannot fail, so wait uncancellably.
+	if(canBlockForMemory()) {
+		auto outcome = Thread::asyncBlockCurrent(
+			allocateAwaitable(AllocationClass::kernel, kind, async::cancellation_token{}),
+			nullptr
+		);
+		assert(outcome);
+		return *outcome;
+	}
+	panicOutOfMemory_(kind, __builtin_return_address(0));
+}
+
+void PhysicalChunkAllocator::panicOutOfMemory_(PhysicalKind kind, void *caller) {
+	size_t pinnable;
+	size_t kernelDeficit;
+	size_t userDeficit;
+	{
+		auto irqLock = frg::guard(&irqMutex());
+		auto lock = frg::guard(&_mutex);
+		pinnable = pinnablePages_();
+		kernelDeficit = queueOf_(AllocationClass::kernel).deficit;
+		userDeficit = queueOf_(AllocationClass::user).deficit;
+	}
+
+	const char *kindName = "?";
+	switch(kind) {
+	case PhysicalKind::evictable: kindName = "evictable"; break;
+	case PhysicalKind::pinned: kindName = "pinned"; break;
+	case PhysicalKind::contiguous: kindName = "contiguous"; break;
+	}
+	const char *context = "no executor";
+	if(getCurrentThread())
+		context = "thread";
+	else if(thisFiber())
+		context = "fiber";
+
+	urgentLogger() << "thor: Infallible allocation of a " << kindName << " page failed"
+			<< " (caller " << caller << ", " << context
+			<< ", IPL " << static_cast<int>(currentIpl()) << ")" << frg::endlog;
+	urgentLogger() << "thor: Pages: " << numTotalPages() << " total, "
+			<< numFreePages() << " free, " << pinnable << " pinnable;"
+			<< " floors: kernel " << kernelFloor_ << ", user " << userFloor_ << ";"
+			<< " waiting: kernel " << kernelDeficit << ", user " << userDeficit << frg::endlog;
+	panicLogger() << "thor: Out of physical memory" << frg::endlog;
+	__builtin_trap();
 }
 
 std::expected<PhysicalAddr, Error> PhysicalChunkAllocator::tryAllocate(AllocationClass cls,
