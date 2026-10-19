@@ -48,7 +48,7 @@ constinit frg::manual_box<ClientPageSpace> smpPageSpace;
 
 void setUpTrampoline() {
 	// Allocate a page and create a lower half mapping to identity map it.
-	smpTrampolinePage = physicalAllocator->allocate(kPageSize);
+	smpTrampolinePage = physicalAllocator->allocateInfallible(PhysicalKind::pinned);
 
 	smpPageSpace.initialize();
 	ClientPageSpace::Cursor cursor{smpPageSpace.get(), smpTrampolinePage};
