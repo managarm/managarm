@@ -14,8 +14,7 @@ UniqueKernelStack UniqueKernelStack::make() {
 	auto pointer = KernelVirtualMemory::global().allocate(guardedSize);
 
 	for(size_t offset = 0; offset < kSize; offset += kPageSize) {
-		PhysicalAddr physical = physicalAllocator->allocate(kPageSize);
-		assert(physical != static_cast<PhysicalAddr>(-1) && "OOM");
+		PhysicalAddr physical = physicalAllocator->allocateInfallible(PhysicalKind::pinned);
 		KernelPageSpace::global().mapSingle4k(
 				reinterpret_cast<VirtualAddr>(pointer) + guardedSize - kSize + offset,
 				physical, page_access::write, CachingMode::null);

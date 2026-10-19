@@ -665,9 +665,7 @@ public:
 	}
 
 	ZeroMemory(CtorToken) {
-		_zeroPage = physicalAllocator->allocate(kPageSize);
-		if (_zeroPage == PhysicalAddr(-1))
-			panicLogger() << "thor: OOM when trying to allocate zero page" << frg::endlog;
+		_zeroPage = physicalAllocator->allocateInfallible(PhysicalKind::pinned);
 		PageAccessor accessor{_zeroPage};
 		memset(accessor.get(), 0, kPageSize);
 

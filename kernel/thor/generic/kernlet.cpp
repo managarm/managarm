@@ -156,8 +156,7 @@ smarter::shared_ptr<KernletObject> processElfDso(const char *buffer,
 			for(size_t pg = 0; pg < misalign + phdr.p_memsz; pg += kPageSize) {
 				auto va = reinterpret_cast<VirtualAddr>(base + phdr.p_vaddr + pg)
 						& ~(kPageSize - 1);
-				auto physical = physicalAllocator->allocate(kPageSize);
-				assert(physical != PhysicalAddr(-1) && "OOM");
+				auto physical = physicalAllocator->allocateInfallible(PhysicalKind::pinned);
 				KernelPageSpace::global().mapSingle4k(va, physical,
 						pf, CachingMode::null);
 			}
