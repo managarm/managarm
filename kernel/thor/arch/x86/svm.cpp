@@ -100,11 +100,9 @@ namespace thor::svm {
 		auto simd_state_size = Executor::determineSimdSize(); 
 
 		host_fpu_state = (uint8_t *)kernelAlloc->allocate(simd_state_size);
-		assert(reinterpret_cast<VirtualAddr>(host_fpu_state) != static_cast<VirtualAddr>(-1) && "OOM");
 		memset((void *)host_fpu_state, 0, simd_state_size);
 
 		guest_fpu_state = (uint8_t *)kernelAlloc->allocate(simd_state_size);
-		assert(reinterpret_cast<VirtualAddr>(guest_fpu_state) != static_cast<VirtualAddr>(-1) && "OOM");
 		memset((void *)guest_fpu_state, 0, simd_state_size);
 	}
 

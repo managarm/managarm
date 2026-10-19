@@ -262,19 +262,15 @@ namespace thor::vmx {
 
 		if(getGlobalCpuFeatures()->haveXsave){
 			hostFstate = (uint8_t*)kernelAlloc->allocate(getGlobalCpuFeatures()->xsaveRegionSize);
-			assert(reinterpret_cast<PhysicalAddr>(hostFstate) != static_cast<PhysicalAddr>(-1) && "OOM");
 			memset((void*)hostFstate, 0, getGlobalCpuFeatures()->xsaveRegionSize);
 
 			guestFstate = (uint8_t*)kernelAlloc->allocate(getGlobalCpuFeatures()->xsaveRegionSize);
-			assert(reinterpret_cast<PhysicalAddr>(guestFstate) != static_cast<PhysicalAddr>(-1) && "OOM");
 			memset((void*)guestFstate, 0, getGlobalCpuFeatures()->xsaveRegionSize);
 		} else {
 			hostFstate = (uint8_t*)kernelAlloc->allocate(512);
-			assert(reinterpret_cast<PhysicalAddr>(hostFstate) != static_cast<PhysicalAddr>(-1) && "OOM");
 			memset((void*)hostFstate, 0, 512);
 
 			guestFstate = (uint8_t*)kernelAlloc->allocate(512);
-			assert(reinterpret_cast<PhysicalAddr>(guestFstate) != static_cast<PhysicalAddr>(-1) && "OOM");
 			memset((void*)guestFstate, 0, 512);
 		}
 	}
