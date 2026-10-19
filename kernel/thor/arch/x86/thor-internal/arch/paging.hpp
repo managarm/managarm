@@ -143,9 +143,7 @@ struct X86CursorPolicy {
 		return pte & pteAddress;
 	}
 
-	static uint64_t pteNewTable() {
-		auto newPtAddr = physicalAllocator->allocateInfallible(PhysicalKind::pinned);
-
+	static uint64_t pteNewTable(PhysicalAddr newPtAddr) {
 		PageAccessor accessor{newPtAddr};
 		memset(accessor.get(), 0, kPageSize);
 

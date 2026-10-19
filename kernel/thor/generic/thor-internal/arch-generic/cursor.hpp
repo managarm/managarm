@@ -47,8 +47,8 @@ concept CursorPolicy = requires (T policy, uint64_t pte, uint64_t *ptePtr,
 	{ T::pteTablePresent(pte) } -> std::same_as<bool>;
 	// Get the table address from the given PTE.
 	{ T::pteTableAddress(pte) } -> std::same_as<PhysicalAddr>;
-	// Allocate a new page table and construct a PTE for it.
-	{ policy.pteNewTable() } -> std::same_as<uint64_t>;
+	// Initialize the given page as an empty page table and construct a PTE for it.
+	{ policy.pteNewTable(pa) } -> std::same_as<uint64_t>;
 };
 
 template <CursorPolicy Policy>
@@ -287,7 +287,7 @@ private:
 			return;
 		}
 
-		ptEnt = policy_.pteNewTable();
+		ptEnt = policy_.pteNewTable(physicalAllocator->allocateInfallible(PhysicalKind::pinned));
 		auto subPtPtr = Policy::pteTableAddress(ptEnt);
 		subPt = PageAccessor{subPtPtr};
 

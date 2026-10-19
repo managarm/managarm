@@ -434,9 +434,7 @@ public:
 		return pte & iommuAddress;
 	}
 
-	uint64_t pteNewTable() {
-		auto newPtAddr = physicalAllocator->allocateInfallible(PhysicalKind::pinned);
-
+	uint64_t pteNewTable(PhysicalAddr newPtAddr) {
 		PageAccessor accessor{newPtAddr};
 		memset(accessor.get(), 0, kPageSize);
 		if (!coherent_)
