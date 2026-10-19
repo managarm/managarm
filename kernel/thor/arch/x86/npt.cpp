@@ -116,9 +116,10 @@ bool NptOperations::submitShootdown(ShootNode *node) {
 }
 
 frg::expected<Error, PagesAffected> NptOperations::mapPresentPages(VirtualAddr va, MemoryView *view,
-		uintptr_t offset, size_t size, PageFlags flags, CachingMode mode, RevokeBatch &batch) {
+		uintptr_t offset, size_t size, PageFlags flags, CachingMode mode, RevokeBatch &batch,
+		PageMagazine &tables) {
 	return mapPresentPagesByCursor<NptCursor>(pageSpace_,
-			va, view, offset, size, flags, mode, batch);
+			va, view, offset, size, flags, mode, batch, tables);
 }
 
 frg::expected<Error, PagesAffected> NptOperations::restrictPages(VirtualAddr va,
@@ -128,9 +129,9 @@ frg::expected<Error, PagesAffected> NptOperations::restrictPages(VirtualAddr va,
 
 frg::expected<Error, PagesAffected> NptOperations::faultPage(VirtualAddr va, MemoryView *view,
 		uintptr_t offset, FetchFlags fetchFlags, PageFlags flags, CachingMode mode,
-		RevokeBatch &batch) {
+		RevokeBatch &batch, PageMagazine &tables) {
 	return faultPageByCursor<NptCursor>(pageSpace_,
-			va, view, offset, fetchFlags, flags, mode, batch);
+			va, view, offset, fetchFlags, flags, mode, batch, tables);
 }
 
 frg::expected<Error, PagesAffected> NptOperations::cleanPages(VirtualAddr va, size_t size,

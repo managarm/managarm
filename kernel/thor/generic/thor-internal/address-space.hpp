@@ -162,7 +162,7 @@ inline CachingMode determineCachingMode(CachingMode physicalRangeCaching,
 template<typename Cursor, typename PageSpace>
 frg::expected<Error, PagesAffected> mapPresentPagesByCursor(PageSpace *ps, VirtualAddr va,
 		MemoryView *view, uintptr_t offset, size_t size, PageFlags flags, CachingMode mode,
-		RevokeBatch &batch, typename Cursor::PolicyType policy) {
+		RevokeBatch &batch, PageMagazine &tables, typename Cursor::PolicyType policy) {
 	assert(!(va & (kPageSize - 1)));
 	assert(!(offset & (kPageSize - 1)));
 	assert(!(size & (kPageSize - 1)));
@@ -197,8 +197,15 @@ frg::expected<Error, PagesAffected> mapPresentPagesByCursor(PageSpace *ps, Virtu
 		auto effectiveFlags = flags;
 		if (!physicalRange.isMutable)
 			effectiveFlags &= ~page_access::write;
-		auto [status, oldPhysical] = c.map4k(physicalRange.physical, effectiveFlags,
-			determineCachingMode(physicalRange.cachingMode, mode));
+		auto mapOutcome = c.map4k(physicalRange.physical, effectiveFlags,
+			determineCachingMode(physicalRange.cachingMode, mode), tables);
+		// Mapping present pages is optional, so stop early instead of failing.
+		if(!mapOutcome) {
+			if(auto descriptor = globalPfnDb().find(physicalRange.physical))
+				decrementUses(*descriptor);
+			break;
+		}
+		auto [status, oldPhysical] = *mapOutcome;
 		affected.rssIncrease += kPageSize;
 		if(status & page_status::present) {
 			batch.recordUnmapped(oldPhysical, status & page_status::dirty);
@@ -213,9 +220,9 @@ frg::expected<Error, PagesAffected> mapPresentPagesByCursor(PageSpace *ps, Virtu
 template<typename Cursor, typename PageSpace>
 frg::expected<Error, PagesAffected> mapPresentPagesByCursor(PageSpace *ps, VirtualAddr va,
 		MemoryView *view, uintptr_t offset, size_t size, PageFlags flags, CachingMode mode,
-		RevokeBatch &batch) {
+		RevokeBatch &batch, PageMagazine &tables) {
 	return mapPresentPagesByCursor<Cursor>(ps, va, view, offset, size, flags, mode, batch,
-			typename Cursor::PolicyType{});
+			tables, typename Cursor::PolicyType{});
 }
 
 template<typename Cursor, typename PageSpace>
@@ -257,7 +264,7 @@ frg::expected<Error, PagesAffected> restrictPagesByCursor(PageSpace *ps, Virtual
 template<typename Cursor, typename PageSpace>
 frg::expected<Error, PagesAffected> faultPageByCursor(PageSpace *ps, VirtualAddr va,
 		MemoryView *view, uintptr_t offset, FetchFlags fetchFlags, PageFlags flags, CachingMode mode,
-		RevokeBatch &batch, typename Cursor::PolicyType policy) {
+		RevokeBatch &batch, PageMagazine &tables, typename Cursor::PolicyType policy) {
 	assert(!(va & (kPageSize - 1)));
 	assert(!(offset & (kPageSize - 1)));
 	// At least one access bit is always set; see VirtualOperations.
@@ -282,8 +289,14 @@ frg::expected<Error, PagesAffected> faultPageByCursor(PageSpace *ps, VirtualAddr
 	auto effectiveFlags = flags;
 	if (!physicalRange.isMutable)
 		effectiveFlags &= ~page_access::write;
-	auto [status, oldPhysical] = c.remap4k(physicalRange.physical, effectiveFlags,
-		determineCachingMode(physicalRange.cachingMode, mode));
+	auto remapOutcome = c.remap4k(physicalRange.physical, effectiveFlags,
+		determineCachingMode(physicalRange.cachingMode, mode), tables);
+	if(!remapOutcome) {
+		if(auto descriptor = globalPfnDb().find(physicalRange.physical))
+			decrementUses(*descriptor);
+		return remapOutcome.error();
+	}
+	auto [status, oldPhysical] = *remapOutcome;
 	if(status & page_status::present) {
 		batch.recordUnmapped(oldPhysical, status & page_status::dirty);
 		affected.rssDecrease += kPageSize;
@@ -297,9 +310,9 @@ frg::expected<Error, PagesAffected> faultPageByCursor(PageSpace *ps, VirtualAddr
 template<typename Cursor, typename PageSpace>
 frg::expected<Error, PagesAffected> faultPageByCursor(PageSpace *ps, VirtualAddr va,
 		MemoryView *view, uintptr_t offset, FetchFlags fetchFlags, PageFlags flags, CachingMode mode,
-		RevokeBatch &batch) {
+		RevokeBatch &batch, PageMagazine &tables) {
 	return faultPageByCursor<Cursor>(ps, va, view, offset, fetchFlags, flags, mode, batch,
-			typename Cursor::PolicyType{});
+			tables, typename Cursor::PolicyType{});
 }
 
 template<typename Cursor, typename PageSpace>
@@ -405,10 +418,14 @@ struct VirtualOperations {
 	// and stop early (see RevokeBatch::suspendAt()) once it is full.
 	// Use revokePages() to drive them.
 
+	// mapPresentPages() and faultPage() take missing page tables from the PageMagazine or
+	// allocate them without blocking. If that fails, faultPage() returns Error::noMemory and sets
+	// PageMagazine::wanted, while mapPresentPages() stops early.
+
 	// Precondition: flags has at least one access bit (read/write/execute) set.
 	virtual frg::expected<Error, PagesAffected> mapPresentPages(VirtualAddr va, MemoryView *view,
 			uintptr_t offset, size_t size, PageFlags flags, CachingMode mode,
-			RevokeBatch &batch) = 0;
+			RevokeBatch &batch, PageMagazine &tables) = 0;
 
 	// Restricts the permissions of present pages; the caching mode of a page is preserved.
 	// Precondition: flags has at least one access bit (read/write/execute) set.
@@ -418,7 +435,7 @@ struct VirtualOperations {
 	// Precondition: flags has at least one access bit (read/write/execute) set.
 	virtual frg::expected<Error, PagesAffected> faultPage(VirtualAddr va, MemoryView *view,
 			uintptr_t offset, FetchFlags fetchFlags, PageFlags flags, CachingMode mode,
-			RevokeBatch &batch) = 0;
+			RevokeBatch &batch, PageMagazine &tables) = 0;
 
 	virtual frg::expected<Error, PagesAffected> cleanPages(VirtualAddr va, size_t size,
 			RevokeBatch &batch) = 0;
@@ -984,9 +1001,9 @@ public:
 
 		frg::expected<Error, PagesAffected> mapPresentPages(VirtualAddr va, MemoryView *view,
 				uintptr_t offset, size_t size, PageFlags flags, CachingMode mode,
-				RevokeBatch &batch) override {
+				RevokeBatch &batch, PageMagazine &tables) override {
 			return mapPresentPagesByCursor<ClientPageSpace::Cursor>(&space_->pageSpace_,
-					va, view, offset, size, flags, mode, batch);
+					va, view, offset, size, flags, mode, batch, tables);
 		}
 
 		frg::expected<Error, PagesAffected> restrictPages(VirtualAddr va,
@@ -997,9 +1014,9 @@ public:
 
 		frg::expected<Error, PagesAffected> faultPage(VirtualAddr va, MemoryView *view,
 				uintptr_t offset, FetchFlags fetchFlags, PageFlags flags, CachingMode mode,
-				RevokeBatch &batch) override {
+				RevokeBatch &batch, PageMagazine &tables) override {
 			return faultPageByCursor<ClientPageSpace::Cursor>(&space_->pageSpace_,
-					va, view, offset, fetchFlags, flags, mode, batch);
+					va, view, offset, fetchFlags, flags, mode, batch, tables);
 		}
 
 		frg::expected<Error, PagesAffected> cleanPages(VirtualAddr va, size_t size,

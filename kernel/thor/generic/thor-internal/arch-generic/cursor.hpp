@@ -2,6 +2,7 @@
 
 #include <stddef.h>
 #include <concepts>
+#include <expected>
 #include <tuple>
 #include <utility>
 
@@ -153,9 +154,15 @@ public:
 		return false;
 	}
 
-	std::tuple<PageStatus, PhysicalAddr> map4k(PhysicalAddr pa, PageFlags flags, CachingMode cachingMode) {
-		if(!accessors_[lastLevel])
-			realizePts_();
+	// map4k() and remap4k() take missing page tables from tables or allocate them without blocking.
+	// If that fails, they set tables.wanted to the number of missing tables and return
+	// Error::noMemory without changing the PTE. Callers then refill tables and retry.
+	std::expected<std::tuple<PageStatus, PhysicalAddr>, Error>
+	map4k(PhysicalAddr pa, PageFlags flags, CachingMode cachingMode, PageMagazine &tables) {
+		if(!accessors_[lastLevel]) {
+			if(auto realized = realizePts_(tables); !realized)
+				return std::unexpected{realized.error()};
+		}
 
 		auto newPte = Policy::pteBuild(pa, flags, cachingMode);
 
@@ -165,12 +172,15 @@ public:
 		auto oldPte = exchangeCurrentPte_(newPte);
 		policy_.pteWriteBarrier(currentPtePtr_());
 
-		return {Policy::ptePageStatus(oldPte), Policy::ptePageAddress(oldPte)};
+		return std::tuple{Policy::ptePageStatus(oldPte), Policy::ptePageAddress(oldPte)};
 	}
 
-	std::tuple<PageStatus, PhysicalAddr> remap4k(PhysicalAddr pa, PageFlags flags, CachingMode cachingMode) {
-		if(!accessors_[lastLevel])
-			realizePts_();
+	std::expected<std::tuple<PageStatus, PhysicalAddr>, Error>
+	remap4k(PhysicalAddr pa, PageFlags flags, CachingMode cachingMode, PageMagazine &tables) {
+		if(!accessors_[lastLevel]) {
+			if(auto realized = realizePts_(tables); !realized)
+				return std::unexpected{realized.error()};
+		}
 
 		if (flags & page_access::execute)
 			Policy::pteSyncICache(pa);
@@ -179,7 +189,7 @@ public:
 		ptEnt = exchangeCurrentPte_(ptEnt);
 		policy_.pteWriteBarrier(currentPtePtr_());
 
-		return {Policy::ptePageStatus(ptEnt), Policy::ptePageAddress(ptEnt)};
+		return std::tuple{Policy::ptePageStatus(ptEnt), Policy::ptePageAddress(ptEnt)};
 	}
 
 	std::tuple<PageStatus, PhysicalAddr, bool> restrict4k(PageFlags flags) {
@@ -276,7 +286,8 @@ private:
 	}
 
 
-	void doRealizeLevel_(PageAccessor &subPt, PageAccessor &pt, size_t level) {
+	// Returns false if no page is available for a new table.
+	bool doRealizeLevel_(PageAccessor &subPt, PageAccessor &pt, size_t level, PageMagazine &tables) {
 		auto ptPtr = reinterpret_cast<uint64_t *>(pt.get())
 			+ ((va_ >> levelShift(level)) & levelMask);
 		auto ptEnt = __atomic_load_n(ptPtr, __ATOMIC_ACQUIRE);
@@ -284,31 +295,44 @@ private:
 		if(Policy::pteTablePresent(ptEnt)) {
 			auto subPtPtr = Policy::pteTableAddress(ptEnt);
 			subPt = PageAccessor{subPtPtr};
-			return;
+			return true;
 		}
 
-		ptEnt = policy_.pteNewTable(physicalAllocator->allocateInfallible(PhysicalKind::pinned));
+		PhysicalAddr newPtAddr;
+		if(!tables.pages.empty()) {
+			newPtAddr = tables.pages.pop();
+		}else{
+			auto physical = physicalAllocator->tryAllocate(AllocationClass::kernel, kPageSize,
+					PhysicalKind::pinned);
+			if(!physical)
+				return false;
+			newPtAddr = *physical;
+		}
+		ptEnt = policy_.pteNewTable(newPtAddr);
 		auto subPtPtr = Policy::pteTableAddress(ptEnt);
 		subPt = PageAccessor{subPtPtr};
 
 		__atomic_store_n(ptPtr, ptEnt, __ATOMIC_RELEASE);
 		policy_.pteWriteBarrier(ptPtr);
+		return true;
 	}
 
-	void realizeLevel_(size_t level) {
-		if(accessors_[level]) /*[[likely]]*/
-			return;
-		assert(level != initialLevel_);
-		realizeLevel_(level - 1);
-		return doRealizeLevel_(accessors_[level], accessors_[level - 1], level - 1);
-	}
-
-	void realizePts_() {
+	std::expected<void, Error> realizePts_(PageMagazine &tables) {
 		auto irqLock = frg::guard(&irqMutex());
 		auto lock = frg::guard(&space_->tableMutex());
-		{
-			realizeLevel_(lastLevel);
+
+		size_t level = lastLevel;
+		while(!accessors_[level]) {
+			assert(level != initialLevel_);
+			level--;
 		}
+		for(; level < lastLevel; level++) {
+			if(!doRealizeLevel_(accessors_[level + 1], accessors_[level], level, tables)) {
+				tables.wanted = lastLevel - level;
+				return std::unexpected{Error::noMemory};
+			}
+		}
+		return {};
 	}
 
 private:

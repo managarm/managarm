@@ -541,6 +541,9 @@ struct PageMagazine {
 	// On failure, the pages that were already allocated stay in the magazine.
 	std::expected<void, Error> refill();
 
+	// Like refill() but never fails; see PhysicalChunkAllocator::allocateInfallible().
+	void refillInfallible();
+
 	PageChain pages;
 	// Number of pages that the last failed map() was missing.
 	size_t wanted = 0;

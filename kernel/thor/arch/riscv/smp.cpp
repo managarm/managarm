@@ -52,7 +52,15 @@ void setUpTrampoline() {
 
 	smpPageSpace.initialize();
 	ClientPageSpace::Cursor cursor{smpPageSpace.get(), smpTrampolinePage};
-	cursor.map4k(smpTrampolinePage, page_access::execute, CachingMode::null);
+	PageMagazine tables;
+	while (true) {
+		auto outcome =
+		    cursor.map4k(smpTrampolinePage, page_access::execute, CachingMode::null, tables);
+		if (outcome)
+			break;
+		assert(outcome.error() == Error::noMemory);
+		tables.refillInfallible();
+	}
 	*cursor.getPtePtr() &= ~pteUser;  // Workaround: unset the U bit such that S-mode can execute.
 	*cursor.getPtePtr() |= pteAccess; // Workaround: set the A bit to avoid a page fault.
 

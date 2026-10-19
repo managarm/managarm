@@ -463,14 +463,14 @@ struct IntelIommuOperations final : PageSpace, VirtualOperations {
 
 	frg::expected<Error, PagesAffected> mapPresentPages(VirtualAddr va, MemoryView *view,
 			uintptr_t offset, size_t size, PageFlags flags, CachingMode mode,
-			RevokeBatch &batch) override;
+			RevokeBatch &batch, PageMagazine &tables) override;
 
 	frg::expected<Error, PagesAffected> restrictPages(VirtualAddr va,
 			size_t size, PageFlags flags, RevokeBatch &batch) override;
 
 	frg::expected<Error, PagesAffected> faultPage(VirtualAddr va, MemoryView *view,
 			uintptr_t offset, FetchFlags fetchFlags, PageFlags flags, CachingMode mode,
-			RevokeBatch &batch) override;
+			RevokeBatch &batch, PageMagazine &tables) override;
 
 	frg::expected<Error, PagesAffected> cleanPages(VirtualAddr va, size_t size,
 			RevokeBatch &batch) override;
@@ -1399,6 +1399,7 @@ std::expected<smarter::shared_ptr<IntelIommuDmaSpace>, Error> IntelIommuDmaSpace
 		ptr->setupInitialHole(holeBase, addressSpaceLimit - holeBase);
 
 	IntelIommuCursorPolicy policy{iommu->sagaw(), iommu->pageWalkingCoherent()};
+	PageMagazine tables;
 	for(const auto &region : sorted) {
 		PageFlags flags = 0;
 		if(region.readable)
@@ -1408,7 +1409,13 @@ std::expected<smarter::shared_ptr<IntelIommuDmaSpace>, Error> IntelIommuDmaSpace
 
 		IntelIommuCursor cursor{&ptr->iommuOps_, region.base, policy};
 		for(size_t progress = 0; progress < region.size; progress += kPageSize) {
-			cursor.map4k(region.base + progress, flags, CachingMode::null);
+			while(true) {
+				auto outcome = cursor.map4k(region.base + progress, flags, CachingMode::null, tables);
+				if(outcome)
+					break;
+				assert(outcome.error() == Error::noMemory);
+				tables.refillInfallible();
+			}
 			cursor.advance4k();
 		}
 	}
@@ -1417,10 +1424,11 @@ std::expected<smarter::shared_ptr<IntelIommuDmaSpace>, Error> IntelIommuDmaSpace
 }
 
 frg::expected<Error, PagesAffected> IntelIommuOperations::mapPresentPages(VirtualAddr va, MemoryView *view,
-		uintptr_t offset, size_t size, PageFlags flags, CachingMode mode, RevokeBatch &batch) {
+		uintptr_t offset, size_t size, PageFlags flags, CachingMode mode, RevokeBatch &batch,
+		PageMagazine &tables) {
 	IntelIommuCursorPolicy policy{iommu_->sagaw(), iommu_->pageWalkingCoherent()};
 	return mapPresentPagesByCursor<IntelIommuCursor>(this, va, view, offset, size, flags, mode,
-			batch, policy);
+			batch, tables, policy);
 }
 
 frg::expected<Error, PagesAffected> IntelIommuOperations::restrictPages(VirtualAddr va,
@@ -1431,10 +1439,10 @@ frg::expected<Error, PagesAffected> IntelIommuOperations::restrictPages(VirtualA
 
 frg::expected<Error, PagesAffected> IntelIommuOperations::faultPage(VirtualAddr va, MemoryView *view,
 		uintptr_t offset, FetchFlags fetchFlags, PageFlags flags, CachingMode mode,
-		RevokeBatch &batch) {
+		RevokeBatch &batch, PageMagazine &tables) {
 	IntelIommuCursorPolicy policy{iommu_->sagaw(), iommu_->pageWalkingCoherent()};
 	return faultPageByCursor<IntelIommuCursor>(this, va, view, offset, fetchFlags, flags, mode,
-			batch, policy);
+			batch, tables, policy);
 }
 
 frg::expected<Error, PagesAffected> IntelIommuOperations::cleanPages(VirtualAddr va, size_t size,

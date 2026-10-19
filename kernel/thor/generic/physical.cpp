@@ -681,6 +681,11 @@ std::expected<void, Error> PageMagazine::refill() {
 	return {};
 }
 
+void PageMagazine::refillInfallible() {
+	for(auto n = std::exchange(wanted, 0); n; n--)
+		pages.push(physicalAllocator->allocateInfallible(PhysicalKind::pinned));
+}
+
 PhysicalWindow::PhysicalWindow(PhysicalAddr physical, size_t size, CachingMode caching)
 : size_{size} {
 	uintptr_t lowAddr = physical & ~(kPageSize - 1);

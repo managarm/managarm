@@ -38,7 +38,8 @@ public:
 		    size_t size,
 		    PageFlags flags,
 		    CachingMode mode,
-		    RevokeBatch &batch
+		    RevokeBatch &batch,
+		    PageMagazine &tables
 		) override;
 
 		frg::expected<Error, PagesAffected>
@@ -51,7 +52,8 @@ public:
 		    FetchFlags fetchFlags,
 		    PageFlags flags,
 		    CachingMode mode,
-		    RevokeBatch &batch
+		    RevokeBatch &batch,
+		    PageMagazine &tables
 		) override;
 
 		frg::expected<Error, PagesAffected>
