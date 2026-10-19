@@ -650,6 +650,12 @@ struct IntelIommu final : Iommu, IrqSink {
 		}
 
 	private:
+		// 128-bit QI descriptor
+		struct QiRingEntry128 {
+			arch::bit_value<uint64_t> low;
+			arch::bit_value<uint64_t> high;
+		};
+
 		// Occupies ring slots until the wait descriptor that terminates it completes.
 		struct Submission {
 			virtual void complete() = 0;
@@ -750,14 +756,7 @@ struct IntelIommu final : Iommu, IrqSink {
 			EventSubmission submission;
 			{
 				auto lock = frg::guard(&qiRingLock_);
-				PageAccessor qiRing{qiRingPhys_};
-				frg::span<QiRingEntry128> qiRingEntries{reinterpret_cast<QiRingEntry128 *>(qiRing.get()), invalidationQueueSize};
-				auto [index, _] = allocateSeq();
-				auto &entry = qiRingEntries[index];
-
-				func(entry);
-
-				submitAsync(&submission);
+				submit(2, func, &submission);
 			}
 
 			co_await submission.event.wait();
@@ -836,18 +835,23 @@ struct IntelIommu final : Iommu, IrqSink {
 		}
 
 	private:
-		// 128-bit QI descriptor
-		struct QiRingEntry128 {
-			arch::bit_value<uint64_t> low;
-			arch::bit_value<uint64_t> high;
-		};
-
-		// Terminates a submission with the wait descriptor that completes `submission` and rings the doorbell.
+		// Writes the `slots - 1` descriptors of a submission via `func`, terminates it with the
+		// wait descriptor that completes `submission` and rings the doorbell.
+		// The slots must have been acquired from `freeSlots_` beforehand.
 		// must be called with `qiRingLock_` held.
-		void submitAsync(Submission *submission) {
-			auto [index, seq] = allocateSeq();
+		template <typename F>
+		void submit(size_t slots, F &&func, Submission *submission) {
+			assert(slots >= 2);
+
 			PageAccessor qiRing{qiRingPhys_};
 			frg::span<QiRingEntry128> qiRingEntries{reinterpret_cast<QiRingEntry128 *>(qiRing.get()), invalidationQueueSize};
+
+			for (size_t i = 1; i < slots; i++) {
+				auto [dataIndex, _] = allocateSeq();
+				func(qiRingEntries[dataIndex]);
+			}
+
+			auto [index, seq] = allocateSeq();
 			auto &entry = qiRingEntries[index];
 
 			entry.low = qi::type(5);
@@ -905,9 +909,6 @@ struct IntelIommu final : Iommu, IrqSink {
 			assert(!submission->node);
 			submission->node = node;
 
-			PageAccessor qiRing{qiRingPhys_};
-			frg::span<QiRingEntry128> qiRingEntries{reinterpret_cast<QiRingEntry128 *>(qiRing.get()), invalidationQueueSize};
-
 			if (psi) {
 				auto length = node->size;
 				assert(length);
@@ -918,7 +919,7 @@ struct IntelIommu final : Iommu, IrqSink {
 				size_t maxChunkPages = 1uz << maxAddressMask;
 				size_t maxChunk = maxChunkPages << 12;
 
-				while (length) {
+				submit(slots, [&] (QiRingEntry128 &entry) {
 					// Determine the natural alignment of this address.
 					// (addr & -addr) isolates the lowest set bit, yielding the max power-of-2 alignment.
 					size_t alignment = (addr == 0) ? maxChunk : (addr & -addr);
@@ -926,9 +927,6 @@ struct IntelIommu final : Iommu, IrqSink {
 					size_t chunk = std::min({alignment, largestFittingChunk, maxChunk});
 					assert(chunk);
 					auto am = std::countr_zero(chunk) - 12;
-
-					auto [index, seq] = allocateSeq();
-					auto &entry = qiRingEntries[index];
 
 					entry.high = qi::iotlb_invalidate::addressMask(am);
 					entry.high |= qi::iotlb_invalidate::pageNumber(addr >> 12);
@@ -940,25 +938,21 @@ struct IntelIommu final : Iommu, IrqSink {
 
 					addr += chunk;
 					length -= chunk;
-					slots--;
-				}
+				}, submission);
 
-				assert(slots == 1);
+				assert(!length);
 			} else {
 				assert(slots == 2);
 
-				auto [index, seq] = allocateSeq();
-				auto &entry = qiRingEntries[index];
-
-				entry.high = arch::bit_value<uint64_t>{0};
-				entry.low = qi::type(2);
-				entry.low |= qi::iotlb_invalidate::invalidationGranularity(qi::iotlb_invalidate::InvalidationGranularity::domain);
-				entry.low |= qi::iotlb_invalidate::drainWrites(true);
-				entry.low |= qi::iotlb_invalidate::drainReads(true);
-				entry.low |= qi::iotlb_invalidate::domainId(domain);
+				submit(slots, [&] (QiRingEntry128 &entry) {
+					entry.high = arch::bit_value<uint64_t>{0};
+					entry.low = qi::type(2);
+					entry.low |= qi::iotlb_invalidate::invalidationGranularity(qi::iotlb_invalidate::InvalidationGranularity::domain);
+					entry.low |= qi::iotlb_invalidate::drainWrites(true);
+					entry.low |= qi::iotlb_invalidate::drainReads(true);
+					entry.low |= qi::iotlb_invalidate::domainId(domain);
+				}, submission);
 			}
-
-			submitAsync(submission);
 		}
 
 		coroutine<void> runSubmissionLoop() {
