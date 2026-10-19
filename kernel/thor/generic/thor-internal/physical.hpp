@@ -525,4 +525,20 @@ private:
 
 extern constinit frg::manual_box<PhysicalChunkAllocator> physicalAllocator;
 
+// Caches free physical pages that back the kernel's slab allocator.
+// Filled in contexts that can potentially block and consumed from the slab allocator (which cannot block).
+struct PageMagazine {
+	PageMagazine() = default;
+
+	PageMagazine(const PageMagazine &) = delete;
+
+	PageMagazine &operator= (const PageMagazine &) = delete;
+
+	~PageMagazine();
+
+	PageChain pages;
+	// Number of pages that the last failed map() was missing.
+	size_t wanted = 0;
+};
+
 } // namespace thor

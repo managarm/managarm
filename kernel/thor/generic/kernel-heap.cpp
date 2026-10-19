@@ -203,7 +203,7 @@ void *HeapSlabPolicy::map(size_t length) {
 	size_t numPages = length / kPageSize;
 
 	auto ctx = currentExecutorContext();
-	HeapMagazine scratch;
+	PageMagazine scratch;
 	auto &magazine = ctx ? ctx->heapMagazine : scratch;
 	if(magazine.pages.size() < numPages) {
 		// Contexts without an ExecutorContext cannot sleep, so they use the emergency class.
@@ -267,11 +267,6 @@ void HeapSlabPolicy::unmap(void *ptr, size_t length) {
 			}
 		)
 	);
-}
-
-HeapMagazine::~HeapMagazine() {
-	while(!pages.empty())
-		physicalAllocator->free(pages.pop(), kPageSize);
 }
 
 void *Allocator::refillAndAllocate_(size_t size) const {

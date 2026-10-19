@@ -649,6 +649,11 @@ void PhysicalChunkAllocator::completeServed_(WaitList &served) {
 		served.pop_front()->event.raise();
 }
 
+PageMagazine::~PageMagazine() {
+	while(!pages.empty())
+		physicalAllocator->free(pages.pop(), kPageSize);
+}
+
 PhysicalWindow::PhysicalWindow(PhysicalAddr physical, size_t size, CachingMode caching)
 : size_{size} {
 	uintptr_t lowAddr = physical & ~(kPageSize - 1);
