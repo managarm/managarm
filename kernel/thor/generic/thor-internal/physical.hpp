@@ -536,6 +536,11 @@ struct PageMagazine {
 
 	~PageMagazine();
 
+	// Allocates the wanted pages in the kernel class.
+	// Blocks for them if possible (i.e., if canBlockForMemory() is true). Falls back to the emergency class.
+	// On failure, the pages that were already allocated stay in the magazine.
+	std::expected<void, Error> refill();
+
 	PageChain pages;
 	// Number of pages that the last failed map() was missing.
 	size_t wanted = 0;
