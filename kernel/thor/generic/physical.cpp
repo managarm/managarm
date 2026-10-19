@@ -15,38 +15,57 @@ static bool logPhysicalAllocs = false;
 THOR_DEFINE_ELF_NOTE(memoryLayoutNote){elf_note_type::memoryLayout, {}};
 THOR_DEFINE_ELF_NOTE(physicalMemoryNote){elf_note_type::physicalMemory, {}};
 
+namespace {
+
+CachingMode firmwareAttributesToCachingMode(uint32_t attributes) {
+	if(attributes & eir_memory_attrs::wb)
+		return CachingMode::writeBack;
+	// We do not have a CachingMode to represent WT, treat it like WC.
+	if(attributes & (eir_memory_attrs::wc | eir_memory_attrs::wt))
+		return CachingMode::writeCombine;
+	// If neither WB nor WC is supported, treat it as device memory.
+	return CachingMode::mmioNonPosted;
+}
+
+} // namespace
+
 frg::optional<CachingMode> determineFirmwareCachingMode(PhysicalAddr physical, size_t size) {
 	auto *entries = reinterpret_cast<const EirFirmwareMemory *>(physicalMemoryNote->firmwareEntriesPtr);
 	size_t numEntries = physicalMemoryNote->numFirmwareEntries;
 
-	// Find the entry that contains the start of the range.
-	const EirFirmwareMemory *foundEntry = nullptr;
+	frg::optional<CachingMode> result;
+	bool conflict = false;
+	auto accumulate = [&](CachingMode mode) {
+		if(result && *result != mode)
+			conflict = true;
+		result = mode;
+	};
+
+	// Walk all sorted entries that intersect the range, including overlapping ones.
+	// Treat gaps in the firmware memory map as device memory.
+	PhysicalAddr cursor = physical;
+	PhysicalAddr limit = physical + frg::max(size, size_t{1});
 	for(size_t i = 0; i < numEntries; i++) {
-		if(entries[i].address <= physical && physical < entries[i].address + entries[i].size) {
-			foundEntry = &entries[i];
+		auto &entry = entries[i];
+		if(entry.address >= limit)
 			break;
-		}
+		if(entry.address + entry.size <= physical)
+			continue;
+		if(entry.address > cursor)
+			accumulate(CachingMode::mmioNonPosted);
+		accumulate(firmwareAttributesToCachingMode(entry.attributes));
+		cursor = frg::max(cursor, entry.address + entry.size);
 	}
+	if(cursor < limit)
+		accumulate(CachingMode::mmioNonPosted);
 
-	// Treat ranges outside of the firmware memory map as device memory.
-	if(!foundEntry)
-		return CachingMode::mmioNonPosted;
-	auto &entry = *foundEntry;
-
-	if(physical + size > entry.address + entry.size) {
+	if(conflict) {
 		warningLogger() << "thor: Physical range 0x" << frg::hex_fmt{physical}
 				<< " - 0x" << frg::hex_fmt{physical + size}
-				<< " straddles multiple firmware memory map entries" << frg::endlog;
+				<< " spans firmware memory with conflicting caching modes" << frg::endlog;
 		return frg::null_opt;
 	}
-
-	if(entry.attributes & eir_memory_attrs::wb)
-		return CachingMode::writeBack;
-	// We do not have a CachingMode to represent WT, treat it like WC.
-	if(entry.attributes & (eir_memory_attrs::wc | eir_memory_attrs::wt))
-		return CachingMode::writeCombine;
-	// If neither WB nor WC is supported, treat it as device memory.
-	return CachingMode::mmioNonPosted;
+	return result;
 }
 
 void poisonPhysicalAccess(PhysicalAddr physical) {
