@@ -435,8 +435,7 @@ public:
 	}
 
 	uint64_t pteNewTable() {
-		auto newPtAddr = physicalAllocator->allocate(kPageSize);
-		assert(newPtAddr != PhysicalAddr(-1) && "OOM");
+		auto newPtAddr = physicalAllocator->allocateInfallible(PhysicalKind::pinned);
 
 		PageAccessor accessor{newPtAddr};
 		memset(accessor.get(), 0, kPageSize);
@@ -570,9 +569,7 @@ struct IntelIommu final : Iommu, IrqSink {
 		faultRecordsWindow_ = {register_base + faultRecordOffset, faultRecordCount * 16, CachingMode::mmio};
 		faultRecords_ = arch::mem_space{faultRecordsWindow_.get()};
 
-		rootTablePhys_ = physicalAllocator->allocate(0x1000);
-		if (rootTablePhys_ == static_cast<PhysicalAddr>(-1))
-			panicLogger() << "thor: failed to allocate physical memory for IOMMU root table" << frg::endlog;
+		rootTablePhys_ = physicalAllocator->allocateInfallible(PhysicalKind::pinned);
 		PageAccessor rootTable{rootTablePhys_};
 		memset(rootTable.get(), 0, 0x1000);
 		flush(rootTable.get(), 0x1000);
@@ -587,14 +584,10 @@ struct IntelIommu final : Iommu, IrqSink {
 		      + frg::string<KernelAlloc>{*kernelAlloc, "-qi"}
 		  ),
 		  iommu_{iommu} {
-			qiRingPhys_ = physicalAllocator->allocate(0x1000);
-			if (qiRingPhys_ == static_cast<PhysicalAddr>(-1))
-				panicLogger() << "thor: failed to allocate physical memory for IOMMU queued invalidation ring" << frg::endlog;
+			qiRingPhys_ = physicalAllocator->allocateInfallible(PhysicalKind::pinned);
 			PageAccessor qiRing{qiRingPhys_};
 			memset(qiRing.get(), 0, 0x1000);
-			qiStatusPhys_ = physicalAllocator->allocate(0x1000);
-			if (qiStatusPhys_ == static_cast<PhysicalAddr>(-1))
-				panicLogger() << "thor: failed to allocate physical memory for IOMMU queued invalidation status" << frg::endlog;
+			qiStatusPhys_ = physicalAllocator->allocateInfallible(PhysicalKind::pinned);
 			PageAccessor qiStatus{qiStatusPhys_};
 			memset(qiStatus.get(), 0, 0x1000);
 			std::atomic_ref<uint32_t> statusWord{*reinterpret_cast<uint32_t *>(qiStatus.get())};
