@@ -1,5 +1,7 @@
 #include <arch/bits.hpp>
 #include <arch/variable.hpp>
+#include <async/counting-semaphore.hpp>
+#include <async/oneshot-event.hpp>
 #include <async/recurring-event.hpp>
 #include <frg/algorithm.hpp>
 #include <frg/cmdline.hpp>
@@ -17,7 +19,6 @@
 #include <thor-internal/main.hpp>
 #include <thor-internal/physical.hpp>
 #include <thor-internal/util.hpp>
-#include <variant>
 
 #include <uacpi/acpi.h>
 #include <uacpi/uacpi.h>
@@ -492,6 +493,11 @@ struct IntelIommuOperations final : PageSpace, VirtualOperations {
 		return domainId_;
 	}
 
+	// Shootdowns that wait for space in the IOMMU's invalidation queue.
+	// Both fields are protected by the invalidation queue's lock.
+	ShootQueue shootBacklog_;
+	frg::default_list_hook<IntelIommuOperations> backlogHook_;
+
 private:
 	IntelIommu *iommu_;
 	uint16_t domainId_;
@@ -644,148 +650,151 @@ struct IntelIommu final : Iommu, IrqSink {
 			iommu_->regs_.store(regs::invalidationCompletionStatus, invalidationCompletionStatus::complete(true));
 			iommu_->regs_.store(regs::invalidationEventControl, invalidationEventControl::interruptMask(false));
 
-			spawnOnWorkQueue(*kernelAlloc, WorkQueue::generalQueue().lock(), runSubmissionLoop());
+			spawnOnWorkQueue(*kernelAlloc, WorkQueue::generalQueue().lock(), drainBacklog());
 			return {};
 		}
 
 	private:
-		IrqStatus raise() override {
-			if (iommu_->regs_.load(regs::invalidationCompletionStatus) & invalidationCompletionStatus::complete) {
-				iommu_->regs_.store(regs::invalidationCompletionStatus, invalidationCompletionStatus::complete(true));
+		// 128-bit QI descriptor
+		struct QiRingEntry128 {
+			arch::bit_value<uint64_t> low;
+			arch::bit_value<uint64_t> high;
+		};
 
-				PageAccessor statusPage{qiStatusPhys_};
-				std::atomic_ref<uint32_t> statusWord{*reinterpret_cast<uint32_t *>(statusPage.get())};
-				uint32_t completedSeq = statusWord.load(std::memory_order_relaxed);
-				uint32_t head = qiHead_.load(std::memory_order_relaxed);
+		// Occupies ring slots until the wait descriptor that terminates it completes.
+		struct Submission {
+			virtual void complete() = 0;
 
-				if (completedSeq != head) {
-					for (uint32_t seq = head + 1; seq != completedSeq + 1; seq++) {
-						auto index = QueueIndex<invalidationQueueSize>{seq};
-						auto a = completions_[index].exchange(nullptr, std::memory_order_acquire);
-						if (a)
-							a->complete();
-					}
-					qiHead_.store(completedSeq, std::memory_order_release);
-					qiProgressEvent_.raise();
-				}
-			} else {
-				return IrqStatus::nacked;
+			uint32_t waitSeq;
+			frg::default_list_hook<Submission> hook;
+
+		protected:
+			~Submission() = default;
+		};
+
+		using SubmissionList = frg::intrusive_list<
+			Submission,
+			frg::locate_member<
+				Submission,
+				frg::default_list_hook<Submission>,
+				&Submission::hook
+			>
+		>;
+
+		// Completes a shootdown. Pooled by its first ring slot.
+		struct ShootSubmission final : Submission {
+			void complete() override {
+				std::exchange(node, nullptr)->complete();
 			}
+
+			ShootNode *node = nullptr;
+		};
+
+		// Completes an invalidation that a coroutine waits for.
+		// Lives in the frame of that coroutine.
+		struct EventSubmission final : Submission {
+			void complete() override {
+				event.raise();
+			}
+
+			async::oneshot_event event;
+		};
+
+		using BackloggedSpaceList = frg::intrusive_list<
+			IntelIommuOperations,
+			frg::locate_member<
+				IntelIommuOperations,
+				frg::default_list_hook<IntelIommuOperations>,
+				&IntelIommuOperations::backlogHook_
+			>
+		>;
+
+		IrqStatus raise() override {
+			if (!(iommu_->regs_.load(regs::invalidationCompletionStatus)
+			      & invalidationCompletionStatus::complete))
+				return IrqStatus::nacked;
+
+			iommu_->regs_.store(
+			    regs::invalidationCompletionStatus, invalidationCompletionStatus::complete(true)
+			);
+			reapCompletions();
 
 			return IrqStatus::acked;
 		}
 
-		// must be called with `qiRingLock_` held.
-		bool isCompleted(uint32_t seq) {
-			uint32_t head = qiHead_.load(std::memory_order_acquire);
-			return static_cast<int32_t>(head - seq) >= 0;
+		// Completes all submissions that the IOMMU finished and frees their ring slots.
+		// Only called from raise(), which IrqPin serializes: slots are released by count, not by identity.
+		void reapCompletions() {
+			SubmissionList completed;
+			size_t slots;
+			{
+				auto lock = frg::guard(&qiRingLock_);
+
+				PageAccessor statusPage{qiStatusPhys_};
+				std::atomic_ref<uint32_t> statusWord{*reinterpret_cast<uint32_t *>(statusPage.get())};
+				uint32_t completedSeq = statusWord.load(std::memory_order_relaxed);
+
+				slots = completedSeq - qiHead_;
+				if (!slots)
+					return;
+				qiHead_ = completedSeq;
+
+				while (!inFlight_.empty()
+				       && static_cast<int32_t>(completedSeq - inFlight_.front()->waitSeq) >= 0)
+					completed.push_back(inFlight_.pop_front());
+			}
+
+			// Hand out the slots only after the completions ran: ShootSubmissions are pooled
+			// by ring slot and must not be recycled before that.
+			while (!completed.empty())
+				completed.pop_front()->complete();
+			freeSlots_.release(slots);
 		}
 
 		// must be called with `qiRingLock_` held.
 		std::pair<QueueIndex<invalidationQueueSize>, uint32_t> allocateSeq() {
-			uint32_t seq = qiTail_.load(std::memory_order_relaxed);
-			qiTail_.store(seq + 1, std::memory_order_release);
+			uint32_t seq = qiTail_++;
 			return {QueueIndex<invalidationQueueSize>{seq}, seq};
 		}
 
-		// must be called with `qiRingLock_` held.
-		size_t freeSlots() {
-			uint32_t head = qiHead_.load(std::memory_order_acquire);
-			uint32_t tail = qiTail_.load(std::memory_order_relaxed);
-			size_t used = tail - head;
-			return invalidationQueueSize - 1 - used;
-		}
-
-		struct InvalidationRequest {
-			enum class Type {
-				globalContext,
-				deviceContext,
-				globalIotlb,
-				domainIotlb,
-				range
-			} type;
-
-			using Data = std::variant<std::monostate, RequesterId, ShootNode *>;
-
-			uint16_t domain;
-			Data data;
-
-			uint32_t sequence;
-			bool submitted = false;
-			bool completed = false;
-			frg::default_list_hook<InvalidationRequest> hook;
-		};
-
 		template <typename F>
-		coroutine<void> submitSyncInvalidation(InvalidationRequest::Type type, F func, uint16_t domain = 0, InvalidationRequest::Data data = std::monostate{}) {
-			auto lock = frg::guard(&qiRingLock_);
-			uint32_t seq = 0;
+		coroutine<void> doInvalidation(F func) {
+			co_await freeSlots_.async_acquire(2);
 
-			if (pendingQueue_.empty() && freeSlots() >= 2) {
-				PageAccessor qiRing{qiRingPhys_};
-				frg::span<QiRingEntry128> qiRingEntries{reinterpret_cast<QiRingEntry128 *>(qiRing.get()), invalidationQueueSize};
-				auto [index, _] = allocateSeq();
-				auto &entry = qiRingEntries[index];
-
-				func(entry);
-
-				seq = submitSyncWait();
-				lock.unlock();
-
-				while (co_await qiProgressEvent_.async_wait_if([&] {
-					auto irqLock = frg::guard(&qiRingLock_);
-					return !isCompleted(seq);
-				}))
-					;
-			} else {
-				InvalidationRequest req;
-				req.type = type;
-				req.domain = domain;
-				req.data = data;
-
-				pendingQueue_.push_back(&req);
-				pendingQueueEvent_.raise();
-				lock.unlock();
-
-				while (co_await qiProgressEvent_.async_wait_if([&] {
-					auto irqLock = frg::guard(&qiRingLock_);
-					if (!req.submitted)
-						return true;
-					return !isCompleted(req.sequence);
-				}))
-					;
+			EventSubmission submission;
+			{
+				auto lock = frg::guard(&qiRingLock_);
+				submit(2, func, &submission);
 			}
+
+			co_await submission.event.wait();
 		}
 
 	public:
 		coroutine<void> invalidateGlobalContext() {
-			return submitSyncInvalidation(
-			    InvalidationRequest::Type::globalContext, [](auto &entry) {
-				    entry.high = arch::bit_value<uint64_t>{0};
-				    entry.low = qi::type(1);
-				    entry.low |= qi::context_cache_invalidate::invalidationGranularity(
-				        qi::context_cache_invalidate::InvalidationGranularity::global
-				    );
-			    }
-			);
+			return doInvalidation([](QiRingEntry128 &entry) {
+				entry.high = arch::bit_value<uint64_t>{0};
+				entry.low = qi::type(1);
+				entry.low |= qi::context_cache_invalidate::invalidationGranularity(
+				    qi::context_cache_invalidate::InvalidationGranularity::global
+				);
+			});
 		}
 
 		coroutine<void> invalidateDeviceContext(uint16_t domain, RequesterId device) {
-			return submitSyncInvalidation(
-			    InvalidationRequest::Type::deviceContext, [&](auto &entry) {
-				    entry.high = arch::bit_value<uint64_t>{0};
-				    entry.low = qi::type(1);
-				    entry.low |= qi::context_cache_invalidate::invalidationGranularity(
-				        qi::context_cache_invalidate::InvalidationGranularity::device
-				    );
-				    entry.low |= qi::context_cache_invalidate::domainId(domain);
-				    entry.low |= qi::context_cache_invalidate::sourceId(device);
-			    }, domain, device
-			);
+			return doInvalidation([domain, device](QiRingEntry128 &entry) {
+				entry.high = arch::bit_value<uint64_t>{0};
+				entry.low = qi::type(1);
+				entry.low |= qi::context_cache_invalidate::invalidationGranularity(
+				    qi::context_cache_invalidate::InvalidationGranularity::device
+				);
+				entry.low |= qi::context_cache_invalidate::domainId(domain);
+				entry.low |= qi::context_cache_invalidate::sourceId(device);
+			});
 		}
 
 		coroutine<void> invalidateGlobalIotlb() {
-			return submitSyncInvalidation(InvalidationRequest::Type::globalIotlb, [](auto &entry) {
+			return doInvalidation([](QiRingEntry128 &entry) {
 				entry.high = arch::bit_value<uint64_t>{0};
 				entry.low = qi::type(2);
 				entry.low |= qi::iotlb_invalidate::invalidationGranularity(
@@ -797,52 +806,58 @@ struct IntelIommu final : Iommu, IrqSink {
 		}
 
 		coroutine<void> invalidateDomainIotlb(uint16_t domain) {
-			return submitSyncInvalidation(
-			    InvalidationRequest::Type::domainIotlb,
-			    [&](auto &entry) {
-				    entry.high = arch::bit_value<uint64_t>{0};
-				    entry.low = qi::type(2);
-				    entry.low |= qi::iotlb_invalidate::invalidationGranularity(
-				        qi::iotlb_invalidate::InvalidationGranularity::domain
-				    );
-				    entry.low |= qi::iotlb_invalidate::drainWrites(true);
-				    entry.low |= qi::iotlb_invalidate::drainReads(true);
-				    entry.low |= qi::iotlb_invalidate::domainId(domain);
-			    },
-			    domain
-			);
+			return doInvalidation([domain](QiRingEntry128 &entry) {
+				entry.high = arch::bit_value<uint64_t>{0};
+				entry.low = qi::type(2);
+				entry.low |= qi::iotlb_invalidate::invalidationGranularity(
+				    qi::iotlb_invalidate::InvalidationGranularity::domain
+				);
+				entry.low |= qi::iotlb_invalidate::drainWrites(true);
+				entry.low |= qi::iotlb_invalidate::drainReads(true);
+				entry.low |= qi::iotlb_invalidate::domainId(domain);
+			});
 		}
 
-		void invalidateRange(uint16_t domain, ShootNode *node) {
+		void invalidateRange(IntelIommuOperations *space, ShootNode *node) {
 			auto [psi, required] = calculateRangeInvalidationParameters(node->address, node->size);
-			auto lock = frg::guard(&qiRingLock_);
+			bool backlogged = false;
+			{
+				auto lock = frg::guard(&qiRingLock_);
 
-			if (pendingQueue_.empty() && freeSlots() >= required) {
-				submitRange(domain, node, required, psi);
-			} else {
-				auto req = frg::construct<InvalidationRequest>(*kernelAlloc);
-				req->type = InvalidationRequest::Type::range;
-				req->domain = domain;
-				req->data = node;
-
-				pendingQueue_.push_back(req);
-				pendingQueueEvent_.raise();
+				if (backloggedSpaces_.empty() && freeSlots_.try_acquire(required)) {
+					submitRange(space->domainId(), node, required, psi);
+				} else {
+					if (space->shootBacklog_.empty())
+						backloggedSpaces_.push_back(space);
+					space->shootBacklog_.push_back(node);
+					backlogged = true;
+				}
 			}
+
+			// Raise outside of `qiRingLock_`: waiters take that lock while they hold the
+			// event's lock to evaluate their condition.
+			if (backlogged)
+				backlogEvent_.raise();
 		}
 
 	private:
-		// 128-bit QI descriptor
-		struct QiRingEntry128 {
-			arch::bit_value<uint64_t> low;
-			arch::bit_value<uint64_t> high;
-		};
-
+		// Writes the `slots - 1` descriptors of a submission via `func`, terminates it with the
+		// wait descriptor that completes `submission` and rings the doorbell.
+		// The slots must have been acquired from `freeSlots_` beforehand.
 		// must be called with `qiRingLock_` held.
 		template <typename F>
-		void submitAsync(F func) {
-			auto [index, seq] = allocateSeq();
+		void submit(size_t slots, F &&func, Submission *submission) {
+			assert(slots >= 2);
+
 			PageAccessor qiRing{qiRingPhys_};
 			frg::span<QiRingEntry128> qiRingEntries{reinterpret_cast<QiRingEntry128 *>(qiRing.get()), invalidationQueueSize};
+
+			for (size_t i = 1; i < slots; i++) {
+				auto [dataIndex, _] = allocateSeq();
+				func(qiRingEntries[dataIndex]);
+			}
+
+			auto [index, seq] = allocateSeq();
 			auto &entry = qiRingEntries[index];
 
 			entry.low = qi::type(5);
@@ -852,15 +867,10 @@ struct IntelIommu final : Iommu, IrqSink {
 			entry.low |= qi::wait::fenceFlag(true);
 			entry.high = arch::bit_value<uint64_t>(qiStatusPhys_);
 
-			func(index);
+			submission->waitSeq = seq;
+			inFlight_.push_back(submission);
 
 			iommu_->regs_.store(regs::invalidationQueueTail, (index + 1) << 4);
-		}
-
-		size_t submitSyncWait() {
-			size_t seq = qiTail_.load(std::memory_order_relaxed);
-			submitAsync([](size_t) {});
-			return seq;
 		}
 
 		// Returns whether page-selective invalidation (PSI) is used (bool) and the number
@@ -901,8 +911,9 @@ struct IntelIommu final : Iommu, IrqSink {
 		void submitRange(uint16_t domain, ShootNode *node, size_t slots, bool psi) {
 			assert((node->address & 0xFFF) == 0);
 
-			PageAccessor qiRing{qiRingPhys_};
-			frg::span<QiRingEntry128> qiRingEntries{reinterpret_cast<QiRingEntry128 *>(qiRing.get()), invalidationQueueSize};
+			auto submission = &shootSubmissions_[QueueIndex<invalidationQueueSize>{qiTail_}];
+			assert(!submission->node);
+			submission->node = node;
 
 			if (psi) {
 				auto length = node->size;
@@ -914,7 +925,7 @@ struct IntelIommu final : Iommu, IrqSink {
 				size_t maxChunkPages = 1uz << maxAddressMask;
 				size_t maxChunk = maxChunkPages << 12;
 
-				while (length) {
+				submit(slots, [&] (QiRingEntry128 &entry) {
 					// Determine the natural alignment of this address.
 					// (addr & -addr) isolates the lowest set bit, yielding the max power-of-2 alignment.
 					size_t alignment = (addr == 0) ? maxChunk : (addr & -addr);
@@ -922,9 +933,6 @@ struct IntelIommu final : Iommu, IrqSink {
 					size_t chunk = std::min({alignment, largestFittingChunk, maxChunk});
 					assert(chunk);
 					auto am = std::countr_zero(chunk) - 12;
-
-					auto [index, seq] = allocateSeq();
-					auto &entry = qiRingEntries[index];
 
 					entry.high = qi::iotlb_invalidate::addressMask(am);
 					entry.high |= qi::iotlb_invalidate::pageNumber(addr >> 12);
@@ -936,120 +944,48 @@ struct IntelIommu final : Iommu, IrqSink {
 
 					addr += chunk;
 					length -= chunk;
-					slots--;
-				}
+				}, submission);
 
-				assert(slots == 1);
+				assert(!length);
 			} else {
 				assert(slots == 2);
 
-				auto [index, seq] = allocateSeq();
-				auto &entry = qiRingEntries[index];
-
-				entry.high = arch::bit_value<uint64_t>{0};
-				entry.low = qi::type(2);
-				entry.low |= qi::iotlb_invalidate::invalidationGranularity(qi::iotlb_invalidate::InvalidationGranularity::domain);
-				entry.low |= qi::iotlb_invalidate::drainWrites(true);
-				entry.low |= qi::iotlb_invalidate::drainReads(true);
-				entry.low |= qi::iotlb_invalidate::domainId(domain);
+				submit(slots, [&] (QiRingEntry128 &entry) {
+					entry.high = arch::bit_value<uint64_t>{0};
+					entry.low = qi::type(2);
+					entry.low |= qi::iotlb_invalidate::invalidationGranularity(qi::iotlb_invalidate::InvalidationGranularity::domain);
+					entry.low |= qi::iotlb_invalidate::drainWrites(true);
+					entry.low |= qi::iotlb_invalidate::drainReads(true);
+					entry.low |= qi::iotlb_invalidate::domainId(domain);
+				}, submission);
 			}
-
-			submitAsync([&](size_t index) {
-				completions_[index].store(node, std::memory_order_release);
-			});
 		}
 
-		coroutine<void> runSubmissionLoop() {
+		coroutine<void> drainBacklog() {
 			while (true) {
-				while (co_await pendingQueueEvent_.async_wait_if([&] {
+				while (co_await backlogEvent_.async_wait_if([&] {
 					auto irqLock = frg::guard(&qiRingLock_);
-					return pendingQueue_.empty();
+					return backloggedSpaces_.empty();
 				}))
 					;
 
-				InvalidationRequest *req = nullptr;
+				IntelIommuOperations *space;
+				ShootNode *node;
 				{
 					auto irqLock = frg::guard(&qiRingLock_);
-					assert(!pendingQueue_.empty());
-					req = pendingQueue_.front();
-					pendingQueue_.pop_front();
+					assert(!backloggedSpaces_.empty());
+					space = backloggedSpaces_.pop_front();
+					node = space->shootBacklog_.front();
+					space->shootBacklog_.erase(node);
+					if (!space->shootBacklog_.empty())
+						backloggedSpaces_.push_back(space);
 				}
 
-				if (!req)
-					continue;
+				auto [psi, slots] = calculateRangeInvalidationParameters(node->address, node->size);
+				co_await freeSlots_.async_acquire(slots);
 
-				size_t slots = 0;
-				bool psi = false;
-
-				if (req->type == InvalidationRequest::Type::range) {
-					auto node = std::get<ShootNode *>(req->data);
-					std::tie(psi, slots) =
-					    calculateRangeInvalidationParameters(node->address, node->size);
-				} else {
-					slots = 2;
-				}
-
-				while (true) {
-					while (co_await qiProgressEvent_.async_wait_if([&] {
-						auto irqLock = frg::guard(&qiRingLock_);
-						return freeSlots() < slots;
-					}))
-						;
-
-					auto irqLock = frg::guard(&qiRingLock_);
-					if (freeSlots() >= slots) {
-						uint32_t seq = 0;
-						if (req->type == InvalidationRequest::Type::range) {
-							submitRange(req->domain, std::get<ShootNode *>(req->data), slots, psi);
-							frg::destruct(*kernelAlloc, req);
-						} else {
-							PageAccessor qiRing{qiRingPhys_};
-							frg::span<QiRingEntry128> qiRingEntries{
-							    reinterpret_cast<QiRingEntry128 *>(qiRing.get()),
-							    invalidationQueueSize
-							};
-							auto [index, _] = allocateSeq();
-							auto &entry = qiRingEntries[index];
-
-							entry.high = arch::bit_value<uint64_t>{0};
-							if (req->type == InvalidationRequest::Type::globalContext) {
-								entry.low = qi::type(1);
-								entry.low |= qi::context_cache_invalidate::invalidationGranularity(
-								    qi::context_cache_invalidate::InvalidationGranularity::global
-								);
-							} else if (req->type == InvalidationRequest::Type::deviceContext) {
-								entry.low = qi::type(1);
-								entry.low |= qi::context_cache_invalidate::invalidationGranularity(
-								    qi::context_cache_invalidate::InvalidationGranularity::device
-								);
-								entry.low |= qi::context_cache_invalidate::domainId(req->domain);
-								entry.low |= qi::context_cache_invalidate::sourceId(
-								    std::get<RequesterId>(req->data)
-								);
-							} else if (req->type == InvalidationRequest::Type::globalIotlb) {
-								entry.low = qi::type(2);
-								entry.low |= qi::iotlb_invalidate::invalidationGranularity(
-								    qi::iotlb_invalidate::InvalidationGranularity::global
-								);
-								entry.low |= qi::iotlb_invalidate::drainWrites(true);
-								entry.low |= qi::iotlb_invalidate::drainReads(true);
-							} else if (req->type == InvalidationRequest::Type::domainIotlb) {
-								entry.low = qi::type(2);
-								entry.low |= qi::iotlb_invalidate::invalidationGranularity(
-								    qi::iotlb_invalidate::InvalidationGranularity::domain
-								);
-								entry.low |= qi::iotlb_invalidate::drainWrites(true);
-								entry.low |= qi::iotlb_invalidate::drainReads(true);
-								entry.low |= qi::iotlb_invalidate::domainId(req->domain);
-							}
-							seq = submitSyncWait();
-							req->sequence = seq;
-							req->submitted = true;
-							qiProgressEvent_.raise();
-						}
-						break;
-					}
-				}
+				auto irqLock = frg::guard(&qiRingLock_);
+				submitRange(space->domainId(), node, slots, psi);
 			}
 		}
 
@@ -1058,30 +994,22 @@ struct IntelIommu final : Iommu, IrqSink {
 		IrqSpinlock qiRingLock_;
 		PhysicalAddr qiRingPhys_;
 		// Index of the next QI entry to be used.
-		std::atomic<uint32_t> qiTail_{0};
+		uint32_t qiTail_{0};
 		// The status page is used for the `Status Write` notifications for QI completion.
 		PhysicalAddr qiStatusPhys_;
 
-		// State tracking for the QI ring
-		std::atomic<uint32_t> qiHead_{UINT32_MAX};
-		async::recurring_event qiProgressEvent_;
+		// Sequence number of the QI entry that the IOMMU completed last.
+		uint32_t qiHead_{UINT32_MAX};
+		// QI entries that submitters can still claim.
+		async::counting_semaphore freeSlots_{invalidationQueueSize - 1};
+		// Submissions to the QI ring that did not complete yet.
+		SubmissionList inFlight_;
+		// Shootdown submissions, indexed by their first ring slot.
+		std::array<ShootSubmission, invalidationQueueSize> shootSubmissions_{};
 
-		// Pending queue of requests waiting to be submitted to the QI ring
-		async::recurring_event pendingQueueEvent_;
-
-		using PendingQueue = frg::intrusive_list<
-			InvalidationRequest,
-			frg::locate_member<
-				InvalidationRequest,
-				frg::default_list_hook<InvalidationRequest>,
-				&InvalidationRequest::hook
-			>
-		>;
-
-		PendingQueue pendingQueue_;
-
-		// Completion events to be fired
-		std::array<std::atomic<ShootNode *>, invalidationQueueSize> completions_{};
+		// DMA spaces with shootdowns that wait for space in the QI ring
+		BackloggedSpaceList backloggedSpaces_;
+		async::recurring_event backlogEvent_;
 	};
 
 	coroutine<std::expected<void, thor::Error>> init() {
@@ -1414,7 +1342,7 @@ private:
 };
 
 bool IntelIommuOperations::submitShootdown(ShootNode *node) {
-	iommu()->qi_.invalidateRange(domainId(), node);
+	iommu()->qi_.invalidateRange(this, node);
 	return false;
 }
 
