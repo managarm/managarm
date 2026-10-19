@@ -112,8 +112,8 @@ private:
 
 // Determines the caching mode with which the given physical range may be mapped,
 // based on the firmware memory map. Ranges that the firmware memory map does not
-// describe are assumed to be device memory. Returns null if the range straddles
-// multiple entries (mixing distinct memory types in one mapping is not meaningful).
+// describe are assumed to be device memory. Returns null if parts of the range
+// require different caching modes (mixing them in one mapping is not meaningful).
 frg::optional<CachingMode> determineFirmwareCachingMode(PhysicalAddr physical, size_t size);
 
 struct PageAccessor {
