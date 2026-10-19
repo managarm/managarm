@@ -203,7 +203,7 @@ void *HeapSlabPolicy::map(size_t length) {
 	size_t numPages = length / kPageSize;
 
 	auto ctx = currentExecutorContext();
-	HeapMagazine scratch;
+	PageMagazine scratch;
 	auto &magazine = ctx ? ctx->heapMagazine : scratch;
 	if(magazine.pages.size() < numPages) {
 		// Contexts without an ExecutorContext cannot sleep, so they use the emergency class.
@@ -269,50 +269,23 @@ void HeapSlabPolicy::unmap(void *ptr, size_t length) {
 	);
 }
 
-HeapMagazine::~HeapMagazine() {
-	while(!pages.empty())
-		physicalAllocator->free(pages.pop(), kPageSize);
-}
-
 void *Allocator::refillAndAllocate_(size_t size) const {
 	// map() panics instead of failing if there is no ExecutorContext.
 	auto ctx = currentExecutorContext();
 	if(!ctx)
 		panicLogger() << "thor: Kernel heap allocation failed outside of ExecutorContext" << frg::endlog;
 	auto &magazine = ctx->heapMagazine;
-	auto canBlock = canBlockForMemory();
 
 	while(true) {
-		// Read wanted before blocking since blocking can allocate (and fail) in this context.
-		auto wanted = magazine.wanted;
-		magazine.wanted = 0;
 		// The pool failed without calling map() (e.g., due to an overflowing size).
-		if(!wanted)
+		if(!magazine.wanted)
 			return nullptr;
 
-		PageChain refill;
-		while(canBlock && refill.size() < wanted) {
-			auto batch = frg::min(wanted - refill.size(), PhysicalChunkAllocator::maxPagesPerWait);
-			auto pages = physicalAllocator->allocateChainBlocking(
-				AllocationClass::kernel, PhysicalKind::pinned, batch
-			);
-			// If blocking failed, fall back to the emergency tryAllocateChain() below.
-			if(!pages)
-				break;
-			refill.splice(std::move(*pages));
-		}
-		// Try the emergency class if we either cannot block or if blocking failed above.
-		if(refill.size() < wanted) {
-			auto pages = physicalAllocator->tryAllocateChain(AllocationClass::emergency,
-					PhysicalKind::pinned, wanted - refill.size());
-			if(!pages)
-				panicLogger() << "thor: Out of memory for the kernel heap" << frg::endlog;
-			refill.splice(std::move(*pages));
-		}
+		if(auto refilled = magazine.refill(); !refilled)
+			panicLogger() << "thor: Out of memory for the kernel heap" << frg::endlog;
 
-		Guard guard;
 		// Retry the allocation after filling the magazine.
-		magazine.pages.splice(std::move(refill));
+		Guard guard;
 		if(auto p = heapSlabPool.get().allocate(size); p)
 			return p;
 	}

@@ -118,7 +118,14 @@ void KernelPageSpace::mapSingle4k(VirtualAddr pointer, PhysicalAddr physical,
 	assert((physical % 0x1000) == 0);
 
 	Cursor cursor{this, pointer};
-	cursor.map4k(physical, flags, cachingMode);
+	PageMagazine tables;
+	while(true) {
+		auto outcome = cursor.map4k(physical, flags, cachingMode, tables);
+		if(outcome)
+			break;
+		assert(outcome.error() == Error::noMemory);
+		tables.refillInfallible();
+	}
 }
 
 PhysicalAddr KernelPageSpace::unmapSingle4k(VirtualAddr pointer) {

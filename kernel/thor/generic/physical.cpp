@@ -1,5 +1,6 @@
 #include <assert.h>
 #include <initializer_list>
+#include <utility>
 #include <frg/algorithm.hpp>
 #include <thor-internal/arch-generic/paging.hpp>
 #include <thor-internal/cpu-data.hpp>
@@ -647,6 +648,42 @@ void PhysicalChunkAllocator::serveWaiters_(WaitList &served) {
 void PhysicalChunkAllocator::completeServed_(WaitList &served) {
 	while(!served.empty())
 		served.pop_front()->event.raise();
+}
+
+PageMagazine::~PageMagazine() {
+	while(!pages.empty())
+		physicalAllocator->free(pages.pop(), kPageSize);
+}
+
+std::expected<void, Error> PageMagazine::refill() {
+	// Reset wanted before blocking since blocking can allocate (and refill) in this context.
+	auto remaining = std::exchange(wanted, 0);
+
+	while(canBlockForMemory() && remaining) {
+		auto batch = frg::min(remaining, PhysicalChunkAllocator::maxPagesPerWait);
+		auto blocked = physicalAllocator->allocateChainBlocking(AllocationClass::kernel,
+				PhysicalKind::pinned, batch);
+		// If blocking failed, fall back to the emergency tryAllocateChain() below.
+		if(!blocked)
+			break;
+		assert(blocked->size() == batch);
+		pages.splice(std::move(*blocked));
+		remaining -= batch;
+	}
+	// Try the emergency class if we either cannot block or if blocking failed above.
+	if(remaining) {
+		auto emergency = physicalAllocator->tryAllocateChain(AllocationClass::emergency,
+				PhysicalKind::pinned, remaining);
+		if(!emergency)
+			return std::unexpected{emergency.error()};
+		pages.splice(std::move(*emergency));
+	}
+	return {};
+}
+
+void PageMagazine::refillInfallible() {
+	for(auto n = std::exchange(wanted, 0); n; n--)
+		pages.push(physicalAllocator->allocateInfallible(PhysicalKind::pinned));
 }
 
 PhysicalWindow::PhysicalWindow(PhysicalAddr physical, size_t size, CachingMode caching)

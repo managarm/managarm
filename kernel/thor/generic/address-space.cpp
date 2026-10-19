@@ -500,12 +500,13 @@ VirtualSpace::map(smarter::borrowed_ptr<MemorySlice> slice,
 			if(pageFlags) {
 				LocalRcuEngine::Guard revokeGuard{mapping->revokeRcu};
 
+				PageMagazine tables;
 				auto mapOutcome = co_await revokePages(_ops, mapping->address, mapping->length,
 						mapping->tracksDirty(),
 						[&] (VirtualAddr va, size_t size, RevokeBatch &batch) {
 							return _ops->mapPresentPages(va, mapping->view.get(),
 									mapping->viewOffset + (va - mapping->address), size,
-									pageFlags, caching, batch);
+									pageFlags, caching, batch, tables);
 						});
 				assert(mapOutcome);
 				notifyRss_(mapOutcome.value());
@@ -663,6 +664,7 @@ coroutine<frg::expected<Error>>
 VirtualSpace::handleFault(VirtualAddr address, uint32_t faultFlags) {
 	assert(currentIpl() == ipl::exceptionalWork);
 
+	PageMagazine tables;
 	while (true) {
 		smarter::shared_ptr<Mapping> mapping;
 		{
@@ -710,6 +712,7 @@ VirtualSpace::handleFault(VirtualAddr address, uint32_t faultFlags) {
 			caching = CachingMode::writeCombine;
 
 		// Try to fault in the page.
+		bool needTables = false;
 		{
 			LocalRcuEngine::Guard exposeGuard{mapping->exposeRcu};
 
@@ -735,7 +738,8 @@ VirtualSpace::handleFault(VirtualAddr address, uint32_t faultFlags) {
 								fetchFlags,
 								compilePageFlags(flags),
 								caching,
-								batch
+								batch,
+								tables
 							);
 						});
 				if(!remapOutcome) {
@@ -743,6 +747,8 @@ VirtualSpace::handleFault(VirtualAddr address, uint32_t faultFlags) {
 						// Spurious page faults are the result of race conditions.
 						// They should be rare. If they happen too often, something is probably wrong!
 						warningLogger() << "thor: Spurious page fault" << frg::endlog;
+					}else if(remapOutcome.error() == Error::noMemory) {
+						needTables = true;
 					}else{
 						assert(remapOutcome.error() == Error::fault);
 						warningLogger() << "thor: Page still not available after touchRange()"
@@ -753,8 +759,15 @@ VirtualSpace::handleFault(VirtualAddr address, uint32_t faultFlags) {
 					notifyRss_(remapOutcome.value());
 				}
 			}
-			co_return {};
+			if(!needTables)
+				co_return {};
 		}
+
+		// Allocate the page tables outside of the RCU critical sections
+		// since evictions wait for these critical sections to end.
+		assert(tables.wanted);
+		if(auto refilled = tables.refill(); !refilled)
+			co_return refilled.error();
 	}
 }
 

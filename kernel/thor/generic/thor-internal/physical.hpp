@@ -525,4 +525,28 @@ private:
 
 extern constinit frg::manual_box<PhysicalChunkAllocator> physicalAllocator;
 
+// Caches free physical pages that back the kernel's slab allocator.
+// Filled in contexts that can potentially block and consumed from the slab allocator (which cannot block).
+struct PageMagazine {
+	PageMagazine() = default;
+
+	PageMagazine(const PageMagazine &) = delete;
+
+	PageMagazine &operator= (const PageMagazine &) = delete;
+
+	~PageMagazine();
+
+	// Allocates the wanted pages in the kernel class.
+	// Blocks for them if possible (i.e., if canBlockForMemory() is true). Falls back to the emergency class.
+	// On failure, the pages that were already allocated stay in the magazine.
+	std::expected<void, Error> refill();
+
+	// Like refill() but never fails; see PhysicalChunkAllocator::allocateInfallible().
+	void refillInfallible();
+
+	PageChain pages;
+	// Number of pages that the last failed map() was missing.
+	size_t wanted = 0;
+};
+
 } // namespace thor

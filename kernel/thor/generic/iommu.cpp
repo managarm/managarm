@@ -35,7 +35,8 @@ void NoopDmaSpace::NoopVirtualOperations::retire(RetireNode *) {}
 bool NoopDmaSpace::NoopVirtualOperations::submitShootdown(ShootNode *) { return false; }
 
 frg::expected<Error, PagesAffected> NoopDmaSpace::NoopVirtualOperations::mapPresentPages(
-    VirtualAddr, MemoryView *, uintptr_t, size_t, PageFlags, CachingMode, RevokeBatch &
+    VirtualAddr, MemoryView *, uintptr_t, size_t, PageFlags, CachingMode, RevokeBatch &,
+    PageMagazine &
 ) {
 	return PagesAffected{};
 }
@@ -46,7 +47,8 @@ NoopDmaSpace::NoopVirtualOperations::restrictPages(VirtualAddr, size_t, PageFlag
 }
 
 frg::expected<Error, PagesAffected> NoopDmaSpace::NoopVirtualOperations::faultPage(
-    VirtualAddr, MemoryView *, uintptr_t, FetchFlags, PageFlags, CachingMode, RevokeBatch &
+    VirtualAddr, MemoryView *, uintptr_t, FetchFlags, PageFlags, CachingMode, RevokeBatch &,
+    PageMagazine &
 ) {
 	return PagesAffected{};
 }

@@ -40,14 +40,14 @@ struct EptOperations final : VirtualOperations {
 
 	frg::expected<Error, PagesAffected> mapPresentPages(VirtualAddr va, MemoryView *view,
 			uintptr_t offset, size_t size, PageFlags flags, CachingMode mode,
-			RevokeBatch &batch) override;
+			RevokeBatch &batch, PageMagazine &tables) override;
 
 	frg::expected<Error, PagesAffected> restrictPages(VirtualAddr va,
 			size_t size, PageFlags flags, RevokeBatch &batch) override;
 
 	frg::expected<Error, PagesAffected> faultPage(VirtualAddr va, MemoryView *view,
 			uintptr_t offset, FetchFlags fetchFlags, PageFlags flags, CachingMode mode,
-			RevokeBatch &batch) override;
+			RevokeBatch &batch, PageMagazine &tables) override;
 
 	frg::expected<Error, PagesAffected> cleanPages(VirtualAddr va, size_t size,
 			RevokeBatch &batch) override;

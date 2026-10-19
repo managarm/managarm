@@ -44,10 +44,11 @@ frg::expected<Error, PagesAffected> Operations::mapPresentPages(
     size_t size,
     PageFlags flags,
     CachingMode mode,
-    RevokeBatch &batch
+    RevokeBatch &batch,
+    PageMagazine &tables
 ) {
 	return mapPresentPagesByCursor<HypervisorCursor>(
-	    pageSpace_, va, view, offset, size, flags, mode, batch
+	    pageSpace_, va, view, offset, size, flags, mode, batch, tables
 	);
 }
 
@@ -63,10 +64,11 @@ frg::expected<Error, PagesAffected> Operations::faultPage(
     FetchFlags fetchFlags,
     PageFlags flags,
     CachingMode mode,
-    RevokeBatch &batch
+    RevokeBatch &batch,
+    PageMagazine &tables
 ) {
 	return faultPageByCursor<HypervisorCursor>(
-	    pageSpace_, va, view, offset, fetchFlags, flags, mode, batch
+	    pageSpace_, va, view, offset, fetchFlags, flags, mode, batch, tables
 	);
 }
 
