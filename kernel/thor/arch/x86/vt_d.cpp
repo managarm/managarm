@@ -1,6 +1,7 @@
 #include <arch/bits.hpp>
 #include <arch/variable.hpp>
 #include <async/counting-semaphore.hpp>
+#include <async/oneshot-event.hpp>
 #include <async/recurring-event.hpp>
 #include <frg/algorithm.hpp>
 #include <frg/cmdline.hpp>
@@ -649,43 +650,90 @@ struct IntelIommu final : Iommu, IrqSink {
 		}
 
 	private:
-		IrqStatus raise() override {
-			if (iommu_->regs_.load(regs::invalidationCompletionStatus) & invalidationCompletionStatus::complete) {
-				iommu_->regs_.store(regs::invalidationCompletionStatus, invalidationCompletionStatus::complete(true));
+		// Occupies ring slots until the wait descriptor that terminates it completes.
+		struct Submission {
+			virtual void complete() = 0;
 
-				PageAccessor statusPage{qiStatusPhys_};
-				std::atomic_ref<uint32_t> statusWord{*reinterpret_cast<uint32_t *>(statusPage.get())};
-				uint32_t completedSeq = statusWord.load(std::memory_order_relaxed);
-				uint32_t head = qiHead_.load(std::memory_order_relaxed);
+			uint32_t waitSeq;
+			frg::default_list_hook<Submission> hook;
 
-				if (completedSeq != head) {
-					for (uint32_t seq = head + 1; seq != completedSeq + 1; seq++) {
-						auto index = QueueIndex<invalidationQueueSize>{seq};
-						auto a = completions_[index].exchange(nullptr, std::memory_order_acquire);
-						if (a)
-							a->complete();
-					}
-					qiHead_.store(completedSeq, std::memory_order_release);
-					qiProgressEvent_.raise();
-					freeSlots_.release(completedSeq - head);
-				}
-			} else {
-				return IrqStatus::nacked;
+		protected:
+			~Submission() = default;
+		};
+
+		using SubmissionList = frg::intrusive_list<
+			Submission,
+			frg::locate_member<
+				Submission,
+				frg::default_list_hook<Submission>,
+				&Submission::hook
+			>
+		>;
+
+		// Completes a shootdown. Pooled by its first ring slot.
+		struct ShootSubmission final : Submission {
+			void complete() override {
+				std::exchange(node, nullptr)->complete();
 			}
+
+			ShootNode *node = nullptr;
+		};
+
+		// Completes an invalidation that a coroutine waits for.
+		// Lives in the frame of that coroutine.
+		struct EventSubmission final : Submission {
+			void complete() override {
+				event.raise();
+			}
+
+			async::oneshot_event event;
+		};
+
+		IrqStatus raise() override {
+			if (!(iommu_->regs_.load(regs::invalidationCompletionStatus)
+			      & invalidationCompletionStatus::complete))
+				return IrqStatus::nacked;
+
+			iommu_->regs_.store(
+			    regs::invalidationCompletionStatus, invalidationCompletionStatus::complete(true)
+			);
+			reapCompletions();
 
 			return IrqStatus::acked;
 		}
 
-		// must be called with `qiRingLock_` held.
-		bool isCompleted(uint32_t seq) {
-			uint32_t head = qiHead_.load(std::memory_order_acquire);
-			return static_cast<int32_t>(head - seq) >= 0;
+		// Completes all submissions that the IOMMU finished and frees their ring slots.
+		// Only called from raise(), which IrqPin serializes: slots are released by count, not by identity.
+		void reapCompletions() {
+			SubmissionList completed;
+			size_t slots;
+			{
+				auto lock = frg::guard(&qiRingLock_);
+
+				PageAccessor statusPage{qiStatusPhys_};
+				std::atomic_ref<uint32_t> statusWord{*reinterpret_cast<uint32_t *>(statusPage.get())};
+				uint32_t completedSeq = statusWord.load(std::memory_order_relaxed);
+
+				slots = completedSeq - qiHead_;
+				if (!slots)
+					return;
+				qiHead_ = completedSeq;
+
+				while (!inFlight_.empty()
+				       && static_cast<int32_t>(completedSeq - inFlight_.front()->waitSeq) >= 0)
+					completed.push_back(inFlight_.pop_front());
+			}
+
+			// Hand out the slots only after the completions ran: ShootSubmissions are pooled
+			// by ring slot and must not be recycled before that.
+			while (!completed.empty())
+				completed.pop_front()->complete();
+			freeSlots_.release(slots);
 		}
 
 		// must be called with `qiRingLock_` held.
 		std::pair<QueueIndex<invalidationQueueSize>, uint32_t> allocateSeq() {
-			uint32_t seq = qiTail_.load(std::memory_order_relaxed);
-			qiTail_.store(seq + 1, std::memory_order_release);
+			uint32_t seq = qiTail_++;
 			return {QueueIndex<invalidationQueueSize>{seq}, seq};
 		}
 
@@ -699,7 +747,7 @@ struct IntelIommu final : Iommu, IrqSink {
 		coroutine<void> doInvalidation(F func) {
 			co_await freeSlots_.async_acquire(2);
 
-			uint32_t seq;
+			EventSubmission submission;
 			{
 				auto lock = frg::guard(&qiRingLock_);
 				PageAccessor qiRing{qiRingPhys_};
@@ -709,14 +757,10 @@ struct IntelIommu final : Iommu, IrqSink {
 
 				func(entry);
 
-				seq = submitSyncWait();
+				submitAsync(&submission);
 			}
 
-			while (co_await qiProgressEvent_.async_wait_if([&] {
-				auto irqLock = frg::guard(&qiRingLock_);
-				return !isCompleted(seq);
-			}))
-				;
+			co_await submission.event.wait();
 		}
 
 	public:
@@ -798,9 +842,9 @@ struct IntelIommu final : Iommu, IrqSink {
 			arch::bit_value<uint64_t> high;
 		};
 
+		// Terminates a submission with the wait descriptor that completes `submission` and rings the doorbell.
 		// must be called with `qiRingLock_` held.
-		template <typename F>
-		void submitAsync(F func) {
+		void submitAsync(Submission *submission) {
 			auto [index, seq] = allocateSeq();
 			PageAccessor qiRing{qiRingPhys_};
 			frg::span<QiRingEntry128> qiRingEntries{reinterpret_cast<QiRingEntry128 *>(qiRing.get()), invalidationQueueSize};
@@ -813,15 +857,10 @@ struct IntelIommu final : Iommu, IrqSink {
 			entry.low |= qi::wait::fenceFlag(true);
 			entry.high = arch::bit_value<uint64_t>(qiStatusPhys_);
 
-			func(index);
+			submission->waitSeq = seq;
+			inFlight_.push_back(submission);
 
 			iommu_->regs_.store(regs::invalidationQueueTail, (index + 1) << 4);
-		}
-
-		size_t submitSyncWait() {
-			size_t seq = qiTail_.load(std::memory_order_relaxed);
-			submitAsync([](size_t) {});
-			return seq;
 		}
 
 		// Returns whether page-selective invalidation (PSI) is used (bool) and the number
@@ -861,6 +900,10 @@ struct IntelIommu final : Iommu, IrqSink {
 		// must be called with `qiRingLock_` held.
 		void submitRange(uint16_t domain, ShootNode *node, size_t slots, bool psi) {
 			assert((node->address & 0xFFF) == 0);
+
+			auto submission = &shootSubmissions_[QueueIndex<invalidationQueueSize>{qiTail_}];
+			assert(!submission->node);
+			submission->node = node;
 
 			PageAccessor qiRing{qiRingPhys_};
 			frg::span<QiRingEntry128> qiRingEntries{reinterpret_cast<QiRingEntry128 *>(qiRing.get()), invalidationQueueSize};
@@ -915,9 +958,7 @@ struct IntelIommu final : Iommu, IrqSink {
 				entry.low |= qi::iotlb_invalidate::domainId(domain);
 			}
 
-			submitAsync([&](size_t index) {
-				completions_[index].store(node, std::memory_order_release);
-			});
+			submitAsync(submission);
 		}
 
 		coroutine<void> runSubmissionLoop() {
@@ -952,15 +993,18 @@ struct IntelIommu final : Iommu, IrqSink {
 		IrqSpinlock qiRingLock_;
 		PhysicalAddr qiRingPhys_;
 		// Index of the next QI entry to be used.
-		std::atomic<uint32_t> qiTail_{0};
+		uint32_t qiTail_{0};
 		// The status page is used for the `Status Write` notifications for QI completion.
 		PhysicalAddr qiStatusPhys_;
 
-		// State tracking for the QI ring
-		std::atomic<uint32_t> qiHead_{UINT32_MAX};
-		async::recurring_event qiProgressEvent_;
+		// Sequence number of the QI entry that the IOMMU completed last.
+		uint32_t qiHead_{UINT32_MAX};
 		// QI entries that submitters can still claim.
 		async::counting_semaphore freeSlots_{invalidationQueueSize - 1};
+		// Submissions to the QI ring that did not complete yet.
+		SubmissionList inFlight_;
+		// Shootdown submissions, indexed by their first ring slot.
+		std::array<ShootSubmission, invalidationQueueSize> shootSubmissions_{};
 
 		// Pending queue of requests waiting to be submitted to the QI ring
 		async::recurring_event pendingQueueEvent_;
@@ -975,9 +1019,6 @@ struct IntelIommu final : Iommu, IrqSink {
 		>;
 
 		PendingQueue pendingQueue_;
-
-		// Completion events to be fired
-		std::array<std::atomic<ShootNode *>, invalidationQueueSize> completions_{};
 	};
 
 	coroutine<std::expected<void, thor::Error>> init() {
