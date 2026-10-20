@@ -355,11 +355,7 @@ void Thread::migrateCurrentToAssignedCpu(ImageAccessor image) {
 	localScheduler.get().update();
 	Scheduler::suspendCurrent(image.iplState()->current < ipl::noMigration);
 	this_thread->_uninvoke();
-	Scheduler::unassociate(this_thread.get());
-
-	auto *newScheduler = &localScheduler.get(assignedCpu);
-	Scheduler::associate(this_thread.get(), newScheduler);
-	Scheduler::resume(this_thread.get());
+	Scheduler::resume(this_thread.get(), &localScheduler.get(assignedCpu));
 	localScheduler.get().forceReschedule(false);
 
 	runOnStack([] (Continuation cont, ImageAccessor image,

@@ -90,7 +90,8 @@ private:
 	const ScheduleType type_;
 	const bool pinned_;
 
-	frg::ticket_spinlock _associationMutex;
+	// Scheduler that the entity was last enqueued on.
+	// Only changes while the entity is in state ScheduleState::attached.
 	Scheduler *_scheduler;
 
 	ScheduleState state;
@@ -133,7 +134,11 @@ struct Scheduler {
 
 	static void setPriority(ScheduleEntity *entity, int priority);
 
+	// Enqueue the entity on the scheduler that it was last enqueued on.
 	static void resume(ScheduleEntity *entity);
+	// Enqueue the entity on target, which becomes its scheduler.
+	// Precondition: the entity is in state ScheduleState::attached.
+	static void resume(ScheduleEntity *entity, Scheduler *target);
 	// If migratable is set, the entity may run on another CPU once it is resumed.
 	static void suspendCurrent(bool migratable);
 

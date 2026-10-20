@@ -153,14 +153,19 @@ void Scheduler::setPriority(ScheduleEntity *entity, int priority) {
 }
 
 void Scheduler::resume(ScheduleEntity *entity) {
+	resume(entity, entity->_scheduler);
+}
+
+void Scheduler::resume(ScheduleEntity *entity, Scheduler *target) {
 	assert(entity->type() == ScheduleType::regular);
 
 //	infoLogger() << "resume " << entity << frg::endlog;
 	assert(entity->state == ScheduleState::attached);
 
-	auto self = entity->_scheduler;
+	auto self = target;
 	assert(self);
 	assert(entity != self->_current);
+	entity->_scheduler = self;
 	bool wasEmpty;
 	{
 		auto irqLock = frg::guard(&irqMutex());
