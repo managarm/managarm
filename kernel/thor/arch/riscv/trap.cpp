@@ -138,7 +138,7 @@ void handleRiscvIpi(Frame *frame) {
 		auto thisThread = getCurrentThread();
 		assert(thisThread);
 
-		localScheduler.get(cpuData).checkPreemption();
+		localScheduler.get(cpuData).checkPreemption(ipl::passive);
 
 		if (thisThread->checkConditions()) {
 			iplDemoteContext(ipl::passive);
@@ -203,7 +203,7 @@ void handleRiscvInterrupt(Frame *frame, uint64_t code) {
 			auto thisThread = getCurrentThread();
 			assert(thisThread);
 
-			localScheduler.get().checkPreemption();
+			localScheduler.get().checkPreemption(ipl::passive);
 
 			if (thisThread->checkConditions()) {
 				iplDemoteContext(ipl::passive);
@@ -238,7 +238,7 @@ void handleRiscvInterrupt(Frame *frame, uint64_t code) {
 				auto thisThread = getCurrentThread();
 				assert(thisThread);
 
-				localScheduler.get().checkPreemption();
+				localScheduler.get().checkPreemption(ipl::passive);
 
 				if (thisThread->checkConditions()) {
 					iplDemoteContext(ipl::passive);
@@ -349,7 +349,7 @@ void handleRiscvException(Frame *frame, uint64_t code) {
 		auto thisThread = getCurrentThread();
 		assert(thisThread);
 
-		checkThreadPreemption();
+		checkThreadPreemption(ipl::passive);
 
 		if (thisThread->checkConditions()) {
 			FaultImageAccessor image{frame};

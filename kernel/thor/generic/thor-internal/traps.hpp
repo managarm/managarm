@@ -23,7 +23,7 @@ void handleThreadReturnToUserMode(ImageAccessor image, StatelessIrqLock &irqLock
 		Thread::handleConditions(image);
 
 		irqLock.lock();
-		checkThreadPreemption();
+		checkThreadPreemption(ipl::passive);
 		if (!thisThread->checkConditions())
 			break;
 		irqLock.unlock();

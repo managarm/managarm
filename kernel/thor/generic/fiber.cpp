@@ -113,7 +113,7 @@ void KernelFiber::invoke() {
 	restoreExecutor(&_executor);
 }
 
-void KernelFiber::handlePreemption() {
+void KernelFiber::handlePreemption(Ipl) {
 	assert(!intsAreEnabled());
 	assert(thisFiber() == this);
 

@@ -74,8 +74,9 @@ public:
 	// Precondition: Preemption must be safe at the call site.
 	//               In particular, before the caller disables interrupts,
 	//               it should be on a code path with currentIpl() < ipl::noPreemption.
+	//               ipl is the IPL of that code path.
 	// Precondition: !intsAreEnabled().
-	virtual void handlePreemption() = 0;
+	virtual void handlePreemption(Ipl ipl) = 0;
 	// Must only be called if the image's IPL < ipl::noPreemption.
 	// Precondition: !intsAreEnabled().
 	virtual void handlePreemption(IrqImageAccessor image) = 0;
@@ -171,10 +172,11 @@ public:
 		currentRunnable()->handlePreemption(image);
 	}
 
-	void checkPreemption() {
+	// See ScheduleEntity::handlePreemption() for the meaning of ipl.
+	void checkPreemption(Ipl ipl) {
 		if (!mustCallPreemption())
 			return;
-		currentRunnable()->handlePreemption();
+		currentRunnable()->handlePreemption(ipl);
 	}
 
 	void update();
@@ -268,7 +270,7 @@ private:
 };
 
 // Similar to Scheduler::checkPreemption() but specialized for threads.
-void checkThreadPreemption();
+void checkThreadPreemption(Ipl ipl);
 void checkThreadPreemption(FaultImageAccessor image);
 
 extern PerCpu<Scheduler> localScheduler;

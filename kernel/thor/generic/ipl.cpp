@@ -58,7 +58,7 @@ void handleIplDeferred(Ipl current, Ipl ceiling) {
 		switch (l) {
 			case ipl::noPreemption: {
 				StatelessIrqLock irqLock;
-				localScheduler.get().checkPreemption();
+				localScheduler.get().checkPreemption(current);
 				break;
 			}
 			default:

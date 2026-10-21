@@ -622,8 +622,9 @@ void Thread::invoke() {
 	restoreExecutor(&_executor);
 }
 
-void Thread::handlePreemption() {
+void Thread::handlePreemption(Ipl ipl) {
 	assert(!intsAreEnabled());
+	assert(ipl < ipl::noPreemption);
 	assert(getCurrentThread().get() == this);
 
 	auto *scheduler = &localScheduler.get();

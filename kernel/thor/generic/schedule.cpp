@@ -47,7 +47,7 @@ namespace {
 					if(consumeIdlePing()) {
 						auto *scheduler = &localScheduler.get();
 						scheduler->forcePreemptionCall();
-						scheduler->checkPreemption();
+						scheduler->checkPreemption(ipl::passive);
 					}
 					// If we re-schedule in checkPreemption() above, we do not return here.
 					// In that case, noteIdleWakeup(false) is skipped here and handlePreemption() does noteIdleWakeup(true).
@@ -73,7 +73,7 @@ namespace {
 			}
 		}
 
-		void handlePreemption() override {
+		void handlePreemption(Ipl) override {
 			StatelessIrqLock irqLock;
 			consumeIdlePing();
 			auto *scheduler = &localScheduler.get();
@@ -525,7 +525,7 @@ void doCheckThreadPreemption(ImageAccessor image) {
 
 } // namespace
 
-void checkThreadPreemption() {
+void checkThreadPreemption(Ipl ipl) {
 	assert(!intsAreEnabled());
 	auto thisThread = getCurrentThread();
 	auto *scheduler = &localScheduler.get();
@@ -533,7 +533,7 @@ void checkThreadPreemption() {
 	scheduler->suppressRenewalUntilInterrupt();
 	if (!scheduler->mustCallPreemption())
 		return;
-	thisThread->handlePreemption();
+	thisThread->handlePreemption(ipl);
 }
 void checkThreadPreemption(FaultImageAccessor image) {
 	doCheckThreadPreemption(image);

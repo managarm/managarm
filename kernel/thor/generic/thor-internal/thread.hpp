@@ -368,7 +368,7 @@ public:
 
 	[[ noreturn ]] void invoke() override;
 
-	void handlePreemption() override;
+	void handlePreemption(Ipl ipl) override;
 	void handlePreemption(IrqImageAccessor image) override;
 	// Non-virtual since syscalls/faults know that they are called from a thread.
 	void handlePreemption(FaultImageAccessor image);

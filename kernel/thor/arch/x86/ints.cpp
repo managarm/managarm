@@ -294,7 +294,7 @@ extern "C" void onPlatformFault(FaultImageAccessor image, int number) {
 		auto thisThread = getCurrentThread();
 		assert(thisThread);
 
-		checkThreadPreemption();
+		checkThreadPreemption(ipl::passive);
 
 		if (thisThread->checkConditions()) {
 			iplDemoteContext(ipl::passive);
@@ -333,7 +333,7 @@ extern "C" void onPlatformIrq(IrqImageAccessor image, int number) {
 		auto thisThread = getCurrentThread();
 		assert(thisThread);
 
-		localScheduler.get().checkPreemption();
+		localScheduler.get().checkPreemption(ipl::passive);
 
 		if (thisThread->checkConditions()) {
 			iplDemoteContext(ipl::passive);
@@ -408,7 +408,7 @@ extern "C" void onPlatformPreemption(IrqImageAccessor image) {
 		auto thisThread = getCurrentThread();
 		assert(thisThread);
 
-		localScheduler.get().checkPreemption();
+		localScheduler.get().checkPreemption(ipl::passive);
 
 		if (thisThread->checkConditions()) {
 			iplDemoteContext(ipl::passive);
@@ -468,7 +468,7 @@ extern "C" void onPlatformSyscall(SyscallImageAccessor image) {
 		auto thisThread = getCurrentThread();
 		assert(thisThread);
 
-		checkThreadPreemption();
+		checkThreadPreemption(ipl::passive);
 
 		if (thisThread->checkConditions()) {
 			iplDemoteContext(ipl::passive);
@@ -511,7 +511,7 @@ extern "C" void onPlatformShootdown(IrqImageAccessor image) {
 		auto thisThread = getCurrentThread();
 		assert(thisThread);
 
-		localScheduler.get().checkPreemption();
+		localScheduler.get().checkPreemption(ipl::passive);
 
 		if (thisThread->checkConditions()) {
 			iplDemoteContext(ipl::passive);
@@ -554,7 +554,7 @@ extern "C" void onPlatformPing(IrqImageAccessor image) {
 		auto thisThread = getCurrentThread();
 		assert(thisThread);
 
-		scheduler->checkPreemption();
+		scheduler->checkPreemption(ipl::passive);
 
 		if (thisThread->checkConditions()) {
 			iplDemoteContext(ipl::passive);
@@ -596,7 +596,7 @@ extern "C" void onPlatformCall(IrqImageAccessor image) {
 		auto thisThread = getCurrentThread();
 		assert(thisThread);
 
-		localScheduler.get().checkPreemption();
+		localScheduler.get().checkPreemption(ipl::passive);
 
 		if (thisThread->checkConditions()) {
 			iplDemoteContext(ipl::passive);
