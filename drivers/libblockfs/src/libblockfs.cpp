@@ -782,9 +782,11 @@ async::detached runDevice(BlockDevice *device) {
 	int partId = 0;
 	for(size_t i = 0; i < table->numPartitions(); ++i) {
 		auto type = table->getPartition(i).type();
-		printf("Partition %lu, type: %.8X-%.4X-%.4X-%.2X%.2X-%.2X%.2X%.2X%.2X%.2X%.2X\n",
+		auto partuuid = table->getPartition(i).id().toString();
+		printf("Partition %lu, type: %.8X-%.4X-%.4X-%.2X%.2X-%.2X%.2X%.2X%.2X%.2X%.2X, partuuid: %s\n",
 				i, type.a, type.b, type.c, type.d[0], type.d[1],
-				type.e[0], type.e[1], type.e[2], type.e[3], type.e[4], type.e[5]);
+				type.e[0], type.e[1], type.e[2], type.e[3], type.e[4], type.e[5],
+				partuuid.c_str());
 
 		if(type == gpt::type_guids::managarmRootPartition)
 			printf("  It's a Managarm root partition!\n");
@@ -801,6 +803,7 @@ async::detached runDevice(BlockDevice *device) {
 			{"unix.partid", mbus_ng::StringItem{std::to_string(partId++)}},
 			{"unix.diskid", mbus_ng::StringItem{std::to_string(diskId)}},
 			{"unix.partname-suffix", mbus_ng::StringItem{device->partNameSuffix}},
+			{"unix.partuuid", mbus_ng::StringItem{partuuid}},
 			{"drvcore.mbus-parent", mbus_ng::StringItem{std::to_string(paritition->parentId)}},
 			{"unix.is-managarm-root", mbus_ng::StringItem{std::to_string(type == gpt::type_guids::managarmRootPartition)}}
 		};
