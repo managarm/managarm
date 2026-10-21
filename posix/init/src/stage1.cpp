@@ -332,10 +332,7 @@ private:
 	int fd_{-1};
 };
 
-std::optional<std::string> checkRootDevice(std::string device) {
-	if(logDiscovery)
-		std::cout << "init: Considering device " << device << std::endl;
-
+bool hasManagarmRootAttribute(const std::string &device) {
 	auto rootAttr = device + "/managarm-root";
 
 	// Check if the managarm-root attribute exists
@@ -343,9 +340,12 @@ std::optional<std::string> checkRootDevice(std::string device) {
 		assert(errno == ENOENT);
 		if(logDiscovery)
 			std::cout << "init: Not the root filesystem" << std::endl;
-		return std::nullopt;
+		return false;
 	}
+	return true;
+}
 
+std::string findDevNode(const std::string &device) {
 	// Figure out the device's major:minor
 	std::ifstream ifs{device + "/dev"};
 	std::string dev;
@@ -546,8 +546,13 @@ int main() {
 			}else assert(nvme_server != -1);
 		}
 
-		if (!rootPath && subsystemIt != uevent->end() && subsystemIt->second == "block")
-			rootPath = checkRootDevice("/sys" + devpath);
+		if (!rootPath && subsystemIt != uevent->end() && subsystemIt->second == "block") {
+			auto device = "/sys" + devpath;
+			if(logDiscovery)
+				std::cout << "init: Considering device " << device << std::endl;
+			if(hasManagarmRootAttribute(device))
+				rootPath = findDevNode(device);
+		}
 
 		if(!uefiNetDevpathResolved) {
 			if("/sys" + devpath == dpSysfsPath.string()) {
