@@ -181,6 +181,12 @@ public:
 	void updateState();
 	void updateQueue();
 
+private:
+	void _updateState();
+	void _updateQueue();
+
+public:
+
 	bool maybeReschedule();
 	void forceReschedule();
 
@@ -212,6 +218,7 @@ private:
 	ScheduleEntity *_current;
 	ScheduleEntity *_scheduled = nullptr;
 
+	// Protected by _mutex.
 	frg::pairing_heap<
 		ScheduleEntity,
 		frg::locate_member<
@@ -222,6 +229,7 @@ private:
 		ScheduleGreater
 	> _waitQueue;
 
+	// Protected by _mutex.
 	size_t _numWaiting = 0;
 
 	// See numQueued().
@@ -239,15 +247,16 @@ private:
 
 	// This variables stores sum{t = 0, ... T} w(t)/n(t).
 	// This allows us to easily track u_p(T) for all waiting processes.
+	// Protected by _mutex.
 	Progress _systemProgress = 0;
 
 	// ----------------------------------------------------------------------------------
 	// Management of pending entities.
 	// ----------------------------------------------------------------------------------
 
-	// Note that _mutex *only* protects _pendingList and nothing more!
 	frg::ticket_spinlock _mutex;
 
+	// Protected by _mutex.
 	frg::intrusive_list<
 		ScheduleEntity,
 		frg::locate_member<

@@ -241,11 +241,28 @@ void Scheduler::suppressRenewalUntilInterrupt() {
 }
 
 void Scheduler::update() {
-	updateState();
-	updateQueue();
+	assert(!intsAreEnabled());
+	auto lock = frg::guard(&_mutex);
+
+	_updateState();
+	_updateQueue();
 }
 
 void Scheduler::updateState() {
+	assert(!intsAreEnabled());
+	auto lock = frg::guard(&_mutex);
+
+	_updateState();
+}
+
+void Scheduler::updateQueue() {
+	assert(!intsAreEnabled());
+	auto lock = frg::guard(&_mutex);
+
+	_updateQueue();
+}
+
+void Scheduler::_updateState() {
 	// Returns the reciprocal in fixed point format.
 	auto fixedInverse = [] (int64_t x) -> int64_t {
 		return (INT64_C(1) << progressShift) / x;
@@ -269,23 +286,9 @@ void Scheduler::updateState() {
 }
 
 // Move entities from the pending queue to the waiting queue.
-void Scheduler::updateQueue() {
-	frg::intrusive_list<
-		ScheduleEntity,
-		frg::locate_member<
-			ScheduleEntity,
-			frg::default_list_hook<ScheduleEntity>,
-			&ScheduleEntity::listHook
-		>
-	> pendingSnapshot;
-	{
-		auto irqLock = frg::guard(&irqMutex());
-		auto lock = frg::guard(&_mutex);
-
-		pendingSnapshot.splice(pendingSnapshot.end(), _pendingList);
-	}
-	while(!pendingSnapshot.empty()) {
-		auto entity = pendingSnapshot.pop_front();
+void Scheduler::_updateQueue() {
+	while(!_pendingList.empty()) {
+		auto entity = _pendingList.pop_front();
 		assert(entity->state == ScheduleState::pending);
 
 		// Update the unfairness reference.
@@ -301,6 +304,7 @@ void Scheduler::updateQueue() {
 bool Scheduler::maybeReschedule() {
 	assert(!intsAreEnabled());
 	assert(_current);
+	auto lock = frg::guard(&_mutex);
 
 	auto wantToSchedule = [this] () -> bool {
 		// If there are no waiters, we keep the current entity.
@@ -337,6 +341,7 @@ bool Scheduler::maybeReschedule() {
 
 void Scheduler::forceReschedule() {
 	assert(!intsAreEnabled());
+	auto lock = frg::guard(&_mutex);
 
 	if(_current)
 		_unschedule();
@@ -344,21 +349,29 @@ void Scheduler::forceReschedule() {
 }
 
 [[noreturn]] void Scheduler::commitReschedule() {
+	assert(!intsAreEnabled());
 	assert(!_current);
 	assert(_scheduled);
 
-	_current = _scheduled;
-	_scheduled = nullptr;
-	_sliceClock = _refClock;
-	_mustCallPreemption = false;
+	{
+		auto lock = frg::guard(&_mutex);
 
-	if(!getPreemptionDeadline())
-		_updatePreemption();
+		_current = _scheduled;
+		_scheduled = nullptr;
+		_sliceClock = _refClock;
+		_mustCallPreemption = false;
+
+		if(!getPreemptionDeadline())
+			_updatePreemption();
+	}
 
 	currentRunnable()->invoke();
 }
 
 void Scheduler::renewSchedule() {
+	assert(!intsAreEnabled());
+	auto lock = frg::guard(&_mutex);
+
 	_mustCallPreemption = false;
 
 	if(!getPreemptionDeadline())
