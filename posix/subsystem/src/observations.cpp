@@ -1,7 +1,9 @@
 #include <signal.h>
+#include <limits>
 #include <print>
 
 #include "gdbserver.hpp"
+#include "exec.hpp"
 #include "observations.hpp"
 #include "ostrace.hpp"
 
@@ -237,6 +239,24 @@ async::result<void> observeThread(std::shared_ptr<Process> self,
 			uintptr_t gprs[kHelNumGprs];
 			HEL_CHECK(helLoadRegisters(thread.getHandle(), kHelRegsGeneral, &gprs));
 
+			size_t inputSize = 0;
+			auto addInputSize = [&] (uintptr_t size) {
+				if(size > std::numeric_limits<size_t>::max() - inputSize)
+					return false;
+				inputSize += static_cast<size_t>(size);
+				return true;
+			};
+			if(!addInputSize(gprs[kHelRegArg1]) || !addInputSize(1)
+					|| !addInputSize(gprs[kHelRegArg3])
+					|| !addInputSize(gprs[kHelRegArg5])
+					|| inputSize >= kExecStackSize) {
+				gprs[kHelRegError] = kHelErrNone;
+				gprs[kHelRegOut0] = E2BIG;
+				HEL_CHECK(helStoreRegisters(thread.getHandle(), kHelRegsGeneral, &gprs));
+				HEL_CHECK(helResume(thread.getHandle()));
+				continue;
+			}
+
 			std::string path;
 			path.resize(gprs[kHelRegArg1]);
 			auto loadPath = co_await helix_ng::readMemory(self->vmContext()->getSpace(),
@@ -294,6 +314,12 @@ async::result<void> observeThread(std::shared_ptr<Process> self,
 			}else if(error == Error::badExecutable || error == Error::eof) {
 				gprs[kHelRegError] = kHelErrNone;
 				gprs[kHelRegOut0] = ENOEXEC;
+				HEL_CHECK(helStoreRegisters(thread.getHandle(), kHelRegsGeneral, &gprs));
+
+				HEL_CHECK(helResume(thread.getHandle()));
+			}else if(error == Error::argumentListTooLong) {
+				gprs[kHelRegError] = kHelErrNone;
+				gprs[kHelRegOut0] = E2BIG;
 				HEL_CHECK(helStoreRegisters(thread.getHandle(), kHelRegsGeneral, &gprs));
 
 				HEL_CHECK(helResume(thread.getHandle()));
