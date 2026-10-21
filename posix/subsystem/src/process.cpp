@@ -1,6 +1,7 @@
 
 #include <signal.h>
 #include <string.h>
+#include <algorithm>
 #include <atomic>
 #include <limits>
 #include <mutex>
@@ -14,6 +15,7 @@
 #include "exec.hpp"
 #include "gdbserver.hpp"
 #include "process.hpp"
+#include "requests.hpp"
 #include "swap.hpp"
 
 #include <core/process-data.hpp>
@@ -69,6 +71,11 @@ HelHandle rootHierarchy() {
 	static HelHandle handle = [] {
 		HelHierarchyParameters params{};
 		strncpy(params.tag, "posix-root", sizeof(params.tag));
+		// POSIX processes stop allocating before servers do, such that servers
+		// (e.g., the ones that write back or swap out POSIX memory) can still make progress.
+		params.controllers = kHelHierarchyMemoryController;
+		params.memoryFloor = std::clamp(getTotalMemory() / 64,
+				size_t{4} << 20, size_t{64} << 20);
 
 		HelHandle child;
 		HEL_CHECK(helExtendHierarchy(core::getProcessHierarchy(), &params, &child));
