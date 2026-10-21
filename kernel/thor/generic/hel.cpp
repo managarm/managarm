@@ -1105,6 +1105,14 @@ HelError helExtendHierarchy(HelHandle hierarchyHandle,
 	HelHierarchyParameters params;
 	if(!readUserObject(paramsPtr, params))
 		return kHelErrFault;
+	if(params.controllers & ~kHelHierarchyMemoryController)
+		return kHelErrIllegalArgs;
+	if(!(params.controllers & kHelHierarchyMemoryController) && params.memoryFloor)
+		return kHelErrIllegalArgs;
+
+	frg::optional<size_t> memoryFloor;
+	if(params.controllers & kHelHierarchyMemoryController)
+		memoryFloor = params.memoryFloor >> kPageShift;
 
 	// A tag that fills the entire array is accepted without a terminator.
 	size_t tagLen = 0;
@@ -1118,7 +1126,8 @@ HelError helExtendHierarchy(HelHandle hierarchyHandle,
 	if(!parentOutcome)
 		return translateError(parentOutcome.error());
 
-	auto childOutcome = Hierarchy::extend(std::move(*parentOutcome), std::move(tagStr));
+	auto childOutcome = Hierarchy::extend(std::move(*parentOutcome), std::move(tagStr),
+			memoryFloor);
 	if(!childOutcome)
 		return translateError(childOutcome.error());
 

@@ -3,6 +3,8 @@
 #include <atomic>
 #include <expected>
 #include <frg/list.hpp>
+#include <frg/manual_box.hpp>
+#include <frg/optional.hpp>
 #include <frg/string.hpp>
 #include <frg/vector.hpp>
 #include <smarter.hpp>
@@ -16,12 +18,21 @@ struct HierarchySnapshot;
 
 struct MemoryController {
 public:
-	std::expected<void, Error> tryCharge(size_t bytes);
+	// parent is null for the root controller.
+	MemoryController(MemoryController *parent, size_t floor);
 
-	void uncharge(size_t bytes);
+	MemoryController(const MemoryController &) = delete;
+
+	MemoryController &operator= (const MemoryController &) = delete;
+
+	// Pages that user-class allocations of hierarchies using this controller leave free on top
+	// of the user floor; see AllocationPolicy::floor.
+	size_t floor() const {
+		return floor_;
+	}
 
 private:
-	std::atomic<size_t> chargedToSubtree_{0};
+	size_t floor_;
 };
 
 struct Hierarchy : RcuProtected {
@@ -34,10 +45,14 @@ public:
 	static std::expected<smarter::shared_ptr<Hierarchy>, Error> createRoot();
 
 	static std::expected<smarter::shared_ptr<Hierarchy>, Error> extend(
-		smarter::shared_ptr<Hierarchy> parent, frg::string<KernelAlloc> tag
+		smarter::shared_ptr<Hierarchy> parent, frg::string<KernelAlloc> tag,
+		frg::optional<size_t> memoryFloor
 	);
 
-	Hierarchy(CtorToken, smarter::shared_ptr<Hierarchy> parent, frg::string<KernelAlloc> tag);
+	Hierarchy(CtorToken, smarter::shared_ptr<Hierarchy> parent, frg::string<KernelAlloc> tag,
+			frg::optional<size_t> memoryFloor);
+
+	~Hierarchy();
 
 	// Unlinks this node from its parent; RCU keeps it traversable until the grace period ends.
 	void finalizeBeforeRcu();
@@ -63,6 +78,11 @@ public:
 		return chargedMemory_.load(std::memory_order_relaxed);
 	}
 
+	// Floor (in pages) of user-class allocations charged to this node.
+	size_t memoryFloor() const {
+		return memoryCtlr_->floor();
+	}
+
 	// Tracks the swap slots (in bytes) currently held by this node's memory views.
 	// Their resident frames are charged (as physical memory) to the swap space's hierarchy.
 	void chargeSwap(size_t bytes) {
@@ -86,6 +106,9 @@ private:
 	smarter::weak_ptr<Hierarchy> selfPtr_;
 
 	MemoryController *memoryCtlr_{nullptr};
+	// Holds memoryCtlr_ if this node owns it.
+	// Child hierarchy nodes keep this node alive so we do not need reference counting here.
+	frg::manual_box<MemoryController> ownMemoryCtlr_;
 
 	IrqSpinlock childrenMutex_;
 

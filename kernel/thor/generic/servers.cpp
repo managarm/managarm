@@ -285,7 +285,7 @@ coroutine<void> executeModule(managarm::svrctl::Description<KernelAlloc> &desc, 
 	auto tag = frg::string<KernelAlloc>{*kernelAlloc, "server:"};
 	tag += desc.name();
 
-	auto hierarchyOutcome = Hierarchy::extend(rootHierarchy(), std::move(tag));
+	auto hierarchyOutcome = Hierarchy::extend(rootHierarchy(), std::move(tag), frg::null_opt);
 	if(!hierarchyOutcome)
 		panicLogger() << "thor: Failed to extend hierarchy for server "
 				<< desc.name() << frg::endlog;
