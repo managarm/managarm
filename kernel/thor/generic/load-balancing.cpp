@@ -146,6 +146,8 @@ void LoadBalancer::setAffinity(Thread *thread, frg::span<const uint8_t> mask) {
 					bestLoad = load;
 				}
 			}
+			// The thread cannot change its run state (and thereby the load of its node) during the move.
+			auto threadLock = frg::guard(&thread->_mutex);
 			doMigration_(thread, &lbNode.getFor(bestIndex), std::move(newCb));
 		}
 	}
@@ -219,9 +221,6 @@ void LoadBalancer::doMigration_(Thread *thread, LbNode *dstNode,
 	// if walkers hold references, the last of them unlinks it.
 	smarter::shared_ptr<LbControlBlock> oldRef;
 	{
-		// The thread cannot change its run state (and thereby the load of its node) during the move.
-		auto threadLock = frg::guard(&thread->_mutex);
-
 		auto now = getClockNanos();
 		bool runnable = thread->_isRunnable();
 
@@ -507,6 +506,8 @@ uint64_t LoadBalancer::pullFrom_(LbNode *srcNode, LbNode *dstNode, uint64_t amou
 								<< " from CPU " << srcNode->cpu->cpuIndex
 								<< " to CPU " << dstNode->cpu->cpuIndex << frg::endlog;
 
+					// The thread cannot change its run state (and thereby the load of its node) during the move.
+					auto threadLock = frg::guard(&thread->_mutex);
 					doMigration_(thread.get(), dstNode, std::move(spare));
 					moved = true;
 				}

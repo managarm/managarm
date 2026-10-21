@@ -237,7 +237,7 @@ private:
 	uint64_t pullFrom_(LbNode *srcNode, LbNode *dstNode, uint64_t amount);
 
 	// Replace the current control block of the thread by newCb, linked into dstNode.
-	// Precondition: the thread's LbThreadState::mutex_ is held but not its mutex (which this takes).
+	// Precondition: the thread's LbThreadState::mutex_ and its mutex are held.
 	void doMigration_(Thread *thread, LbNode *dstNode, smarter::shared_ptr<LbControlBlock> newCb);
 };
 
