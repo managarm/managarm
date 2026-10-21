@@ -66,6 +66,7 @@ struct PageBinding;
 // Per-CPU context for paging.
 struct PageContext {
 	friend struct PageBinding;
+	friend struct PageSpace;
 
 	PageContext() = default;
 
@@ -86,12 +87,15 @@ inline constexpr int globalBindingId = -1;
 struct PageSpace;
 
 struct PageBinding {
+	friend struct PageSpace;
+
 	friend void swap(PageBinding &a, PageBinding &b) {
 		using std::swap;
 		swap(a.id_, b.id_);
 		swap(a.boundSpace_, b.boundSpace_);
 		swap(a.primaryStamp_, b.primaryStamp_);
 		swap(a.alreadyShotSequence_, b.alreadyShotSequence_);
+		swap(a.lazy_, b.lazy_);
 	}
 
 	PageBinding() = default;
@@ -149,8 +153,24 @@ struct PageBinding {
 	void shootdown();
 
 private:
+	// Acknowledges the shootdown requests in (afterSequence, upToSequence] that count this binding,
+	// calling invalidate() on each of them first.
+	// Returns the sequence of the last request seen.
+	template<typename F>
+	uint64_t processShootdowns_(PageSpace *space,
+			uint64_t afterSequence, uint64_t upToSequence, F invalidate);
+
 	void doShootdown_(PageSpace *space);
 	void drainShootdown_(PageSpace *space, uint64_t afterSequence, uint64_t upToSequence);
+
+	// Stop counting this binding in shootdowns of its space while keeping its TLB entries.
+	void makeLazy_();
+	// Count this binding in shootdowns again.
+	// Returns whether it missed shootdowns, i.e., whether the caller needs to invalidate the ASID.
+	bool makeActive_();
+
+	// Make this binding the primary one; the previous primary binding becomes lazy.
+	void makePrimary_();
 
 	int id_ = 0;
 
@@ -162,6 +182,10 @@ private:
 	uint64_t primaryStamp_ = 0;
 
 	uint64_t alreadyShotSequence_ = 0;
+
+	// Lazy bindings are not counted by shootdowns of their space.
+	// For them, alreadyShotSequence_ is the sequence up to which their TLB entries are known to be up to date.
+	bool lazy_ = false;
 };
 
 
@@ -171,6 +195,11 @@ struct PageSpace {
 	// Switch to the given page space on this CPU. Picks the least
 	// recently used binding to use for the switch.
 	static void activate(smarter::shared_ptr<PageSpace> space);
+
+	// Stop counting the primary binding of this CPU in shootdowns but keep its page tables loaded.
+	// This is only allowed while the CPU does not access memory owned by the PageSpace (e.g., while it idles).
+	// The next activate() of the same space invalidates its ASID if it missed shootdowns.
+	static void enterLazyMode();
 
 	// Unbind all (non-global) page spaces from this CPU.
 	static void deactivateAll();
@@ -214,6 +243,11 @@ private:
 	unsigned int numBindings_;
 	// CPUs that hold this space in a non-global binding.
 	frg::dyn_bitset<KernelAlloc> boundCpus_;
+
+	// Bindings that are not lazy, i.e., that shootdowns wait for.
+	unsigned int numActiveBindings_;
+	// CPUs that hold this space in a non-global binding that is not lazy.
+	frg::dyn_bitset<KernelAlloc> activeCpus_;
 
 	uint64_t shootSequence_;
 
