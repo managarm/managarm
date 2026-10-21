@@ -170,6 +170,39 @@ struct LbNode {
 
 extern PerCpu<LbNode> lbNode;
 
+// Per-CPU stock of unlinked control blocks for migrations in contexts that cannot allocate.
+// The blocks are not tied to a node until a migration links them.
+struct LbSparePool {
+	static constexpr size_t capacity = 64;
+	// Since runRefillLoop() runs on the CPU's KernelFiber, refills only start below this level.
+	static constexpr size_t refillThreshold = 16;
+
+	// Precondition: IRQs are disabled and this is the current CPU's pool.
+	bool empty() {
+		return !count_.load(std::memory_order_relaxed);
+	}
+
+	// Returns a null pointer if the pool is empty.
+	// Precondition: IRQs are disabled and this is the current CPU's pool.
+	smarter::shared_ptr<LbControlBlock> take();
+
+	// Wakes up runRefillLoop() after take() if the pool runs low.
+	// Separate from take() since callers of take() hold locks; callers of this function hold none
+	// other than irqMutex().
+	void requestRefill();
+
+	// Must run on the generalWorkQueue of the pool's CPU.
+	coroutine<void> runRefillLoop();
+
+private:
+	smarter::shared_ptr<LbControlBlock> blocks_[capacity];
+	// Only written by the pool's CPU with IRQs disabled; runRefillLoop() also reads it with IRQs enabled.
+	std::atomic<size_t> count_{0};
+	async::recurring_event refillEvent_;
+};
+
+extern PerCpu<LbSparePool> lbSparePool;
+
 inline CpuData *LbThreadState::getAssignedCpu() {
 	IplGuard<ipl::noSchedule> rcuGuard;
 	return cb_.load(std::memory_order_acquire)->node_->cpu;

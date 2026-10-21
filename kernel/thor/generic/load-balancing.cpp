@@ -50,6 +50,39 @@ void LbControlBlock::finalizeBeforeRcu() {
 	node_->tasks.erase(this);
 }
 
+THOR_DEFINE_PERCPU(lbSparePool);
+
+smarter::shared_ptr<LbControlBlock> LbSparePool::take() {
+	assert(!intsAreEnabled());
+	auto n = count_.load(std::memory_order_relaxed);
+	if (!n)
+		return {};
+	count_.store(n - 1, std::memory_order_relaxed);
+	return std::move(blocks_[n - 1]);
+}
+
+void LbSparePool::requestRefill() {
+	if (count_.load(std::memory_order_relaxed) < refillThreshold)
+		refillEvent_.raise();
+}
+
+coroutine<void> LbSparePool::runRefillLoop() {
+	while (true) {
+		co_await refillEvent_.async_wait_if([&] {
+			return count_.load(std::memory_order_relaxed) == capacity;
+		});
+
+		// Only this loop adds blocks, so there is still room after the allocation.
+		auto cb = LbControlBlock::create();
+		auto irqLock = frg::guard(&irqMutex());
+		assert(this == &lbSparePool.get());
+		auto n = count_.load(std::memory_order_relaxed);
+		assert(n < capacity);
+		blocks_[n] = std::move(cb);
+		count_.store(n + 1, std::memory_order_relaxed);
+	}
+}
+
 LoadBalancer &LoadBalancer::singleton() {
 	return loadBalancer.get();
 }
@@ -60,6 +93,7 @@ void LoadBalancer::setOnline(CpuData *cpu) {
 	node->online.store(true, std::memory_order_release);
 	spawnOnWorkQueue(*kernelAlloc, cpu->generalWorkQueue, loadBalancer->runRequestLoop_(cpu));
 	spawnOnWorkQueue(*kernelAlloc, cpu->generalWorkQueue, loadBalancer->runPullLoop_(cpu));
+	spawnOnWorkQueue(*kernelAlloc, cpu->generalWorkQueue, lbSparePool.get(cpu).runRefillLoop());
 }
 
 void LoadBalancer::connect(Thread *thread, CpuData *cpu) {
