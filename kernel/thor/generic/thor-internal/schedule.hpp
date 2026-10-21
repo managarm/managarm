@@ -139,6 +139,12 @@ struct Scheduler {
 	// Enqueue the entity on target, which becomes its scheduler.
 	// Precondition: the entity is in state ScheduleState::attached.
 	static void resume(ScheduleEntity *entity, Scheduler *target);
+	// Move the entity from the wait queue of its scheduler to target if another CPU may run it.
+	// Returns false if the entity is not queued, may not run elsewhere or is already on target.
+	// Precondition: IRQs are disabled and entity stays alive (e.g., since it is RCU protected).
+	//               For threads, the thread's mutex is held, which prevents concurrent
+	//               resume() calls from changing the entity's scheduler.
+	static bool moveQueued(ScheduleEntity *entity, Scheduler *target);
 	// If migratable is set, the entity may run on another CPU once it is resumed.
 	static void suspendCurrent(bool migratable);
 
@@ -218,20 +224,35 @@ public:
 		return numQueued_.load(std::memory_order_relaxed);
 	}
 
+	// Returns the entity that this CPU would run next if another CPU may run it instead.
+	// The result can be outdated by the time the caller uses it; see moveQueued().
+	// Precondition: IRQs are disabled.
+	ScheduleEntity *peekMigratable();
+
 private:
 	void _unschedule(bool migratable);
 	void _schedule();
 
+	// Removes the entity from the wait queue if another CPU may run it.
+	// On success, the entity is in state ScheduleState::attached.
+	bool _takeQueued(ScheduleEntity *entity);
+
+	// Ask the load balancer for a thread that waits for another CPU and schedule it.
+	// Precondition: _scheduled is the idle task and no locks are held.
+	void _steal();
+
 private:
 	void _updatePreemption();
 
-	void _updateCurrentEntity();
+	// entity is _current or, if no entity is current yet, _scheduled.
+	void _updateRunningEntity(ScheduleEntity *entity);
 	void _updateWaitingEntity(ScheduleEntity *entity);
 
 	void _updateEntityStats(ScheduleEntity *entity);
 
 	CpuData *_cpuContext;
 
+	// Only changed by this CPU while it holds _mutex, so other CPUs can read them under _mutex.
 	ScheduleEntity *_current;
 	ScheduleEntity *_scheduled = nullptr;
 

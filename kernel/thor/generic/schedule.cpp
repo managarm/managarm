@@ -5,6 +5,7 @@
 #include <thor-internal/cpu-data.hpp>
 #include <thor-internal/debug.hpp>
 #include <thor-internal/idle.hpp>
+#include <thor-internal/load-balancing.hpp>
 #include <thor-internal/rcu.hpp>
 #include <thor-internal/schedule.hpp>
 #include <thor-internal/thread.hpp>
@@ -19,6 +20,9 @@ namespace {
 	constexpr bool logIdle = false;
 
 	constexpr bool disablePreemption = false;
+
+	// Whether a CPU that would go idle takes waiting threads from other CPUs.
+	constexpr bool enableStealing = true;
 
 	// Minimum length of a preemption time slice in ns.
 	constexpr int64_t sliceGranularity = 10'000'000;
@@ -164,13 +168,13 @@ void Scheduler::resume(ScheduleEntity *entity, Scheduler *target) {
 
 	auto self = target;
 	assert(self);
-	assert(entity != self->_current);
 	entity->_scheduler = self;
 	bool wasEmpty;
 	{
 		auto irqLock = frg::guard(&irqMutex());
 		auto lock = frg::guard(&self->_mutex);
 
+		assert(entity != self->_current);
 		entity->state = ScheduleState::pending;
 
 		wasEmpty = self->_pendingList.empty();
@@ -199,10 +203,24 @@ void Scheduler::resume(ScheduleEntity *entity, Scheduler *target) {
 	}
 }
 
+bool Scheduler::moveQueued(ScheduleEntity *entity, Scheduler *target) {
+	assert(!intsAreEnabled());
+	assert(entity->type() == ScheduleType::regular);
+
+	auto self = entity->_scheduler;
+	if(!self || self == target)
+		return false;
+	if(!self->_takeQueued(entity))
+		return false;
+	resume(entity, target);
+	return true;
+}
+
 void Scheduler::suspendCurrent(bool migratable) {
 	assert(!intsAreEnabled());
 
 	auto self = &localScheduler.get();
+	auto lock = frg::guard(&self->_mutex);
 	auto entity = self->_current;
 	assert(entity);
 	assert(entity->type() == ScheduleType::regular);
@@ -275,21 +293,25 @@ void Scheduler::_updateState() {
 		return (INT64_C(1) << progressShift) / x;
 	};
 
-	assert(_current);
+	// Since other CPUs also update the state (in _takeQueued()), the entity that this CPU
+	// has picked may not be current yet, or no entity may be picked at all.
+	auto running = _current ? _current : _scheduled;
 
 	// Number of waiting/running threads.
 	auto n = _numWaiting;
-	if(_current->type() == ScheduleType::regular)
+	if(running && running->type() == ScheduleType::regular)
 		n++;
 
 	assert(haveTimer());
-	auto now = getClockNanos();
+	// Since other CPUs also update the state, tolerate clock differences between CPUs (e.g., from TSC errata).
+	auto now = frg::max(getClockNanos(), _refClock);
 	auto deltaTime = now - _refClock;
 	_refClock = now;
 	if(n)
 		_systemProgress += deltaTime * static_cast<Progress>(fixedInverse(n));
 
-	_updateCurrentEntity();
+	if(running)
+		_updateRunningEntity(running);
 }
 
 // Move entities from the pending queue to the waiting queue.
@@ -359,6 +381,11 @@ void Scheduler::forceReschedule(bool migratable) {
 	assert(!intsAreEnabled());
 	assert(!_current);
 	assert(_scheduled);
+
+	// Done here instead of in forceReschedule() since stealing takes the locks of the stolen thread,
+	// while callers of forceReschedule() may still hold the mutex of the current thread.
+	if(_scheduled->type() == ScheduleType::idle)
+		_steal();
 
 	{
 		auto lock = frg::guard(&_mutex);
@@ -446,6 +473,61 @@ void Scheduler::_schedule() {
 	_scheduled = entity;
 }
 
+void Scheduler::_steal() {
+	assert(!intsAreEnabled());
+	assert(_scheduled && _scheduled->type() == ScheduleType::idle);
+	if(!enableStealing)
+		return;
+
+	if(!LoadBalancer::singleton().stealFor(_cpuContext))
+		return;
+
+	auto lock = frg::guard(&_mutex);
+
+	// Account for the time up to now before the stolen thread starts to wait here.
+	_updateState();
+	// The stolen thread is pending on this scheduler.
+	_updateQueue();
+	_scheduled = nullptr;
+	_schedule();
+}
+
+ScheduleEntity *Scheduler::peekMigratable() {
+	assert(!intsAreEnabled());
+	if(!numQueued())
+		return nullptr;
+
+	auto lock = frg::guard(&_mutex);
+
+	if(_waitQueue.empty())
+		return nullptr;
+	auto *entity = _waitQueue.top();
+	if(!entity->migratable_)
+		return nullptr;
+	return entity;
+}
+
+bool Scheduler::_takeQueued(ScheduleEntity *entity) {
+	auto lock = frg::guard(&_mutex);
+	assert(entity->_scheduler == this);
+
+	// Active entities are only migratable while they are in the wait queue.
+	if(entity->state != ScheduleState::active || !entity->migratable_)
+		return false;
+
+	// The progress rate depends on _numWaiting, so account for the time up to now first.
+	_updateState();
+	_waitQueue.remove(entity);
+	_numWaiting--;
+	numQueued_.fetch_sub(1, std::memory_order_relaxed);
+	// Credit the time that the entity waited on this CPU.
+	_updateWaitingEntity(entity);
+	entity->state = ScheduleState::attached;
+	// Keep the entity on its new CPU until it runs, such that other CPUs do not take it again.
+	entity->migratable_ = false;
+	return true;
+}
+
 // Returns true if preemption should be done immediately.
 void Scheduler::_updatePreemption() {
 	if(disablePreemption)
@@ -471,19 +553,18 @@ void Scheduler::_updatePreemption() {
 	setPreemptionDeadline(getClockNanos() + sliceGranularity);
 }
 
-void Scheduler::_updateCurrentEntity() {
-	assert(_current);
-	if(_current->type() == ScheduleType::idle)
+void Scheduler::_updateRunningEntity(ScheduleEntity *entity) {
+	if(entity->type() == ScheduleType::idle)
 		return;
-	assert(_current->type() == ScheduleType::regular);
+	assert(entity->type() == ScheduleType::regular);
 
-	auto delta_progress = _systemProgress - _current->refProgress;
+	auto delta_progress = _systemProgress - entity->refProgress;
 	if(logUpdates)
 		infoLogger() << "Running thread unfairness decreases by: "
 				<< progressToNanos(_numWaiting * delta_progress) / 1000
 				<< " us (" << _numWaiting << " waiting threads)" << frg::endlog;
-	_current->baseUnfairness -= _numWaiting * delta_progress;
-	_current->refProgress = _systemProgress;
+	entity->baseUnfairness -= _numWaiting * delta_progress;
+	entity->refProgress = _systemProgress;
 }
 
 void Scheduler::_updateWaitingEntity(ScheduleEntity *entity) {

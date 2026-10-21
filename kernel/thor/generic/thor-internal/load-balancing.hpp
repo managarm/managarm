@@ -246,6 +246,11 @@ struct LoadBalancer {
 	// Precondition: IRQs are disabled.
 	void checkOverload();
 
+	// Takes a thread that waits for another CPU, assigns it to cpu and resumes it there.
+	// Returns false if there is no such thread.
+	// Precondition: IRQs are disabled, no locks are held and cpu is the current CPU.
+	bool stealFor(CpuData *cpu);
+
 private:
 	static constexpr size_t noCpu = LbNode::noCpu;
 

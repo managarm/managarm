@@ -1,6 +1,8 @@
 #include <frg/unique.hpp>
 #include <thor-internal/load-balancing.hpp>
+#include <thor-internal/metrics.hpp>
 #include <thor-internal/rcu.hpp>
+#include <thor-internal/schedule.hpp>
 #include <thor-internal/thread.hpp>
 #include <thor-internal/timer.hpp>
 
@@ -238,6 +240,56 @@ void LoadBalancer::checkOverload() {
 	// This is called from contexts that cannot walk the threads of this CPU.
 	node->overloaded.store(true, std::memory_order_release);
 	node->overloadEvent.raise();
+}
+
+bool LoadBalancer::stealFor(CpuData *cpu) {
+	assert(!intsAreEnabled());
+	if (!enableLb || getCpuCount() < 2)
+		return false;
+	// Threads must not be moved to a CPU before the load balancer knows about it.
+	if (!lbNode.get(cpu).online.load(std::memory_order_acquire))
+		return false;
+	auto *pool = &lbSparePool.get();
+	stealAttemptsCounter.add();
+
+	auto *thief = &localScheduler.get(cpu);
+	bool stolen = false;
+	// Start after this CPU such that the CPUs do not all steal from the ones with small indices.
+	auto numCpus = getCpuCount();
+	for (size_t k = 1; k < numCpus; ++k) {
+		auto i = (cpu->cpuIndex + k) % numCpus;
+		auto *victim = &localScheduler.getFor(i);
+
+		// Only threads are migratable since other entities are pinned.
+		// Threads are RCU protected, so the thread stays alive while IRQs are disabled.
+		auto *thread = static_cast<Thread *>(victim->peekMigratable());
+		if (!thread)
+			continue;
+		auto *state = &thread->_lbState;
+
+		auto stateLock = frg::guard(&state->mutex_);
+		if (!state->inAffinityMask_(cpu->cpuIndex))
+			continue;
+		// Unless the thread is already assigned to this CPU, the move takes a spare control block.
+		bool needsCb = state->cb_.load(std::memory_order_relaxed)->node_->cpu != cpu;
+		if (needsCb && pool->empty())
+			continue;
+		// Ensures that the victim finished saving the thread's executor (see Thread::_mutex).
+		auto threadLock = frg::guard(&thread->_mutex);
+		// The victim may have run the thread (or another CPU may have stolen it) since the peek.
+		if (!Scheduler::moveQueued(thread, thief))
+			continue;
+
+		if (needsCb)
+			doMigration_(thread, &lbNode.get(cpu), pool->take());
+		stolen = true;
+		break;
+	}
+	if (!stolen)
+		return false;
+	stealsCounter.add();
+	pool->requestRefill();
+	return true;
 }
 
 void LoadBalancer::doMigration_(Thread *thread, LbNode *dstNode,
