@@ -82,6 +82,7 @@ async fn install_device(
     event: &mbus::EnumerationEvent,
     name: String,
     mut attrs: Vec<(String, Arc<dyn Attribute>)>,
+    uevent_extras: Vec<(&str, String)>,
     disk: Option<Disk>,
 ) -> Result<AnnouncedDevice> {
     let properties = event.properties();
@@ -108,6 +109,9 @@ async fn install_device(
             lane,
         ))
         .attrs(attrs);
+    for (name, value) in uevent_extras {
+        spec = spec.uevent_extra(name, value);
+    }
     if let Some(disk) = disk {
         spec = spec.data(disk);
     }
@@ -125,7 +129,15 @@ async fn install_disk(
     let name = format!("{stem}{suffix}");
     println!("devserver: Installing block device {name}");
 
-    let device = install_device(&state, &event, name, Vec::new(), Some(Disk { stem })).await?;
+    let device = install_device(
+        &state,
+        &event,
+        name,
+        Vec::new(),
+        Vec::new(),
+        Some(Disk { stem }),
+    )
+    .await?;
     Ok(vec![Box::new(device)])
 }
 
@@ -137,6 +149,7 @@ async fn install_partition(
     let disk_id: i64 = parse_prop(properties, "unix.diskid")?;
     let part_suffix = required_prop(properties, "unix.partname-suffix")?;
     let part_id = required_prop(properties, "unix.partid")?;
+    let partuuid = required_prop(properties, "unix.partuuid")?.to_string();
 
     let disk = state.model.wait_device(&DeviceKey::primary(disk_id)).await;
     let stem = disk
@@ -147,7 +160,9 @@ async fn install_partition(
     let name = format!("{stem}{part_suffix}{part_id}");
     println!("devserver: Installing block device {name}");
 
-    let device = install_device(&state, &event, name, Vec::new(), None).await?;
+    // Like Linux, expose the PARTUUID only in the uevent, not as a sysfs attribute.
+    let uevent_extras = vec![("PARTUUID", partuuid)];
+    let device = install_device(&state, &event, name, Vec::new(), uevent_extras, None).await?;
     Ok(vec![Box::new(device)])
 }
 

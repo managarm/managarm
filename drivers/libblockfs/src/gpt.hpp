@@ -1,5 +1,6 @@
 
 #include <string.h>
+#include <string>
 #include <vector>
 #include <utility>
 
@@ -18,6 +19,9 @@ struct Guid {
 	bool operator!= (const Guid &other) {
 		return !(*this == other);
 	}
+
+	// Canonical lowercase form, as printed by Linux and blkid.
+	std::string toString() const;
 
 	uint32_t a;
 	uint16_t b;

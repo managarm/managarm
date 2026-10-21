@@ -1,5 +1,6 @@
 
 #include <stdlib.h>
+#include <format>
 #include <print>
 #include <array>
 
@@ -7,6 +8,11 @@
 
 namespace blockfs {
 namespace gpt {
+
+std::string Guid::toString() const {
+	return std::format("{:08x}-{:04x}-{:04x}-{:02x}{:02x}-{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}",
+			a, b, c, d[0], d[1], e[0], e[1], e[2], e[3], e[4], e[5]);
+}
 
 namespace {
 	constexpr std::array<size_t, 4> commonSectorSizes{512, 2048, 4096, 8192};
@@ -122,6 +128,10 @@ Partition::Partition(
   _type(type),
   _startLba(start_lba),
   _numSectors(num_sectors) {}
+
+Guid Partition::id() {
+	return _id;
+}
 
 Guid Partition::type() {
 	return _type;
