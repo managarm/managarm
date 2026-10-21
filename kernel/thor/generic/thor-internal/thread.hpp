@@ -495,6 +495,10 @@ private:
 	AssociatedWorkQueue _mainWorkQueue;
 	AssociatedWorkQueue _pagingWorkQueue;
 
+	// When the current thread is scheduled out,
+	// _mutex is taken before the thread is queued or suspended (in maybeReschedule() or forceReschedule())
+	// and only released once its executor is saved.
+	// This serializes executor saving vs. invoke().
 	Mutex _mutex;
 
 	RunState _runState;

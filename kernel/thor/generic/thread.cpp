@@ -633,9 +633,8 @@ void Thread::handlePreemption(Ipl ipl) {
 	LoadBalancer::singleton().checkOverload();
 
 	scheduler->update();
+	auto lock = frg::guard(&_mutex);
 	if(scheduler->maybeReschedule()) {
-		auto lock = frg::guard(&_mutex);
-
 		if(logRunStates)
 			infoLogger() << "thor: " << (void *)this << " is deferred" << frg::endlog;
 
@@ -651,6 +650,7 @@ void Thread::handlePreemption(Ipl ipl) {
 			}, getCpuData()->detachedStack.base(), &_executor, std::move(lock));
 		}, &_executor);
 	}else{
+		lock.unlock();
 		scheduler->renewSchedule();
 	}
 }
@@ -676,9 +676,8 @@ void Thread::genericHandlePreemption(ImageAccessor image) {
 	LoadBalancer::singleton().checkOverload();
 
 	scheduler->update();
+	auto lock = frg::guard(&_mutex);
 	if(scheduler->maybeReschedule()) {
-		auto lock = frg::guard(&_mutex);
-
 		if(logRunStates)
 			infoLogger() << "thor: " << (void *)this << " is deferred" << frg::endlog;
 
@@ -693,6 +692,7 @@ void Thread::genericHandlePreemption(ImageAccessor image) {
 			localScheduler.get().commitReschedule();
 		}, getCpuData()->detachedStack.base(), image, std::move(lock));
 	}else{
+		lock.unlock();
 		scheduler->renewSchedule();
 	}
 }
