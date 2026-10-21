@@ -189,6 +189,12 @@ public:
 
 	ScheduleEntity *currentRunnable();
 
+	// Number of entities that wait for this CPU, i.e., pending ones and ones in the wait queue.
+	// Other CPUs read this to look for threads to steal.
+	size_t numQueued() {
+		return numQueued_.load(std::memory_order_relaxed);
+	}
+
 private:
 	void _unschedule();
 	void _schedule();
@@ -217,6 +223,9 @@ private:
 	> _waitQueue;
 
 	size_t _numWaiting = 0;
+
+	// See numQueued().
+	std::atomic<size_t> numQueued_{0};
 
 	// See mustCallPreemption().
 	bool _mustCallPreemption{false};

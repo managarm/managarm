@@ -169,6 +169,7 @@ void Scheduler::resume(ScheduleEntity *entity) {
 
 		wasEmpty = self->_pendingList.empty();
 		self->_pendingList.push_back(entity);
+		self->numQueued_.fetch_add(1, std::memory_order_relaxed);
 	}
 
 	if(wasEmpty) {
@@ -379,6 +380,7 @@ void Scheduler::_unschedule() {
 			|| _current->state == ScheduleState::active) {
 		_waitQueue.push(_current);
 		_numWaiting++;
+		numQueued_.fetch_add(1, std::memory_order_relaxed);
 	}
 
 	_current = nullptr;
@@ -398,6 +400,7 @@ void Scheduler::_schedule() {
 	auto entity = _waitQueue.top();
 	_waitQueue.pop();
 	_numWaiting--;
+	numQueued_.fetch_sub(1, std::memory_order_relaxed);
 
 	// Increase the unfairness at the start of the time slice.
 	assert(entity->state == ScheduleState::active);
