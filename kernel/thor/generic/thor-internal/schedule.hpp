@@ -55,7 +55,8 @@ struct ScheduleEntity {
 	static int orderPriority(const ScheduleEntity *a, const ScheduleEntity *b);
 	static bool scheduleBefore(const ScheduleEntity *a, const ScheduleEntity *b);
 
-	ScheduleEntity(ScheduleType type = ScheduleType::regular);
+	// Pinned entities only ever run on the CPU that they are enqueued on.
+	ScheduleEntity(ScheduleType type = ScheduleType::regular, bool pinned = false);
 
 	ScheduleEntity(const ScheduleEntity &) = delete;
 
@@ -87,12 +88,18 @@ public:
 
 private:
 	const ScheduleType type_;
+	const bool pinned_;
 
 	frg::ticket_spinlock _associationMutex;
 	Scheduler *_scheduler;
 
 	ScheduleState state;
 	int priority;
+
+	// Whether another CPU may run the entity while it is queued.
+	// Decided whenever the entity stops running; false while it is picked or running.
+	// While the entity is queued, it is protected by the mutex of the entity's scheduler.
+	bool migratable_;
 
 	frg::default_list_hook<ScheduleEntity> listHook;
 	frg::pairing_heap_hook<ScheduleEntity> heapHook;
@@ -127,7 +134,8 @@ struct Scheduler {
 	static void setPriority(ScheduleEntity *entity, int priority);
 
 	static void resume(ScheduleEntity *entity);
-	static void suspendCurrent();
+	// If migratable is set, the entity may run on another CPU once it is resumed.
+	static void suspendCurrent(bool migratable);
 
 	Scheduler(CpuData *cpu_context);
 
@@ -189,8 +197,10 @@ private:
 
 public:
 
-	bool maybeReschedule();
-	void forceReschedule();
+	// If migratable is set, the current entity may run on another CPU once it is unscheduled.
+	bool maybeReschedule(bool migratable);
+	// See maybeReschedule() for migratable; it is ignored if the current entity was suspended.
+	void forceReschedule(bool migratable);
 
 	[[noreturn]] void commitReschedule();
 	void renewSchedule();
@@ -204,7 +214,7 @@ public:
 	}
 
 private:
-	void _unschedule();
+	void _unschedule(bool migratable);
 	void _schedule();
 
 private:

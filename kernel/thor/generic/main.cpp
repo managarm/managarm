@@ -367,7 +367,7 @@ extern "C" void thorMain() {
 	setCpuState(getCpuData(), CpuState::online);
 	auto *scheduler = &localScheduler.get();
 	scheduler->update();
-	scheduler->forceReschedule();
+	scheduler->forceReschedule(false);
 	scheduler->commitReschedule();
 }
 

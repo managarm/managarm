@@ -62,7 +62,7 @@ namespace {
 			consumeIdlePing();
 			auto *scheduler = &localScheduler.get();
 			scheduler->update();
-			if(scheduler->maybeReschedule()) {
+			if(scheduler->maybeReschedule(false)) {
 				noteIdleWakeup(true);
 				runOnStack([] (Continuation cont, IrqImageAccessor image) {
 					scrubStack(image, cont);
@@ -78,7 +78,7 @@ namespace {
 			consumeIdlePing();
 			auto *scheduler = &localScheduler.get();
 			scheduler->update();
-			if(scheduler->maybeReschedule()) {
+			if(scheduler->maybeReschedule(false)) {
 				noteIdleWakeup(true);
 				runOnStack([] (Continuation) {
 					localScheduler.get().commitReschedule();
@@ -105,8 +105,9 @@ bool ScheduleEntity::scheduleBefore(const ScheduleEntity *a, const ScheduleEntit
 			> b->baseUnfairness - b->refProgress; // Prefer greater unfairness.
 }
 
-ScheduleEntity::ScheduleEntity(ScheduleType type)
-: type_{type}, state{ScheduleState::null}, priority{0}, _refClock{0}, _runTime{0},
+ScheduleEntity::ScheduleEntity(ScheduleType type, bool pinned)
+: type_{type}, pinned_{pinned}, state{ScheduleState::null}, priority{0}, migratable_{!pinned},
+		_refClock{0}, _runTime{0},
 		refProgress{0}, baseUnfairness{0} { }
 
 ScheduleEntity::~ScheduleEntity() {
@@ -193,7 +194,7 @@ void Scheduler::resume(ScheduleEntity *entity) {
 	}
 }
 
-void Scheduler::suspendCurrent() {
+void Scheduler::suspendCurrent(bool migratable) {
 	assert(!intsAreEnabled());
 
 	auto self = &localScheduler.get();
@@ -205,6 +206,7 @@ void Scheduler::suspendCurrent() {
 	// Update the unfairness on suspend.
 	self->_updateEntityStats(entity);
 	entity->state = ScheduleState::attached;
+	entity->migratable_ = migratable && !entity->pinned_;
 
 	self->_current = nullptr;
 }
@@ -301,7 +303,7 @@ void Scheduler::_updateQueue() {
 	}
 }
 
-bool Scheduler::maybeReschedule() {
+bool Scheduler::maybeReschedule(bool migratable) {
 	assert(!intsAreEnabled());
 	assert(_current);
 	auto lock = frg::guard(&_mutex);
@@ -334,17 +336,17 @@ bool Scheduler::maybeReschedule() {
 	if(!wantToSchedule())
 		return false;
 
-	_unschedule();
+	_unschedule(migratable);
 	_schedule();
 	return true;
 }
 
-void Scheduler::forceReschedule() {
+void Scheduler::forceReschedule(bool migratable) {
 	assert(!intsAreEnabled());
 	auto lock = frg::guard(&_mutex);
 
 	if(_current)
-		_unschedule();
+		_unschedule(migratable);
 	_schedule();
 }
 
@@ -383,7 +385,7 @@ ScheduleEntity *Scheduler::currentRunnable() {
 	return _current;
 }
 
-void Scheduler::_unschedule() {
+void Scheduler::_unschedule(bool migratable) {
 	assert(_current);
 
 	// Decrease the unfairness at the end of the time slice.
@@ -391,6 +393,7 @@ void Scheduler::_unschedule() {
 
 	if(_current->type() == ScheduleType::regular
 			|| _current->state == ScheduleState::active) {
+		_current->migratable_ = migratable && !_current->pinned_;
 		_waitQueue.push(_current);
 		_numWaiting++;
 		numQueued_.fetch_add(1, std::memory_order_relaxed);
@@ -414,6 +417,7 @@ void Scheduler::_schedule() {
 	_waitQueue.pop();
 	_numWaiting--;
 	numQueued_.fetch_sub(1, std::memory_order_relaxed);
+	entity->migratable_ = false;
 
 	// Increase the unfairness at the start of the time slice.
 	assert(entity->state == ScheduleState::active);
