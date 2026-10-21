@@ -1,5 +1,6 @@
 
 #include <assert.h>
+#include <cctype>
 #include <core/cmdline.hpp>
 #include <core/device-path.hpp>
 #include <fcntl.h>
@@ -332,6 +333,12 @@ private:
 	int fd_{-1};
 };
 
+std::string toLower(std::string_view s) {
+	std::string result{s};
+	std::ranges::transform(result, result.begin(), [] (unsigned char c) { return std::tolower(c); });
+	return result;
+}
+
 bool hasManagarmRootAttribute(const std::string &device) {
 	auto rootAttr = device + "/managarm-root";
 
@@ -442,12 +449,14 @@ int main() {
 	frg::string_view uefiNetDevpath = "";
 	bool nvmeOverFabric = false;
 	frg::string_view nvmeServer = "";
+	frg::string_view rootSpec = "";
 
 	frg::array args = {
 		frg::option{"netserver.device", frg::as_string_view(uefiNetDevpath)},
 		frg::option{"nosystemd", frg::store_false(systemd)},
 		frg::option{"nvme.over-fabric", frg::store_true(nvmeOverFabric)},
 		frg::option{"netserver.server", frg::as_string_view(nvmeServer)},
+		frg::option{"root", frg::as_string_view(rootSpec)},
 	};
 	frg::parse_arguments(cmdline.c_str(), args);
 
@@ -496,14 +505,29 @@ int main() {
 		}
 	}
 
+	// Without root=, the first partition with the Managarm root type is used.
+	std::optional<std::string> rootPartuuid;
+	if(rootSpec.size()) {
+		std::string_view spec{rootSpec.data(), rootSpec.size()};
+		if(spec.starts_with("PARTUUID="))
+			rootPartuuid = toLower(spec.substr(std::string_view{"PARTUUID="}.size()));
+		else
+			std::cout << std::format("init: Unsupported root={}, falling back to the partition type", spec) << std::endl;
+	}
+	std::string rootDescription = rootPartuuid
+			? std::format("PARTUUID={}", *rootPartuuid)
+			: std::string{"with the Managarm root type"};
+
+	using Clock = std::chrono::steady_clock;
+	constexpr auto rootReportInterval = std::chrono::seconds{10};
+	auto nextRootReport = Clock::now() + rootReportInterval;
+
 	std::optional<std::string> rootPath;
 	// MBUS_IDs of the PCI devices that we already launched block-nvme for.
 	std::unordered_set<std::string> nvmeDevices;
-	// TODO(qookie): Query /proc/cmdline to see if the user
-	// requested a different device.
 
 	UeventEngine ueventEngine;
-	std::cout << "init: Looking for the root partition" << std::endl;
+	std::cout << "init: Looking for the root partition " << rootDescription << std::endl;
 
 	ueventEngine.init();
 	ueventEngine.trigger();
@@ -515,12 +539,24 @@ int main() {
 			continue;
 		}
 
-		auto nextUevent = ueventEngine.nextUevent(nvmeLinkWait ? nvmeLinkWait->timeoutMs() : -1);
+		int timeoutMs = nvmeLinkWait ? nvmeLinkWait->timeoutMs() : -1;
+		if(!rootPath) {
+			auto now = Clock::now();
+			if(now >= nextRootReport) {
+				std::cout << "init: Still waiting for the root partition " << rootDescription << std::endl;
+				nextRootReport = now + rootReportInterval;
+			}
+			auto left = std::chrono::ceil<std::chrono::milliseconds>(nextRootReport - now);
+			int reportMs = std::max<int>(left.count(), 0);
+			timeoutMs = timeoutMs < 0 ? reportMs : std::min(timeoutMs, reportMs);
+		}
+
+		auto nextUevent = ueventEngine.nextUevent(timeoutMs);
 		if (!nextUevent) {
 			std::cout << "Failed to receive uevent" << std::endl;
 			abort();
 		}
-		// Timed out to poll the NVMe-oF link.
+		// Timed out to poll the NVMe-oF link or to report that the root is still missing.
 		if (!*nextUevent)
 			continue;
 		auto &uevent = *nextUevent;
@@ -550,7 +586,16 @@ int main() {
 			auto device = "/sys" + devpath;
 			if(logDiscovery)
 				std::cout << "init: Considering device " << device << std::endl;
-			if(hasManagarmRootAttribute(device))
+
+			bool isRoot;
+			if(rootPartuuid) {
+				// Like Linux, root=PARTUUID= ignores the partition type.
+				auto partuuidIt = uevent->find("PARTUUID");
+				isRoot = partuuidIt != uevent->end() && toLower(partuuidIt->second) == *rootPartuuid;
+			} else {
+				isRoot = hasManagarmRootAttribute(device);
+			}
+			if(isRoot)
 				rootPath = findDevNode(device);
 		}
 
