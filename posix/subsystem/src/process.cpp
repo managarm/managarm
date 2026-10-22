@@ -14,6 +14,7 @@
 #include "exec.hpp"
 #include "gdbserver.hpp"
 #include "process.hpp"
+#include "swap.hpp"
 
 #include <core/process-data.hpp>
 #include <protocols/posix/data.hpp>
@@ -227,15 +228,18 @@ VmContext::mapFile(uintptr_t hint, helix::UniqueDescriptor memory,
 	void *pointer = nullptr;
 	HelError error;
 	if(copyOnWrite) {
-		HelHandle handle;
+		helix::BorrowedDescriptor memoryDesc;
 		if(memory) {
-			HEL_CHECK(helCopyOnWrite(_hierarchy.getHandle(), kHelNullHandle, memory.getHandle(),
-					offset, alignedSize, &handle));
-		}else{
-			HEL_CHECK(helCopyOnWrite(_hierarchy.getHandle(), kHelNullHandle,
-					getZeroMemory().getHandle(),
-					offset, alignedSize, &handle));
+			memoryDesc = memory;
+		} else {
+			memoryDesc = getZeroMemory();
 		}
+
+		HelHandle handle;
+		HEL_CHECK(helCopyOnWrite(_hierarchy.getHandle(),
+				getSwapSpaceHandle().getHandle(),
+				memoryDesc.getHandle(),
+				offset, alignedSize, &handle));
 		copyView = helix::UniqueDescriptor{handle};
 
 		auto mapResult = co_await helix_ng::mapMemory(copyView, _space,

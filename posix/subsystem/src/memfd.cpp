@@ -1,5 +1,6 @@
 #include "memfd.hpp"
 #include "process.hpp"
+#include "swap.hpp"
 
 #include <helix/ipc.hpp>
 
@@ -60,7 +61,8 @@ async::result<frg::expected<Error>> MemoryFile::_resizeFile(size_t new_size) {
 		HEL_CHECK(resizeResult.error());
 	}else{
 		HelHandle handle;
-		HEL_CHECK(helAllocateMemory(sharedHierarchy(), aligned_size, 0, nullptr, &handle));
+		HEL_CHECK(helAllocateSwappableMemory(sharedHierarchy(),
+				getSwapSpaceHandle().getHandle(), aligned_size, 0, &handle));
 		_memory = helix::UniqueDescriptor{handle};
 	}
 

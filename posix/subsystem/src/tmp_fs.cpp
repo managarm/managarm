@@ -16,6 +16,7 @@
 #include "tmp_fs.hpp"
 #include "fifo.hpp"
 #include "process.hpp"
+#include "swap.hpp"
 #include <sys/stat.h>
 
 #include <bitset>
@@ -566,7 +567,8 @@ private:
 			HEL_CHECK(result.error());
 		}else{
 			HelHandle handle;
-			HEL_CHECK(helAllocateMemory(sharedHierarchy(), aligned_size, 0, nullptr, &handle));
+			HEL_CHECK(helAllocateSwappableMemory(sharedHierarchy(),
+					getSwapSpaceHandle().getHandle(), aligned_size, 0, &handle));
 			_memory = helix::UniqueDescriptor{handle};
 		}
 
