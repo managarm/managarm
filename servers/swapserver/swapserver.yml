@@ -1,0 +1,4 @@
+name: swapserver
+exec: /usr/bin/swapserver
+files:
+  - /usr/bin/swapserver

@@ -72,6 +72,7 @@ else:
 
 # User-space core components.
 add_file('usr/bin', 'usr/bin', 'sif')
+add_file('usr/bin', 'usr/bin', 'swapserver')
 add_file('usr/bin', 'usr/bin', 'mbus')
 add_file('usr/bin', 'usr/bin', 'kernletcc')
 add_file('usr/bin', 'usr/bin', 'posix-devserver')

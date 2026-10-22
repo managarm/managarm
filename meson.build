@@ -204,7 +204,7 @@ if build_drivers or provide_deps
 		subdir('core/arch')
 	endif
 
-	protocols = [ 'ostrace', 'fs', 'hw', 'usb', 'svrctl', 'kernlet' ]
+	protocols = [ 'ostrace', 'fs', 'hw', 'usb', 'svrctl', 'kernlet', 'swap' ]
 	core = [ 'core/drm', 'core/virtio', 'mbus' ]
 	posix = [ 'subsystem', 'init' ]
 	drivers = [
@@ -256,6 +256,7 @@ if build_drivers
 	subdir('sif')
 	subdir('posix/devserver')
 	subdir('servers/kernletcc')
+	subdir('servers/swapserver')
 	subdir('drivers/dmalog')
 
 	foreach dir : delay
