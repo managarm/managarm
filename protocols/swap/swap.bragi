@@ -5,6 +5,11 @@ enum Errors {
     OTHER
 }
 
+enum ManageType {
+    INITIALIZE,
+    WRITEBACK
+}
+
 group {
 
 message GetSwapSpaceRequest 1 {
@@ -16,6 +21,22 @@ head(128):
 group {
 
 message GetSwapSpaceResponse 1 {
+head(128):
+    Errors error;
+}
+
+}
+
+group {
+
+message ManageRequest 1 {
+head(128):
+    ManageType type;
+    uint64 offset;
+    uint64 count;
+}
+
+message ManageResponse 2 {
 head(128):
     Errors error;
 }
