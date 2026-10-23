@@ -380,8 +380,9 @@ coroutine<frg::expected<ProtocolError>> GdbServer::handleRequest_() {
 
 		frg::vector<uint8_t, KernelAlloc> mem{*kernelAlloc};
 		mem.resize(length);
-		auto actualLength = co_await thread_->getAddressSpace()->readPartialSpace(
+		auto readOutcome = co_await thread_->getAddressSpace()->readPartialSpace(
 				address, mem.data(), length);
+		size_t actualLength = readOutcome ? *readOutcome : 0;
 
 		for(size_t i = 0; i < actualLength; ++i)
 			resp.appendHexByte(mem[i]);
