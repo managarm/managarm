@@ -5,6 +5,7 @@ src = [
 	'src/gpt.cpp',
 	'src/raw.cpp',
 	'src/scsi.cpp',
+	'src/swap.cpp',
 	'src/ext2/block-map-cache.cpp',
 	'src/ext2/ext2fs.cpp',
 	'src/ext2/ops.cpp',
@@ -12,7 +13,7 @@ src = [
 	'src/btrfs/ops.cpp',
 ]
 inc = [ 'include' ]
-deps = [ libarch, core_dep, fs_proto_dep, mbus_proto_dep, ostrace_proto_dep ]
+deps = [ libarch, core_dep, fs_proto_dep, mbus_proto_dep, ostrace_proto_dep, swap_proto_dep ]
 
 libblockfs_driver = shared_library('blockfs', src,
 	dependencies : deps,

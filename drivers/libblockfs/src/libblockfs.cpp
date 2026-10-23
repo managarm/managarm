@@ -22,6 +22,7 @@
 #include <blockfs.hpp>
 #include "gpt.hpp"
 #include "raw.hpp"
+#include "swap.hpp"
 #include "trace.hpp"
 #include "fs.bragi.hpp"
 #include <bragi/helpers-std.hpp>
@@ -788,10 +789,32 @@ async::detached runDevice(BlockDevice *device) {
 				type.e[0], type.e[1], type.e[2], type.e[3], type.e[4], type.e[5],
 				partuuid.c_str());
 
-		if(type == gpt::type_guids::managarmRootPartition)
-			printf("  It's a Managarm root partition!\n");
-
 		auto paritition = &table->getPartition(i);
+		if(type == gpt::type_guids::managarmRootPartition) {
+			printf("  It's a Managarm root partition!\n");
+		} else if(type == gpt::type_guids::managarmSwapPartition) {
+			printf("  It's a Managarm swap partition!\n");
+
+			mbus_ng::Properties descriptor{
+				{"class", mbus_ng::StringItem{"swap-target"}},
+				{"size", mbus_ng::StringItem{std::to_string(co_await paritition->getSize())}},
+			};
+			auto entity = (co_await mbus_ng::Instance::global().createEntity(
+					"swap-target", descriptor)).unwrap();
+
+			[] (mbus_ng::EntityManager entity, gpt::Partition *partition) -> async::detached {
+				while (true) {
+					auto [localLane, remoteLane] = helix::createStream();
+
+					// If this fails, too bad!
+					(void)(co_await entity.serveRemoteLane(std::move(remoteLane)));
+
+					serveSwapTarget(std::move(localLane), partition);
+				}
+			}(std::move(entity), paritition);
+
+			continue;
+		}
 
 		auto rawFs = std::make_unique<raw::RawFs>(paritition);
 		co_await rawFs->init();
