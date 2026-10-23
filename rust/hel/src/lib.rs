@@ -117,6 +117,28 @@ pub fn create_swap_space(hierarchy: &Handle) -> Result<SwapSpace> {
     })
 }
 
+/// Completes a manage request that was obtained through [`submission::manage_memory`].
+///
+/// For swap spaces, all locks and mappings of the requested range must be dropped
+/// before calling this; otherwise, it fails with [`Error::IllegalState`].
+pub fn complete_manage_request(
+    memory: &Handle,
+    request: submission::result::ManageRequest,
+) -> Result<()> {
+    let type_ = match request {
+        submission::result::ManageRequest::Initialize { .. } => hel_sys::kHelManageInitialize,
+        submission::result::ManageRequest::Writeback { .. } => hel_sys::kHelManageWriteback,
+    };
+    result::hel_check(unsafe {
+        hel_sys::helUpdateMemory(
+            memory.handle(),
+            type_ as _,
+            request.offset(),
+            request.length(),
+        )
+    })
+}
+
 /// The firmware description that an IOMMU was discovered from.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum IommuKind {
