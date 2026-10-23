@@ -4,6 +4,7 @@
 #include <cstdint>
 #include <cstdio>
 #include <chrono>
+#include <map>
 #include <thread>
 #include <vector>
 
@@ -20,13 +21,42 @@ constexpr size_t pageSize = 0x1000;
 constexpr size_t swapPages = 64;
 constexpr size_t viewPages = 16;
 
-struct SwapDaemonState {
+constexpr uint64_t regionMask = (uint64_t{1} << kHelSwapRegionShift) - 1;
+
+struct SwapRegion {
+	// Emulated swap file.
 	std::vector<uint8_t> disk;
+	std::atomic<size_t> pagesWrittenBack{0};
+};
+
+struct SwapDaemonState {
+	// Not modified while requests are served concurrently.
+	std::map<uint32_t, SwapRegion> regions;
 	std::atomic<size_t> pagesWrittenBack{0};
 	std::atomic<size_t> pagesInitialized{0};
 	std::atomic<bool> stop{false};
 	std::atomic<bool> finished{false};
+
+	SwapRegion &regionOf(uint64_t offset) {
+		auto it = regions.find(offset >> kHelSwapRegionShift);
+		assert(it != regions.end());
+		return it->second;
+	}
+
+	// Returns the disk contents that back [offset, offset + length) of the backing memory.
+	uint8_t *diskRange(uint64_t offset, size_t length) {
+		auto &disk = regionOf(offset).disk;
+		assert((offset & regionMask) + length <= disk.size());
+		return disk.data() + (offset & regionMask);
+	}
 };
+
+async::result<void> setSwapRegion(helix::BorrowedDescriptor swapSpace, uint32_t region,
+		size_t numPages, SwapDaemonState *state) {
+	auto result = co_await helix_ng::setSwapRegion(swapSpace, region, numPages);
+	HEL_CHECK(result.error());
+	state->regions[region].disk.resize(numPages * pageSize);
+}
 
 // Emulates the swap daemon, serves a single manage request. Services
 // initialize requests by reading from the disk buffer and writeback
@@ -40,11 +70,12 @@ async::result<void> serveOnce(helix::BorrowedDescriptor backing, SwapDaemonState
 
 	assert(!(manage.offset() & (pageSize - 1)));
 	assert(!(manage.length() & (pageSize - 1)));
-	assert(manage.offset() + manage.length() <= state->disk.size());
+	// Also asserts that the request lies within a single region.
+	auto disk = state->diskRange(manage.offset(), manage.length());
 
 	if(manage.type() == kHelManageInitialize) {
 		auto result = co_await helix_ng::writeMemory(backing, manage.offset(),
-				manage.length(), state->disk.data() + manage.offset());
+				manage.length(), disk);
 		HEL_CHECK(result.error());
 		HEL_CHECK(helUpdateMemory(backing.getHandle(), kHelManageInitialize,
 				manage.offset(), manage.length()));
@@ -53,10 +84,12 @@ async::result<void> serveOnce(helix::BorrowedDescriptor backing, SwapDaemonState
 	}else{
 		assert(manage.type() == kHelManageWriteback);
 		auto result = co_await helix_ng::readMemory(backing, manage.offset(),
-				manage.length(), state->disk.data() + manage.offset());
+				manage.length(), disk);
 		HEL_CHECK(result.error());
 		HEL_CHECK(helUpdateMemory(backing.getHandle(), kHelManageWriteback,
 				manage.offset(), manage.length()));
+		state->regionOf(manage.offset()).pagesWrittenBack.fetch_add(manage.length() / pageSize,
+				std::memory_order_relaxed);
 		state->pagesWrittenBack.fetch_add(manage.length() / pageSize,
 				std::memory_order_relaxed);
 		if(state->stop.load(std::memory_order_relaxed))
@@ -85,15 +118,17 @@ async::result<void> testSwapRoundtrip() {
 	helix::UniqueDescriptor backing{backingHandle};
 	helix::UniqueDescriptor swapSpace{swapHandle};
 
-	HEL_CHECK(helSetSwapBudget(swapSpace.getHandle(), swapPages));
+	// The first region is too small for the view, so writeback continues in a second region.
+	constexpr size_t firstPages = 4;
+	constexpr uint32_t secondRegion = kHelNumSwapRegions - 1;
+
+	SwapDaemonState state;
+	co_await setSwapRegion(swapSpace, 0, firstPages, &state);
 
 	HelHandle memoryHandle;
 	HEL_CHECK(helAllocateSwappableMemory(core::getProcessHierarchy(), swapSpace.getHandle(),
 			viewPages * pageSize, 0, &memoryHandle));
 	helix::UniqueDescriptor memory{memoryHandle};
-
-	SwapDaemonState state;
-	state.disk.resize(swapPages * pageSize);
 
 	// Write patterns through a real mapping.
 	void *window;
@@ -105,9 +140,17 @@ async::result<void> testSwapRoundtrip() {
 	// Unmapping scans the dirty PTE bits, so all pages enter writeback.
 	HEL_CHECK(helUnmapMemory(kHelNullHandle, window, viewPages * pageSize));
 
+	// Clean pages keep their slots, so writeback stalls once the first region is full.
+	while(state.pagesWrittenBack.load(std::memory_order::relaxed) < firstPages)
+		co_await serveOnce(backing, &state);
+	assert(state.regions.at(0).pagesWrittenBack.load(std::memory_order::relaxed) == firstPages);
+
+	co_await setSwapRegion(swapSpace, secondRegion, swapPages, &state);
 	while(state.pagesWrittenBack.load(std::memory_order::relaxed) < viewPages)
 		co_await serveOnce(backing, &state);
 	assert(state.pagesWrittenBack.load(std::memory_order::relaxed) == viewPages);
+	assert(state.regions.at(secondRegion).pagesWrittenBack.load(std::memory_order::relaxed)
+			== viewPages - firstPages);
 
 	// Under torture uncaching the pages are dropped within a few generation,
 	// give the kernel some time.
@@ -155,15 +198,13 @@ HelHandle backingHandle, swapHandle;
 	helix::UniqueDescriptor backing{backingHandle};
 	helix::UniqueDescriptor swapSpace{swapHandle};
 
-	HEL_CHECK(helSetSwapBudget(swapSpace.getHandle(), swapPages));
+	SwapDaemonState state;
+	async::run(setSwapRegion(swapSpace, 0, swapPages, &state), helix::currentDispatcher);
 
 	HelHandle memoryHandle;
 	HEL_CHECK(helAllocateSwappableMemory(core::getProcessHierarchy(), swapSpace.getHandle(),
 			viewPages * pageSize, 0, &memoryHandle));
 	helix::UniqueDescriptor memory{memoryHandle};
-
-	SwapDaemonState state;
-	state.disk.resize(swapPages * pageSize);
 
 	// Write patterns through a real mapping.
 	void *window;

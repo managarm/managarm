@@ -10,6 +10,7 @@
 #include <async/recurring-event.hpp>
 #include <async/wait-group.hpp>
 #include <frg/list.hpp>
+#include <frg/rbtree.hpp>
 #include <frg/rcu_radixtree.hpp>
 #include <frg/shared_ptr.hpp>
 #include <frg/vector.hpp>
@@ -1171,20 +1172,30 @@ static_assert(HasDispose<ManagedSpace>);
 // A slot is a page-sized position in the backing store, identified by its swap offset.
 // A page obtains a slot when it is first written back and holds it while its disk copy
 // is valid; a page that is dirtied again releases its slot.
+// Swap offsets are split into a region (e.g., a swap file) and the slot within the region.
 struct SwapSpace final : ManagedSpace, RcuProtected {
+	// Number of low bits of a swap offset (in pages) that select the slot within its region.
+	static constexpr int regionShift = 32;
+	// Swap offsets of all regions fit into the backing memory (see backingMemoryLength).
+	static constexpr unsigned int maxRegions = 1 << (62 - regionShift - kPageShift);
+	// The last offset of each region stays unused, such that runs of consecutive offsets
+	// (and thus fused manage requests) never cross region boundaries.
+	static constexpr size_t maxRegionSlots = (size_t{1} << regionShift) - 1;
+
 	static std::expected<smarter::shared_ptr<SwapSpace>, Error> create(
 			smarter::shared_ptr<Hierarchy> hierarchy);
 
 	SwapSpace(smarter::shared_ptr<Hierarchy> hierarchy);
+	~SwapSpace();
 
 	bool claimSlot(ManagedPage *page) override;
 	void _releaseSlot(ManagedPage *page) override;
 	void _pageDiscarded(ManagedPage *page, bool &raiseDirty) override;
 
-	// Sets the budget to numSlots, i.e., makes the offsets [0, numSlots) available as slots.
-	// Manage requests only ever address offsets below the budget.
-	// Fails if the budget has already been set.
-	Error setBudget(size_t numSlots);
+	// Sets the capacity of the given region to numSlots, i.e., makes the offsets
+	// [region << regionShift, (region << regionShift) + numSlots) available as slots.
+	// Only attaching a region (i.e., changing its capacity from zero) is supported so far.
+	coroutine<std::expected<void, Error>> setRegionCapacity(unsigned int region, size_t numSlots);
 
 	// Allocates a swap page without a slot or a physical page frame.
 	// Returns null if the page cannot be allocated (which currently never happens).
@@ -1194,7 +1205,34 @@ struct SwapSpace final : ManagedSpace, RcuProtected {
 	ManagedPage *allocatePage();
 
 private:
-	// Allocates the lowest free swap offset (in pages, not bytes).
+	// Slot allocator of an attached region.
+	struct Region {
+		Region(unsigned int regionIndex, size_t numSlots);
+
+		Region(const Region &) = delete;
+		Region &operator= (const Region &) = delete;
+
+		unsigned int regionIndex;
+		size_t numSlots;
+		frg::vector<int8_t, KernelAlloc> metadata;
+		BuddyAccessor accessor;
+		frg::rbtree_hook treeNode;
+	};
+
+	struct RegionLess {
+		bool operator() (const Region &a, const Region &b) {
+			return a.regionIndex < b.regionIndex;
+		}
+	};
+
+	using RegionTree = frg::rbtree<Region, &Region::treeNode, RegionLess>;
+
+	// Returns the attached region with the given index, or null.
+	// Must be called under mutex.
+	Region *_findRegion(unsigned int regionIndex);
+
+	// Allocates the lowest free swap offset (in pages, not bytes) of the lowest region
+	// that has a free slot.
 	// Must be called under mutex.
 	frg::optional<uint64_t> _allocateOffset();
 
@@ -1202,13 +1240,8 @@ private:
 	// Must be called under mutex.
 	void _freeOffset(uint64_t offset);
 
-	// Set by the first setBudget() call.
-	std::atomic<bool> _budgetSet{false};
-
-	// Built by setBudget() before _buddyAccessor is set.
-	frg::vector<int8_t, KernelAlloc> _buddyMetadata;
-	// Allocates no slots until setBudget() is called. Protected by mutex.
-	BuddyAccessor _buddyAccessor;
+	// Attached regions, ordered by index. Protected by mutex.
+	RegionTree _regions;
 };
 static_assert(HasDispose<SwapSpace>);
 
@@ -1216,6 +1249,9 @@ static_assert(HasDispose<SwapSpace>);
 // It also bounds the ManagedSpace size that is visible to FrontalMemory
 // (otherwise, some pages would be unreachable through the backing view).
 inline constexpr size_t backingMemoryLength = size_t{1} << 62;
+
+static_assert((size_t{SwapSpace::maxRegions} << (SwapSpace::regionShift + kPageShift))
+		== backingMemoryLength);
 
 struct BackingMemory final : MemoryView {
 private:

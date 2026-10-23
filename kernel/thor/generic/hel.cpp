@@ -128,6 +128,7 @@ HelError translateError(Error error) {
 	case Error::noDescriptor: return kHelErrNoDescriptor;
 	case Error::badDescriptor: return kHelErrBadDescriptor;
 	case Error::badRights: return kHelErrBadRights;
+	case Error::unsupportedOperation: return kHelErrUnsupportedOperation;
 	case Error::other: return kHelErrOther;
 
 	// Thor-internal error cases that should not be passed down to userspace.
@@ -714,7 +715,11 @@ HelError helAllocateSwappableMemory(HelHandle hierarchyHandle, HelHandle swapSpa
 	return kHelErrNone;
 }
 
-HelError helSetSwapBudget(HelHandle swapSpaceHandle, size_t numPages) {
+static_assert(kHelSwapRegionShift == SwapSpace::regionShift + kPageShift);
+static_assert(kHelNumSwapRegions == SwapSpace::maxRegions);
+
+HelError doSubmitSetSwapRegion(HelHandle swapSpaceHandle, smarter::shared_ptr<IpcQueue> queue,
+		uint32_t region, size_t numPages, uintptr_t context) {
 	auto thisThread = getCurrentThread();
 	auto thisUniverse = thisThread->getUniverse();
 
@@ -722,8 +727,25 @@ HelError helSetSwapBudget(HelHandle swapSpaceHandle, size_t numPages) {
 			swapSpaceHandle, kHelRightManage);
 	if(!spaceOutcome)
 		return translateError(spaceOutcome.error());
+	auto space = std::move(*spaceOutcome);
 
-	return translateError((*spaceOutcome)->setBudget(numPages));
+	if(!queue->validSize(ipcSourceSize(sizeof(HelSimpleResult))))
+		return kHelErrQueueTooSmall;
+
+	[](smarter::shared_ptr<SwapSpace> space, uint32_t region, size_t numPages,
+			smarter::shared_ptr<IpcQueue> queue, uintptr_t context,
+			enable_detached_coroutine) -> void {
+		auto outcome = co_await space->setRegionCapacity(region, numPages);
+
+		HelSimpleResult helResult{.error = kHelErrNone, .reserved = {}};
+		if(!outcome)
+			helResult.error = translateError(outcome.error());
+		QueueSource ipcSource{&helResult, sizeof(HelSimpleResult), nullptr};
+		co_await queue->submit(&ipcSource, context);
+	}(std::move(space), region, numPages, std::move(queue), context,
+		enable_detached_coroutine{getCurrentThread()->mainWorkQueue().lock()});
+
+	return kHelErrNone;
 }
 
 HelError helCopyOnWrite(HelHandle hierarchyHandle, HelHandle swapSpaceHandle, HelHandle memoryHandle,
@@ -4873,6 +4895,18 @@ void thor::submitFromSq(smarter::shared_ptr<IpcQueue> queue, uint32_t opcode,
 		HelSqActivateIommu sqData;
 		memcpy(&sqData, sqSpan.data(), sizeof(sqData));
 		error = doSubmitActivateIommu(sqData.iommuHandle, queue, context);
+		break;
+	}
+	case kHelSubmitSetSwapRegion: {
+		if(sqSpan.size() < sizeof(HelSqSetSwapRegion)) {
+			infoLogger() << "Bad length for kHelSubmitSetSwapRegion" << frg::endlog;
+			error = kHelErrBufferTooSmall;
+			break;
+		}
+		HelSqSetSwapRegion sqData;
+		memcpy(&sqData, sqSpan.data(), sizeof(sqData));
+		error = doSubmitSetSwapRegion(sqData.swapHandle, queue, sqData.region,
+				sqData.numPages, context);
 		break;
 	}
 	default:

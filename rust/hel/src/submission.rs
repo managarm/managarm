@@ -388,3 +388,36 @@ pub fn activate_iommu_with_executor(
 pub fn activate_iommu(iommu: &Handle) -> impl Future<Output = Result<()>> {
     activate_iommu_with_executor(current_executor(), iommu)
 }
+
+/// Returns a future that sets the capacity (in pages) of a region of a swap space.
+/// The submission is placed on the given executor's queue.
+///
+/// Only attaching a region (i.e., changing its capacity from zero) is supported so far.
+pub fn set_swap_region_with_executor(
+    executor: Executor,
+    swap_space: &Handle,
+    region: u32,
+    num_pages: usize,
+) -> impl Future<Output = Result<()>> {
+    new_header_operation(
+        executor,
+        hel_sys::kHelSubmitSetSwapRegion,
+        hel_sys::HelSqSetSwapRegion {
+            swapHandle: swap_space.handle(),
+            numPages: num_pages,
+            region,
+        },
+    )
+}
+
+/// Returns a future that sets the capacity (in pages) of a region of a swap space.
+///
+/// Only attaching a region (i.e., changing its capacity from zero) is supported so far.
+#[cfg(feature = "std")]
+pub fn set_swap_region(
+    swap_space: &Handle,
+    region: u32,
+    num_pages: usize,
+) -> impl Future<Output = Result<()>> {
+    set_swap_region_with_executor(current_executor(), swap_space, region, num_pages)
+}

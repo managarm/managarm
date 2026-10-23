@@ -137,11 +137,6 @@ extern inline __attribute__ (( always_inline )) HelError helAllocateSwappableMem
 	return error;
 };
 
-extern inline __attribute__ (( always_inline )) HelError helSetSwapBudget(HelHandle swap_space,
-		size_t num_pages) {
-	return helSyscall2(kHelCallSetSwapBudget, (HelWord)swap_space, (HelWord)num_pages);
-};
-
 extern inline __attribute__ (( always_inline )) HelError helCopyOnWrite(HelHandle hierarchy,
 		HelHandle swapSpace, HelHandle memoryHandle, uintptr_t offset, size_t size,
 		HelHandle *outHandle) {

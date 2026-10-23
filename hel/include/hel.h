@@ -64,7 +64,6 @@ enum {
 	kHelCallCreateVirtualizedSpace = 50,
 	kHelCallCreateSwapSpace = 110,
 	kHelCallAllocateSwappableMemory = 111,
-	kHelCallSetSwapBudget = 112,
 
 	kHelCallAccessIommu = 13,
 
@@ -273,7 +272,7 @@ static const HelRights kHelRightSignal = UINT32_C(1) << 12;
 // - Memory view: required to resize.
 // - Memory view: required to manage.
 // - Memory view: required to invalidate.
-// - Swap space: required to set the swap budget.
+// - Swap space: required to attach or detach swap regions.
 // - Thread: required to set priority.
 // - Thread: required to resume.
 // - Thread: required to kill.
@@ -845,6 +844,8 @@ static const uint32_t kHelSubmitBindDmaDevice = 19;
 static const uint32_t kHelSubmitUnbindDmaDevice = 20;
 //! SQ opcode: activate translation on an IOMMU.
 static const uint32_t kHelSubmitActivateIommu = 21;
+//! SQ opcode: set the capacity of a swap region.
+static const uint32_t kHelSubmitSetSwapRegion = 23;
 
 //! In-memory kernel/user-space queue.
 struct HelQueue {
@@ -1109,6 +1110,29 @@ struct HelSqUnbindDmaDevice {
 struct HelSqActivateIommu {
 	//! Handle to the IOMMU (see ::helAccessIommu).
 	HelHandle iommuHandle;
+};
+
+//! Byte offset (((uint64_t)r << kHelSwapRegionShift) + o) in the backing memory of a swap space
+//! addresses byte o of swap region r.
+//! Manage requests never cross region boundaries.
+static const int kHelSwapRegionShift = 44;
+//! Number of swap regions per swap space.
+static const uint32_t kHelNumSwapRegions = 1 << 18;
+
+//! SQ data for kHelSubmitSetSwapRegion.
+//!
+//! Sets the capacity of a region of a swap space (see ::helCreateSwapSpace).
+//! The capacity of region r is the number of pages that may be swapped out to the region.
+struct HelSqSetSwapRegion {
+	//! Handle to the swap space (from ::helCreateSwapSpace).
+	//! Requires kHelRightManage.
+	HelHandle swapHandle;
+	//! New capacity of the region in pages.
+	//! Must be smaller than (1 << (kHelSwapRegionShift - page shift)), i.e., the last page of
+	//! each region always stays unused.
+	size_t numPages;
+	//! Index of the region. Must be smaller than kHelNumSwapRegions.
+	uint32_t region;
 };
 
 struct HelSimpleResult {
@@ -1435,7 +1459,7 @@ HEL_C_LINKAGE HelError helCreateManagedMemory(HelHandle hierarchy, size_t size, 
 //! swap daemon maps it to perform disk I/O and services initialize ("read
 //! these offsets from disk") and writeback ("write them out") requests
 //! through helSubmitManageMemory()/helUpdateMemory(). The kernel only issues
-//! writeback once a swap budget is set through helSetSwapBudget().
+//! writeback once a swap region is attached through ::kHelSubmitSetSwapRegion.
 //!
 //!    The swap daemon can only access swap offsets while it services a request
 //! for them. It must drop its locks and mappings of a range before it completes
@@ -1447,7 +1471,7 @@ HEL_C_LINKAGE HelError helCreateManagedMemory(HelHandle hierarchy, size_t size, 
 //!    	Handle to the swap space's memory object (for the swap daemon).
 //! @param[out] swapHandle
 //!    	Handle identifying the swap space (for helAllocateSwappableMemory()
-//!    	and helSetSwapLimit()).
+//!    	and ::kHelSubmitSetSwapRegion).
 HEL_C_LINKAGE HelError helCreateSwapSpace(HelHandle hierarchy, uint32_t flags,
 		HelHandle *backingHandle, HelHandle *swapHandle);
 
@@ -1468,16 +1492,6 @@ HEL_C_LINKAGE HelError helCreateSwapSpace(HelHandle hierarchy, uint32_t flags,
 //!    	Handle to the new memory object.
 HEL_C_LINKAGE HelError helAllocateSwappableMemory(HelHandle hierarchy, HelHandle swapSpace,
 		size_t size, uint32_t flags, HelHandle *handle);
-
-//! Sets a swap space's budget, which is the number of pages that may be swapped out.
-//! The budget is the range [0, numPages * page size) of the backing memory: manage
-//! requests only ever address offsets in this range. The budget can only be set
-//! once; subsequent calls fail with kHelErrIllegalState.
-//! @param[in] swapSpace
-//!    	Handle to the swap space (from helCreateSwapSpace()).
-//! @param[in] numPages
-//!    	Number of pages available for swap out.
-HEL_C_LINKAGE HelError helSetSwapBudget(HelHandle swapSpace, size_t numPages);
 
 //! Creates memory object that obtains its memory by copy-on-write from another memory object.
 //! @param[in] hierarchy
