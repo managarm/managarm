@@ -73,6 +73,19 @@ pub fn create_space() -> Result<Handle> {
     Ok(unsafe { Handle::from_raw(handle) })
 }
 
+/// Creates a slice that covers `size` bytes of a memory object, starting at `offset`.
+///
+/// Both `offset` and `size` must be aligned to the page size. The memory object handle
+/// requires [`kHelRightAssign`](hel_sys::kHelRightAssign). The slice inherits its read,
+/// write, execute and assign rights.
+pub fn create_slice_view(bundle: &Handle, offset: usize, size: usize) -> Result<Handle> {
+    let mut handle = hel_sys::kHelNullHandle as hel_sys::HelHandle;
+    result::hel_check(unsafe {
+        hel_sys::helCreateSliceView(bundle.handle(), offset, size, 0, &mut handle)
+    })?;
+    Ok(unsafe { Handle::from_raw(handle) })
+}
+
 /// A swap space, the backing store for swappable anonymous memory.
 ///
 /// The swap daemon that owns it services manage requests on the
