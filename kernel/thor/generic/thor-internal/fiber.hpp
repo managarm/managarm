@@ -172,7 +172,7 @@ public:
 
 	[[ noreturn ]] void invoke() override;
 
-	void handlePreemption() override;
+	void handlePreemption(Ipl ipl) override;
 	void handlePreemption(IrqImageAccessor) override;
 
 	smarter::borrowed_ptr<WorkQueue> associatedWorkQueue() {

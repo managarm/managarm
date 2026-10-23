@@ -194,7 +194,7 @@ namespace {
 		setCpuState(cpuContext, CpuState::online);
 		auto *scheduler = &localScheduler.get();
 		scheduler->update();
-		scheduler->forceReschedule();
+		scheduler->forceReschedule(false);
 		scheduler->commitReschedule();
 
 		while(1);

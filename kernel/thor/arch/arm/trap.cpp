@@ -196,7 +196,7 @@ extern "C" void onPlatformSyncFault(FaultImageAccessor image) {
 		auto thisThread = getCurrentThread();
 		assert(thisThread);
 
-		checkThreadPreemption();
+		checkThreadPreemption(ipl::passive);
 
 		if (thisThread->checkConditions()) {
 			iplDemoteContext(ipl::passive);

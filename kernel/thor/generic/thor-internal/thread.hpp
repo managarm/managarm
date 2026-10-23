@@ -368,7 +368,7 @@ public:
 
 	[[ noreturn ]] void invoke() override;
 
-	void handlePreemption() override;
+	void handlePreemption(Ipl ipl) override;
 	void handlePreemption(IrqImageAccessor image) override;
 	// Non-virtual since syscalls/faults know that they are called from a thread.
 	void handlePreemption(FaultImageAccessor image);
@@ -495,6 +495,10 @@ private:
 	AssociatedWorkQueue _mainWorkQueue;
 	AssociatedWorkQueue _pagingWorkQueue;
 
+	// When the current thread is scheduled out,
+	// _mutex is taken before the thread is queued or suspended (in maybeReschedule() or forceReschedule())
+	// and only released once its executor is saved.
+	// This serializes executor saving vs. invoke().
 	Mutex _mutex;
 
 	RunState _runState;

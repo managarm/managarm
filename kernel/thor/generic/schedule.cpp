@@ -5,6 +5,7 @@
 #include <thor-internal/cpu-data.hpp>
 #include <thor-internal/debug.hpp>
 #include <thor-internal/idle.hpp>
+#include <thor-internal/load-balancing.hpp>
 #include <thor-internal/rcu.hpp>
 #include <thor-internal/schedule.hpp>
 #include <thor-internal/thread.hpp>
@@ -19,6 +20,9 @@ namespace {
 	constexpr bool logIdle = false;
 
 	constexpr bool disablePreemption = false;
+
+	// Whether a CPU that would go idle takes waiting threads from other CPUs.
+	constexpr bool enableStealing = true;
 
 	// Minimum length of a preemption time slice in ns.
 	constexpr int64_t sliceGranularity = 10'000'000;
@@ -47,7 +51,7 @@ namespace {
 					if(consumeIdlePing()) {
 						auto *scheduler = &localScheduler.get();
 						scheduler->forcePreemptionCall();
-						scheduler->checkPreemption();
+						scheduler->checkPreemption(ipl::passive);
 					}
 					// If we re-schedule in checkPreemption() above, we do not return here.
 					// In that case, noteIdleWakeup(false) is skipped here and handlePreemption() does noteIdleWakeup(true).
@@ -62,7 +66,7 @@ namespace {
 			consumeIdlePing();
 			auto *scheduler = &localScheduler.get();
 			scheduler->update();
-			if(scheduler->maybeReschedule()) {
+			if(scheduler->maybeReschedule(false)) {
 				noteIdleWakeup(true);
 				runOnStack([] (Continuation cont, IrqImageAccessor image) {
 					scrubStack(image, cont);
@@ -73,12 +77,12 @@ namespace {
 			}
 		}
 
-		void handlePreemption() override {
+		void handlePreemption(Ipl) override {
 			StatelessIrqLock irqLock;
 			consumeIdlePing();
 			auto *scheduler = &localScheduler.get();
 			scheduler->update();
-			if(scheduler->maybeReschedule()) {
+			if(scheduler->maybeReschedule(false)) {
 				noteIdleWakeup(true);
 				runOnStack([] (Continuation) {
 					localScheduler.get().commitReschedule();
@@ -105,8 +109,9 @@ bool ScheduleEntity::scheduleBefore(const ScheduleEntity *a, const ScheduleEntit
 			> b->baseUnfairness - b->refProgress; // Prefer greater unfairness.
 }
 
-ScheduleEntity::ScheduleEntity(ScheduleType type)
-: type_{type}, state{ScheduleState::null}, priority{0}, _refClock{0}, _runTime{0},
+ScheduleEntity::ScheduleEntity(ScheduleType type, bool pinned)
+: type_{type}, pinned_{pinned}, state{ScheduleState::null}, priority{0}, migratable_{!pinned},
+		_refClock{0}, _runTime{0},
 		refProgress{0}, baseUnfairness{0} { }
 
 ScheduleEntity::~ScheduleEntity() {
@@ -152,23 +157,29 @@ void Scheduler::setPriority(ScheduleEntity *entity, int priority) {
 }
 
 void Scheduler::resume(ScheduleEntity *entity) {
+	resume(entity, entity->_scheduler);
+}
+
+void Scheduler::resume(ScheduleEntity *entity, Scheduler *target) {
 	assert(entity->type() == ScheduleType::regular);
 
 //	infoLogger() << "resume " << entity << frg::endlog;
 	assert(entity->state == ScheduleState::attached);
 
-	auto self = entity->_scheduler;
+	auto self = target;
 	assert(self);
-	assert(entity != self->_current);
+	entity->_scheduler = self;
 	bool wasEmpty;
 	{
 		auto irqLock = frg::guard(&irqMutex());
 		auto lock = frg::guard(&self->_mutex);
 
+		assert(entity != self->_current);
 		entity->state = ScheduleState::pending;
 
 		wasEmpty = self->_pendingList.empty();
 		self->_pendingList.push_back(entity);
+		self->numQueued_.fetch_add(1, std::memory_order_relaxed);
 	}
 
 	if(wasEmpty) {
@@ -192,10 +203,24 @@ void Scheduler::resume(ScheduleEntity *entity) {
 	}
 }
 
-void Scheduler::suspendCurrent() {
+bool Scheduler::moveQueued(ScheduleEntity *entity, Scheduler *target) {
+	assert(!intsAreEnabled());
+	assert(entity->type() == ScheduleType::regular);
+
+	auto self = entity->_scheduler;
+	if(!self || self == target)
+		return false;
+	if(!self->_takeQueued(entity))
+		return false;
+	resume(entity, target);
+	return true;
+}
+
+void Scheduler::suspendCurrent(bool migratable) {
 	assert(!intsAreEnabled());
 
 	auto self = &localScheduler.get();
+	auto lock = frg::guard(&self->_mutex);
 	auto entity = self->_current;
 	assert(entity);
 	assert(entity->type() == ScheduleType::regular);
@@ -204,6 +229,7 @@ void Scheduler::suspendCurrent() {
 	// Update the unfairness on suspend.
 	self->_updateEntityStats(entity);
 	entity->state = ScheduleState::attached;
+	entity->migratable_ = migratable && !entity->pinned_;
 
 	self->_current = nullptr;
 }
@@ -240,51 +266,58 @@ void Scheduler::suppressRenewalUntilInterrupt() {
 }
 
 void Scheduler::update() {
-	updateState();
-	updateQueue();
+	assert(!intsAreEnabled());
+	auto lock = frg::guard(&_mutex);
+
+	_updateState();
+	_updateQueue();
 }
 
 void Scheduler::updateState() {
+	assert(!intsAreEnabled());
+	auto lock = frg::guard(&_mutex);
+
+	_updateState();
+}
+
+void Scheduler::updateQueue() {
+	assert(!intsAreEnabled());
+	auto lock = frg::guard(&_mutex);
+
+	_updateQueue();
+}
+
+void Scheduler::_updateState() {
 	// Returns the reciprocal in fixed point format.
 	auto fixedInverse = [] (int64_t x) -> int64_t {
 		return (INT64_C(1) << progressShift) / x;
 	};
 
-	assert(_current);
+	// Since other CPUs also update the state (in _takeQueued()), the entity that this CPU
+	// has picked may not be current yet, or no entity may be picked at all.
+	auto running = _current ? _current : _scheduled;
 
 	// Number of waiting/running threads.
 	auto n = _numWaiting;
-	if(_current->type() == ScheduleType::regular)
+	if(running && running->type() == ScheduleType::regular)
 		n++;
 
 	assert(haveTimer());
-	auto now = getClockNanos();
+	// Since other CPUs also update the state, tolerate clock differences between CPUs (e.g., from TSC errata).
+	auto now = frg::max(getClockNanos(), _refClock);
 	auto deltaTime = now - _refClock;
 	_refClock = now;
 	if(n)
 		_systemProgress += deltaTime * static_cast<Progress>(fixedInverse(n));
 
-	_updateCurrentEntity();
+	if(running)
+		_updateRunningEntity(running);
 }
 
 // Move entities from the pending queue to the waiting queue.
-void Scheduler::updateQueue() {
-	frg::intrusive_list<
-		ScheduleEntity,
-		frg::locate_member<
-			ScheduleEntity,
-			frg::default_list_hook<ScheduleEntity>,
-			&ScheduleEntity::listHook
-		>
-	> pendingSnapshot;
-	{
-		auto irqLock = frg::guard(&irqMutex());
-		auto lock = frg::guard(&_mutex);
-
-		pendingSnapshot.splice(pendingSnapshot.end(), _pendingList);
-	}
-	while(!pendingSnapshot.empty()) {
-		auto entity = pendingSnapshot.pop_front();
+void Scheduler::_updateQueue() {
+	while(!_pendingList.empty()) {
+		auto entity = _pendingList.pop_front();
 		assert(entity->state == ScheduleState::pending);
 
 		// Update the unfairness reference.
@@ -297,9 +330,10 @@ void Scheduler::updateQueue() {
 	}
 }
 
-bool Scheduler::maybeReschedule() {
+bool Scheduler::maybeReschedule(bool migratable) {
 	assert(!intsAreEnabled());
 	assert(_current);
+	auto lock = frg::guard(&_mutex);
 
 	auto wantToSchedule = [this] () -> bool {
 		// If there are no waiters, we keep the current entity.
@@ -329,35 +363,49 @@ bool Scheduler::maybeReschedule() {
 	if(!wantToSchedule())
 		return false;
 
-	_unschedule();
+	_unschedule(migratable);
 	_schedule();
 	return true;
 }
 
-void Scheduler::forceReschedule() {
+void Scheduler::forceReschedule(bool migratable) {
 	assert(!intsAreEnabled());
+	auto lock = frg::guard(&_mutex);
 
 	if(_current)
-		_unschedule();
+		_unschedule(migratable);
 	_schedule();
 }
 
 [[noreturn]] void Scheduler::commitReschedule() {
+	assert(!intsAreEnabled());
 	assert(!_current);
 	assert(_scheduled);
 
-	_current = _scheduled;
-	_scheduled = nullptr;
-	_sliceClock = _refClock;
-	_mustCallPreemption = false;
+	// Done here instead of in forceReschedule() since stealing takes the locks of the stolen thread,
+	// while callers of forceReschedule() may still hold the mutex of the current thread.
+	if(_scheduled->type() == ScheduleType::idle)
+		_steal();
 
-	if(!getPreemptionDeadline())
-		_updatePreemption();
+	{
+		auto lock = frg::guard(&_mutex);
+
+		_current = _scheduled;
+		_scheduled = nullptr;
+		_sliceClock = _refClock;
+		_mustCallPreemption = false;
+
+		if(!getPreemptionDeadline())
+			_updatePreemption();
+	}
 
 	currentRunnable()->invoke();
 }
 
 void Scheduler::renewSchedule() {
+	assert(!intsAreEnabled());
+	auto lock = frg::guard(&_mutex);
+
 	_mustCallPreemption = false;
 
 	if(!getPreemptionDeadline())
@@ -369,7 +417,7 @@ ScheduleEntity *Scheduler::currentRunnable() {
 	return _current;
 }
 
-void Scheduler::_unschedule() {
+void Scheduler::_unschedule(bool migratable) {
 	assert(_current);
 
 	// Decrease the unfairness at the end of the time slice.
@@ -377,8 +425,10 @@ void Scheduler::_unschedule() {
 
 	if(_current->type() == ScheduleType::regular
 			|| _current->state == ScheduleState::active) {
+		_current->migratable_ = migratable && !_current->pinned_;
 		_waitQueue.push(_current);
 		_numWaiting++;
+		numQueued_.fetch_add(1, std::memory_order_relaxed);
 	}
 
 	_current = nullptr;
@@ -398,6 +448,8 @@ void Scheduler::_schedule() {
 	auto entity = _waitQueue.top();
 	_waitQueue.pop();
 	_numWaiting--;
+	numQueued_.fetch_sub(1, std::memory_order_relaxed);
+	entity->migratable_ = false;
 
 	// Increase the unfairness at the start of the time slice.
 	assert(entity->state == ScheduleState::active);
@@ -419,6 +471,61 @@ void Scheduler::_schedule() {
 				<< " ms" << frg::endlog;
 
 	_scheduled = entity;
+}
+
+void Scheduler::_steal() {
+	assert(!intsAreEnabled());
+	assert(_scheduled && _scheduled->type() == ScheduleType::idle);
+	if(!enableStealing)
+		return;
+
+	if(!LoadBalancer::singleton().stealFor(_cpuContext))
+		return;
+
+	auto lock = frg::guard(&_mutex);
+
+	// Account for the time up to now before the stolen thread starts to wait here.
+	_updateState();
+	// The stolen thread is pending on this scheduler.
+	_updateQueue();
+	_scheduled = nullptr;
+	_schedule();
+}
+
+ScheduleEntity *Scheduler::peekMigratable() {
+	assert(!intsAreEnabled());
+	if(!numQueued())
+		return nullptr;
+
+	auto lock = frg::guard(&_mutex);
+
+	if(_waitQueue.empty())
+		return nullptr;
+	auto *entity = _waitQueue.top();
+	if(!entity->migratable_)
+		return nullptr;
+	return entity;
+}
+
+bool Scheduler::_takeQueued(ScheduleEntity *entity) {
+	auto lock = frg::guard(&_mutex);
+	assert(entity->_scheduler == this);
+
+	// Active entities are only migratable while they are in the wait queue.
+	if(entity->state != ScheduleState::active || !entity->migratable_)
+		return false;
+
+	// The progress rate depends on _numWaiting, so account for the time up to now first.
+	_updateState();
+	_waitQueue.remove(entity);
+	_numWaiting--;
+	numQueued_.fetch_sub(1, std::memory_order_relaxed);
+	// Credit the time that the entity waited on this CPU.
+	_updateWaitingEntity(entity);
+	entity->state = ScheduleState::attached;
+	// Keep the entity on its new CPU until it runs, such that other CPUs do not take it again.
+	entity->migratable_ = false;
+	return true;
 }
 
 // Returns true if preemption should be done immediately.
@@ -446,19 +553,18 @@ void Scheduler::_updatePreemption() {
 	setPreemptionDeadline(getClockNanos() + sliceGranularity);
 }
 
-void Scheduler::_updateCurrentEntity() {
-	assert(_current);
-	if(_current->type() == ScheduleType::idle)
+void Scheduler::_updateRunningEntity(ScheduleEntity *entity) {
+	if(entity->type() == ScheduleType::idle)
 		return;
-	assert(_current->type() == ScheduleType::regular);
+	assert(entity->type() == ScheduleType::regular);
 
-	auto delta_progress = _systemProgress - _current->refProgress;
+	auto delta_progress = _systemProgress - entity->refProgress;
 	if(logUpdates)
 		infoLogger() << "Running thread unfairness decreases by: "
 				<< progressToNanos(_numWaiting * delta_progress) / 1000
 				<< " us (" << _numWaiting << " waiting threads)" << frg::endlog;
-	_current->baseUnfairness -= _numWaiting * delta_progress;
-	_current->refProgress = _systemProgress;
+	entity->baseUnfairness -= _numWaiting * delta_progress;
+	entity->refProgress = _systemProgress;
 }
 
 void Scheduler::_updateWaitingEntity(ScheduleEntity *entity) {
@@ -509,7 +615,7 @@ void doCheckThreadPreemption(ImageAccessor image) {
 
 } // namespace
 
-void checkThreadPreemption() {
+void checkThreadPreemption(Ipl ipl) {
 	assert(!intsAreEnabled());
 	auto thisThread = getCurrentThread();
 	auto *scheduler = &localScheduler.get();
@@ -517,7 +623,7 @@ void checkThreadPreemption() {
 	scheduler->suppressRenewalUntilInterrupt();
 	if (!scheduler->mustCallPreemption())
 		return;
-	thisThread->handlePreemption();
+	thisThread->handlePreemption(ipl);
 }
 void checkThreadPreemption(FaultImageAccessor image) {
 	doCheckThreadPreemption(image);

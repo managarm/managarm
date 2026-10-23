@@ -33,9 +33,10 @@ void panicOnInterruptIplDesync() {
 // Run handlers scheduled by deferToIplLowerThan(L) where: current < L <= ceiling.
 // Precondition: no calls are currently scheduled by deferToIplLowerThan(L') where L' > ceiling.
 void handleIplDeferred(Ipl current, Ipl ceiling) {
-	auto cpuData = getCpuData();
 	while (true) {
 		// Note: we need to re-read iplDeferred in each iteration as new bits may have been set.
+		// The handlers below may preempt the current thread, which can then continue on another CPU.
+		auto cpuData = getCpuData();
 		auto deferred = cpuData->iplDeferred.load(std::memory_order_relaxed);
 		if (!deferred)
 			break;
@@ -57,7 +58,7 @@ void handleIplDeferred(Ipl current, Ipl ceiling) {
 		switch (l) {
 			case ipl::noPreemption: {
 				StatelessIrqLock irqLock;
-				localScheduler.get().checkPreemption();
+				localScheduler.get().checkPreemption(current);
 				break;
 			}
 			default:

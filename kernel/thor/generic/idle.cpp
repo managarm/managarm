@@ -310,7 +310,7 @@ IdleMethod IdleGovernor::determineState() {
 	}
 
 	// PageSpace::deactivateAll() and enterLazyMode() can wake up threads, so check for preemption.
-	localScheduler.get().checkPreemption();
+	localScheduler.get().checkPreemption(ipl::passive);
 
 	// Only update now such that noteIdleWakeup() ends the stretch if checkPreemption() schedules away.
 	auto promotionSuccessful = promoted && selected > enteredState_;

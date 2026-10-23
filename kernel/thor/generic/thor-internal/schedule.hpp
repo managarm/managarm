@@ -55,7 +55,8 @@ struct ScheduleEntity {
 	static int orderPriority(const ScheduleEntity *a, const ScheduleEntity *b);
 	static bool scheduleBefore(const ScheduleEntity *a, const ScheduleEntity *b);
 
-	ScheduleEntity(ScheduleType type = ScheduleType::regular);
+	// Pinned entities only ever run on the CPU that they are enqueued on.
+	ScheduleEntity(ScheduleType type = ScheduleType::regular, bool pinned = false);
 
 	ScheduleEntity(const ScheduleEntity &) = delete;
 
@@ -74,8 +75,9 @@ public:
 	// Precondition: Preemption must be safe at the call site.
 	//               In particular, before the caller disables interrupts,
 	//               it should be on a code path with currentIpl() < ipl::noPreemption.
+	//               ipl is the IPL of that code path.
 	// Precondition: !intsAreEnabled().
-	virtual void handlePreemption() = 0;
+	virtual void handlePreemption(Ipl ipl) = 0;
 	// Must only be called if the image's IPL < ipl::noPreemption.
 	// Precondition: !intsAreEnabled().
 	virtual void handlePreemption(IrqImageAccessor image) = 0;
@@ -86,12 +88,19 @@ public:
 
 private:
 	const ScheduleType type_;
+	const bool pinned_;
 
-	frg::ticket_spinlock _associationMutex;
+	// Scheduler that the entity was last enqueued on.
+	// Only changes while the entity is in state ScheduleState::attached.
 	Scheduler *_scheduler;
 
 	ScheduleState state;
 	int priority;
+
+	// Whether another CPU may run the entity while it is queued.
+	// Decided whenever the entity stops running; false while it is picked or running.
+	// While the entity is queued, it is protected by the mutex of the entity's scheduler.
+	bool migratable_;
 
 	frg::default_list_hook<ScheduleEntity> listHook;
 	frg::pairing_heap_hook<ScheduleEntity> heapHook;
@@ -125,8 +134,19 @@ struct Scheduler {
 
 	static void setPriority(ScheduleEntity *entity, int priority);
 
+	// Enqueue the entity on the scheduler that it was last enqueued on.
 	static void resume(ScheduleEntity *entity);
-	static void suspendCurrent();
+	// Enqueue the entity on target, which becomes its scheduler.
+	// Precondition: the entity is in state ScheduleState::attached.
+	static void resume(ScheduleEntity *entity, Scheduler *target);
+	// Move the entity from the wait queue of its scheduler to target if another CPU may run it.
+	// Returns false if the entity is not queued, may not run elsewhere or is already on target.
+	// Precondition: IRQs are disabled and entity stays alive (e.g., since it is RCU protected).
+	//               For threads, the thread's mutex is held, which prevents concurrent
+	//               resume() calls from changing the entity's scheduler.
+	static bool moveQueued(ScheduleEntity *entity, Scheduler *target);
+	// If migratable is set, the entity may run on another CPU once it is resumed.
+	static void suspendCurrent(bool migratable);
 
 	Scheduler(CpuData *cpu_context);
 
@@ -171,41 +191,72 @@ public:
 		currentRunnable()->handlePreemption(image);
 	}
 
-	void checkPreemption() {
+	// See ScheduleEntity::handlePreemption() for the meaning of ipl.
+	void checkPreemption(Ipl ipl) {
 		if (!mustCallPreemption())
 			return;
-		currentRunnable()->handlePreemption();
+		currentRunnable()->handlePreemption(ipl);
 	}
 
 	void update();
 	void updateState();
 	void updateQueue();
 
-	bool maybeReschedule();
-	void forceReschedule();
+private:
+	void _updateState();
+	void _updateQueue();
+
+public:
+
+	// If migratable is set, the current entity may run on another CPU once it is unscheduled.
+	bool maybeReschedule(bool migratable);
+	// See maybeReschedule() for migratable; it is ignored if the current entity was suspended.
+	void forceReschedule(bool migratable);
 
 	[[noreturn]] void commitReschedule();
 	void renewSchedule();
 
 	ScheduleEntity *currentRunnable();
 
+	// Number of entities that wait for this CPU, i.e., pending ones and ones in the wait queue.
+	// Other CPUs read this to look for threads to steal.
+	size_t numQueued() {
+		return numQueued_.load(std::memory_order_relaxed);
+	}
+
+	// Returns the entity that this CPU would run next if another CPU may run it instead.
+	// The result can be outdated by the time the caller uses it; see moveQueued().
+	// Precondition: IRQs are disabled.
+	ScheduleEntity *peekMigratable();
+
 private:
-	void _unschedule();
+	void _unschedule(bool migratable);
 	void _schedule();
+
+	// Removes the entity from the wait queue if another CPU may run it.
+	// On success, the entity is in state ScheduleState::attached.
+	bool _takeQueued(ScheduleEntity *entity);
+
+	// Ask the load balancer for a thread that waits for another CPU and schedule it.
+	// Precondition: _scheduled is the idle task and no locks are held.
+	void _steal();
 
 private:
 	void _updatePreemption();
 
-	void _updateCurrentEntity();
+	// entity is _current or, if no entity is current yet, _scheduled.
+	void _updateRunningEntity(ScheduleEntity *entity);
 	void _updateWaitingEntity(ScheduleEntity *entity);
 
 	void _updateEntityStats(ScheduleEntity *entity);
 
 	CpuData *_cpuContext;
 
+	// Only changed by this CPU while it holds _mutex, so other CPUs can read them under _mutex.
 	ScheduleEntity *_current;
 	ScheduleEntity *_scheduled = nullptr;
 
+	// Protected by _mutex.
 	frg::pairing_heap<
 		ScheduleEntity,
 		frg::locate_member<
@@ -216,7 +267,11 @@ private:
 		ScheduleGreater
 	> _waitQueue;
 
+	// Protected by _mutex.
 	size_t _numWaiting = 0;
+
+	// See numQueued().
+	std::atomic<size_t> numQueued_{0};
 
 	// See mustCallPreemption().
 	bool _mustCallPreemption{false};
@@ -230,15 +285,16 @@ private:
 
 	// This variables stores sum{t = 0, ... T} w(t)/n(t).
 	// This allows us to easily track u_p(T) for all waiting processes.
+	// Protected by _mutex.
 	Progress _systemProgress = 0;
 
 	// ----------------------------------------------------------------------------------
 	// Management of pending entities.
 	// ----------------------------------------------------------------------------------
 
-	// Note that _mutex *only* protects _pendingList and nothing more!
 	frg::ticket_spinlock _mutex;
 
+	// Protected by _mutex.
 	frg::intrusive_list<
 		ScheduleEntity,
 		frg::locate_member<
@@ -250,7 +306,7 @@ private:
 };
 
 // Similar to Scheduler::checkPreemption() but specialized for threads.
-void checkThreadPreemption();
+void checkThreadPreemption(Ipl ipl);
 void checkThreadPreemption(FaultImageAccessor image);
 
 extern PerCpu<Scheduler> localScheduler;

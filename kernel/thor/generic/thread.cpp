@@ -27,7 +27,8 @@ namespace {
 // --------------------------------------------------------
 
 void Thread::blockCurrent(Condition checkedConditions) {
-	assert(currentIpl() < ipl::noSchedule);
+	auto ipl = currentIpl();
+	assert(ipl < ipl::noSchedule);
 
 	auto thisThread = getCurrentThread();
 
@@ -60,8 +61,8 @@ void Thread::blockCurrent(Condition checkedConditions) {
 	thisThread->_setRunState(kRunBlocked);
 	thisThread->unblockConditions_ = checkedConditions;
 	localScheduler.get().update();
-	Scheduler::suspendCurrent();
-	localScheduler.get().forceReschedule();
+	Scheduler::suspendCurrent(ipl < ipl::noMigration);
+	localScheduler.get().forceReschedule(false);
 	thisThread->_uninvoke();
 
 	forkExecutor([&] {
@@ -74,7 +75,8 @@ void Thread::blockCurrent(Condition checkedConditions) {
 }
 
 void Thread::deferCurrent() {
-	assert(currentIpl() < ipl::noSchedule);
+	auto ipl = currentIpl();
+	assert(ipl < ipl::noSchedule);
 
 	auto thisThread = getCurrentThread();
 	StatelessIrqLock irq_lock;
@@ -87,7 +89,7 @@ void Thread::deferCurrent() {
 	assert(thisThread->_runState == kRunActive);
 	thisThread->_setRunState(kRunDeferred);
 	localScheduler.get().update();
-	localScheduler.get().forceReschedule();
+	localScheduler.get().forceReschedule(ipl < ipl::noMigration);
 	thisThread->_uninvoke();
 
 	forkExecutor([&] {
@@ -114,7 +116,7 @@ void Thread::deferCurrent(IrqImageAccessor image) {
 	this_thread->_setRunState(kRunDeferred);
 	saveExecutor(&this_thread->_executor, image);
 	localScheduler.get().update();
-	localScheduler.get().forceReschedule();
+	localScheduler.get().forceReschedule(false);
 	this_thread->_uninvoke();
 
 	runOnStack([] (Continuation cont, IrqImageAccessor image, frg::unique_lock<Mutex> lock) {
@@ -139,7 +141,7 @@ void Thread::suspendCurrent(IrqImageAccessor image) {
 	this_thread->_setRunState(kRunDeferred);
 	saveExecutor(&this_thread->_executor, image);
 	localScheduler.get().update();
-	localScheduler.get().forceReschedule();
+	localScheduler.get().forceReschedule(false);
 	this_thread->_uninvoke();
 
 	runOnStack([] (Continuation cont, IrqImageAccessor image, frg::unique_lock<Mutex> lock) {
@@ -298,7 +300,7 @@ void Thread::terminateCurrent_() {
 	thisThread->_uninvoke();
 
 	localScheduler.get().updateState();
-	Scheduler::suspendCurrent();
+	Scheduler::suspendCurrent(false);
 	Scheduler::unassociate(thisThread.get());
 
 	runOnStack([] (Continuation cont,
@@ -324,7 +326,7 @@ void Thread::terminateCurrent_() {
 		}
 
 		scheduler->updateQueue();
-		scheduler->forceReschedule();
+		scheduler->forceReschedule(false);
 		scheduler->commitReschedule();
 	}, getCpuData()->detachedStack.base(), thisThread.get(), std::move(lock));
 }
@@ -351,14 +353,10 @@ void Thread::migrateCurrentToAssignedCpu(ImageAccessor image) {
 	this_thread->_setRunState(kRunDeferred);
 	saveExecutor(&this_thread->_executor, image);
 	localScheduler.get().update();
-	Scheduler::suspendCurrent();
+	Scheduler::suspendCurrent(image.iplState()->current < ipl::noMigration);
 	this_thread->_uninvoke();
-	Scheduler::unassociate(this_thread.get());
-
-	auto *newScheduler = &localScheduler.get(assignedCpu);
-	Scheduler::associate(this_thread.get(), newScheduler);
-	Scheduler::resume(this_thread.get());
-	localScheduler.get().forceReschedule();
+	Scheduler::resume(this_thread.get(), &localScheduler.get(assignedCpu));
+	localScheduler.get().forceReschedule(false);
 
 	runOnStack([] (Continuation cont, ImageAccessor image,
 			frg::unique_lock<Mutex> lock) {
@@ -622,8 +620,9 @@ void Thread::invoke() {
 	restoreExecutor(&_executor);
 }
 
-void Thread::handlePreemption() {
+void Thread::handlePreemption(Ipl ipl) {
 	assert(!intsAreEnabled());
+	assert(ipl < ipl::noPreemption);
 	assert(getCurrentThread().get() == this);
 
 	auto *scheduler = &localScheduler.get();
@@ -632,9 +631,8 @@ void Thread::handlePreemption() {
 	LoadBalancer::singleton().checkOverload();
 
 	scheduler->update();
-	if(scheduler->maybeReschedule()) {
-		auto lock = frg::guard(&_mutex);
-
+	auto lock = frg::guard(&_mutex);
+	if(scheduler->maybeReschedule(ipl < ipl::noMigration)) {
 		if(logRunStates)
 			infoLogger() << "thor: " << (void *)this << " is deferred" << frg::endlog;
 
@@ -650,6 +648,7 @@ void Thread::handlePreemption() {
 			}, getCpuData()->detachedStack.base(), &_executor, std::move(lock));
 		}, &_executor);
 	}else{
+		lock.unlock();
 		scheduler->renewSchedule();
 	}
 }
@@ -675,9 +674,9 @@ void Thread::genericHandlePreemption(ImageAccessor image) {
 	LoadBalancer::singleton().checkOverload();
 
 	scheduler->update();
-	if(scheduler->maybeReschedule()) {
-		auto lock = frg::guard(&_mutex);
-
+	auto lock = frg::guard(&_mutex);
+	// The thread is preempted at an arbitrary point in the kernel, which may depend on the CPU.
+	if(scheduler->maybeReschedule(false)) {
 		if(logRunStates)
 			infoLogger() << "thor: " << (void *)this << " is deferred" << frg::endlog;
 
@@ -692,6 +691,7 @@ void Thread::genericHandlePreemption(ImageAccessor image) {
 			localScheduler.get().commitReschedule();
 		}, getCpuData()->detachedStack.base(), image, std::move(lock));
 	}else{
+		lock.unlock();
 		scheduler->renewSchedule();
 	}
 }

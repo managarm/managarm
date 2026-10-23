@@ -58,18 +58,21 @@ inline constexpr Ipl exceptional = 2;
 // Level that work queues which can be entered from currentIpl() <= ipl::exceptional run at.
 // Threads can only block on such work queues while running at currentIpl <= ipl::exceptional.
 inline constexpr Ipl exceptionalWork = 3;
+// Threads that are scheduled out at currentIpl() >= ipl::noMigration (by preemption or by blocking)
+// continue on the same CPU.
+inline constexpr Ipl noMigration = 4;
 // Preemption is only allowed at currentIpl() < ipl::noPreemption.
-inline constexpr Ipl noPreemption = 4;
+inline constexpr Ipl noPreemption = 5;
 // Blocking is only allowed at currentIpl() < ipl::noSchedule,
 // i.e., threads may only be scheduled out if Executor::iplState()->current < ipl::noSchedule.
-inline constexpr Ipl noSchedule = 5;
+inline constexpr Ipl noSchedule = 6;
 // Level that interrupts run at.
 // Also, level that the scheduler itself runs at.
-inline constexpr Ipl interrupt = 6;
+inline constexpr Ipl interrupt = 7;
 // Level that exceptions and NMIs run at.
 // This is the only level that can be entered multiple times
 // (i.e., ipl::maximal -> ipl::maximal entries are allowed).
-inline constexpr Ipl maximal = 7;
+inline constexpr Ipl maximal = 8;
 } // namespace ipl
 
 struct IplState {

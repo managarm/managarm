@@ -170,6 +170,39 @@ struct LbNode {
 
 extern PerCpu<LbNode> lbNode;
 
+// Per-CPU stock of unlinked control blocks for migrations in contexts that cannot allocate.
+// The blocks are not tied to a node until a migration links them.
+struct LbSparePool {
+	static constexpr size_t capacity = 64;
+	// Since runRefillLoop() runs on the CPU's KernelFiber, refills only start below this level.
+	static constexpr size_t refillThreshold = 16;
+
+	// Precondition: IRQs are disabled and this is the current CPU's pool.
+	bool empty() {
+		return !count_.load(std::memory_order_relaxed);
+	}
+
+	// Returns a null pointer if the pool is empty.
+	// Precondition: IRQs are disabled and this is the current CPU's pool.
+	smarter::shared_ptr<LbControlBlock> take();
+
+	// Wakes up runRefillLoop() after take() if the pool runs low.
+	// Separate from take() since callers of take() hold locks; callers of this function hold none
+	// other than irqMutex().
+	void requestRefill();
+
+	// Must run on the generalWorkQueue of the pool's CPU.
+	coroutine<void> runRefillLoop();
+
+private:
+	smarter::shared_ptr<LbControlBlock> blocks_[capacity];
+	// Only written by the pool's CPU with IRQs disabled; runRefillLoop() also reads it with IRQs enabled.
+	std::atomic<size_t> count_{0};
+	async::recurring_event refillEvent_;
+};
+
+extern PerCpu<LbSparePool> lbSparePool;
+
 inline CpuData *LbThreadState::getAssignedCpu() {
 	IplGuard<ipl::noSchedule> rcuGuard;
 	return cb_.load(std::memory_order_acquire)->node_->cpu;
@@ -213,6 +246,11 @@ struct LoadBalancer {
 	// Precondition: IRQs are disabled.
 	void checkOverload();
 
+	// Takes a thread that waits for another CPU, assigns it to cpu and resumes it there.
+	// Returns false if there is no such thread.
+	// Precondition: IRQs are disabled, no locks are held and cpu is the current CPU.
+	bool stealFor(CpuData *cpu);
+
 private:
 	static constexpr size_t noCpu = LbNode::noCpu;
 
@@ -237,7 +275,7 @@ private:
 	uint64_t pullFrom_(LbNode *srcNode, LbNode *dstNode, uint64_t amount);
 
 	// Replace the current control block of the thread by newCb, linked into dstNode.
-	// Precondition: the thread's LbThreadState::mutex_ is held but not its mutex (which this takes).
+	// Precondition: the thread's LbThreadState::mutex_ and its mutex are held.
 	void doMigration_(Thread *thread, LbNode *dstNode, smarter::shared_ptr<LbControlBlock> newCb);
 };
 

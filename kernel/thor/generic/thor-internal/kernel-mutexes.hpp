@@ -9,6 +9,7 @@ struct ExecutorContext;
 
 // Mutex intended for very short critical sections.
 // Requires preemption to be disabled but may block.
+// Blocking at that IPL does not move the thread to another CPU (see ipl::noMigration).
 // This should be used instead of a spinlock if blocking is required.
 struct AdaptiveMutex {
 public:

@@ -35,8 +35,8 @@ void KernelFiber::blockCurrent(FiberBlocker *blocker) {
 		getCpuData()->executorContext = nullptr;
 		getCpuData()->activeFiber = nullptr;
 		localScheduler.get().update();
-		Scheduler::suspendCurrent();
-		localScheduler.get().forceReschedule();
+		Scheduler::suspendCurrent(false);
+		localScheduler.get().forceReschedule(false);
 
 		forkExecutor([&] {
 			runOnStack([] (Continuation cont, Executor *executor,
@@ -95,7 +95,8 @@ KernelFiber *KernelFiber::post(UniqueKernelStack stack,
 }
 
 KernelFiber::KernelFiber(UniqueKernelStack stack, AbiParameters abi)
-: _blocked{false}, _fiberContext{std::move(stack)}, _executor{&_fiberContext, abi} {
+: ScheduleEntity{ScheduleType::regular, true},
+		_blocked{false}, _fiberContext{std::move(stack)}, _executor{&_fiberContext, abi} {
 	_associatedWorkQueue = smarter::allocate_shared<AssociatedWorkQueue>(*kernelAlloc, this);
 	_executorContext->exceptionalWq = _associatedWorkQueue.get();
 }
@@ -113,14 +114,14 @@ void KernelFiber::invoke() {
 	restoreExecutor(&_executor);
 }
 
-void KernelFiber::handlePreemption() {
+void KernelFiber::handlePreemption(Ipl) {
 	assert(!intsAreEnabled());
 	assert(thisFiber() == this);
 
 	auto *scheduler = &localScheduler.get();
 
 	scheduler->update();
-	if(scheduler->maybeReschedule()) {
+	if(scheduler->maybeReschedule(false)) {
 		auto lock = frg::guard(&_mutex);
 
 		_executorContext->active.store(false, std::memory_order_relaxed);
@@ -147,7 +148,7 @@ void KernelFiber::handlePreemption(IrqImageAccessor image) {
 	auto *scheduler = &localScheduler.get();
 
 	scheduler->update();
-	if(scheduler->maybeReschedule()) {
+	if(scheduler->maybeReschedule(false)) {
 		auto lock = frg::guard(&_mutex);
 
 		saveExecutor(&_executor, image);

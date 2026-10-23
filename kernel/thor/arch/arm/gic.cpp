@@ -212,7 +212,7 @@ void handleGicIrq(IrqImageAccessor image, ClaimedExternalIrq irq) {
 			auto thisThread = getCurrentThread();
 			assert(thisThread);
 
-			localScheduler.get(cpuData).checkPreemption();
+			localScheduler.get(cpuData).checkPreemption(ipl::passive);
 
 			if (thisThread->checkConditions()) {
 				iplDemoteContext(ipl::passive);
@@ -237,7 +237,7 @@ void handleGicIrq(IrqImageAccessor image, ClaimedExternalIrq irq) {
 			auto thisThread = getCurrentThread();
 			assert(thisThread);
 
-			localScheduler.get(cpuData).checkPreemption();
+			localScheduler.get(cpuData).checkPreemption(ipl::passive);
 
 			if (thisThread->checkConditions()) {
 				iplDemoteContext(ipl::passive);

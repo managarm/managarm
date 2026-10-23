@@ -12,6 +12,10 @@ inline ostrace::Counter shootdownIpisSentCounter{"thor.ipi.shootdown.sent"};
 inline ostrace::Counter shootdownIpisReceivedCounter{"thor.ipi.shootdown.received"};
 inline ostrace::Counter selfCallIpisSentCounter{"thor.ipi.self-call.sent"};
 inline ostrace::Counter selfCallIpisReceivedCounter{"thor.ipi.self-call.received"};
+
+// Idle stealing: CPUs that looked for a thread to steal before going idle, and successful steals.
+inline ostrace::Counter stealAttemptsCounter{"thor.sched.steal-attempts"};
+inline ostrace::Counter stealsCounter{"thor.sched.steals"};
 // Pings delivered by tryPingIdle() instead of an IPI.
 inline ostrace::Counter pingIpisElidedCounter{"thor.ipi.ping.elided"};
 

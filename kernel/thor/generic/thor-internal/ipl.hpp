@@ -143,6 +143,7 @@ private:
 	Ipl previous_{ipl::bad};
 };
 
+using MigrationGuard = IplGuard<ipl::noMigration>;
 using PreemptionGuard = IplGuard<ipl::noPreemption>;
 using ScheduleGuard = IplGuard<ipl::noSchedule>;
 

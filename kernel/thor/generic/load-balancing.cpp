@@ -1,6 +1,8 @@
 #include <frg/unique.hpp>
 #include <thor-internal/load-balancing.hpp>
+#include <thor-internal/metrics.hpp>
 #include <thor-internal/rcu.hpp>
+#include <thor-internal/schedule.hpp>
 #include <thor-internal/thread.hpp>
 #include <thor-internal/timer.hpp>
 
@@ -50,6 +52,39 @@ void LbControlBlock::finalizeBeforeRcu() {
 	node_->tasks.erase(this);
 }
 
+THOR_DEFINE_PERCPU(lbSparePool);
+
+smarter::shared_ptr<LbControlBlock> LbSparePool::take() {
+	assert(!intsAreEnabled());
+	auto n = count_.load(std::memory_order_relaxed);
+	if (!n)
+		return {};
+	count_.store(n - 1, std::memory_order_relaxed);
+	return std::move(blocks_[n - 1]);
+}
+
+void LbSparePool::requestRefill() {
+	if (count_.load(std::memory_order_relaxed) < refillThreshold)
+		refillEvent_.raise();
+}
+
+coroutine<void> LbSparePool::runRefillLoop() {
+	while (true) {
+		co_await refillEvent_.async_wait_if([&] {
+			return count_.load(std::memory_order_relaxed) == capacity;
+		});
+
+		// Only this loop adds blocks, so there is still room after the allocation.
+		auto cb = LbControlBlock::create();
+		auto irqLock = frg::guard(&irqMutex());
+		assert(this == &lbSparePool.get());
+		auto n = count_.load(std::memory_order_relaxed);
+		assert(n < capacity);
+		blocks_[n] = std::move(cb);
+		count_.store(n + 1, std::memory_order_relaxed);
+	}
+}
+
 LoadBalancer &LoadBalancer::singleton() {
 	return loadBalancer.get();
 }
@@ -60,6 +95,7 @@ void LoadBalancer::setOnline(CpuData *cpu) {
 	node->online.store(true, std::memory_order_release);
 	spawnOnWorkQueue(*kernelAlloc, cpu->generalWorkQueue, loadBalancer->runRequestLoop_(cpu));
 	spawnOnWorkQueue(*kernelAlloc, cpu->generalWorkQueue, loadBalancer->runPullLoop_(cpu));
+	spawnOnWorkQueue(*kernelAlloc, cpu->generalWorkQueue, lbSparePool.get(cpu).runRefillLoop());
 }
 
 void LoadBalancer::connect(Thread *thread, CpuData *cpu) {
@@ -146,6 +182,8 @@ void LoadBalancer::setAffinity(Thread *thread, frg::span<const uint8_t> mask) {
 					bestLoad = load;
 				}
 			}
+			// The thread cannot change its run state (and thereby the load of its node) during the move.
+			auto threadLock = frg::guard(&thread->_mutex);
 			doMigration_(thread, &lbNode.getFor(bestIndex), std::move(newCb));
 		}
 	}
@@ -204,6 +242,56 @@ void LoadBalancer::checkOverload() {
 	node->overloadEvent.raise();
 }
 
+bool LoadBalancer::stealFor(CpuData *cpu) {
+	assert(!intsAreEnabled());
+	if (!enableLb || getCpuCount() < 2)
+		return false;
+	// Threads must not be moved to a CPU before the load balancer knows about it.
+	if (!lbNode.get(cpu).online.load(std::memory_order_acquire))
+		return false;
+	auto *pool = &lbSparePool.get();
+	stealAttemptsCounter.add();
+
+	auto *thief = &localScheduler.get(cpu);
+	bool stolen = false;
+	// Start after this CPU such that the CPUs do not all steal from the ones with small indices.
+	auto numCpus = getCpuCount();
+	for (size_t k = 1; k < numCpus; ++k) {
+		auto i = (cpu->cpuIndex + k) % numCpus;
+		auto *victim = &localScheduler.getFor(i);
+
+		// Only threads are migratable since other entities are pinned.
+		// Threads are RCU protected, so the thread stays alive while IRQs are disabled.
+		auto *thread = static_cast<Thread *>(victim->peekMigratable());
+		if (!thread)
+			continue;
+		auto *state = &thread->_lbState;
+
+		auto stateLock = frg::guard(&state->mutex_);
+		if (!state->inAffinityMask_(cpu->cpuIndex))
+			continue;
+		// Unless the thread is already assigned to this CPU, the move takes a spare control block.
+		bool needsCb = state->cb_.load(std::memory_order_relaxed)->node_->cpu != cpu;
+		if (needsCb && pool->empty())
+			continue;
+		// Ensures that the victim finished saving the thread's executor (see Thread::_mutex).
+		auto threadLock = frg::guard(&thread->_mutex);
+		// The victim may have run the thread (or another CPU may have stolen it) since the peek.
+		if (!Scheduler::moveQueued(thread, thief))
+			continue;
+
+		if (needsCb)
+			doMigration_(thread, &lbNode.get(cpu), pool->take());
+		stolen = true;
+		break;
+	}
+	if (!stolen)
+		return false;
+	stealsCounter.add();
+	pool->requestRefill();
+	return true;
+}
+
 void LoadBalancer::doMigration_(Thread *thread, LbNode *dstNode,
 		smarter::shared_ptr<LbControlBlock> newCb) {
 	auto *state = &thread->_lbState;
@@ -219,9 +307,6 @@ void LoadBalancer::doMigration_(Thread *thread, LbNode *dstNode,
 	// if walkers hold references, the last of them unlinks it.
 	smarter::shared_ptr<LbControlBlock> oldRef;
 	{
-		// The thread cannot change its run state (and thereby the load of its node) during the move.
-		auto threadLock = frg::guard(&thread->_mutex);
-
 		auto now = getClockNanos();
 		bool runnable = thread->_isRunnable();
 
@@ -507,6 +592,8 @@ uint64_t LoadBalancer::pullFrom_(LbNode *srcNode, LbNode *dstNode, uint64_t amou
 								<< " from CPU " << srcNode->cpu->cpuIndex
 								<< " to CPU " << dstNode->cpu->cpuIndex << frg::endlog;
 
+					// The thread cannot change its run state (and thereby the load of its node) during the move.
+					auto threadLock = frg::guard(&thread->_mutex);
 					doMigration_(thread.get(), dstNode, std::move(spare));
 					moved = true;
 				}
