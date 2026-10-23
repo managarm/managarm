@@ -96,7 +96,8 @@ loadElfImage(SharedFilePtr file, VmContext *vmContext, uintptr_t base) {
 			if(!phdr->p_memsz) // Skip empty segments.
 				continue;
 
-			bool properlyAligned = phdr->p_offset % phdr->p_align == phdr->p_vaddr % phdr->p_align;
+			// Segments are mapped page-wise, so p_offset and p_vaddr must agree within a page.
+			bool properlyAligned = (phdr->p_offset & (kPageSize - 1)) == (phdr->p_vaddr & (kPageSize - 1));
 
 			size_t misalign = phdr->p_vaddr & (kPageSize - 1);
 			uintptr_t mapAddress = base + phdr->p_vaddr - misalign;
@@ -106,6 +107,11 @@ loadElfImage(SharedFilePtr file, VmContext *vmContext, uintptr_t base) {
 			if(!properlyAligned) {
 				std::cout << "posix: ELF file with differently misaligned p_offset and p_vaddr."
 						<< std::endl;
+				co_return Error::badExecutable;
+			}
+
+			if(phdr->p_filesz > phdr->p_memsz) {
+				std::cout << "posix: ELF segment with p_filesz larger than p_memsz" << std::endl;
 				co_return Error::badExecutable;
 			}
 
@@ -132,32 +138,44 @@ loadElfImage(SharedFilePtr file, VmContext *vmContext, uintptr_t base) {
 					co_return Error::badExecutable;
 				}
 			}else{
-				// Map the segment with write permission into this address space.
-				HelHandle segmentHandle;
-				HEL_CHECK(helAllocateMemory(vmContext->getHierarchy().getHandle(), mapLength, 0, nullptr,
-						&segmentHandle));
-
-				void *window;
-				HEL_CHECK(helMapMemory(segmentHandle, kHelNullHandle, nullptr,
-						0, mapLength, kHelMapProtRead | kHelMapProtWrite, &window));
-
-				// Map the segment with correct permissions into the process.
-				if((phdr->p_flags & (PF_R | PF_W | PF_X)) == (PF_R | PF_W)) {
-					FRG_CO_TRY(co_await vmContext->mapFile(mapAddress,
-							helix::UniqueDescriptor{segmentHandle}, file,
-							0, mapLength, true,
-							kHelMapProtRead | kHelMapProtWrite));
-				}else{
+				if((phdr->p_flags & (PF_R | PF_W | PF_X)) != (PF_R | PF_W)) {
 					std::cout << "posix: Illegal combination of segment permissions" << std::endl;
 					co_return Error::badExecutable;
 				}
 
-				// Read the segment contents from the file.
-				memset(window, 0, mapLength);
-				FRG_CO_TRY(co_await file->seek(phdr->p_offset, VfsSeek::absolute));
-				FRG_CO_TRY(co_await file->readExactly(nullptr,
-						(char *)window + misalign, phdr->p_filesz));
-				HEL_CHECK(helUnmapMemory(kHelNullHandle, window, mapLength));
+				// Map the file-backed pages copy-on-write and the remaining pages as anonymous memory.
+				size_t fileMapLength = 0;
+				if(phdr->p_filesz)
+					fileMapLength = (misalign + phdr->p_filesz + kPageSize - 1) & ~(kPageSize - 1);
+
+				if(fileMapLength) {
+					HEL_CHECK(helLoadahead(fileMemory.getHandle(), fileOffset, fileMapLength));
+
+					FRG_CO_TRY(co_await vmContext->mapFile(mapAddress,
+							fileMemory.dup(), file,
+							fileOffset, fileMapLength, true,
+							kHelMapProtRead | kHelMapProtWrite));
+
+					// Bytes past p_filesz in the last file page must read as zero.
+					size_t tailOffset = misalign + phdr->p_filesz;
+					if(tailOffset < fileMapLength) {
+						static const char zeros[kPageSize]{};
+						auto store = co_await helix_ng::writeMemory(vmContext->getSpace(),
+								mapAddress + tailOffset, fileMapLength - tailOffset, zeros);
+						if(store.error() == kHelErrNoMemory)
+							co_return Error::noMemory;
+						// The segment extends past the end of the file.
+						if(store.error() == kHelErrFault)
+							co_return Error::badExecutable;
+						HEL_CHECK(store.error());
+					}
+				}
+
+				if(fileMapLength < mapLength)
+					FRG_CO_TRY(co_await vmContext->mapFile(mapAddress + fileMapLength,
+							{}, nullptr,
+							0, mapLength - fileMapLength, true,
+							kHelMapProtRead | kHelMapProtWrite));
 			}
 		}else if(phdr->p_type == PT_PHDR) {
 			info.phdrPtr = (char *)base + phdr->p_vaddr;
