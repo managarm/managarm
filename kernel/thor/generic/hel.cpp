@@ -128,6 +128,7 @@ HelError translateError(Error error) {
 	case Error::noDescriptor: return kHelErrNoDescriptor;
 	case Error::badDescriptor: return kHelErrBadDescriptor;
 	case Error::badRights: return kHelErrBadRights;
+	case Error::unsupportedOperation: return kHelErrUnsupportedOperation;
 	case Error::other: return kHelErrOther;
 
 	// Thor-internal error cases that should not be passed down to userspace.
