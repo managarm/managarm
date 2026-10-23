@@ -1,6 +1,7 @@
 #pragma once
 
 #include <fcntl.h>
+#include <async/mutex.hpp>
 
 #include "file.hpp"
 #include "fs.hpp"
@@ -53,10 +54,11 @@ private:
 	helix::UniqueLane _passthrough;
 	async::cancellation_event _cancelServe;
 
+	// Serializes I/O against changes of the offset, size and seals that it depends on.
+	async::mutex _mutex;
 	uint64_t _offset;
 
 	helix::UniqueDescriptor _memory;
-	helix::Mapping _mapping;
 	size_t _areaSize = 0;
 	size_t _fileSize = 0;
 	int _seals = 0;
