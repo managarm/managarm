@@ -3,8 +3,10 @@
 #include <unistd.h>
 #include <set>
 
+#include <async/mutex.hpp>
 #include <core/clock.hpp>
 #include <core/mount.hpp>
+#include <frg/mutex.hpp>
 #include <helix/ipc.hpp>
 #include <helix/memory.hpp>
 #include <helix/passthrough-fd.hpp>
@@ -508,6 +510,8 @@ private:
 	async::cancellation_event _cancelServe;
 	SemanticFlags flags_;
 
+	// Protects _offset. Not taken by pread() and pwrite().
+	async::mutex _offsetMutex;
 	uint64_t _offset;
 };
 
@@ -572,12 +576,30 @@ private:
 			_memory = helix::UniqueDescriptor{handle};
 		}
 
-		_mapping = helix::Mapping{_memory, 0, aligned_size};
 		_areaSize = aligned_size;
 	}
 
+	async::result<frg::expected<Error>> _readData(size_t offset, void *buffer, size_t length) {
+		if(!length)
+			co_return {};
+		auto load = co_await helix_ng::readMemory(_memory, offset, length, buffer);
+		if(load.error() == kHelErrNoMemory)
+			co_return Error::noMemory;
+		HEL_CHECK(load.error());
+		co_return {};
+	}
+
+	async::result<frg::expected<Error>> _writeData(size_t offset, const void *buffer, size_t length) {
+		if(!length)
+			co_return {};
+		auto store = co_await helix_ng::writeMemory(_memory, offset, length, buffer);
+		if(store.error() == kHelErrNoMemory)
+			co_return Error::noMemory;
+		HEL_CHECK(store.error());
+		co_return {};
+	}
+
 	helix::UniqueDescriptor _memory;
-	helix::Mapping _mapping;
 	size_t _areaSize;
 	size_t _fileSize;
 };
@@ -695,6 +717,9 @@ void MemoryFile::handleClose() {
 
 async::result<frg::expected<Error, off_t>>
 MemoryFile::seek(off_t delta, VfsSeek whence) {
+	co_await _offsetMutex.async_lock();
+	frg::unique_lock offset_lock{frg::adopt_lock, _offsetMutex};
+
 	if(whence == VfsSeek::absolute) {
 		_offset = delta;
 	}else if(whence == VfsSeek::relative){
@@ -712,12 +737,19 @@ async::result<std::expected<size_t, Error>>
 MemoryFile::readSome(Process *, void *buffer, size_t max_length, async::cancellation_token) {
 	auto node = static_cast<MemoryNode *>(associatedLink()->getTarget().get());
 
-	if(!(_offset <= node->_fileSize))
-		co_return std::unexpected{Error::eof};
-	auto chunk = std::min(node->_fileSize - _offset, max_length);
+	size_t chunk;
+	{
+		co_await _offsetMutex.async_lock();
+		frg::unique_lock offset_lock{frg::adopt_lock, _offsetMutex};
 
-	memcpy(buffer, reinterpret_cast<char *>(node->_mapping.get()) + _offset, chunk);
-	_offset += chunk;
+		if(!(_offset <= node->_fileSize))
+			co_return std::unexpected{Error::eof};
+		chunk = std::min(node->_fileSize - _offset, max_length);
+
+		if(auto result = co_await node->_readData(_offset, buffer, chunk); !result)
+			co_return std::unexpected{result.error()};
+		_offset += chunk;
+	}
 	node->notifyObservers(FsObserver::accessEvent, associatedLink()->getName(), 0);
 	co_return chunk;
 }
@@ -729,14 +761,19 @@ MemoryFile::writeAll(Process *, const void *buffer, size_t length) {
 	if (!(flags_ & semanticWrite))
 		co_return Error::badFileDescriptor;
 
-	if(flags_ & semanticAppend)
-		_offset = node->_fileSize;
+	{
+		co_await _offsetMutex.async_lock();
+		frg::unique_lock offset_lock{frg::adopt_lock, _offsetMutex};
 
-	if(_offset + length > node->_fileSize)
-		co_await node->_resizeFile(_offset + length);
+		if(flags_ & semanticAppend)
+			_offset = node->_fileSize;
 
-	memcpy(reinterpret_cast<char *>(node->_mapping.get()) + _offset, buffer, length);
-	_offset += length;
+		if(_offset + length > node->_fileSize)
+			co_await node->_resizeFile(_offset + length);
+
+		FRG_CO_TRY(co_await node->_writeData(_offset, buffer, length));
+		_offset += length;
+	}
 	node->notifyObservers(FsObserver::modifyEvent, associatedLink()->getName(), 0);
 	co_return length;
 }
@@ -749,7 +786,8 @@ MemoryFile::pread(Process *, int64_t offset, void *buffer, size_t length) {
 		co_return std::unexpected{Error::eof};
 	auto chunk = std::min(node->_fileSize - offset, length);
 
-	memcpy(buffer, reinterpret_cast<char *>(node->_mapping.get()) + offset, chunk);
+	if(auto result = co_await node->_readData(offset, buffer, chunk); !result)
+		co_return std::unexpected{result.error()};
 
 	co_return chunk;
 }
@@ -761,7 +799,7 @@ MemoryFile::pwrite(Process *, int64_t offset, const void *buffer, size_t length)
 	if(offset + length > node->_fileSize)
 		co_await node->_resizeFile(offset + length);
 
-	memcpy(reinterpret_cast<char *>(node->_mapping.get()) + offset, buffer, length);
+	FRG_CO_TRY(co_await node->_writeData(offset, buffer, length));
 	co_return length;
 }
 

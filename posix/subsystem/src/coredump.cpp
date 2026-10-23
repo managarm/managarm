@@ -138,15 +138,14 @@ async::result<void> Process::coredump(TerminationState state) {
 		co_return;
 	}
 
-	void *memoryDump = nullptr;
-	HEL_CHECK(helMapMemory(memory.getHandle(), kHelNullHandle,
-		nullptr, 0, memoryDumpOffset + memoryDumpSize,
-		kHelMapProtRead | kHelMapProtWrite, &memoryDump));
+	// Headers and notes are built locally and written into the file's memory in one go.
+	std::vector<std::byte> headers(memoryDumpOffset);
 
 	size_t fileOffset = 0;
 
-	auto write = [&memoryDump, &fileOffset](const void *data, size_t len) {
-		memcpy(reinterpret_cast<void *>(uintptr_t(memoryDump) + fileOffset), data, len);
+	auto write = [&headers, &fileOffset](const void *data, size_t len) {
+		assert(fileOffset + len <= headers.size());
+		memcpy(headers.data() + fileOffset, data, len);
 		fileOffset += len;
 	};
 
@@ -388,23 +387,36 @@ async::result<void> Process::coredump(TerminationState state) {
 		write(fpreg.data(), sizeof(struct user_fpregs_struct));
 	}
 
+	auto storeHeaders = co_await helix_ng::writeMemory(memory, 0, headers.size(), headers.data());
+	if(storeHeaders.error()) {
+		auto res[[maybe_unused]] = co_await file->associatedLink()->getParentNode()->unlink(file->associatedLink()->getName());
+		co_return;
+	}
+
 	fileOffset = memoryDumpOffset;
 
-
+	std::vector<std::byte> buffer(0x10000);
 	for(auto area : *vmContext()) {
 		if(!dumpArea(area))
 			continue;
 
-		auto loadMemory = co_await helix_ng::readMemory(vmContext()->getSpace(),
-			area.baseAddress(), area.size(),
-			reinterpret_cast<void *>(reinterpret_cast<uintptr_t>(memoryDump) + fileOffset));
-		if (loadMemory.error() != kHelErrNone)
-			memset(reinterpret_cast<void *>(reinterpret_cast<uintptr_t>(memoryDump) + fileOffset), 0, area.size());
+		for(size_t progress = 0; progress < area.size(); progress += buffer.size()) {
+			auto chunk = std::min(area.size() - progress, buffer.size());
+			auto loadMemory = co_await helix_ng::readMemory(vmContext()->getSpace(),
+				area.baseAddress() + progress, chunk, buffer.data());
+			if (loadMemory.error() != kHelErrNone)
+				memset(buffer.data(), 0, chunk);
+
+			auto storeMemory = co_await helix_ng::writeMemory(memory, fileOffset + progress,
+				chunk, buffer.data());
+			if(storeMemory.error()) {
+				auto res[[maybe_unused]] = co_await file->associatedLink()->getParentNode()->unlink(file->associatedLink()->getName());
+				co_return;
+			}
+		}
 
 		fileOffset += area.size();
 	}
-
-	HEL_CHECK(helUnmapMemory(kHelNullHandle, memoryDump, memoryDumpOffset + memoryDumpSize));
 
 	assert(fileOffset == (memoryDumpOffset + memoryDumpSize));
 

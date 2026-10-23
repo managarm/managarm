@@ -2021,7 +2021,7 @@ HelError doSubmitReadMemory(HelHandle handle, smarter::shared_ptr<IpcQueue> queu
 
 				auto outcome = co_await onExceptionalWq(space->readSpace(address + progress, temp, chunk));
 				if(!outcome) {
-					error = Error::fault;
+					error = outcome.error();
 					break;
 				}
 
@@ -2157,7 +2157,7 @@ HelError doSubmitWriteMemory(HelHandle handle, smarter::shared_ptr<IpcQueue> que
 
 				auto outcome = co_await onExceptionalWq(space->writeSpace(address + progress, temp, chunk));
 				if(!outcome) {
-					error = Error::fault;
+					error = outcome.error();
 					break;
 				}
 				progress += chunk;

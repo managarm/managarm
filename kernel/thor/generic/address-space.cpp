@@ -1187,7 +1187,7 @@ coroutine<void> VirtualSpace::_unmapMappings(VirtualAddr address, size_t length,
 	}
 }
 
-coroutine<size_t> VirtualSpace::readPartialSpace(uintptr_t address,
+coroutine<std::expected<size_t, Error>> VirtualSpace::readPartialSpace(uintptr_t address,
 		void *buffer, size_t size) {
 	assert(currentIpl() == ipl::exceptionalWork);
 
@@ -1202,8 +1202,11 @@ coroutine<size_t> VirtualSpace::readPartialSpace(uintptr_t address,
 
 			mapping = _findMapping(address + progress);
 		}
-		if(!mapping)
+		if(!mapping) {
+			if(!progress)
+				co_return std::unexpected{Error::fault};
 			co_return progress;
+		}
 
 		auto startInMapping = address + progress - mapping->address;
 		auto limitInMapping = frg::min(size - progress, mapping->length - startInMapping);
@@ -1218,15 +1221,18 @@ coroutine<size_t> VirtualSpace::readPartialSpace(uintptr_t address,
 				mapping->viewOffset + startInMapping,
 				reinterpret_cast<std::byte *>(buffer) + progress,
 				limitInMapping, fetchFlags);
-		if(!copyOutcome)
+		if(!copyOutcome) {
+			if(!progress)
+				co_return std::unexpected{copyOutcome.error()};
 			co_return progress;
+		}
 
 		progress += limitInMapping;
 	}
 	co_return progress;
 }
 
-coroutine<size_t> VirtualSpace::writePartialSpace(uintptr_t address,
+coroutine<std::expected<size_t, Error>> VirtualSpace::writePartialSpace(uintptr_t address,
 		const void *buffer, size_t size) {
 	assert(currentIpl() == ipl::exceptionalWork);
 
@@ -1241,8 +1247,11 @@ coroutine<size_t> VirtualSpace::writePartialSpace(uintptr_t address,
 
 			mapping = _findMapping(address + progress);
 		}
-		if(!mapping)
+		if(!mapping) {
+			if(!progress)
+				co_return std::unexpected{Error::fault};
 			co_return progress;
+		}
 
 		auto startInMapping = address + progress - mapping->address;
 		auto limitInMapping = frg::min(size - progress, mapping->length - startInMapping);
@@ -1257,12 +1266,41 @@ coroutine<size_t> VirtualSpace::writePartialSpace(uintptr_t address,
 				mapping->viewOffset + startInMapping,
 				reinterpret_cast<const std::byte *>(buffer) + progress,
 				limitInMapping, fetchFlags);
-		if(!copyOutcome)
+		if(!copyOutcome) {
+			if(!progress)
+				co_return std::unexpected{copyOutcome.error()};
 			co_return progress;
+		}
 
 		progress += limitInMapping;
 	}
 	co_return progress;
+}
+
+coroutine<std::expected<void, Error>> VirtualSpace::readSpace(uintptr_t address,
+		void *buffer, size_t size) {
+	size_t progress = 0;
+	while(progress < size) {
+		auto outcome = co_await readPartialSpace(address + progress,
+				reinterpret_cast<std::byte *>(buffer) + progress, size - progress);
+		if(!outcome)
+			co_return std::unexpected{outcome.error()};
+		progress += *outcome;
+	}
+	co_return {};
+}
+
+coroutine<std::expected<void, Error>> VirtualSpace::writeSpace(uintptr_t address,
+		const void *buffer, size_t size) {
+	size_t progress = 0;
+	while(progress < size) {
+		auto outcome = co_await writePartialSpace(address + progress,
+				reinterpret_cast<const std::byte *>(buffer) + progress, size - progress);
+		if(!outcome)
+			co_return std::unexpected{outcome.error()};
+		progress += *outcome;
+	}
+	co_return {};
 }
 
 // --------------------------------------------------------

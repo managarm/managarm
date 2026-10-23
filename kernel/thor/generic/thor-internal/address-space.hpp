@@ -811,32 +811,13 @@ public:
 	// Read/write support.
 	// ----------------------------------------------------------------------------------
 
-	// These functions read as much data as possible;
-	// on error, they read/write a partially filled buffer.
-	coroutine<size_t> readPartialSpace(uintptr_t address, void *buffer, size_t size);
-	coroutine<size_t> writePartialSpace(uintptr_t address, const void *buffer, size_t size);
+	// These functions transfer as much data as possible and only fail if nothing was transferred,
+	// so that retrying at the end of a partial transfer reports the error that stopped it.
+	coroutine<std::expected<size_t, Error>> readPartialSpace(uintptr_t address, void *buffer, size_t size);
+	coroutine<std::expected<size_t, Error>> writePartialSpace(uintptr_t address, const void *buffer, size_t size);
 
-	auto readSpace(uintptr_t address, void *buffer, size_t size) {
-		return async::transform(
-			readPartialSpace(address, buffer, size),
-			[=] (size_t actualSize) -> frg::expected<Error> {
-				if(actualSize != size)
-					return Error::fault;
-				return {};
-			}
-		);
-	}
-
-	auto writeSpace(uintptr_t address, const void *buffer, size_t size) {
-		return async::transform(
-			writePartialSpace(address, buffer, size),
-			[=] (size_t actualSize) -> frg::expected<Error> {
-				if(actualSize != size)
-					return Error::fault;
-				return {};
-			}
-		);
-	}
+	coroutine<std::expected<void, Error>> readSpace(uintptr_t address, void *buffer, size_t size);
+	coroutine<std::expected<void, Error>> writeSpace(uintptr_t address, const void *buffer, size_t size);
 
 	// ----------------------------------------------------------------------------------
 	// GlobalFutex support.
