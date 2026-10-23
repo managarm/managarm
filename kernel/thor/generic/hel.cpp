@@ -933,7 +933,7 @@ HelError helCreateSliceView(HelHandle memoryHandle,
 		return translateError(sliceOutcome.error());
 	*handle = this_universe->attachDescriptor(
 		AnyDescriptor::make<DescriptorType::memorySlice>(
-			std::move(*sliceOutcome), rights & (kHelRightRead | kHelRightWrite | kHelRightExecute | kHelRightAssign)
+			std::move(*sliceOutcome), rights & (kHelRightRead | kHelRightWrite | kHelRightExecute | kHelRightAssign | kHelRightManage)
 		)
 	);
 
