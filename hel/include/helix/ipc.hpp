@@ -1345,6 +1345,94 @@ inline auto resizeMemory(BorrowedDescriptor memory, size_t newSize) {
 }
 
 // --------------------------------------------------------------------
+// SetSwapRegion
+// --------------------------------------------------------------------
+
+struct SetSwapRegionResult {
+	HelError error() {
+		assert(valid_);
+		return error_;
+	}
+
+	void parse(void *&ptr, const ElementHandle &) {
+		auto result = reinterpret_cast<HelSimpleResult *>(ptr);
+		error_ = result->error;
+		ptr = (char *)ptr + sizeof(HelSimpleResult);
+		valid_ = true;
+	}
+
+private:
+	bool valid_ = false;
+	HelError error_;
+};
+
+template <typename Receiver>
+struct SetSwapRegionOperation : private Context {
+	SetSwapRegionOperation(BorrowedDescriptor swapSpace, uint32_t region, size_t numPages,
+			Receiver r)
+	: swapSpace_{std::move(swapSpace)}, region_{region}, numPages_{numPages},
+			r_{std::move(r)} {}
+
+	void start() {
+		HelSqSetSwapRegion header{};
+		header.swapHandle = swapSpace_.getHandle();
+		header.region = region_;
+		header.numPages = numPages_;
+
+		std::array segments{
+			std::as_bytes(std::span{&header, 1})
+		};
+
+		auto context = static_cast<Context *>(this);
+		Dispatcher::global().pushSq(kHelSubmitSetSwapRegion,
+				reinterpret_cast<uintptr_t>(context), segments);
+	}
+
+	SetSwapRegionOperation(const SetSwapRegionOperation &) = delete;
+	SetSwapRegionOperation &operator= (const SetSwapRegionOperation &) = delete;
+
+private:
+	void complete(ElementHandle element) override {
+		SetSwapRegionResult result;
+		void *ptr = element.data();
+		result.parse(ptr, element);
+		async::execution::set_value(r_, std::move(result));
+	}
+
+	BorrowedDescriptor swapSpace_;
+	uint32_t region_;
+	size_t numPages_;
+	Receiver r_;
+};
+
+struct [[nodiscard]] SetSwapRegionSender {
+	using value_type = SetSwapRegionResult;
+
+	SetSwapRegionSender(BorrowedDescriptor swapSpace, uint32_t region, size_t numPages)
+	: swapSpace_{std::move(swapSpace)}, region_{region}, numPages_{numPages} { }
+
+	template<typename Receiver>
+	SetSwapRegionOperation<Receiver> connect(Receiver receiver) {
+		return {std::move(swapSpace_), region_, numPages_, std::move(receiver)};
+	}
+
+private:
+	BorrowedDescriptor swapSpace_;
+	uint32_t region_;
+	size_t numPages_;
+};
+
+inline async::sender_awaiter<SetSwapRegionSender, SetSwapRegionResult>
+operator co_await (SetSwapRegionSender sender) {
+	return {std::move(sender)};
+}
+
+// Sets the capacity (in pages) of a region of a swap space.
+inline auto setSwapRegion(BorrowedDescriptor swapSpace, uint32_t region, size_t numPages) {
+	return SetSwapRegionSender{std::move(swapSpace), region, numPages};
+}
+
+// --------------------------------------------------------------------
 // ForkMemory
 // --------------------------------------------------------------------
 

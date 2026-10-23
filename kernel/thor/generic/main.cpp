@@ -672,9 +672,6 @@ void handleSyscall(SyscallImageAccessor image) {
 				(size_t)arg2, (uint32_t)arg3, &handle);
 		*image.out0() = handle;
 	} break;
-	case kHelCallSetSwapBudget: {
-		*image.error() = helSetSwapBudget((HelHandle)arg0, (size_t)arg1);
-	} break;
 	case kHelCallCopyOnWrite: {
 		HelHandle handle;
 		*image.error() = helCopyOnWrite((HelHandle)arg0, (HelHandle)arg1, (HelHandle)arg2,

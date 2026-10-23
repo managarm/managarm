@@ -1855,8 +1855,40 @@ std::expected<smarter::shared_ptr<SwapSpace>, Error> SwapSpace::create(
 }
 
 SwapSpace::SwapSpace(smarter::shared_ptr<Hierarchy> hierarchy)
-: ManagedSpace{std::move(hierarchy), UINT64_C(1) << 32, false}, _buddyMetadata{*kernelAlloc} {
+: ManagedSpace{std::move(hierarchy), size_t{maxRegions} << (regionShift + kPageShift), false} {
 	isSwapSpace = true;
+}
+
+SwapSpace::~SwapSpace() {
+	auto region = _regions.first();
+	while(region) {
+		auto next = RegionTree::successor(region);
+		frg::destruct(*kernelAlloc, region);
+		region = next;
+	}
+}
+
+SwapSpace::Region::Region(unsigned int regionIndex, size_t numSlots)
+: regionIndex{regionIndex}, numSlots{numSlots}, metadata{*kernelAlloc} {
+	assert(numSlots);
+	auto base = uint64_t{regionIndex} << regionShift;
+	auto tableOrder = BuddyAccessor::suitableOrder(numSlots);
+	auto numRoots = (numSlots + (size_t{1} << tableOrder) - 1) >> tableOrder;
+	metadata.resize(BuddyAccessor::determineSize(numRoots, tableOrder));
+	BuddyAccessor::initialize(metadata.data(), numRoots, tableOrder);
+	accessor = BuddyAccessor{base, 0, metadata.data(), numRoots, tableOrder};
+
+	// The table covers a multiple of 2^tableOrder slots; reserve the excess beyond numSlots
+	// (decomposed into aligned blocks) so that it is never handed out.
+	auto covered = size_t{numRoots} << tableOrder;
+	auto index = numSlots;
+	while(index < covered) {
+		int order = std::countr_zero(index);
+		while(index + (size_t{1} << order) > covered)
+			order--;
+		accessor.reserve(base + index, order);
+		index += size_t{1} << order;
+	}
 }
 
 bool SwapSpace::claimSlot(ManagedPage *page) {
@@ -1888,55 +1920,79 @@ void SwapSpace::_pageDiscarded(ManagedPage *page, bool &raiseDirty) {
 	raiseDirty = true;
 }
 
-Error SwapSpace::setBudget(size_t numSlots) {
-	if(!numSlots || numSlots > numPages)
-		return Error::illegalArgs;
-	// TODO: Changing the budget requires the pages in removed slots to be brought back into RAM.
-	if(_budgetSet.exchange(true, std::memory_order_relaxed))
-		return Error::illegalState;
+coroutine<std::expected<void, Error>> SwapSpace::setRegionCapacity(unsigned int region,
+		size_t numSlots) {
+	if(region >= maxRegions || numSlots > maxRegionSlots)
+		co_return std::unexpected{Error::illegalArgs};
 
-	// Only the winner of the exchange above touches the metadata, so it can be built without the mutex.
-	auto tableOrder = BuddyAccessor::suitableOrder(numSlots);
-	auto numRoots = (numSlots + (size_t{1} << tableOrder) - 1) >> tableOrder;
-	_buddyMetadata.resize(BuddyAccessor::determineSize(numRoots, tableOrder));
-	BuddyAccessor::initialize(_buddyMetadata.data(), numRoots, tableOrder);
-	BuddyAccessor accessor{0, 0, _buddyMetadata.data(), numRoots, tableOrder};
-
-	// The table covers a multiple of 2^tableOrder slots; reserve the excess beyond numSlots
-	// (decomposed into aligned blocks) so that it is never handed out.
-	auto covered = size_t{numRoots} << tableOrder;
-	auto index = numSlots;
-	while(index < covered) {
-		int order = std::countr_zero(index);
-		while(index + (size_t{1} << order) > covered)
-			order--;
-		accessor.reserve(index, order);
-		index += size_t{1} << order;
-	}
-
+	size_t capacity = 0;
 	{
 		auto irqLock = frg::guard(&irqMutex());
 		auto lock = frg::guard(&mutex);
-		_buddyAccessor = accessor;
+		if(auto existing = _findRegion(region); existing)
+			capacity = existing->numSlots;
+	}
+	if(numSlots == capacity)
+		co_return {};
+	// TODO: Growing requires a larger allocator; shrinking requires the pages in the
+	//       removed slots to be brought back into RAM.
+	if(capacity)
+		co_return std::unexpected{Error::unsupportedOperation};
+
+	// Build the allocator outside of the mutex since it allocates its metadata.
+	auto attached = frg::construct<Region>(*kernelAlloc, region, numSlots);
+	{
+		auto irqLock = frg::guard(&irqMutex());
+		auto lock = frg::guard(&mutex);
+		if(auto existing = _findRegion(region); existing) {
+			capacity = existing->numSlots;
+		}else{
+			_regions.insert(attached);
+			attached = nullptr;
+		}
+	}
+	if(attached) {
+		// A concurrent call attached the region in the meantime.
+		frg::destruct(*kernelAlloc, attached);
+		if(numSlots != capacity)
+			co_return std::unexpected{Error::unsupportedOperation};
+		co_return {};
 	}
 	_wakeDrain();
-	return Error::success;
+	co_return {};
 }
 
 ManagedSpace::ManagedPage *SwapSpace::allocatePage() {
 	return frg::construct<ManagedPage>(*kernelAlloc, this, noSlot);
 }
 
+SwapSpace::Region *SwapSpace::_findRegion(unsigned int regionIndex) {
+	auto current = _regions.get_root();
+	while(current) {
+		if(regionIndex < current->regionIndex) {
+			current = RegionTree::get_left(current);
+		}else if(regionIndex > current->regionIndex) {
+			current = RegionTree::get_right(current);
+		}else{
+			return current;
+		}
+	}
+	return nullptr;
+}
+
 frg::optional<uint64_t> SwapSpace::_allocateOffset() {
-	auto offset = _buddyAccessor.allocate(0, 64);
-	if(offset == BuddyAccessor::illegalAddress)
-		return frg::null_opt;
-	return offset;
+	for(auto region = _regions.first(); region; region = RegionTree::successor(region)) {
+		auto offset = region->accessor.allocate(0, 64);
+		if(offset != BuddyAccessor::illegalAddress)
+			return offset;
+	}
+	return frg::null_opt;
 }
 
 void SwapSpace::_freeOffset(uint64_t offset) {
-	assert(offset < numPages);
-	_buddyAccessor.free(offset, 0);
+	auto region = _findRegion(offset >> regionShift);
+	assert(region);
+	region->accessor.free(offset, 0);
 }
 
 coroutine<void> ManagedSpace::dispose() {

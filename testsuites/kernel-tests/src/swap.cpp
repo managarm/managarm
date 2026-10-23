@@ -28,6 +28,12 @@ struct SwapDaemonState {
 	std::atomic<bool> finished{false};
 };
 
+async::result<void> setSwapRegion(helix::BorrowedDescriptor swapSpace, uint32_t region,
+		size_t numPages) {
+	auto result = co_await helix_ng::setSwapRegion(swapSpace, region, numPages);
+	HEL_CHECK(result.error());
+}
+
 // Emulates the swap daemon, serves a single manage request. Services
 // initialize requests by reading from the disk buffer and writeback
 // requests by writing to it.
@@ -85,7 +91,7 @@ async::result<void> testSwapRoundtrip() {
 	helix::UniqueDescriptor backing{backingHandle};
 	helix::UniqueDescriptor swapSpace{swapHandle};
 
-	HEL_CHECK(helSetSwapBudget(swapSpace.getHandle(), swapPages));
+	co_await setSwapRegion(swapSpace, 0, swapPages);
 
 	HelHandle memoryHandle;
 	HEL_CHECK(helAllocateSwappableMemory(core::getProcessHierarchy(), swapSpace.getHandle(),
@@ -155,7 +161,7 @@ HelHandle backingHandle, swapHandle;
 	helix::UniqueDescriptor backing{backingHandle};
 	helix::UniqueDescriptor swapSpace{swapHandle};
 
-	HEL_CHECK(helSetSwapBudget(swapSpace.getHandle(), swapPages));
+	async::run(setSwapRegion(swapSpace, 0, swapPages), helix::currentDispatcher);
 
 	HelHandle memoryHandle;
 	HEL_CHECK(helAllocateSwappableMemory(core::getProcessHierarchy(), swapSpace.getHandle(),
