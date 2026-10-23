@@ -25,6 +25,7 @@
 #include "requests.hpp"
 #include "observations.hpp"
 #include "ostrace.hpp"
+#include "swap.hpp"
 
 #include <bragi/helpers-std.hpp>
 #include <kerncfg.bragi.hpp>
@@ -207,6 +208,7 @@ async::result<void> enumeratePm() {
 async::detached runInit() {
 	co_await posix::ostContext.create();
 	co_await enumerateKerncfg();
+	co_await enumerateSwapserver();
 	co_await devserver::enumerate();
 	async::detach(enumeratePm());
 	async::detach(net::enumerateNetserver());

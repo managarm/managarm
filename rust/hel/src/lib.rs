@@ -73,6 +73,33 @@ pub fn create_space() -> Result<Handle> {
     Ok(unsafe { Handle::from_raw(handle) })
 }
 
+pub struct SwapSpace {
+    backing_handle: Handle,
+    swap_handle: Handle,
+}
+
+impl SwapSpace {
+    pub fn backing_handle(&self) -> &Handle {
+        &self.backing_handle
+    }
+
+    pub fn swap_handle(&self) -> &Handle {
+        &self.swap_handle
+    }
+}
+
+pub fn create_swap_space(hierarchy: &Handle) -> Result<SwapSpace> {
+    let mut backing_handle = hel_sys::kHelNullHandle as hel_sys::HelHandle;
+    let mut swap_handle = hel_sys::kHelNullHandle as hel_sys::HelHandle;
+    result::hel_check(unsafe {
+        hel_sys::helCreateSwapSpace(hierarchy.handle(), 0, &mut backing_handle, &mut swap_handle)
+    })?;
+    Ok(SwapSpace {
+        backing_handle: unsafe { Handle::from_raw(backing_handle) },
+        swap_handle: unsafe { Handle::from_raw(swap_handle) },
+    })
+}
+
 /// The firmware description that an IOMMU was discovered from.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum IommuKind {

@@ -53,6 +53,7 @@ src = [
 	'src/requests/fd.cpp',
 	'src/requests/uid-gid.cpp',
 	'src/signalfd.cpp',
+	'src/swap.cpp',
 	'src/timerfd.cpp',
 	'src/tmp_fs.cpp',
 	'src/un-socket.cpp',
@@ -63,7 +64,7 @@ src = [
 ]
 
 executable('posix-subsystem', src,
-	dependencies : [ mbus_proto_dep, fs_proto_dep, posix_extra_dep, clock_proto_dep, kerncfg_proto_dep, hw_proto_dep, ostrace_proto_dep, frigg, core_dep ],
+	dependencies : [ mbus_proto_dep, fs_proto_dep, posix_extra_dep, clock_proto_dep, kerncfg_proto_dep, hw_proto_dep, ostrace_proto_dep, frigg, core_dep, swap_proto_dep ],
 	install : true
 )
 

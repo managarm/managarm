@@ -350,6 +350,7 @@ extern "C" void thorMain() {
 		KernelFiber::asyncBlockCurrent(runMbus());
 		initializeKernletCtl();
 		KernelFiber::asyncBlockCurrent(runServerFromInitrd("usr/lib/managarm/server/sif.bin"));
+		KernelFiber::asyncBlockCurrent(runServerFromInitrd("usr/lib/managarm/server/swapserver.bin"));
 		KernelFiber::asyncBlockCurrent(runServerFromInitrd("usr/lib/managarm/server/dmalog.bin"));
 		KernelFiber::asyncBlockCurrent(runServerFromInitrd("usr/lib/managarm/server/kernletcc.bin"));
 		KernelFiber::asyncBlockCurrent(runServerFromInitrd("usr/lib/managarm/server/posix-devserver.bin"));

@@ -1,0 +1,23 @@
+namespace "managarm::swap";
+
+enum Errors {
+    SUCCESS,
+    OTHER
+}
+
+group {
+
+message GetSwapSpaceRequest 1 {
+head(128):
+}
+
+}
+
+group {
+
+message GetSwapSpaceResponse 1 {
+head(128):
+    Errors error;
+}
+
+}
