@@ -199,16 +199,6 @@ loadElfImage(SharedFilePtr file, VmContext *vmContext, uintptr_t base) {
 	co_return info;
 }
 
-template<typename T, size_t N>
-void *copyArrayToStack(void *window, size_t &d, const T (&value)[N]) {
-	assert(d >= alignof(T) + sizeof(T) * N);
-	d -= sizeof(T) * N;
-	d -= d & (alignof(T) - 1);
-	void *ptr = (char *)window + d;
-	memcpy(ptr, &value, sizeof(T) * N);
-	return ptr;
-}
-
 async::result<frg::expected<Error, ExecuteResult>>
 execute(ViewPath root, ViewPath workdir,
 		std::string path,
@@ -309,56 +299,47 @@ execute(ViewPath root, ViewPath workdir,
 
 	constexpr size_t stackSize = 0x200000;
 
-	// Allocate memory for the stack.
-	HelHandle stackHandle;
-	HEL_CHECK(helAllocateMemory(vmContext->getHierarchy().getHandle(), stackSize, kHelAllocOnDemand,
-			nullptr, &stackHandle));
-
-	void *window;
-	HEL_CHECK(helMapMemory(stackHandle, kHelNullHandle, nullptr,
-			0, stackSize, kHelMapProtRead | kHelMapProtWrite, &window));
-
-	// Map the stack into the new process and set it up.
+	// Map the stack into the new process.
 	void *stackBase = FRG_CO_TRY(co_await vmContext->mapFile(0,
-			helix::UniqueDescriptor{stackHandle}, nullptr,
+			{}, nullptr,
 			0, stackSize, true, kHelMapProtRead | kHelMapProtWrite));
 
 	// the offset at which the stack image starts.
 	size_t d = stackSize;
 
-	// Copy argument and environment strings to the stack.
-	auto pushString = [&] (const std::string &str) -> uintptr_t {
+	size_t stringsSize = path.size() + 1;
+	for(const auto &str : args)
+		stringsSize += str.size() + 1;
+	for(const auto &str : env)
+		stringsSize += str.size() + 1;
+	if(stringsSize > stackSize)
+		co_return Error::illegalArguments;
+
+	// Place argument and environment strings at the top of the stack.
+	auto placeString = [&] (const std::string &str) -> uintptr_t {
 		d -= str.size() + 1;
-		memcpy(reinterpret_cast<char *>(window) + d, str.c_str(), str.size() + 1);
 		return reinterpret_cast<uintptr_t>(stackBase) + d;
 	};
 
-	auto execfn = pushString(path);
+	auto execfn = placeString(path);
 	std::vector<uintptr_t> argsPtrs;
 	for(const auto &str : args)
-		argsPtrs.push_back(pushString(str));
+		argsPtrs.push_back(placeString(str));
 
 	std::vector<uintptr_t> envPtrs;
 	for(const auto &str : env)
-		envPtrs.push_back(pushString(str));
+		envPtrs.push_back(placeString(str));
 
-	// Align the stack before pushing the args, environment and auxiliary words.
-	d -= d & size_t(15);
+	// Words below the strings, in ascending address order.
+	std::vector<uintptr_t> words;
+	words.push_back(argsPtrs.size()); // argc.
+	words.insert(words.end(), argsPtrs.begin(), argsPtrs.end());
+	words.push_back(0); // End of args.
+	words.insert(words.end(), envPtrs.begin(), envPtrs.end());
+	words.push_back(0); // End of environment.
 
-	// Pad the stack so that it is aligned after pushing all words.
-	auto pushWord = [&] (uintptr_t w) {
-		assert(!(d & (alignof(uintptr_t) - 1)));
-		d -= sizeof(uintptr_t);
-		memcpy(reinterpret_cast<char *>(window) + d, &w, sizeof(uintptr_t));
-	};
-
-	size_t wordParity = 1 + argsPtrs.size() + 1 // Words representing argc and args.
-			+ envPtrs.size() + 1; // Words representing the environment.
-	if(wordParity & 1)
-		pushWord(0);
-
-	void *auxEnd = reinterpret_cast<std::byte *>(stackBase) + d;
-	copyArrayToStack(window, d, (uintptr_t[]){
+	size_t auxBeginIndex = words.size();
+	words.insert(words.end(), {
 		AT_ENTRY,
 		uintptr_t(execInfo.entryIp),
 		AT_PHDR,
@@ -378,22 +359,44 @@ execute(ViewPath root, ViewPath workdir,
 		AT_NULL,
 		0
 	});
-	void *auxBegin = reinterpret_cast<std::byte *>(stackBase) + d;
+	size_t auxEndIndex = words.size();
 
-	// Push the environment pointers and arguments.
-	pushWord(0); // End of environment.
-	for(auto it = envPtrs.rbegin(); it != envPtrs.rend(); ++it)
-		pushWord(*it);
+	// Pad the words so that the stack is aligned after them.
+	if(words.size() & 1)
+		words.push_back(0);
 
-	pushWord(0); // End of args.
-	for(auto it = argsPtrs.rbegin(); it != argsPtrs.rend(); ++it)
-		pushWord(*it);
-	pushWord(argsPtrs.size()); // argc.
+	// Align the stack before pushing the words.
+	d -= d & size_t(15);
+	if(d < words.size() * sizeof(uintptr_t))
+		co_return Error::illegalArguments;
+	d -= words.size() * sizeof(uintptr_t);
 
 	// Stack has to be aligned at entry.
 	assert(!(d & size_t(15)));
 
-	HEL_CHECK(helUnmapMemory(kHelNullHandle, window, stackSize));
+	void *auxBegin = reinterpret_cast<std::byte *>(stackBase) + d + auxBeginIndex * sizeof(uintptr_t);
+	void *auxEnd = reinterpret_cast<std::byte *>(stackBase) + d + auxEndIndex * sizeof(uintptr_t);
+
+	// The stack image is built locally and written into the process in one go.
+	std::vector<char> image(stackSize - d);
+	memcpy(image.data(), words.data(), words.size() * sizeof(uintptr_t));
+
+	auto copyString = [&] (uintptr_t ptr, const std::string &str) {
+		auto offset = ptr - reinterpret_cast<uintptr_t>(stackBase) - d;
+		memcpy(image.data() + offset, str.c_str(), str.size() + 1);
+	};
+
+	copyString(execfn, path);
+	for(size_t i = 0; i < args.size(); i++)
+		copyString(argsPtrs[i], args[i]);
+	for(size_t i = 0; i < env.size(); i++)
+		copyString(envPtrs[i], env[i]);
+
+	auto store = co_await helix_ng::writeMemory(vmContext->getSpace(),
+			reinterpret_cast<uintptr_t>(stackBase) + d, image.size(), image.data());
+	if(store.error() == kHelErrNoMemory)
+		co_return Error::noMemory;
+	HEL_CHECK(store.error());
 
 	HelHandle thread;
 	HEL_CHECK(helCreateThread(universe.getHandle(),
