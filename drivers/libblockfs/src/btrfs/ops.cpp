@@ -261,7 +261,8 @@ constinit protocols::fs::NodeOperations nodeOperations{
     .utimensat = &doUtimensat<FileSystem>,
     .obstructLink = &doObstructLink<FileSystem>,
     .traverseLinks = &doTraverseLinks<FileSystem>,
-    .getLinkOrCreate = &getLinkOrCreate
+    .getLinkOrCreate = &getLinkOrCreate,
+    .swapon = &doSwapon<FileSystem>
 };
 
 } // namespace blockfs::btrfs

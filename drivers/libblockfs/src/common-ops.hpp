@@ -333,6 +333,12 @@ async::result<void> doObstructLink(std::shared_ptr<void> object, std::string nam
 }
 
 template <FileSystem T>
+async::result<protocols::fs::Error> doSwapon(std::shared_ptr<void>) {
+	// TODO: Support swapping to regular files.
+	co_return protocols::fs::Error::illegalOperationTarget;
+}
+
+template <FileSystem T>
 async::result<protocols::fs::TraverseLinksResult>
 doTraverseLinks(std::shared_ptr<void> object, std::deque<std::string> components) {
 	using Inode = typename T::Inode;
