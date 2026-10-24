@@ -190,7 +190,7 @@ async::result<frg::expected<Error, std::vector<uint64_t>>> Interface::reportLuns
 	co_return data;
 }
 
-async::result<void> StorageDevice::performIo(bool isWrite, uint64_t sector,
+async::result<std::expected<void, blockfs::Error>> StorageDevice::performIo(bool isWrite, uint64_t sector,
 		arch::dma_buffer_view view) {
 	auto numSectors = view.size() >> sectorShift;
 
@@ -256,32 +256,36 @@ async::result<void> StorageDevice::performIo(bool isWrite, uint64_t sector,
 	};
 	auto result = co_await sendScsiCommand(info);
 	if (!result) {
-		logPanic("block-scsi: Request failed with error {}",
+		std::println(std::cout, "block-scsi: Request failed with error {}",
 				result.error().toString());
+		co_return std::unexpected{blockfs::Error::ioError};
 	}
 
 	if (logSteps)
 		std::println(std::cout, "block-scsi: Request complete");
+	co_return {};
 }
 
-async::result<void> StorageDevice::performSplitIo(bool isWrite, uint64_t sector,
+async::result<std::expected<void, blockfs::Error>> StorageDevice::performSplitIo(bool isWrite, uint64_t sector,
 		arch::dma_buffer_view view) {
 	size_t maxBytes = maxSectorsPerCommand << sectorShift;
-	for (size_t offset = 0; offset < view.size(); offset += maxBytes)
-		co_await performIo(isWrite, sector + (offset >> sectorShift),
+	for (size_t offset = 0; offset < view.size(); offset += maxBytes) {
+		auto result = co_await performIo(isWrite, sector + (offset >> sectorShift),
 				view.subview(offset, std::min(maxBytes, view.size() - offset)));
+		if (!result)
+			co_return result;
+	}
+	co_return {};
 }
 
 async::result<std::expected<void, blockfs::Error>> StorageDevice::readSectors(uint64_t sector,
 		arch::dma_buffer_view view) {
-	co_await performSplitIo(false, sector, view);
-	co_return {};
+	co_return co_await performSplitIo(false, sector, view);
 }
 
 async::result<std::expected<void, blockfs::Error>> StorageDevice::writeSectors(uint64_t sector,
 		arch::dma_buffer_view view) {
-	co_await performSplitIo(true, sector, view);
-	co_return {};
+	co_return co_await performSplitIo(true, sector, view);
 }
 
 async::result<std::expected<void, blockfs::Error>> StorageDevice::flush() {
@@ -294,11 +298,14 @@ async::result<std::expected<void, blockfs::Error>> StorageDevice::flush() {
 		.isWrite = false
 	};
 	auto result = co_await sendScsiCommand(info);
-	// TODO: not entirely sure if we should panic here or not. For now, we just
-	//       log it.
-	if (!result)
+	if (!result) {
 		std::println(std::cout, "block-scsi: Flush failed with error {}",
 			result.error().toString());
+		// Without sense data, CHECK CONDITION is indistinguishable from devices that lack
+		// SYNCHRONIZE CACHE, which is common for USB storage; tolerate it as before.
+		if (result.error().type != ErrorType::checkCondition)
+			co_return std::unexpected{blockfs::Error::ioError};
+	}
 	co_return {};
 }
 

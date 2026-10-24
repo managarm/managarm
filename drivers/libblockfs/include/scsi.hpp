@@ -69,10 +69,10 @@ struct StorageDevice : Interface, blockfs::BlockDevice {
 	size_t maxSectorsPerCommand{0xffff};
 
 private:
-	async::result<void> performSplitIo(bool isWrite, uint64_t sector,
+	async::result<std::expected<void, blockfs::Error>> performSplitIo(bool isWrite, uint64_t sector,
 			arch::dma_buffer_view view);
 
-	async::result<void> performIo(bool isWrite, uint64_t sector,
+	async::result<std::expected<void, blockfs::Error>> performIo(bool isWrite, uint64_t sector,
 			arch::dma_buffer_view view);
 };
 
