@@ -23,7 +23,7 @@ UnixDeviceRegistry blockRegistry;
 // UnixDevice
 // --------------------------------------------------------
 
-FutureMaybe<smarter::shared_ptr<FsLink, LinkRc>> UnixDevice::mount(std::string) {
+async::result<std::expected<smarter::shared_ptr<FsLink, LinkRc>, Error>> UnixDevice::mount(std::string) {
 	// TODO: Return an error.
 	throw std::logic_error("Device cannot be mounted!");
 }
@@ -357,7 +357,7 @@ async::result<void> serveServerLane(helix::UniqueDescriptor lane) {
 	}
 }
 
-FutureMaybe<smarter::shared_ptr<FsLink, LinkRc>> mountExternalDevice(helix::BorrowedLane lane, std::shared_ptr<UnixDevice> device, std::string fs_type) {
+async::result<std::expected<smarter::shared_ptr<FsLink, LinkRc>, Error>> mountExternalDevice(helix::BorrowedLane lane, std::shared_ptr<UnixDevice> device, std::string fs_type) {
 	managarm::fs::MountRequest req;
 	req.set_fs_type(fs_type);
 
@@ -371,13 +371,15 @@ FutureMaybe<smarter::shared_ptr<FsLink, LinkRc>> mountExternalDevice(helix::Borr
 	HEL_CHECK(send_head.error());
 	HEL_CHECK(send_tail.error());
 	HEL_CHECK(recv_resp.error());
-	HEL_CHECK(pull_node.error());
 
 	managarm::fs::MountResponse resp;
 	auto parsed = resp.ParseFromArray(recv_resp.data(), recv_resp.length());
 	recv_resp.reset();
 	assert(parsed);
-	assert(resp.error() == managarm::fs::Errors::SUCCESS);
+	// The server does not push a node on failure.
+	if(resp.error() != managarm::fs::Errors::SUCCESS)
+		co_return std::unexpected{resp.error() | toPosixError};
+	HEL_CHECK(pull_node.error());
 	co_return extern_fs::createRoot(lane.dup(), pull_node.descriptor(), device, resp.caps(),
 			std::move(fs_type), resp.root_inode());
 }

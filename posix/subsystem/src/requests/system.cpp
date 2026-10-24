@@ -135,7 +135,11 @@ HandleRequest::operator()(managarm::posix::MountRequest &&req,
 		assert(source.second->getTarget()->getType() == VfsType::blockDevice);
 		auto device = blockRegistry.get(source.second->getTarget()->readDevice());
 		auto link = co_await device->mount(req.fs_type());
-		co_await target.first->mount(target.second, std::move(link), source);
+		if(!link) {
+			co_await sendErrorResponse<managarm::posix::MountResponse>(conversation, link.error() | toPosixProtoError);
+			co_return {};
+		}
+		co_await target.first->mount(target.second, std::move(link.value()), source);
 	}
 
 	logRequest(logRequests, self, "MOUNT", "succeeded");
