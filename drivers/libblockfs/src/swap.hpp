@@ -1,13 +1,14 @@
 #pragma once
 
-#include <async/basic.hpp>
-#include <helix/ipc.hpp>
+#include <async/result.hpp>
+#include <protocols/fs/common.hpp>
 
 #include "gpt.hpp"
 
 namespace blockfs {
 
+// Announces a swap target for a Managarm swap partition.
 // TODO: generalize this to also work with regular files.
-async::detached serveSwapTarget(helix::UniqueLane lane, gpt::Partition *partition);
+async::result<protocols::fs::Error> swapon(gpt::Partition *partition);
 
 } // namespace blockfs

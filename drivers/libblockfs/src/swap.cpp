@@ -1,6 +1,11 @@
 #include "swap.hpp"
 
+#include <mutex>
 #include <stdio.h>
+#include <string>
+#include <unordered_set>
+
+#include <protocols/mbus/client.hpp>
 
 #include "bragi/helpers-std.hpp"
 #include "swap.bragi.hpp"
@@ -15,7 +20,9 @@ bool isEndOfLane(HelError error) {
 	return error == kHelErrEndOfLane || error == kHelErrLaneShutdown;
 }
 
-} // namespace
+std::mutex swapMutex;
+// Protected by swapMutex. Partitions that back a swap target.
+std::unordered_set<gpt::Partition *> swapPartitions;
 
 async::detached serveSwapTarget(helix::UniqueLane lane, gpt::Partition *partition) {
 	auto numPages = co_await partition->getSize() / pageSize;
@@ -88,6 +95,39 @@ async::detached serveSwapTarget(helix::UniqueLane lane, gpt::Partition *partitio
 			co_return;
 		HEL_CHECK(sendHead.error());
 	}
+}
+
+} // namespace
+
+async::result<protocols::fs::Error> swapon(gpt::Partition *partition) {
+	if(partition->type() != gpt::type_guids::managarmSwapPartition)
+		co_return protocols::fs::Error::illegalOperationTarget;
+
+	{
+		std::lock_guard lock{swapMutex};
+		if(!swapPartitions.insert(partition).second)
+			co_return protocols::fs::Error::illegalArguments;
+	}
+
+	mbus_ng::Properties descriptor{
+		{"class", mbus_ng::StringItem{"swap-target"}},
+		{"size", mbus_ng::StringItem{std::to_string(co_await partition->getSize())}},
+	};
+	auto entity = (co_await mbus_ng::Instance::global().createEntity(
+			"swap-target", descriptor)).unwrap();
+
+	[] (mbus_ng::EntityManager entity, gpt::Partition *partition) -> async::detached {
+		while (true) {
+			auto [localLane, remoteLane] = helix::createStream();
+
+			// If this fails, too bad!
+			(void)(co_await entity.serveRemoteLane(std::move(remoteLane)));
+
+			serveSwapTarget(std::move(localLane), partition);
+		}
+	}(std::move(entity), partition);
+
+	co_return protocols::fs::Error::none;
 }
 
 } // namespace blockfs
