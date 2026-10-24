@@ -103,7 +103,8 @@ async::result<std::expected<void, protocols::fs::Error>> FileSystem::init() {
 		co_return std::unexpected{superblockRes.error() | protocols::fs::toFsProtoError};
 
 	memcpy(&superblock_, buffer.byte_data() + deviceSuperBlockOffset, sizeof(Superblock));
-	assert(!strncmp(superblock_.magic, "_BHRfS_M", 8));
+	if (strncmp(superblock_.magic, "_BHRfS_M", 8) != 0)
+		co_return std::unexpected{protocols::fs::Error::illegalArguments};
 
 	std::println("libblockfs: mounting btrfs fs {}", superblock_.fs_uuid);
 	std::println("libblockfs: {}/{} bytes used", superblock_.bytes_used, superblock_.total_bytes);

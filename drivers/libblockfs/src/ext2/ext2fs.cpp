@@ -986,7 +986,8 @@ async::result<std::expected<void, protocols::fs::Error>> FileSystem::init() {
 
 	DiskSuperblock sb;
 	memcpy(&sb, buffer.byte_data() + deviceSuperBlockOffset, sizeof(DiskSuperblock));
-	assert(sb.magic == 0xEF53);
+	if(sb.magic != 0xEF53)
+		co_return std::unexpected{protocols::fs::Error::illegalArguments};
 
 	inodeSize = sb.inodeSize;
 	blockShift = 10 + sb.logBlockSize;
