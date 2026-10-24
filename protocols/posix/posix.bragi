@@ -433,6 +433,18 @@ head(128):
 	Errors error;
 }
 
+message SwaponRequest 249 {
+head(128):
+	int32 flags;
+tail:
+	string path;
+}
+
+message SwaponResponse 250 {
+head(128):
+	Errors error;
+}
+
 message SymlinkAtRequest 30 {
 head(128):
 	int32 fd;
