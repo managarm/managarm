@@ -156,16 +156,34 @@ struct HandlePartition {
 		auto &fs = *fsPtr;
 
 		// Mount the actual file system
+		std::expected<void, protocols::fs::Error> initRes;
 		if (req.fs_type() == "ext2") {
 			fs = std::make_unique<ext2fs::FileSystem>(partition);
-			co_await static_cast<ext2fs::FileSystem *>(fs.get())->init();
-			printf("ext2fs is ready!\n");
+			initRes = co_await static_cast<ext2fs::FileSystem *>(fs.get())->init();
+			if (initRes)
+				printf("ext2fs is ready!\n");
 		} else if (req.fs_type() == "btrfs") {
 			fs = std::make_unique<btrfs::FileSystem>(partition);
-			co_await static_cast<btrfs::FileSystem *>(fs.get())->init();
+			initRes = co_await static_cast<btrfs::FileSystem *>(fs.get())->init();
 		} else {
 			managarm::fs::MountResponse resp;
 			resp.set_error(managarm::fs::Errors::NO_BACKING_DEVICE);
+
+			auto ser = resp.SerializeAsString();
+			auto [send_resp] = co_await helix_ng::exchangeMsgs(
+				conversation,
+				helix_ng::sendBuffer(ser.data(), ser.size())
+			);
+			HEL_CHECK(send_resp.error());
+			co_return {};
+		}
+
+		if (!initRes) {
+			std::cout << "libblockfs: Failed to mount " << req.fs_type() << " file system" << std::endl;
+			fs = nullptr;
+
+			managarm::fs::MountResponse resp;
+			resp.set_error(initRes.error() | protocols::fs::toFsError);
 
 			auto ser = resp.SerializeAsString();
 			auto [send_resp] = co_await helix_ng::exchangeMsgs(

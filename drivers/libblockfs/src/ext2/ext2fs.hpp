@@ -526,7 +526,7 @@ struct FileSystem final : BaseFileSystem {
 	const protocols::fs::FileOperations *fileOps() override;
 	const protocols::fs::NodeOperations *nodeOps() override;
 
-	async::result<void> init();
+	async::result<std::expected<void, protocols::fs::Error>> init();
 
 	std::shared_ptr<BaseInode> accessRoot() override;
 	std::shared_ptr<BaseInode> accessInode(uint32_t number) override;

@@ -88,7 +88,7 @@ Inode::findEntry(std::string name) {
 
 FileSystem::FileSystem(BlockDevice *device) : device_{device} {}
 
-async::result<void> FileSystem::init() {
+async::result<std::expected<void, protocols::fs::Error>> FileSystem::init() {
 	constexpr uint64_t superBlockOffset = 0x10000;
 
 	size_t deviceSuperBlockSector = superBlockOffset / device_->sectorSize;
@@ -100,7 +100,7 @@ async::result<void> FileSystem::init() {
 	arch::dma_buffer buffer{device_->pagePool, deviceSuperBlockSectors * device_->sectorSize};
 	auto superblockRes = co_await device_->readSectors(deviceSuperBlockSector, buffer);
 	if (!superblockRes)
-		logPanic("libblockfs/btrfs: Failed to read superblock");
+		co_return std::unexpected{superblockRes.error() | protocols::fs::toFsProtoError};
 
 	memcpy(&superblock_, buffer.byte_data() + deviceSuperBlockOffset, sizeof(Superblock));
 	assert(!strncmp(superblock_.magic, "_BHRfS_M", 8));
@@ -126,7 +126,7 @@ async::result<void> FileSystem::init() {
 	};
 	auto bootstrapChunkRes = co_await device_->readSectors(deviceBootstrapChunkSector, bootstrapChunkBuffer);
 	if (!bootstrapChunkRes)
-		logPanic("libblockfs/btrfs: Failed to read bootstrap chunk table");
+		co_return std::unexpected{bootstrapChunkRes.error() | protocols::fs::toFsProtoError};
 
 	size_t nextChunkOffset = 0;
 
@@ -230,6 +230,7 @@ async::result<void> FileSystem::init() {
 	auto root_item = reinterpret_cast<struct RootItem *>(val->data());
 	fsTreeRoot_ = LogicalAddress{root_item->bytenr};
 	rootInode_ = root_item->root_dir_id;
+	co_return {};
 }
 
 async::detached FileSystem::manageTree() {

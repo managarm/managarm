@@ -970,7 +970,7 @@ const protocols::fs::NodeOperations *FileSystem::nodeOps() {
 	return &nodeOperations;
 }
 
-async::result<void> FileSystem::init() {
+async::result<std::expected<void, protocols::fs::Error>> FileSystem::init() {
 	protocols::ostrace::Timer timer;
 
 	size_t deviceSuperBlockSector = superBlockOffset / device->sectorSize;
@@ -981,7 +981,7 @@ async::result<void> FileSystem::init() {
 	arch::dma_buffer buffer{pool, deviceSuperBlockSectors * device->sectorSize};
 	auto superblockRes = co_await device->readSectors(deviceSuperBlockSector, buffer);
 	if(!superblockRes)
-		logPanic("libblockfs/ext2: Failed to read superblock");
+		co_return std::unexpected{superblockRes.error() | protocols::fs::toFsProtoError};
 	uint64_t superblockDone = timer.elapsed();
 
 	DiskSuperblock sb;
@@ -1062,7 +1062,7 @@ async::result<void> FileSystem::init() {
 		ostAttrTimeBgdt(bgdtTime)
 	);
 
-	co_return;
+	co_return {};
 }
 
 auto FileSystem::accessRoot() -> std::shared_ptr<BaseInode> {
