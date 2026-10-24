@@ -748,7 +748,9 @@ async::detached runDevice(BlockDevice *device) {
 	// Currently it should be fine to leak it since neither it nor
 	// the device gets deleted anyway.
 	auto table = new gpt::Table(device);
-	co_await table->parse();
+	auto parseRes = co_await table->parse();
+	if(!parseRes)
+		std::cout << "libblockfs: Failed to read the partition table, exposing the raw disk only" << std::endl;
 
 	int64_t diskId = 0;
 	{
