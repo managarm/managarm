@@ -285,6 +285,9 @@ struct NodeOperations {
 
 	async::result<std::expected<protocols::fs::GetLinkResult, protocols::fs::Error>> (*getLinkOrCreate)(std::shared_ptr<void> object,
 		std::string name, mode_t mode, bool exclusive, uid_t uid, gid_t gid);
+
+	// Starts swapping to a regular file. Without it, swapon() on the node's files fails with EINVAL.
+	async::result<Error> (*swapon)(std::shared_ptr<void> object) = nullptr;
 };
 
 async::result<void>

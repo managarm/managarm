@@ -38,6 +38,8 @@ public:
 
 	virtual async::result<std::expected<smarter::shared_ptr<FsLink, LinkRc>, Error>> mount(std::string fs_type);
 
+	virtual async::result<std::expected<void, Error>> swapon();
+
 private:
 	VfsType _type;
 	DeviceId _id;
@@ -95,5 +97,8 @@ openExternalDevice(helix::BorrowedLane lane,
 		SemanticFlags semantic_flags);
 
 async::result<std::expected<smarter::shared_ptr<FsLink, LinkRc>, Error>> mountExternalDevice(helix::BorrowedLane lane, std::shared_ptr<UnixDevice> device, std::string fs_type);
+
+// Sends a SwaponRequest to a device or node lane.
+async::result<std::expected<void, Error>> swaponExternal(helix::BorrowedLane lane);
 
 async::result<void> serveServerLane(helix::UniqueDescriptor lane);

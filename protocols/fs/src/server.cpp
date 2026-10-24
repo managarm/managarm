@@ -2188,6 +2188,29 @@ struct HandleNodeRequest {
 	}
 
 	async::result<std::expected<void, DispatchError>>
+	operator()(managarm::fs::SwaponRequest &&req, helix::BorrowedDescriptor conversation,
+			bragi::preamble preamble, std::shared_ptr<void> node,
+			const NodeOperations *node_ops) {
+		id = preamble.id();
+		logBragiRequest(req);
+
+		managarm::fs::SwaponResponse resp;
+		if(!node_ops->swapon) {
+			resp.set_error(managarm::fs::Errors::ILLEGAL_OPERATION_TARGET);
+		} else {
+			resp.set_error((co_await node_ops->swapon(std::move(node))) | toFsError);
+		}
+
+		auto [sendResp] = co_await helix_ng::exchangeMsgs(
+			conversation,
+			helix_ng::sendBragiHeadOnly(resp, frg::stl_allocator{})
+		);
+		HEL_CHECK(sendResp.error());
+		logBragiReply(resp);
+		co_return {};
+	}
+
+	async::result<std::expected<void, DispatchError>>
 	operator()(managarm::fs::ObstructLinkRequest &&req, helix::BorrowedDescriptor conversation,
 			bragi::preamble preamble, std::shared_ptr<void> node,
 			const NodeOperations *node_ops) {
@@ -2383,7 +2406,8 @@ async::detached serveNode(helix::UniqueLane lane, std::shared_ptr<void> node,
 			managarm::fs::NodeOpenRequest,
 			managarm::fs::ChownRequest,
 			managarm::fs::ObstructLinkRequest,
-			managarm::fs::GetLinkOrCreateRequest
+			managarm::fs::GetLinkOrCreateRequest,
+			managarm::fs::SwaponRequest
 		>(lane, HandleNodeRequest{}, node, node_ops);
 		if(!res) {
 			if(res.error() == DispatchError::shutdown)

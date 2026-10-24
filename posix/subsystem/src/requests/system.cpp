@@ -158,6 +158,71 @@ HandleRequest::operator()(managarm::posix::MountRequest &&req,
 }
 
 async::result<std::expected<void, DispatchError>>
+HandleRequest::operator()(managarm::posix::SwaponRequest &&req,
+		helix::BorrowedDescriptor conversation, bragi::preamble preamble,
+		std::shared_ptr<Process> self, std::shared_ptr<Generation>) {
+	id = preamble.id();
+
+	auto tailRes = co_await dispatchTail(req, conversation, preamble);
+	if(!tailRes)
+		co_return std::unexpected(tailRes.error());
+	logBragiRequest(req);
+
+	// Swap priorities and discard flags have no effect yet.
+	logRequest(logRequests, self, "SWAPON", "path={} flags={:#x}", req.path(), req.flags());
+
+	if(self->threadGroup()->uid() != 0) {
+		co_await sendErrorResponse<managarm::posix::SwaponResponse>(conversation, managarm::posix::Errors::INSUFFICIENT_PERMISSION);
+		co_return {};
+	}
+
+	auto pathResult = co_await resolve(self->fsContext()->getRoot(),
+			self->fsContext()->getWorkingDirectory(), req.path(), self.get());
+	if(!pathResult) {
+		if(pathResult.error() == protocols::fs::Error::fileNotFound) {
+			co_await sendErrorResponse<managarm::posix::SwaponResponse>(conversation, managarm::posix::Errors::FILE_NOT_FOUND);
+			co_return {};
+		} else if(pathResult.error() == protocols::fs::Error::notDirectory) {
+			co_await sendErrorResponse<managarm::posix::SwaponResponse>(conversation, managarm::posix::Errors::NOT_A_DIRECTORY);
+			co_return {};
+		} else {
+			std::cout << "posix: Unexpected failure from resolve()" << std::endl;
+			co_return {};
+		}
+	}
+	auto node = pathResult.value().second->getTarget();
+
+	// The block device's driver or the file's file system sets up the swap area.
+	std::expected<void, Error> result;
+	if(node->getType() == VfsType::blockDevice) {
+		auto device = blockRegistry.get(node->readDevice());
+		result = co_await device->swapon();
+	} else if(node->getType() == VfsType::regular) {
+		result = co_await node->swapon();
+	} else {
+		result = std::unexpected{Error::illegalArguments};
+	}
+	if(!result) {
+		co_await sendErrorResponse<managarm::posix::SwaponResponse>(conversation, result.error() | toPosixProtoError);
+		co_return {};
+	}
+
+	logRequest(logRequests, self, "SWAPON", "succeeded");
+
+	managarm::posix::SwaponResponse resp;
+	resp.set_error(managarm::posix::Errors::SUCCESS);
+
+	auto [send_resp] = co_await helix_ng::exchangeMsgs(
+				conversation,
+				helix_ng::sendBragiHeadOnly(resp, frg::stl_allocator{})
+			);
+
+	HEL_CHECK(send_resp.error());
+	logBragiReply(resp);
+	co_return {};
+}
+
+async::result<std::expected<void, DispatchError>>
 HandleRequest::operator()(managarm::posix::SysconfRequest &&req,
 		helix::BorrowedDescriptor conversation, bragi::preamble preamble,
 		std::shared_ptr<Process> self, std::shared_ptr<Generation>) {

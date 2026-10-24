@@ -218,6 +218,20 @@ struct HandlePartition {
 	}
 
 	async::result<std::expected<void, DispatchError>>
+	operator()(managarm::fs::SwaponRequest &&, helix::BorrowedDescriptor conversation, bragi::preamble,
+			gpt::Partition *partition, raw::RawFs *, std::unique_ptr<BaseFileSystem> *) {
+		managarm::fs::SwaponResponse resp;
+		resp.set_error((co_await swapon(partition)) | protocols::fs::toFsError);
+
+		auto [sendResp] = co_await helix_ng::exchangeMsgs(
+			conversation,
+			helix_ng::sendBragiHeadOnly(resp, frg::stl_allocator{})
+		);
+		HEL_CHECK(sendResp.error());
+		co_return {};
+	}
+
+	async::result<std::expected<void, DispatchError>>
 	operator()(managarm::fs::RenameRequest &&req, helix::BorrowedDescriptor conversation, bragi::preamble preamble,
 			gpt::Partition *, raw::RawFs *, std::unique_ptr<BaseFileSystem> *fsPtr) {
 		auto tailRes = co_await dispatchTail(req, conversation, preamble);
@@ -646,7 +660,8 @@ async::detached servePartition(helix::UniqueLane lane, gpt::Partition *partition
 			managarm::fs::MountRequest,
 			managarm::fs::RenameRequest,
 			managarm::fs::GetFsStatsRequest,
-			managarm::fs::GenericIoctlRequest
+			managarm::fs::GenericIoctlRequest,
+			managarm::fs::SwaponRequest
 		>(lane, HandlePartition{}, partition, rawFs, &fs);
 		if(!res) {
 			if(res.error() == DispatchError::shutdown)
@@ -814,26 +829,6 @@ async::detached runDevice(BlockDevice *device) {
 			printf("  It's a Managarm root partition!\n");
 		} else if(type == gpt::type_guids::managarmSwapPartition) {
 			printf("  It's a Managarm swap partition!\n");
-
-			mbus_ng::Properties descriptor{
-				{"class", mbus_ng::StringItem{"swap-target"}},
-				{"size", mbus_ng::StringItem{std::to_string(co_await paritition->getSize())}},
-			};
-			auto entity = (co_await mbus_ng::Instance::global().createEntity(
-					"swap-target", descriptor)).unwrap();
-
-			[] (mbus_ng::EntityManager entity, gpt::Partition *partition) -> async::detached {
-				while (true) {
-					auto [localLane, remoteLane] = helix::createStream();
-
-					// If this fails, too bad!
-					(void)(co_await entity.serveRemoteLane(std::move(remoteLane)));
-
-					serveSwapTarget(std::move(localLane), partition);
-				}
-			}(std::move(entity), paritition);
-
-			continue;
 		}
 
 		auto rawFs = std::make_unique<raw::RawFs>(paritition);

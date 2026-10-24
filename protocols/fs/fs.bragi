@@ -1050,3 +1050,12 @@ message SynchronizeResponse 67 {
 head(128):
 	Errors error;
 }
+
+message SwaponRequest 68 {
+head(128):
+}
+
+message SwaponResponse 69 {
+head(128):
+	Errors error;
+}
