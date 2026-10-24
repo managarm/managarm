@@ -1152,7 +1152,7 @@ FileSystem::synchronize(std::shared_ptr<Inode> inode,
 	co_await synchronizeMetadata();
 	auto flushRes = co_await device->flush();
 	if(!flushRes)
-		logPanic("libblockfs/ext2: Failed to flush device");
+		co_return flushRes.error() | protocols::fs::toFsProtoError;
 	co_return protocols::fs::Error::none;
 }
 
@@ -1172,7 +1172,7 @@ FileSystem::synchronize(protocols::fs::SynchronizeFlags) {
 	co_await synchronizeMetadata();
 	auto flushRes = co_await device->flush();
 	if(!flushRes)
-		logPanic("libblockfs/ext2: Failed to flush device");
+		co_return flushRes.error() | protocols::fs::toFsProtoError;
 	co_return protocols::fs::Error::none;
 }
 

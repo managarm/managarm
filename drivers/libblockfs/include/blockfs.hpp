@@ -17,6 +17,13 @@ enum class Error {
 	notSupported,
 };
 
+inline protocols::fs::Error operator|(Error e, protocols::fs::ToFsProtoError) {
+	switch(e) {
+		case Error::ioError: return protocols::fs::Error::ioError;
+		case Error::notSupported: return protocols::fs::Error::notSupported;
+	}
+}
+
 struct BlockDevice {
 	BlockDevice(size_t sector_size, int64_t parent_id, arch::contiguous_pool *pool);
 
