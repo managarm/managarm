@@ -73,21 +73,51 @@ pub fn create_space() -> Result<Handle> {
     Ok(unsafe { Handle::from_raw(handle) })
 }
 
+/// Creates a slice that covers `size` bytes of a memory object, starting at `offset`.
+///
+/// Both `offset` and `size` must be aligned to the page size. The memory object handle
+/// requires [`kHelRightAssign`](hel_sys::kHelRightAssign). The slice inherits its read,
+/// write, execute and assign rights.
+pub fn create_slice_view(bundle: &Handle, offset: usize, size: usize) -> Result<Handle> {
+    let mut handle = hel_sys::kHelNullHandle as hel_sys::HelHandle;
+    result::hel_check(unsafe {
+        hel_sys::helCreateSliceView(bundle.handle(), offset, size, 0, &mut handle)
+    })?;
+    Ok(unsafe { Handle::from_raw(handle) })
+}
+
+/// A swap space, the backing store for swappable anonymous memory.
+///
+/// The swap daemon that owns it services manage requests on the
+/// [backing handle](SwapSpace::backing_handle), while the
+/// [swap handle](SwapSpace::swap_handle) is handed out to whoever allocates
+/// swappable memory.
 pub struct SwapSpace {
     backing_handle: Handle,
     swap_handle: Handle,
 }
 
 impl SwapSpace {
+    /// Returns the handle to the swap space's memory object.
+    ///
+    /// It is addressed by kernel-allocated swap offsets. The swap daemon maps it to
+    /// perform disk I/O and receives initialize and writeback requests on it through
+    /// [`submission::manage_memory`].
     pub fn backing_handle(&self) -> &Handle {
         &self.backing_handle
     }
 
+    /// Returns the handle that identifies the swap space when allocating
+    /// swappable memory.
     pub fn swap_handle(&self) -> &Handle {
         &self.swap_handle
     }
 }
 
+/// Creates a new swap space.
+///
+/// The resident frames of all memory backed by the swap space are accounted to
+/// the given hierarchy node.
 pub fn create_swap_space(hierarchy: &Handle) -> Result<SwapSpace> {
     let mut backing_handle = hel_sys::kHelNullHandle as hel_sys::HelHandle;
     let mut swap_handle = hel_sys::kHelNullHandle as hel_sys::HelHandle;
@@ -97,6 +127,28 @@ pub fn create_swap_space(hierarchy: &Handle) -> Result<SwapSpace> {
     Ok(SwapSpace {
         backing_handle: unsafe { Handle::from_raw(backing_handle) },
         swap_handle: unsafe { Handle::from_raw(swap_handle) },
+    })
+}
+
+/// Completes a manage request that was obtained through [`submission::manage_memory`].
+///
+/// For swap spaces, all locks and mappings of the requested range must be dropped
+/// before calling this; otherwise, it fails with [`Error::IllegalState`].
+pub fn complete_manage_request(
+    memory: &Handle,
+    request: submission::result::ManageRequest,
+) -> Result<()> {
+    let type_ = match request {
+        submission::result::ManageRequest::Initialize { .. } => hel_sys::kHelManageInitialize,
+        submission::result::ManageRequest::Writeback { .. } => hel_sys::kHelManageWriteback,
+    };
+    result::hel_check(unsafe {
+        hel_sys::helUpdateMemory(
+            memory.handle(),
+            type_ as _,
+            request.offset(),
+            request.length(),
+        )
     })
 }
 

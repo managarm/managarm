@@ -183,3 +183,62 @@ impl FromQueueElement for InlineResult {
         hel_check(result.error).map(|_| inline_data.to_owned())
     }
 }
+
+/// A request issued by the kernel on the backing handle of a managed memory object
+/// or swap space. It is obtained through [`crate::submission::manage_memory`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ManageRequest {
+    /// The range needs to be filled with its contents, e.g. read in from disk.
+    Initialize { offset: usize, length: usize },
+    /// The range has been modified and needs to be written out, e.g. to disk.
+    Writeback { offset: usize, length: usize },
+}
+
+impl ManageRequest {
+    /// Returns the byte offset of the requested range within the memory object.
+    pub fn offset(&self) -> usize {
+        match self {
+            ManageRequest::Initialize { offset, .. } => *offset,
+            ManageRequest::Writeback { offset, .. } => *offset,
+        }
+    }
+
+    /// Returns the length of the requested range in bytes.
+    pub fn length(&self) -> usize {
+        match self {
+            ManageRequest::Initialize { length, .. } => *length,
+            ManageRequest::Writeback { length, .. } => *length,
+        }
+    }
+}
+
+pub struct ManageResult;
+
+impl FromQueueElement for ManageResult {
+    type Output = Result<ManageRequest>;
+
+    fn from_queue_element(element: &mut QueueElement) -> Self::Output {
+        let data = element.data();
+
+        assert!(data.len() >= size_of::<hel_sys::HelManageResult>());
+
+        // SAFETY: The data is guaranteed to contain enough bytes
+        // to read a [`hel_sys::HelManageResult`]` and that it is
+        // correctly aligned.
+        let result = unsafe { data.as_ptr().cast::<hel_sys::HelManageResult>().read() };
+
+        element.advance(size_of::<hel_sys::HelManageResult>());
+
+        hel_check(result.error).map(|_| match result.type_ as hel_sys::HelManageRequests {
+            hel_sys::kHelManageInitialize => ManageRequest::Initialize {
+                offset: result.offset,
+                length: result.length,
+            },
+            hel_sys::kHelManageWriteback => ManageRequest::Writeback {
+                offset: result.offset,
+                length: result.length,
+            },
+            _ => unreachable!(),
+        })
+    }
+}

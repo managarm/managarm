@@ -20,6 +20,7 @@ use crate::{
     handle::Handle,
     queue::QueueElement,
     result::Result,
+    submission::result::{ManageRequest, ManageResult},
 };
 
 /// Operation state object. This is used to store the submission and completion
@@ -420,4 +421,43 @@ pub fn set_swap_region(
     num_pages: usize,
 ) -> impl Future<Output = Result<()>> {
     set_swap_region_with_executor(current_executor(), swap_space, region, num_pages)
+}
+
+/// Returns a future that waits for the next manage request on the backing handle of
+/// a managed memory object or swap space. The submission is placed on the given
+/// executor's queue.
+///
+/// Once the request has been serviced, it must be completed with
+/// [`crate::complete_manage_request`].
+pub fn manage_memory_with_executor(
+    executor: Executor,
+    memory: &Handle,
+) -> impl Future<Output = Result<ManageRequest>> {
+    new_async_operation(
+        executor.clone_inner(),
+        move |executor, context| {
+            let header = hel_sys::HelSqManageMemory {
+                handle: memory.handle(),
+            };
+            let header_bytes: &[u8] = unsafe {
+                core::slice::from_raw_parts(&header as *const _ as *const u8, size_of_val(&header))
+            };
+            executor.push_sq(
+                hel_sys::kHelSubmitManageMemory,
+                context as usize,
+                &[header_bytes],
+            )
+        },
+        ManageResult::from_queue_element,
+    )
+}
+
+/// Returns a future that waits for the next manage request on the backing handle of
+/// a managed memory object or swap space.
+///
+/// Once the request has been serviced, it must be completed with
+/// [`crate::complete_manage_request`].
+#[cfg(feature = "std")]
+pub fn manage_memory(memory: &Handle) -> impl Future<Output = Result<ManageRequest>> {
+    manage_memory_with_executor(current_executor(), memory)
 }
