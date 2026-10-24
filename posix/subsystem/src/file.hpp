@@ -263,6 +263,7 @@ inline Error operator|(protocols::fs::Error e, ToPosixError) {
 		case protocols::fs::Error::internalError: return Error::fileClosed;
 		case protocols::fs::Error::noSuchProcess: return Error::noSuchProcess;
 		case protocols::fs::Error::notSupported: return Error::notSupported;
+		case protocols::fs::Error::ioError: return Error::ioError;
 		default:
 			std::cout << std::format("posix: unmapped protocols::fs::Error {}", static_cast<int>(e)) << std::endl;
 			return Error::ioError;
@@ -294,6 +295,7 @@ inline Error operator|(managarm::fs::Errors e, ToPosixError) {
 		case managarm::fs::Errors::NOT_A_SOCKET: return Error::notSocket;
 		case managarm::fs::Errors::INTERRUPTED: return Error::interrupted;
 		case managarm::fs::Errors::NOT_SUPPORTED: return Error::notSupported;
+		case managarm::fs::Errors::IO_ERROR: return Error::ioError;
 		default:
 			std::println("posix: unmapped managarm::fs::Errors Error {}", static_cast<int>(e));
 			return Error::ioError;
