@@ -284,6 +284,9 @@ void Port::handleIrq() {
 
 	checkErrors();
 
+	// Acknowledge before scanning PxCI, such that commands completing after the scan raise a new IRQ.
+	regs_.store(regs::interruptStatus, is);
+
 	std::vector<Command *> completed;
 
 	// Notify all completed commands
@@ -295,7 +298,6 @@ void Port::handleIrq() {
 	}
 
 	commandsInFlight_ -= completed.size();
-	regs_.store(regs::interruptStatus, is);
 
 	for (auto &cmd : completed) {
 		cmd->notifyCompletion();
