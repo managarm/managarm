@@ -2,6 +2,7 @@
 #include <string.h>
 #include <utility>
 
+#include <core/logging.hpp>
 #include <frg/mutex.hpp>
 #include <frg/scope_exit.hpp>
 #include <helix/dispatcher-pool.hpp>
@@ -253,7 +254,9 @@ async::result<void> MetadataCache::serviceRequest_(helix::BorrowedDescriptor bac
 
 		protocols::ostrace::Timer deviceTimer;
 		if(type == kHelManageInitialize) {
-			co_await device_->readSectors(block * sectorsPerBlock_, subview);
+			auto readRes = co_await device_->readSectors(block * sectorsPerBlock_, subview);
+			if(!readRes)
+				logPanic("libblockfs: Failed to read metadata block {}", block);
 			deviceTime += deviceTimer.elapsed();
 			// Zero the tail of the frame that no disk block backs.
 			if(blockSize_ < frameSize)
@@ -261,7 +264,9 @@ async::result<void> MetadataCache::serviceRequest_(helix::BorrowedDescriptor bac
 						frameSize - blockSize_).data(), 0, frameSize - blockSize_);
 		}else{
 			assert(type == kHelManageWriteback);
-			co_await device_->writeSectors(block * sectorsPerBlock_, subview);
+			auto writeRes = co_await device_->writeSectors(block * sectorsPerBlock_, subview);
+			if(!writeRes)
+				logPanic("libblockfs: Failed to write metadata block {}", block);
 			deviceTime += deviceTimer.elapsed();
 		}
 	}

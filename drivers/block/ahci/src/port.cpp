@@ -337,30 +337,33 @@ async::result<void> Port::submitCommand_(Command *cmd) {
 	co_return;
 }
 
-async::result<void> Port::readSectors(uint64_t sector, arch::dma_buffer_view view) {
+async::result<std::expected<void, blockfs::Error>> Port::readSectors(uint64_t sector, arch::dma_buffer_view view) {
 	Command cmd{controller_, sector, view.size() >> sectorShift, view, CommandType::read};
 	pendingCmdQueue_.put(&cmd);
 	co_await cmd.getFuture();
+	co_return {};
 }
 
-async::result<void> Port::writeSectors(uint64_t sector, arch::dma_buffer_view view) {
+async::result<std::expected<void, blockfs::Error>> Port::writeSectors(uint64_t sector, arch::dma_buffer_view view) {
 	Command cmd{controller_, sector, view.size() >> sectorShift, view, CommandType::write};
 	pendingCmdQueue_.put(&cmd);
 	co_await cmd.getFuture();
+	co_return {};
 }
 
-async::result<void> Port::flush() {
+async::result<std::expected<void, blockfs::Error>> Port::flush() {
 	if (writeCacheKnownDisabled_)
-		co_return;
+		co_return {};
 	// If the device doesn't support flush, we can't really do anything much
 	// about it. Just return here.
 	if (!supportsFlush_ && !supportsFlushExt_)
-		co_return;
+		co_return {};
 
 	Command cmd{controller_, 0, 0, {},
 			supportsFlushExt_ ? CommandType::flushExt : CommandType::flush};
 	pendingCmdQueue_.put(&cmd);
 	co_await cmd.getFuture();
+	co_return {};
 }
 
 async::result<size_t> Port::getSize() {

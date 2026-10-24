@@ -4,6 +4,8 @@
 #include <print>
 #include <sys/stat.h>
 
+#include <core/logging.hpp>
+
 #include "btrfs.hpp"
 #include "pretty-print.hpp"
 #include "spec.hpp"
@@ -86,7 +88,7 @@ Inode::findEntry(std::string name) {
 
 FileSystem::FileSystem(BlockDevice *device) : device_{device} {}
 
-async::result<void> FileSystem::init() {
+async::result<std::expected<void, protocols::fs::Error>> FileSystem::init() {
 	constexpr uint64_t superBlockOffset = 0x10000;
 
 	size_t deviceSuperBlockSector = superBlockOffset / device_->sectorSize;
@@ -96,10 +98,13 @@ async::result<void> FileSystem::init() {
 	    / device_->sectorSize;
 
 	arch::dma_buffer buffer{device_->pagePool, deviceSuperBlockSectors * device_->sectorSize};
-	co_await device_->readSectors(deviceSuperBlockSector, buffer);
+	auto superblockRes = co_await device_->readSectors(deviceSuperBlockSector, buffer);
+	if (!superblockRes)
+		co_return std::unexpected{superblockRes.error() | protocols::fs::toFsProtoError};
 
 	memcpy(&superblock_, buffer.byte_data() + deviceSuperBlockOffset, sizeof(Superblock));
-	assert(!strncmp(superblock_.magic, "_BHRfS_M", 8));
+	if (strncmp(superblock_.magic, "_BHRfS_M", 8) != 0)
+		co_return std::unexpected{protocols::fs::Error::illegalArguments};
 
 	std::println("libblockfs: mounting btrfs fs {}", superblock_.fs_uuid);
 	std::println("libblockfs: {}/{} bytes used", superblock_.bytes_used, superblock_.total_bytes);
@@ -120,7 +125,9 @@ async::result<void> FileSystem::init() {
 	arch::dma_buffer bootstrapChunkBuffer{
 	    device_->pagePool, deviceBootstrapChunkSectors * device_->sectorSize
 	};
-	co_await device_->readSectors(deviceBootstrapChunkSector, bootstrapChunkBuffer);
+	auto bootstrapChunkRes = co_await device_->readSectors(deviceBootstrapChunkSector, bootstrapChunkBuffer);
+	if (!bootstrapChunkRes)
+		co_return std::unexpected{bootstrapChunkRes.error() | protocols::fs::toFsProtoError};
 
 	size_t nextChunkOffset = 0;
 
@@ -224,6 +231,7 @@ async::result<void> FileSystem::init() {
 	auto root_item = reinterpret_cast<struct RootItem *>(val->data());
 	fsTreeRoot_ = LogicalAddress{root_item->bytenr};
 	rootInode_ = root_item->root_dir_id;
+	co_return {};
 }
 
 async::detached FileSystem::manageTree() {
@@ -247,7 +255,9 @@ async::detached FileSystem::manageTree() {
 
 			assert(num_sectors * device_->sectorSize <= manage.length());
 
-			co_await device_->readSectors(manage.offset() / device_->sectorSize, view);
+			auto readRes = co_await device_->readSectors(manage.offset() / device_->sectorSize, view);
+			if (!readRes)
+				logPanic("libblockfs/btrfs: Failed to read tree data at offset {:#x}", manage.offset());
 
 			HEL_CHECK(helUpdateMemory(
 			    treeBackingMemory, kHelManageInitialize, manage.offset(), manage.length()
@@ -452,7 +462,9 @@ async::generator<std::tuple<Key, std::span<std::byte>>> FileSystem::traverse(Log
 		    static_cast<uint64_t>(phys)
 		);
 
-	co_await device_->readSectors(static_cast<uint64_t>(phys) / device_->sectorSize, blockBuffer);
+	auto readRes = co_await device_->readSectors(static_cast<uint64_t>(phys) / device_->sectorSize, blockBuffer);
+	if (!readRes)
+		logPanic("libblockfs/btrfs: Failed to read tree node at {:#x}", static_cast<uint64_t>(phys));
 
 	BlockHeader *header = reinterpret_cast<BlockHeader *>(blockBuffer.data());
 
@@ -589,10 +601,12 @@ async::detached FileSystem::manageFileData(std::shared_ptr<Inode> inode) {
 					assert((to_copy % superblock_.sector_size) == 0);
 
 					PhysicalAddress extent{this, extraData->extent_addr};
-					co_await device_->readSectors(
+					auto readRes = co_await device_->readSectors(
 					    uint64_t{extent} / device_->sectorSize,
 						view.view().subview(progress, to_copy)
 					);
+					if (!readRes)
+						logPanic("libblockfs/btrfs: Failed to read extent at {:#x}", uint64_t{extent});
 					progress += to_copy;
 				}
 			} while (progress < manage.length() && (val = co_await nextKey(ptr)).has_value());

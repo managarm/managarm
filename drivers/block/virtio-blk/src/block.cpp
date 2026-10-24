@@ -34,6 +34,12 @@ void emitRequestTrace(UserRequest *request, unsigned int queueIndex) {
 	);
 }
 
+blockfs::Error statusToError(uint8_t status) {
+	if(status == VIRTIO_BLK_S_UNSUPP)
+		return blockfs::Error::notSupported;
+	return blockfs::Error::ioError;
+}
+
 } // anonymous namespace
 
 // --------------------------------------------------------
@@ -120,7 +126,7 @@ virtio_core::Queue *Device::_pickQueue() {
 	return _queues[index];
 }
 
-async::result<void> Device::readSectors(uint64_t sector, arch::dma_buffer_view view) {
+async::result<std::expected<void, blockfs::Error>> Device::readSectors(uint64_t sector, arch::dma_buffer_view view) {
 	// Natural alignment makes sure a sector does not cross a page boundary.
 	assert(!((uintptr_t)view.data() % 512));
 //	printf("readSectors(%lu, %lu)\n", sector, num_sectors);
@@ -146,13 +152,16 @@ async::result<void> Device::readSectors(uint64_t sector, arch::dma_buffer_view v
 		co_await _issueRequest(queue, &request);
 	}
 
+	// Wait for all requests even after an error since they live in this coroutine frame.
+	std::expected<void, blockfs::Error> result;
 	for(auto &request : requests) {
 		co_await request.event.wait();
 		if(*request.status != VIRTIO_BLK_S_OK) {
 			std::cout << "virtio: Device signaled an error for request at sector "
 					<< request.sector << ", status "
 					<< static_cast<unsigned int>(*request.status) << std::endl;
-			abort();
+			if(result)
+				result = std::unexpected{statusToError(*request.status)};
 		}
 		emitRequestTrace(&request, queue->queueIndex());
 	}
@@ -162,9 +171,10 @@ async::result<void> Device::readSectors(uint64_t sector, arch::dma_buffer_view v
 		blockfs::ostAttrTime(timer.elapsed()),
 		blockfs::ostAttrNumBytes(view.size())
 	);
+	co_return result;
 }
 
-async::result<void> Device::writeSectors(uint64_t sector, arch::dma_buffer_view view) {
+async::result<std::expected<void, blockfs::Error>> Device::writeSectors(uint64_t sector, arch::dma_buffer_view view) {
 	// Natural alignment makes sure a sector does not cross a page boundary.
 	assert(!((uintptr_t)view.data() % 512));
 //	printf("writeSectors(%lu, %lu)\n", sector, num_sectors);
@@ -190,13 +200,16 @@ async::result<void> Device::writeSectors(uint64_t sector, arch::dma_buffer_view 
 		co_await _issueRequest(queue, &request);
 	}
 
+	// Wait for all requests even after an error since they live in this coroutine frame.
+	std::expected<void, blockfs::Error> result;
 	for(auto &request : requests) {
 		co_await request.event.wait();
 		if(*request.status != VIRTIO_BLK_S_OK) {
 			std::cout << "virtio: Device signaled an error for request at sector "
 					<< request.sector << ", status "
 					<< static_cast<unsigned int>(*request.status) << std::endl;
-			abort();
+			if(result)
+				result = std::unexpected{statusToError(*request.status)};
 		}
 		emitRequestTrace(&request, queue->queueIndex());
 	}
@@ -206,9 +219,10 @@ async::result<void> Device::writeSectors(uint64_t sector, arch::dma_buffer_view 
 		blockfs::ostAttrTime(timer.elapsed()),
 		blockfs::ostAttrNumBytes(view.size())
 	);
+	co_return result;
 }
 
-async::result<void> Device::flush() {
+async::result<std::expected<void, blockfs::Error>> Device::flush() {
 	protocols::ostrace::Timer timer;
 	uint64_t setupTime = 0;
 	uint64_t obtainTime = 0;
@@ -225,7 +239,7 @@ async::result<void> Device::flush() {
 
 	// Devices without a flush command still emit the event, with a zero device time.
 	if(!_hasFlush)
-		co_return;
+		co_return {};
 
 	UserRequest request{false, 0, {}, pagePool};
 
@@ -265,8 +279,10 @@ async::result<void> Device::flush() {
 	if(*request.status != VIRTIO_BLK_S_OK) {
 		std::cout << "virtio: Device signaled an error for flush, status "
 				<< static_cast<unsigned int>(*request.status) << std::endl;
-		abort();
+		// The device offered VIRTIO_BLK_F_FLUSH, so even UNSUPP means the flush failed.
+		co_return std::unexpected{blockfs::Error::ioError};
 	}
+	co_return {};
 }
 
 async::result<size_t> Device::getSize() {

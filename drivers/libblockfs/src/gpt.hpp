@@ -87,14 +87,15 @@ public:
 
 	BlockDevice *getDevice();
 
-	async::result<void> parse();
+	async::result<std::expected<void, Error>> parse();
 
 	size_t numPartitions();
 
 	Partition &getPartition(int index);
 
 private:
-	async::result<std::pair<arch::dma_buffer, DiskHeader *>> probeSectorSize_(size_t sectorSize);
+	async::result<std::expected<std::pair<arch::dma_buffer, DiskHeader *>, Error>>
+	probeSectorSize_(size_t sectorSize);
 
 	BlockDevice *device_;
 	std::vector<Partition> partitions_;
@@ -109,9 +110,9 @@ struct Partition : public BlockDevice {
 	Partition(Table &table, Guid id, Guid type,
 			uint64_t start_lba, uint64_t num_sectors, arch::contiguous_pool *pool);
 
-	async::result<void> readSectors(uint64_t sector, arch::dma_buffer_view view) override;
-	async::result<void> writeSectors(uint64_t sector, arch::dma_buffer_view view) override;
-	async::result<void> flush() override;
+	async::result<std::expected<void, Error>> readSectors(uint64_t sector, arch::dma_buffer_view view) override;
+	async::result<std::expected<void, Error>> writeSectors(uint64_t sector, arch::dma_buffer_view view) override;
+	async::result<std::expected<void, Error>> flush() override;
 
 	async::result<size_t> getSize() override;
 

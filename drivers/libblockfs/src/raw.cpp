@@ -4,6 +4,7 @@
 
 #include <bragi/helpers-std.hpp>
 #include <core/dispatch.hpp>
+#include <core/logging.hpp>
 #include <helix/clock.hpp>
 #include <helix/dispatcher-pool.hpp>
 #include "fs.bragi.hpp"
@@ -48,7 +49,9 @@ async::result<void> RawFs::manageMapping() {
 			size_t num_blocks = (backed_size + device->sectorSize - 1) / device->sectorSize;
 
 			assert(num_blocks * device->sectorSize <= manage.length());
-			co_await device->readSectors(manage.offset() / device->sectorSize, view);
+			auto readRes = co_await device->readSectors(manage.offset() / device->sectorSize, view);
+			if(!readRes)
+				logPanic("libblockfs: Failed to read raw device at offset {:#x}", manage.offset());
 
 			HEL_CHECK(helUpdateMemory(backingMemory, kHelManageInitialize,
 						manage.offset(), manage.length()));
@@ -60,7 +63,9 @@ async::result<void> RawFs::manageMapping() {
 			size_t num_blocks = (backed_size + device->sectorSize - 1) / device->sectorSize;
 
 			assert(num_blocks * device->sectorSize <= manage.length());
-			co_await device->writeSectors(manage.offset() / device->sectorSize, view);
+			auto writeRes = co_await device->writeSectors(manage.offset() / device->sectorSize, view);
+			if(!writeRes)
+				logPanic("libblockfs: Failed to write raw device at offset {:#x}", manage.offset());
 
 			HEL_CHECK(helUpdateMemory(backingMemory, kHelManageWriteback,
 						manage.offset(), manage.length()));

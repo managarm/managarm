@@ -66,9 +66,9 @@ private:
 	async::result<IoResult> _waitForBsyIrq();
 
 public:
-	async::result<void> readSectors(uint64_t sector, arch::dma_buffer_view view) override;
-	async::result<void> writeSectors(uint64_t sector, arch::dma_buffer_view view) override;
-	async::result<void> flush() override;
+	async::result<std::expected<void, blockfs::Error>> readSectors(uint64_t sector, arch::dma_buffer_view view) override;
+	async::result<std::expected<void, blockfs::Error>> writeSectors(uint64_t sector, arch::dma_buffer_view view) override;
+	async::result<std::expected<void, blockfs::Error>> flush() override;
 
 	async::result<size_t> getSize() override;
 
@@ -224,7 +224,7 @@ auto Controller::_waitForBsyIrq() -> async::result<IoResult> {
 	}
 }
 
-async::result<void> Controller::readSectors(uint64_t sector, arch::dma_buffer_view view) {
+async::result<std::expected<void, blockfs::Error>> Controller::readSectors(uint64_t sector, arch::dma_buffer_view view) {
 	auto numSectors = (view.size() + sectorSize - 1) >> sectorShift;
 
 	Request request{};
@@ -237,9 +237,10 @@ async::result<void> Controller::readSectors(uint64_t sector, arch::dma_buffer_vi
 	_doorbell.raise();
 
 	co_await request.event.wait();
+	co_return {};
 }
 
-async::result<void> Controller::writeSectors(uint64_t sector, arch::dma_buffer_view view) {
+async::result<std::expected<void, blockfs::Error>> Controller::writeSectors(uint64_t sector, arch::dma_buffer_view view) {
 	auto numSectors = (view.size() + sectorSize - 1) >> sectorShift;
 
 	Request request{};
@@ -252,11 +253,12 @@ async::result<void> Controller::writeSectors(uint64_t sector, arch::dma_buffer_v
 	_doorbell.raise();
 
 	co_await request.event.wait();
+	co_return {};
 }
 
-async::result<void> Controller::flush() {
+async::result<std::expected<void, blockfs::Error>> Controller::flush() {
 	if (_writeCacheKnownDisabled)
-		co_return;
+		co_return {};
 	if (!_flushCommand) {
 		std::cout << "block/ata: Device does not support cache flush" << std::endl;
 		abort();
@@ -267,6 +269,7 @@ async::result<void> Controller::flush() {
 	_requestQueue.push(&request);
 	_doorbell.raise();
 	co_await request.event.wait();
+	co_return {};
 }
 
 async::result<size_t> Controller::getSize() {

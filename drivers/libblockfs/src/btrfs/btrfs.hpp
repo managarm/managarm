@@ -78,7 +78,7 @@ struct FileSystem final : BaseFileSystem {
 
 	FileSystem(BlockDevice *device);
 
-	async::result<void> init();
+	async::result<std::expected<void, protocols::fs::Error>> init();
 	async::detached manageTree();
 
 	// btrfs tree walking helpers

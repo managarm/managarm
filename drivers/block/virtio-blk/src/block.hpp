@@ -83,10 +83,10 @@ struct Device : blockfs::BlockDevice {
 
 	async::result<void> runDevice();
 
-	async::result<void> readSectors(uint64_t sector, arch::dma_buffer_view view) override;
-	async::result<void> writeSectors(uint64_t sector, arch::dma_buffer_view view) override;
+	async::result<std::expected<void, blockfs::Error>> readSectors(uint64_t sector, arch::dma_buffer_view view) override;
+	async::result<std::expected<void, blockfs::Error>> writeSectors(uint64_t sector, arch::dma_buffer_view view) override;
 
-	async::result<void> flush() override;
+	async::result<std::expected<void, blockfs::Error>> flush() override;
 
 	async::result<size_t> getSize() override;
 

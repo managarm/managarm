@@ -970,7 +970,7 @@ const protocols::fs::NodeOperations *FileSystem::nodeOps() {
 	return &nodeOperations;
 }
 
-async::result<void> FileSystem::init() {
+async::result<std::expected<void, protocols::fs::Error>> FileSystem::init() {
 	protocols::ostrace::Timer timer;
 
 	size_t deviceSuperBlockSector = superBlockOffset / device->sectorSize;
@@ -979,12 +979,15 @@ async::result<void> FileSystem::init() {
 	size_t deviceSuperBlockSectors = (1024 + deviceSuperBlockOffset + device->sectorSize - 1) / device->sectorSize;
 
 	arch::dma_buffer buffer{pool, deviceSuperBlockSectors * device->sectorSize};
-	co_await device->readSectors(deviceSuperBlockSector, buffer);
+	auto superblockRes = co_await device->readSectors(deviceSuperBlockSector, buffer);
+	if(!superblockRes)
+		co_return std::unexpected{superblockRes.error() | protocols::fs::toFsProtoError};
 	uint64_t superblockDone = timer.elapsed();
 
 	DiskSuperblock sb;
 	memcpy(&sb, buffer.byte_data() + deviceSuperBlockOffset, sizeof(DiskSuperblock));
-	assert(sb.magic == 0xEF53);
+	if(sb.magic != 0xEF53)
+		co_return std::unexpected{protocols::fs::Error::illegalArguments};
 
 	inodeSize = sb.inodeSize;
 	blockShift = 10 + sb.logBlockSize;
@@ -1060,7 +1063,7 @@ async::result<void> FileSystem::init() {
 		ostAttrTimeBgdt(bgdtTime)
 	);
 
-	co_return;
+	co_return {};
 }
 
 auto FileSystem::accessRoot() -> std::shared_ptr<BaseInode> {
@@ -1148,7 +1151,9 @@ FileSystem::synchronize(std::shared_ptr<Inode> inode,
 		protocols::fs::SynchronizeFlags) {
 	co_await synchronizeFileData(inode.get());
 	co_await synchronizeMetadata();
-	co_await device->flush();
+	auto flushRes = co_await device->flush();
+	if(!flushRes)
+		co_return flushRes.error() | protocols::fs::toFsProtoError;
 	co_return protocols::fs::Error::none;
 }
 
@@ -1166,7 +1171,9 @@ FileSystem::synchronize(protocols::fs::SynchronizeFlags) {
 	for(auto &inode : inodes)
 		co_await synchronizeFileData(inode.get());
 	co_await synchronizeMetadata();
-	co_await device->flush();
+	auto flushRes = co_await device->flush();
+	if(!flushRes)
+		co_return flushRes.error() | protocols::fs::toFsProtoError;
 	co_return protocols::fs::Error::none;
 }
 
@@ -2669,10 +2676,12 @@ async::result<void> FileSystem::readDataBlocks(const std::vector<BlockRange> &ra
 		}else {
 			assert(range.absoluteStartBlock);
 			protocols::ostrace::Timer deviceTimer;
-			co_await device->readSectors(
+			auto readRes = co_await device->readSectors(
 			    range.absoluteStartBlock * sectorsPerBlock,
 			    buf.subview(progress * blockSize, range.size * blockSize)
 			);
+			if(!readRes)
+				logPanic("libblockfs/ext2: Failed to read data block {}", range.absoluteStartBlock);
 			deviceTime += deviceTimer.elapsed();
 		}
 
@@ -2703,10 +2712,12 @@ async::result<void> FileSystem::writeDataBlocks(const std::vector<BlockRange> &r
 		assert(!range.hole && range.absoluteStartBlock);
 
 		protocols::ostrace::Timer deviceTimer;
-		co_await device->writeSectors(
+		auto writeRes = co_await device->writeSectors(
 		    range.absoluteStartBlock * sectorsPerBlock,
 		    buf.subview(progress * blockSize, range.size * blockSize)
 		);
+		if(!writeRes)
+			logPanic("libblockfs/ext2: Failed to write data block {}", range.absoluteStartBlock);
 		deviceTime += deviceTimer.elapsed();
 		progress += range.size;
 	}

@@ -37,7 +37,7 @@ struct ExternDevice final : UnixDevice, std::enable_shared_from_this<ExternDevic
 		return openExternalDevice(lane_, std::move(mount), std::move(link), semantic_flags);
 	}
 
-	FutureMaybe<smarter::shared_ptr<FsLink, LinkRc>> mount(std::string fs_type) override {
+	async::result<std::expected<smarter::shared_ptr<FsLink, LinkRc>, Error>> mount(std::string fs_type) override {
 		return mountExternalDevice(lane_, shared_from_this(), fs_type);
 	}
 

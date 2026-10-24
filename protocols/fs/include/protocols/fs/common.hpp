@@ -57,6 +57,7 @@ enum class Error {
 	noFileDescriptorsAvailable = 34,
 	notSupported = 35,
 	badFileDescriptor = 36,
+	ioError = 37,
 };
 
 struct ToFsError {
@@ -103,6 +104,7 @@ inline managarm::fs::Errors operator|(Error e, ToFsError) {
 		case Error::noFileDescriptorsAvailable: return managarm::fs::Errors::NO_FILE_DESCRIPTORS_AVAILABLE;
 		case Error::notSupported: return managarm::fs::Errors::NOT_SUPPORTED;
 		case Error::badFileDescriptor: return managarm::fs::Errors::BAD_FILE_DESCRIPTOR;
+		case Error::ioError: return managarm::fs::Errors::IO_ERROR;
 	}
 }
 
@@ -150,6 +152,7 @@ inline Error operator|(managarm::fs::Errors e, ToFsProtoError) {
 		case managarm::fs::Errors::NO_FILE_DESCRIPTORS_AVAILABLE: return Error::noFileDescriptorsAvailable;
 		case managarm::fs::Errors::NOT_SUPPORTED: return Error::notSupported;
 		case managarm::fs::Errors::BAD_FILE_DESCRIPTOR: return Error::badFileDescriptor;
+		case managarm::fs::Errors::IO_ERROR: return Error::ioError;
 	}
 }
 
