@@ -199,6 +199,10 @@ async::result<Error> FsNode::utimensat(std::optional<timespec> atime, std::optio
 	co_return Error::accessDenied;
 }
 
+async::result<std::expected<void, Error>> FsNode::swapon() {
+	co_return std::unexpected{Error::illegalOperationTarget};
+}
+
 async::result<frg::expected<Error, smarter::shared_ptr<FsLink, LinkRc>>> FsNode::mksocket(FsLink *, std::string name, mode_t mode, uid_t uid, gid_t gid) {
 	(void) name;
 	(void) mode;

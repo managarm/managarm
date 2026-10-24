@@ -543,6 +543,10 @@ private:
 		co_return File::constructHandle(std::move(file));
 	}
 
+	async::result<std::expected<void, Error>> swapon() override {
+		return swaponExternal(getLane());
+	}
+
 public:
 	RegularNode(Superblock *sb, uint64_t inode, helix::UniqueLane lane)
 	: Node{inode, std::move(lane), sb} { }

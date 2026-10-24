@@ -28,6 +28,10 @@ async::result<std::expected<smarter::shared_ptr<FsLink, LinkRc>, Error>> UnixDev
 	throw std::logic_error("Device cannot be mounted!");
 }
 
+async::result<std::expected<void, Error>> UnixDevice::swapon() {
+	co_return std::unexpected{Error::illegalOperationTarget};
+}
+
 // --------------------------------------------------------
 // UnixDeviceRegistry
 // --------------------------------------------------------
@@ -384,3 +388,25 @@ async::result<std::expected<smarter::shared_ptr<FsLink, LinkRc>, Error>> mountEx
 			std::move(fs_type), resp.root_inode());
 }
 
+async::result<std::expected<void, Error>> swaponExternal(helix::BorrowedLane lane) {
+	managarm::fs::SwaponRequest req;
+
+	auto [offer, send_req, recv_resp] = co_await helix_ng::exchangeMsgs(lane,
+		helix_ng::offer(
+			helix_ng::sendBragiHeadOnly(req, frg::stl_allocator{}),
+			helix_ng::recvInline())
+	);
+	HEL_CHECK(offer.error());
+	HEL_CHECK(send_req.error());
+	// Servers that do not implement swapon drop the request.
+	if(recv_resp.error() == kHelErrEndOfLane || recv_resp.error() == kHelErrDismissed)
+		co_return std::unexpected{Error::illegalOperationTarget};
+	HEL_CHECK(recv_resp.error());
+
+	auto resp = bragi::parse_head_only<managarm::fs::SwaponResponse>(recv_resp);
+	recv_resp.reset();
+	assert(resp);
+	if(resp->error() != managarm::fs::Errors::SUCCESS)
+		co_return std::unexpected{resp->error() | toPosixError};
+	co_return {};
+}

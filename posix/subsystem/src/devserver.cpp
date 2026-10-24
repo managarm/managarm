@@ -41,6 +41,10 @@ struct ExternDevice final : UnixDevice, std::enable_shared_from_this<ExternDevic
 		return mountExternalDevice(lane_, shared_from_this(), fs_type);
 	}
 
+	async::result<std::expected<void, Error>> swapon() override {
+		return swaponExternal(lane_);
+	}
+
 private:
 	// Path of the device in devtmpfs.
 	std::string nodePath_;

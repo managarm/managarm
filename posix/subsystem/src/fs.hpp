@@ -246,6 +246,9 @@ public:
 	// Changes timestamps on a node
 	virtual async::result<Error> utimensat(std::optional<timespec> atime, std::optional<timespec> mtime, timespec ctime);
 
+	// Starts swapping to a regular file
+	virtual async::result<std::expected<void, Error>> swapon();
+
 	// Creates an socket
 	virtual async::result<frg::expected<Error, smarter::shared_ptr<FsLink, LinkRc>>> mksocket(FsLink *parent, std::string name, mode_t mode, uid_t uid, gid_t gid);
 
