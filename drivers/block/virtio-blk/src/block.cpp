@@ -120,7 +120,7 @@ virtio_core::Queue *Device::_pickQueue() {
 	return _queues[index];
 }
 
-async::result<void> Device::readSectors(uint64_t sector, arch::dma_buffer_view view) {
+async::result<std::expected<void, blockfs::Error>> Device::readSectors(uint64_t sector, arch::dma_buffer_view view) {
 	// Natural alignment makes sure a sector does not cross a page boundary.
 	assert(!((uintptr_t)view.data() % 512));
 //	printf("readSectors(%lu, %lu)\n", sector, num_sectors);
@@ -162,9 +162,10 @@ async::result<void> Device::readSectors(uint64_t sector, arch::dma_buffer_view v
 		blockfs::ostAttrTime(timer.elapsed()),
 		blockfs::ostAttrNumBytes(view.size())
 	);
+	co_return {};
 }
 
-async::result<void> Device::writeSectors(uint64_t sector, arch::dma_buffer_view view) {
+async::result<std::expected<void, blockfs::Error>> Device::writeSectors(uint64_t sector, arch::dma_buffer_view view) {
 	// Natural alignment makes sure a sector does not cross a page boundary.
 	assert(!((uintptr_t)view.data() % 512));
 //	printf("writeSectors(%lu, %lu)\n", sector, num_sectors);
@@ -206,9 +207,10 @@ async::result<void> Device::writeSectors(uint64_t sector, arch::dma_buffer_view 
 		blockfs::ostAttrTime(timer.elapsed()),
 		blockfs::ostAttrNumBytes(view.size())
 	);
+	co_return {};
 }
 
-async::result<void> Device::flush() {
+async::result<std::expected<void, blockfs::Error>> Device::flush() {
 	protocols::ostrace::Timer timer;
 	uint64_t setupTime = 0;
 	uint64_t obtainTime = 0;
@@ -225,7 +227,7 @@ async::result<void> Device::flush() {
 
 	// Devices without a flush command still emit the event, with a zero device time.
 	if(!_hasFlush)
-		co_return;
+		co_return {};
 
 	UserRequest request{false, 0, {}, pagePool};
 
@@ -267,6 +269,7 @@ async::result<void> Device::flush() {
 				<< static_cast<unsigned int>(*request.status) << std::endl;
 		abort();
 	}
+	co_return {};
 }
 
 async::result<size_t> Device::getSize() {

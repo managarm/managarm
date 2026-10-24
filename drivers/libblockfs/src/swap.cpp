@@ -63,17 +63,17 @@ async::detached serveSwapTarget(helix::UniqueLane lane, gpt::Partition *partitio
 			    kHelMapNoDirtyTracking
 			);
 
-			try {
-				switch (req.type()) {
-					case managarm::swap::ManageType::INITIALIZE:
-						co_await partition->readSectors(sector, view);
-						break;
-					case managarm::swap::ManageType::WRITEBACK:
-						co_await partition->writeSectors(sector, view);
-						break;
-				}
-			} catch (const std::exception &e) {
-				printf("blockfs: Swap I/O at page %lu failed: %s\n", req.offset(), e.what());
+			std::expected<void, Error> ioRes;
+			switch (req.type()) {
+				case managarm::swap::ManageType::INITIALIZE:
+					ioRes = co_await partition->readSectors(sector, view);
+					break;
+				case managarm::swap::ManageType::WRITEBACK:
+					ioRes = co_await partition->writeSectors(sector, view);
+					break;
+			}
+			if (!ioRes) {
+				printf("blockfs: Swap I/O at page %lu failed\n", req.offset());
 				error = managarm::swap::Errors::OTHER;
 			}
 		}

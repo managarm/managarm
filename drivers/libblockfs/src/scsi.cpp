@@ -272,17 +272,19 @@ async::result<void> StorageDevice::performSplitIo(bool isWrite, uint64_t sector,
 				view.subview(offset, std::min(maxBytes, view.size() - offset)));
 }
 
-async::result<void> StorageDevice::readSectors(uint64_t sector,
+async::result<std::expected<void, blockfs::Error>> StorageDevice::readSectors(uint64_t sector,
 		arch::dma_buffer_view view) {
 	co_await performSplitIo(false, sector, view);
+	co_return {};
 }
 
-async::result<void> StorageDevice::writeSectors(uint64_t sector,
+async::result<std::expected<void, blockfs::Error>> StorageDevice::writeSectors(uint64_t sector,
 		arch::dma_buffer_view view) {
 	co_await performSplitIo(true, sector, view);
+	co_return {};
 }
 
-async::result<void> StorageDevice::flush() {
+async::result<std::expected<void, blockfs::Error>> StorageDevice::flush() {
 	// SYNCHRONIZE CACHE(10): IMMED=0 waits for durability. LBA=0 and
 	// NUMBER OF BLOCKS=0 synchronize the entire logical unit.
 	SynchronizeCache10 command{.opCode = 0x35};
@@ -297,6 +299,7 @@ async::result<void> StorageDevice::flush() {
 	if (!result)
 		std::println(std::cout, "block-scsi: Flush failed with error {}",
 			result.error().toString());
+	co_return {};
 }
 
 async::result<size_t> StorageDevice::getSize() {

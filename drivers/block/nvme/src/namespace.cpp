@@ -33,7 +33,7 @@ async::detached Namespace::run() {
 	co_return;
 }
 
-async::result<void> Namespace::readSectors(uint64_t sector, arch::dma_buffer_view view) {
+async::result<std::expected<void, blockfs::Error>> Namespace::readSectors(uint64_t sector, arch::dma_buffer_view view) {
 	using arch::convert_endian;
 	using arch::endian;
 
@@ -51,9 +51,10 @@ async::result<void> Namespace::readSectors(uint64_t sector, arch::dma_buffer_vie
 	auto result = co_await controller_->submitIoCommand(std::move(cmd));
 	if (!result.first.successful())
 		logPanic("block/nvme: Read failed, status {:#x}", result.first.status);
+	co_return {};
 }
 
-async::result<void> Namespace::writeSectors(uint64_t sector, arch::dma_buffer_view view) {
+async::result<std::expected<void, blockfs::Error>> Namespace::writeSectors(uint64_t sector, arch::dma_buffer_view view) {
 	using arch::convert_endian;
 	using arch::endian;
 
@@ -71,9 +72,10 @@ async::result<void> Namespace::writeSectors(uint64_t sector, arch::dma_buffer_vi
 	auto result = co_await controller_->submitIoCommand(std::move(cmd));
 	if (!result.first.successful())
 		logPanic("block/nvme: Write failed, status {:#x}", result.first.status);
+	co_return {};
 }
 
-async::result<void> Namespace::flush() {
+async::result<std::expected<void, blockfs::Error>> Namespace::flush() {
 	auto cmd = std::make_unique<Command>();
 	auto &cmdBuf = cmd->getCommandBuffer().common;
 	cmdBuf = {};
@@ -85,6 +87,7 @@ async::result<void> Namespace::flush() {
 	auto result = co_await controller_->submitIoCommand(std::move(cmd));
 	if (!result.first.successful())
 		logPanic("block/nvme: Flush failed, status {:#x}", result.first.status);
+	co_return {};
 }
 
 async::result<size_t> Namespace::getSize() {

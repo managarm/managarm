@@ -53,13 +53,13 @@ struct StorageDevice : Interface, blockfs::BlockDevice {
 	StorageDevice(size_t sectorSize, int64_t parentId, arch::contiguous_pool *pool)
 	: blockfs::BlockDevice(sectorSize, parentId, pool) { }
 
-	async::result<void> readSectors(uint64_t sector,
+	async::result<std::expected<void, blockfs::Error>> readSectors(uint64_t sector,
 			arch::dma_buffer_view view) final;
 
-	async::result<void> writeSectors(uint64_t sector,
+	async::result<std::expected<void, blockfs::Error>> writeSectors(uint64_t sector,
 			arch::dma_buffer_view view) final;
 
-	async::result<void> flush() final;
+	async::result<std::expected<void, blockfs::Error>> flush() final;
 
 	async::result<size_t> getSize() final;
 

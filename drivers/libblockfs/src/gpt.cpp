@@ -4,6 +4,8 @@
 #include <print>
 #include <array>
 
+#include <core/logging.hpp>
+
 #include "gpt.hpp"
 
 namespace blockfs {
@@ -34,7 +36,9 @@ async::result<std::pair<arch::dma_buffer, DiskHeader *>> Table::probeSectorSize_
 	size_t deviceSectors = (sectorSize + deviceGptOffset + getDevice()->sectorSize - 1) / getDevice()->sectorSize;
 
 	arch::dma_buffer headerBuffer{getDevice()->pagePool, deviceSectors * getDevice()->sectorSize};
-	co_await getDevice()->readSectors(deviceGptSector, headerBuffer);
+	auto headerRes = co_await getDevice()->readSectors(deviceGptSector, headerBuffer);
+	if (!headerRes)
+		logPanic("libblockfs: Failed to read GPT header");
 
 	DiskHeader *header = reinterpret_cast<DiskHeader *>(static_cast<std::byte *>(headerBuffer.data()) + deviceGptOffset);
 	if (header->signature == 0x5452415020494645)
@@ -73,7 +77,9 @@ async::result<void> Table::parse() {
 	size_t tableSectors = (tableSize + deviceTableOffset + getDevice()->sectorSize - 1) / getDevice()->sectorSize;
 
 	arch::dma_buffer tableBuffer{getDevice()->pagePool, tableSectors * getDevice()->sectorSize};
-	co_await getDevice()->readSectors(deviceTableSector, tableBuffer);
+	auto tableRes = co_await getDevice()->readSectors(deviceTableSector, tableBuffer);
+	if (!tableRes)
+		logPanic("libblockfs: Failed to read GPT entry table");
 
 	for (uint32_t i = 0; i < header.second->numEntries; i++) {
 		DiskEntry *entry = reinterpret_cast<DiskEntry *>(
@@ -137,17 +143,17 @@ Guid Partition::type() {
 	return _type;
 }
 
-async::result<void> Partition::readSectors(uint64_t sector, arch::dma_buffer_view view) {
+async::result<std::expected<void, Error>> Partition::readSectors(uint64_t sector, arch::dma_buffer_view view) {
 	assert(sector + (view.size() / sectorSize) <= _numSectors);
 	return _table.getDevice()->readSectors(_startLba + sector, view);
 }
 
-async::result<void> Partition::writeSectors(uint64_t sector, arch::dma_buffer_view view) {
+async::result<std::expected<void, Error>> Partition::writeSectors(uint64_t sector, arch::dma_buffer_view view) {
 	assert(sector + (view.size() / sectorSize) <= _numSectors);
 	return _table.getDevice()->writeSectors(_startLba + sector, view);
 }
 
-async::result<void> Partition::flush() {
+async::result<std::expected<void, Error>> Partition::flush() {
 	return _table.getDevice()->flush();
 }
 

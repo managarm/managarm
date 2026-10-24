@@ -5,26 +5,34 @@
 #include <protocols/fs/common.hpp>
 #include <protocols/mbus/client.hpp>
 #include <protocols/ostrace/ostrace.hpp>
+#include <expected>
 #include <stdint.h>
 
 namespace blockfs {
+
+enum class Error {
+	// The device failed to complete the request.
+	ioError,
+	// The device does not implement the request.
+	notSupported,
+};
 
 struct BlockDevice {
 	BlockDevice(size_t sector_size, int64_t parent_id, arch::contiguous_pool *pool);
 
 	virtual ~BlockDevice() = default;
 
-	virtual async::result<void> readSectors(uint64_t, arch::dma_buffer_view) = 0;
+	virtual async::result<std::expected<void, Error>> readSectors(uint64_t, arch::dma_buffer_view) = 0;
 
-	virtual async::result<void> writeSectors(uint64_t, arch::dma_buffer_view) {
-		throw std::runtime_error("BlockDevice does not support writeSectors()");
+	virtual async::result<std::expected<void, Error>> writeSectors(uint64_t, arch::dma_buffer_view) {
+		co_return std::unexpected{Error::notSupported};
 	}
 
 	// Flushes the device's write cache.
 	// flush() affects all write requests that have completed before flush() starts.
 	// When flush() returns, all these write requests will have made it to durable storage.
-	virtual async::result<void> flush() {
-		co_return;
+	virtual async::result<std::expected<void, Error>> flush() {
+		co_return {};
 	}
 
 	virtual async::result<size_t> getSize() = 0;
