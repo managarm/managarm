@@ -3,8 +3,7 @@
 #include <format>
 #include <linux/nvme_ioctl.h>
 #include <iostream>
-
-#include <core/logging.hpp>
+#include <print>
 
 #include "namespace.hpp"
 #include "controller.hpp"
@@ -49,8 +48,10 @@ async::result<std::expected<void, blockfs::Error>> Namespace::readSectors(uint64
 	co_await cmd->setupBuffer(controller_, view, controller_->dataTransferPolicy());
 
 	auto result = co_await controller_->submitIoCommand(std::move(cmd));
-	if (!result.first.successful())
-		logPanic("block/nvme: Read failed, status {:#x}", result.first.status);
+	if (!result.first.successful()) {
+		std::println(std::cout, "block/nvme: Read failed, status {:#x}", result.first.status);
+		co_return std::unexpected{blockfs::Error::ioError};
+	}
 	co_return {};
 }
 
@@ -70,8 +71,10 @@ async::result<std::expected<void, blockfs::Error>> Namespace::writeSectors(uint6
 	co_await cmd->setupBuffer(controller_, view, controller_->dataTransferPolicy());
 
 	auto result = co_await controller_->submitIoCommand(std::move(cmd));
-	if (!result.first.successful())
-		logPanic("block/nvme: Write failed, status {:#x}", result.first.status);
+	if (!result.first.successful()) {
+		std::println(std::cout, "block/nvme: Write failed, status {:#x}", result.first.status);
+		co_return std::unexpected{blockfs::Error::ioError};
+	}
 	co_return {};
 }
 
@@ -85,8 +88,10 @@ async::result<std::expected<void, blockfs::Error>> Namespace::flush() {
 	// PCIe uses zero data pointers; fabrics needs the empty transport SGL.
 	co_await cmd->setupBuffer(controller_, {}, controller_->dataTransferPolicy());
 	auto result = co_await controller_->submitIoCommand(std::move(cmd));
-	if (!result.first.successful())
-		logPanic("block/nvme: Flush failed, status {:#x}", result.first.status);
+	if (!result.first.successful()) {
+		std::println(std::cout, "block/nvme: Flush failed, status {:#x}", result.first.status);
+		co_return std::unexpected{blockfs::Error::ioError};
+	}
 	co_return {};
 }
 
