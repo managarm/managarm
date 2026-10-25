@@ -1,5 +1,6 @@
 #include <async/cancellation.hpp>
 #include <async/mutex.hpp>
+#include <algorithm>
 #include <stdio.h>
 #include <string.h>
 #include <iostream>
@@ -11,6 +12,7 @@
 
 #include <core/clock.hpp>
 #include <core/dispatch.hpp>
+#include <core/memory-info.hpp>
 #include <core/process-data.hpp>
 #include <frg/scope_exit.hpp>
 #include <helix/dispatcher-pool.hpp>
@@ -33,6 +35,7 @@
 namespace blockfs {
 
 bool clkInitialized = false;
+size_t totalMemory = 0;
 
 async::mutex globalInitializationMutex;
 
@@ -52,6 +55,12 @@ HelHandle fileDataHierarchy() {
 	static HelHandle handle = [] {
 		HelHierarchyParameters params{};
 		strncpy(params.tag, "file-data", sizeof(params.tag));
+		// The page cache stops allocating before metadata does, such that writeback and reclaim
+		// can still make progress.
+		assert(totalMemory);
+		params.controllers = kHelHierarchyMemoryController;
+		params.memoryFloor = std::clamp(totalMemory / 64,
+				size_t{4} << 20, size_t{64} << 20);
 
 		HelHandle child;
 		HEL_CHECK(helExtendHierarchy(core::getProcessHierarchy(), &params, &child));
@@ -775,6 +784,9 @@ async::detached runDevice(BlockDevice *device) {
 			co_await clk::enumerateTracker();
 			clkInitialized = true;
 		}
+
+		if(!totalMemory)
+			totalMemory = (co_await core::getMemoryInformation()).totalMemory;
 	}
 
 	// TODO(qookie): Don't leak the table.
