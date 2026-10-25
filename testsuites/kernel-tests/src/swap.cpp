@@ -254,6 +254,108 @@ HelHandle backingHandle, swapHandle;
 	}
 }
 
+// Swaps out private copies of CoW memory, before and after forking it.
+// Even pages become private copies and odd pages keep the content of the source.
+void testSwapCopyOnWrite() {
+	HelHandle backingHandle, swapHandle;
+	HEL_CHECK(helCreateSwapSpace(core::getProcessHierarchy(), 0, &backingHandle, &swapHandle));
+	helix::UniqueDescriptor backing{backingHandle};
+	helix::UniqueDescriptor swapSpace{swapHandle};
+
+	SwapDaemonState state;
+	async::run(setSwapRegion(swapSpace, 0, swapPages, &state), helix::currentDispatcher);
+
+	HelHandle sourceHandle;
+	HEL_CHECK(helAllocateMemory(core::getProcessHierarchy(), viewPages * pageSize, 0,
+			nullptr, &sourceHandle));
+	helix::UniqueDescriptor source{sourceHandle};
+
+	// Fill the allocated memory with a pattern.
+	void *window;
+	HEL_CHECK(helMapMemory(source.getHandle(), kHelNullHandle, nullptr,
+			0, viewPages * pageSize, kHelMapProtRead | kHelMapProtWrite, &window));
+	for(size_t pg = 0; pg < viewPages; pg++)
+		fillPattern(reinterpret_cast<uint8_t *>(window) + pg * pageSize, pg, 0);
+	HEL_CHECK(helUnmapMemory(kHelNullHandle, window, viewPages * pageSize));
+
+	HelHandle parentHandle;
+	HEL_CHECK(helCopyOnWrite(core::getProcessHierarchy(), swapSpace.getHandle(),
+			source.getHandle(), 0, viewPages * pageSize, &parentHandle));
+	helix::UniqueDescriptor parent{parentHandle};
+
+	// The daemon services all requests from its own thread until finished.
+	std::thread daemon{[&] {
+		async::run(async::lambda([&]() -> async::result<void> {
+			while(!state.finished.load(std::memory_order::acquire))
+				co_await serveOnce(backing, &state);
+		})(), helix::currentDispatcher);
+	}};
+
+	// Write a new pattern into the even pages, forcing a CoW.
+	HEL_CHECK(helMapMemory(parent.getHandle(), kHelNullHandle, nullptr,
+			0, viewPages * pageSize, kHelMapProtRead | kHelMapProtWrite, &window));
+	for(size_t pg = 0; pg < viewPages; pg += 2)
+		fillPattern(reinterpret_cast<uint8_t *>(window) + pg * pageSize, pg, 1);
+	HEL_CHECK(helUnmapMemory(kHelNullHandle, window, viewPages * pageSize));
+
+	while(state.pagesWrittenBack < viewPages / 2)
+		std::this_thread::sleep_for(std::chrono::milliseconds{10});
+
+	// Under torture uncaching the pages are dropped within a few generation,
+	// give the kernel some time.
+	std::this_thread::sleep_for(std::chrono::milliseconds{1000});
+
+	// Forking turns the swapped out copies into pages shared by parent and child.
+	auto forkResult = async::run(helix_ng::forkMemory(
+			helix::BorrowedDescriptor{core::getProcessHierarchy()}, parent),
+			helix::currentDispatcher);
+	HEL_CHECK(forkResult.error());
+	auto child = forkResult.descriptor();
+
+	// Writing to the child copies from the shared pages, which are swapped out.
+	auto writtenBefore = state.pagesWrittenBack.load();
+	HEL_CHECK(helMapMemory(child.getHandle(), kHelNullHandle, nullptr,
+			0, viewPages * pageSize, kHelMapProtRead | kHelMapProtWrite, &window));
+	for(size_t pg = 0; pg < viewPages; pg += 2)
+		fillPattern(reinterpret_cast<uint8_t *>(window) + pg * pageSize, pg, 2);
+	HEL_CHECK(helUnmapMemory(kHelNullHandle, window, viewPages * pageSize));
+
+	// Make sure the parent still sees the shared pages.
+	HEL_CHECK(helMapMemory(parent.getHandle(), kHelNullHandle, nullptr,
+			0, viewPages * pageSize, kHelMapProtRead, &window));
+	for(size_t pg = 0; pg < viewPages; pg++)
+		assert(checkPattern(reinterpret_cast<uint8_t *>(window) + pg * pageSize, pg, pg % 2 ? 0 : 1));
+	HEL_CHECK(helUnmapMemory(kHelNullHandle, window, viewPages * pageSize));
+
+	while(state.pagesWrittenBack < writtenBefore + viewPages / 2)
+		std::this_thread::sleep_for(std::chrono::milliseconds{10});
+	std::this_thread::sleep_for(std::chrono::milliseconds{1000});
+
+	// Fault the child's copies back in.
+	HEL_CHECK(helMapMemory(child.getHandle(), kHelNullHandle, nullptr,
+			0, viewPages * pageSize, kHelMapProtRead, &window));
+	for(size_t pg = 0; pg < viewPages; pg++)
+		assert(checkPattern(reinterpret_cast<uint8_t *>(window) + pg * pageSize, pg, pg % 2 ? 0 : 2));
+	HEL_CHECK(helUnmapMemory(kHelNullHandle, window, viewPages * pageSize));
+
+	// Copy one shared page in the parent, so that exactly one further
+	// writeback request arrives after stop is set.
+	state.stop.store(true, std::memory_order_relaxed);
+	HEL_CHECK(helMapMemory(parent.getHandle(), kHelNullHandle, nullptr,
+			0, pageSize, kHelMapProtRead | kHelMapProtWrite, &window));
+	fillPattern(window, 0, 0xcafebabe);
+	HEL_CHECK(helUnmapMemory(kHelNullHandle, window, pageSize));
+	daemon.join();
+
+	printf("kernel-tests: swapCopyOnWrite: %zu pages swapped out, %zu pages swapped in\n",
+			state.pagesWrittenBack.load(std::memory_order_relaxed),
+			state.pagesInitialized.load(std::memory_order_relaxed));
+	if(!state.pagesInitialized.load(std::memory_order::relaxed)) {
+		printf("kernel-tests: swapCopyOnWrite: swap-in path was NOT exercised"
+				" (boot with thor.torture-uncaching)\n");
+	}
+}
+
 } // anonymous namespace
 
 DEFINE_TEST(swapRoundtrip, ([] {
@@ -262,4 +364,8 @@ DEFINE_TEST(swapRoundtrip, ([] {
 
 DEFINE_TEST(swapFaultIn, ([] {
 	testSwapFaultIn();
+}))
+
+DEFINE_TEST(swapCopyOnWrite, ([] {
+	testSwapCopyOnWrite();
 }))
