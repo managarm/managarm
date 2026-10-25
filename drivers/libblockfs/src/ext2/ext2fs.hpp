@@ -24,6 +24,7 @@
 #include "fs.bragi.hpp"
 #include "../fs.hpp"
 #include "../metadata-cache.hpp"
+#include "../swap.hpp"
 #include "block-map-cache.hpp"
 
 namespace blockfs {
@@ -380,6 +381,17 @@ struct Inode final : BaseInode, std::enable_shared_from_this<Inode> {
 
 	DiskInode *diskInode();
 
+	arch::contiguous_pool *getSwapPool();
+	async::result<uint64_t> getSwapSize();
+
+	async::result<std::expected<void, Error>> enableSwap();
+
+	async::result<std::expected<void, Error>>
+	readSwap(uint64_t offset, arch::dma_buffer_view);
+
+	async::result<std::expected<void, Error>>
+	writeSwap(uint64_t offset, arch::dma_buffer_view);
+
 	// Returns the size of the file in bytes.
 	// Callers must hold inodeMutex (shared).
 	uint64_t fileSize() {
@@ -440,6 +452,8 @@ struct Inode final : BaseInode, std::enable_shared_from_this<Inode> {
 		std::optional<timespec> ctime);
 
 	FileSystem &fs;
+
+	std::atomic_bool isSwapInode = false;
 
 	MetadataCache::BlockWindow diskInodeWindow;
 	size_t diskInodeOffset = 0;

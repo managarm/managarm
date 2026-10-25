@@ -7,8 +7,8 @@
 #include <frg/scope_exit.hpp>
 #include <helix/dispatcher-pool.hpp>
 #include "fs.hpp"
+#include "swap.hpp"
 #include "trace.hpp"
-
 
 namespace blockfs {
 
@@ -332,10 +332,59 @@ async::result<void> doObstructLink(std::shared_ptr<void> object, std::string nam
 	co_return;
 }
 
+template <typename Inode>
+concept SwappableInode = requires(Inode &inode, uint64_t offset, arch::dma_buffer_view view) {
+	{ inode.getSwapPool() } -> std::same_as<arch::contiguous_pool *>;
+	{ inode.getSwapSize() } -> std::same_as<async::result<uint64_t>>;
+	{ inode.enableSwap() } -> std::same_as<async::result<std::expected<void, Error>>>;
+	{ inode.readSwap(offset, view) } -> std::same_as<async::result<std::expected<void, Error>>>;
+	{ inode.writeSwap(offset, view) } -> std::same_as<async::result<std::expected<void, Error>>>;
+};
+
+// Inodes must not derive from SwapTarget directly, that would make them polymorphic
+// and move the BaseInode subobject away from offset 0 which breaks the void * <-> Inode *
+// casts done by the node operations.
+template <SwappableInode Inode>
+struct InodeSwapTarget final : SwapTarget {
+	explicit InodeSwapTarget(std::shared_ptr<Inode> inode) : inode_{std::move(inode)} {}
+
+	arch::contiguous_pool *getSwapPool() override {
+		return inode_->getSwapPool();
+	}
+
+	async::result<uint64_t> getSwapSize() override {
+		return inode_->getSwapSize();
+	}
+
+	async::result<std::expected<void, Error>> enableSwap() override {
+		return inode_->enableSwap();
+	}
+
+	async::result<std::expected<void, Error>>
+	readSwap(uint64_t offset, arch::dma_buffer_view view) override {
+		return inode_->readSwap(offset, view);
+	}
+
+	async::result<std::expected<void, Error>>
+	writeSwap(uint64_t offset, arch::dma_buffer_view view) override {
+		return inode_->writeSwap(offset, view);
+	}
+
+private:
+	std::shared_ptr<Inode> inode_;
+};
+
 template <FileSystem T>
-async::result<protocols::fs::Error> doSwapon(std::shared_ptr<void>) {
-	// TODO: Support swapping to regular files.
-	co_return protocols::fs::Error::illegalOperationTarget;
+async::result<protocols::fs::Error> doSwapon(std::shared_ptr<void> object) {
+	using Inode = typename T::Inode;
+	auto self = std::static_pointer_cast<Inode>(object);
+
+	if constexpr (SwappableInode<Inode>) {
+		co_await self->readyEvent.wait();
+		co_return co_await swapon(std::make_shared<InodeSwapTarget<Inode>>(std::move(self)));
+	} else {
+		co_return protocols::fs::Error::illegalOperationTarget;
+	}
 }
 
 template <FileSystem T>

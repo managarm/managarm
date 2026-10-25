@@ -104,8 +104,15 @@ async::result<std::expected<void, Error>> Table::parse() {
 		assert(deviceSectorOffset == 0);
 		assert(size % getDevice()->sectorSize == 0);
 
-		partitions_.push_back(Partition{*this, entry->uniqueGuid, entry->typeGuid,
-				deviceSector, size / getDevice()->sectorSize, this->getDevice()->pagePool});
+		auto partition = std::make_unique<Partition>(
+		    *this,
+		    entry->uniqueGuid,
+		    entry->typeGuid,
+		    deviceSector,
+		    size / getDevice()->sectorSize,
+		    this->getDevice()->pagePool
+		);
+		partitions_.emplace_back(std::move(partition));
 	}
 	co_return {};
 }
@@ -119,7 +126,7 @@ size_t Table::numPartitions() {
 }
 
 Partition &Table::getPartition(int index) {
-	return partitions_[index];
+	return *partitions_[index].get();
 }
 
 // --------------------------------------------------------

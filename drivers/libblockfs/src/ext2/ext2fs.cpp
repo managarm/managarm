@@ -130,6 +130,81 @@ DiskInode *Inode::diskInode() {
 			reinterpret_cast<std::byte *>(diskInodeWindow.get()) + diskInodeOffset);
 }
 
+arch::contiguous_pool *Inode::getSwapPool() {
+	return fs.pool;
+}
+
+async::result<uint64_t> Inode::getSwapSize() {
+	co_await inodeMutex.async_lock_shared();
+	frg::shared_lock inodeLock{frg::adopt_lock, inodeMutex};
+	co_return fileSize();
+}
+
+async::result<std::expected<void, Error>> Inode::enableSwap() {
+	if (isSwapInode.exchange(true))
+		co_return std::unexpected(Error::busy);
+
+	assert(std::has_single_bit(fs.blockSize));
+	if (fs.blockSize > 0x1000)
+		co_return std::unexpected(Error::notSupported);
+
+	co_await inodeMutex.async_lock_shared();
+	frg::shared_lock inodeLock{frg::adopt_lock, inodeMutex};
+
+	auto invalidate = co_await helix_ng::invalidateMemory(
+	    helix::BorrowedDescriptor{backingMemory}, 0, (fileSize() + 0xFFF) & ~UINT64_C(0xFFF)
+	);
+	HEL_CHECK(invalidate.error());
+
+	auto numBlocks = (fileSize() + fs.blockSize - 1) >> fs.blockShift;
+	{
+		co_await blockMapMutex.async_lock();
+		frg::unique_lock blockMapLock{frg::adopt_lock, blockMapMutex};
+
+		co_await fs.assignDataBlocks(this, 0, numBlocks);
+	}
+
+	co_return {};
+}
+
+async::result<std::expected<void, Error>>
+Inode::readSwap(uint64_t offset, arch::dma_buffer_view view) {
+	if ((offset & (fs.blockSize - 1)) != 0)
+		co_return std::unexpected(Error::notSupported);
+	if ((view.size_bytes() & (fs.blockSize - 1)) != 0)
+		co_return std::unexpected(Error::notSupported);
+
+	auto block = offset >> fs.blockShift;
+	auto numBlocks = view.size_bytes() >> fs.blockShift;
+
+	co_await blockMapMutex.async_lock_shared();
+	frg::shared_lock blockMapLock{frg::adopt_lock, blockMapMutex};
+
+	auto blockRanges = co_await fs.lookupBlocks(this, block, numBlocks);
+	co_await fs.readDataBlocks(blockRanges, view);
+
+	co_return {};
+}
+
+async::result<std::expected<void, Error>>
+Inode::writeSwap(uint64_t offset, arch::dma_buffer_view view) {
+	if ((offset & (fs.blockSize - 1)) != 0)
+		co_return std::unexpected(Error::notSupported);
+	if ((view.size_bytes() & (fs.blockSize - 1)) != 0)
+		co_return std::unexpected(Error::notSupported);
+
+	auto block = offset >> fs.blockShift;
+	auto numBlocks = view.size_bytes() >> fs.blockShift;
+
+	co_await blockMapMutex.async_lock_shared();
+	frg::shared_lock blockMapLock{frg::adopt_lock, blockMapMutex};
+
+	auto blockRanges = co_await fs.lookupBlocks(this, block, numBlocks);
+	co_await fs.writeDataBlocks(blockRanges, view);
+
+	co_return {};
+}
+
 void Inode::setFileSize(size_t size) {
 	assert(!(size & ~uint64_t(0xFFFFFFFF)));
 	diskInode()->size = size;

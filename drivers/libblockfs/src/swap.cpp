@@ -1,9 +1,7 @@
 #include "swap.hpp"
 
-#include <mutex>
-#include <stdio.h>
+#include <print>
 #include <string>
-#include <unordered_set>
 
 #include <protocols/mbus/client.hpp>
 
@@ -20,13 +18,7 @@ bool isEndOfLane(HelError error) {
 	return error == kHelErrEndOfLane || error == kHelErrLaneShutdown;
 }
 
-std::mutex swapMutex;
-// Protected by swapMutex. Partitions that back a swap target.
-std::unordered_set<gpt::Partition *> swapPartitions;
-
-async::detached serveSwapTarget(helix::UniqueLane lane, gpt::Partition *partition) {
-	auto numPages = co_await partition->getSize() / pageSize;
-
+async::detached serveSwapTarget(helix::UniqueLane lane, std::shared_ptr<SwapTarget> target) {
 	// Manage is required to map the backing memory without dirty tracking.
 	auto [pullDesc] = co_await helix_ng::exchangeMsgs(
 	    lane,
@@ -37,6 +29,8 @@ async::detached serveSwapTarget(helix::UniqueLane lane, gpt::Partition *partitio
 	HEL_CHECK(pullDesc.error());
 	auto backingHandle = pullDesc.descriptor();
 
+	auto numPages = co_await target->getSwapSize() / pageSize;
+	auto pool = target->getSwapPool();
 	while (true) {
 		auto [accept, recvHead] =
 		    co_await helix_ng::exchangeMsgs(lane, helix_ng::accept(helix_ng::recvInline()));
@@ -53,8 +47,8 @@ async::detached serveSwapTarget(helix::UniqueLane lane, gpt::Partition *partitio
 
 		auto error = managarm::swap::Errors::SUCCESS;
 		if (req.count() > numPages || req.offset() > numPages - req.count()) {
-			printf(
-			    "blockfs: Swap request at page %lu with %lu pages exceeds the partition\n",
+			std::println(
+			    "blockfs: Swap request at page {} with {} pages exceeds the partition",
 			    req.offset(),
 			    req.count()
 			);
@@ -62,8 +56,7 @@ async::detached serveSwapTarget(helix::UniqueLane lane, gpt::Partition *partitio
 		} else {
 			// The swap server can only complete the request once the range is no longer mapped,
 			// hence the view must be gone before we respond.
-			auto sector = (req.offset() * pageSize) >> partition->sectorShift;
-			auto view = partition->pagePool->realm()->importMemory(
+			auto view = pool->realm()->importMemory(
 			    backingHandle,
 			    req.offset() * pageSize,
 			    req.count() * pageSize,
@@ -73,14 +66,15 @@ async::detached serveSwapTarget(helix::UniqueLane lane, gpt::Partition *partitio
 			std::expected<void, Error> ioRes;
 			switch (req.type()) {
 				case managarm::swap::ManageType::INITIALIZE:
-					ioRes = co_await partition->readSectors(sector, view);
+					ioRes = co_await target->readSwap(req.offset() * pageSize, view);
 					break;
 				case managarm::swap::ManageType::WRITEBACK:
-					ioRes = co_await partition->writeSectors(sector, view);
+					ioRes = co_await target->writeSwap(req.offset() * pageSize, view);
 					break;
 			}
+
 			if (!ioRes) {
-				printf("blockfs: Swap I/O at page %lu failed\n", req.offset());
+				std::println("blockfs: Swap I/O at page {} failed", req.offset());
 				error = managarm::swap::Errors::OTHER;
 			}
 		}
@@ -99,33 +93,28 @@ async::detached serveSwapTarget(helix::UniqueLane lane, gpt::Partition *partitio
 
 } // namespace
 
-async::result<protocols::fs::Error> swapon(gpt::Partition *partition) {
-	if(partition->type() != gpt::type_guids::managarmSwapPartition)
-		co_return protocols::fs::Error::illegalOperationTarget;
-
-	{
-		std::lock_guard lock{swapMutex};
-		if(!swapPartitions.insert(partition).second)
-			co_return protocols::fs::Error::illegalArguments;
-	}
+async::result<protocols::fs::Error> swapon(std::shared_ptr<SwapTarget> target) {
+	auto enableRes = co_await target->enableSwap();
+	if (!enableRes)
+		co_return enableRes.error() | protocols::fs::toFsProtoError;
 
 	mbus_ng::Properties descriptor{
-		{"class", mbus_ng::StringItem{"swap-target"}},
-		{"size", mbus_ng::StringItem{std::to_string(co_await partition->getSize())}},
+	    {"class", mbus_ng::StringItem{"swap-target"}},
+	    {"size", mbus_ng::StringItem{std::to_string(co_await target->getSwapSize())}},
 	};
-	auto entity = (co_await mbus_ng::Instance::global().createEntity(
-			"swap-target", descriptor)).unwrap();
+	auto entity =
+	    (co_await mbus_ng::Instance::global().createEntity("swap-target", descriptor)).unwrap();
 
-	[] (mbus_ng::EntityManager entity, gpt::Partition *partition) -> async::detached {
+	[](mbus_ng::EntityManager entity, std::shared_ptr<SwapTarget> target) -> async::detached {
 		while (true) {
 			auto [localLane, remoteLane] = helix::createStream();
 
 			// If this fails, too bad!
 			(void)(co_await entity.serveRemoteLane(std::move(remoteLane)));
 
-			serveSwapTarget(std::move(localLane), partition);
+			serveSwapTarget(std::move(localLane), target);
 		}
-	}(std::move(entity), partition);
+	}(std::move(entity), std::move(target));
 
 	co_return protocols::fs::Error::none;
 }
