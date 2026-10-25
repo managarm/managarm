@@ -220,8 +220,48 @@ struct HandlePartition {
 	async::result<std::expected<void, DispatchError>>
 	operator()(managarm::fs::SwaponRequest &&, helix::BorrowedDescriptor conversation, bragi::preamble,
 			gpt::Partition *partition, raw::RawFs *, std::unique_ptr<BaseFileSystem> *) {
+		struct PartitionSwapTarget : SwapTarget {
+			PartitionSwapTarget(gpt::Partition *partition) : partition_{partition} {}
+
+			arch::contiguous_pool *getSwapPool() override {
+				return partition_->pagePool;
+			}
+
+			async::result<uint64_t> getSwapSize() override {
+				co_return co_await partition_->getSize();
+			}
+
+			async::result<std::expected<void, Error>> enableSwap() override {
+				assert(std::has_single_bit(partition_->sectorSize));
+				if (partition_->sectorSize > 0x1000)
+					co_return std::unexpected(Error::notSupported);
+				co_return {};
+			}
+
+			async::result<std::expected<void, Error>>
+			readSwap(uint64_t offset, arch::dma_buffer_view view) override {
+				assert((offset & (partition_->sectorSize - 1)) == 0);
+				assert((view.size_bytes() & (partition_->sectorSize - 1)) == 0);
+				co_return co_await partition_->readSectors(offset >> partition_->sectorShift, view);
+			}
+
+			async::result<std::expected<void, Error>>
+			writeSwap(uint64_t offset, arch::dma_buffer_view view) override {
+				assert((offset & (partition_->sectorSize - 1)) == 0);
+				assert((view.size_bytes() & (partition_->sectorSize - 1)) == 0);
+				co_return co_await partition_->writeSectors(
+				    offset >> partition_->sectorShift, view
+				);
+			}
+
+		private:
+			gpt::Partition *partition_;
+		};
+
+		auto target = std::make_shared<PartitionSwapTarget>(partition);
+
 		managarm::fs::SwaponResponse resp;
-		resp.set_error((co_await swapon(partition)) | protocols::fs::toFsError);
+		resp.set_error((co_await swapon(std::move(target))) | protocols::fs::toFsError);
 
 		auto [sendResp] = co_await helix_ng::exchangeMsgs(
 			conversation,
