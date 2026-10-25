@@ -228,14 +228,25 @@ async fn run(state: &'static State) -> Result<()> {
     }
 }
 
-fn main() -> Result<()> {
+async fn setup() -> Result<&'static State> {
+    let memory = managarm::kerncfg::get_memory_information().await?;
+    // Swappable memory is charged to the swap space, hence it gets the same floor as posix-root
+    // such that servers can still make progress.
+    let hierarchy = hel::extend_hierarchy(
+        managarm::posix::hierarchy_handle(),
+        "swap-root",
+        Some((memory.total_memory / 64).clamp(4 << 20, 64 << 20)),
+    )?;
+    let swap_space = hel::create_swap_space(&hierarchy)?;
+
     // The state lives for as long as the server does.
-    let swap_space = hel::create_swap_space(managarm::posix::hierarchy_handle())?;
-    let state: &'static State = Box::leak(Box::new(State {
+    Ok(Box::leak(Box::new(State {
         swap_space,
         swap_targets: RwLock::new(Vec::with_capacity(8)),
-    }));
+    })))
+}
 
+fn main() -> Result<()> {
     println!("swapserver: Starting up");
-    hel::block_on(run(state))?
+    hel::block_on(async { run(setup().await?).await })?
 }
