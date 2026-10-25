@@ -10,6 +10,7 @@
 #include <eir/interface.hpp>
 #include <frg/list.hpp>
 #include <frg/optional.hpp>
+#include <frg/rbtree.hpp>
 #include <frg/spinlock.hpp>
 #include <frg/manual_box.hpp>
 #include <physical-buddy.hpp>
@@ -245,9 +246,15 @@ class PhysicalChunkAllocator {
 		AllocationClass cls;
 		PhysicalKind kind;
 		size_t numPages;
+		// Set by startWait_().
+		size_t floor = 0;
+		// Arrival order among nodes of equal floor. Set by startWait_().
+		uint64_t seq = 0;
 		// Protected by _mutex.
 		bool queued = false;
-		// Protected by _mutex.
+		// Hooks the node into waitTree_. Protected by _mutex.
+		frg::rbtree_hook treeHook;
+		// Hooks the node into a WaitList of served nodes. Protected by _mutex.
 		frg::default_list_hook<WaitNode> hook;
 		// Written by the code path that dequeues the node.
 		// Protected by _mutex.
@@ -265,11 +272,16 @@ class PhysicalChunkAllocator {
 		>
 	>;
 
-	struct WaitQueue {
-		WaitList list;
-		// Number of pages requested by WaitNodes in the list.
-		size_t deficit = 0;
+	struct WaitNodeLess {
+		bool operator() (const WaitNode &a, const WaitNode &b) {
+			if(a.floor != b.floor)
+				return a.floor < b.floor;
+			return a.seq < b.seq;
+		}
 	};
+
+	// The first node owns all pinnable pages above its floor until it is served.
+	using WaitTree = frg::rbtree<WaitNode, &WaitNode::treeHook, WaitNodeLess>;
 
 	// We call an allocation fungible if it consists only of single (i.e., non-contiguous) pages
 	// with no additional address restrictions.
@@ -392,17 +404,6 @@ public:
 	}
 
 private:
-	WaitQueue &queueOf_(AllocationClass cls) {
-		switch(cls) {
-		case AllocationClass::kernel:
-			return kernelWaitQueue_;
-		case AllocationClass::user:
-			return userWaitQueue_;
-		default:
-			__builtin_trap();
-		}
-	}
-
 	void updateFloors_();
 
 	// Called by allocateAwaitable() to start the wait.
@@ -413,9 +414,11 @@ private:
 	// Callers must hold _mutex.
 	size_t floorFor_(AllocationClass cls);
 
-	// Sum of WaitQueue::deficit for classes equal or higher than cls.
+	// Floor that an allocation with the given floor must respect.
+	// Allocations must not overtake a waiter with an equal or lower floor, so they get no
+	// pinnable pages at all while such a waiter exists.
 	// Callers must hold _mutex.
-	size_t deficitAhead_(AllocationClass cls);
+	size_t effectiveFloor_(size_t floor);
 
 	// Free pages outside of contiguousReserve roots. Every kind can use these pages,
 	// so floors are measured in them.
@@ -443,7 +446,8 @@ private:
 	// Callers must hold _mutex.
 	void freeChunk_(PhysicalAddr address, size_t size, PhysicalKind kind);
 
-	// Completes waiting allocations until no more progress is possible.
+	// Completes waiting allocations in the order of waitTree_ until the first node
+	// cannot be served.
 	// Callers must hold _mutex.
 	void serveWaiters_(WaitList &served);
 
@@ -513,10 +517,10 @@ private:
 	size_t kernelFloor_ = 0;
 	size_t userFloor_ = 0;
 
-	// Wait queues accessed through queueOf_().
-	// All are protected by _mutex.
-	WaitQueue kernelWaitQueue_;
-	WaitQueue userWaitQueue_;
+	// Waiting allocations, served in the order of WaitNodeLess. Protected by _mutex.
+	WaitTree waitTree_;
+	// Next WaitNode::seq. Protected by _mutex.
+	uint64_t nextSeq_ = 0;
 
 	std::atomic<size_t> _totalPages{0};
 	std::atomic<size_t> _usedPages{0};

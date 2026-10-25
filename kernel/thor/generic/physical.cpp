@@ -252,14 +252,16 @@ PhysicalAddr PhysicalChunkAllocator::allocateInfallible(PhysicalKind kind) {
 
 void PhysicalChunkAllocator::panicOutOfMemory_(PhysicalKind kind, void *caller) {
 	size_t pinnable;
-	size_t kernelDeficit;
-	size_t userDeficit;
+	size_t numWaiters = 0;
+	size_t waitingPages = 0;
 	{
 		auto irqLock = frg::guard(&irqMutex());
 		auto lock = frg::guard(&_mutex);
 		pinnable = pinnablePages_();
-		kernelDeficit = queueOf_(AllocationClass::kernel).deficit;
-		userDeficit = queueOf_(AllocationClass::user).deficit;
+		for(auto node = waitTree_.first(); node; node = WaitTree::successor(node)) {
+			++numWaiters;
+			waitingPages += node->numPages;
+		}
 	}
 
 	const char *kindName = "?";
@@ -280,7 +282,8 @@ void PhysicalChunkAllocator::panicOutOfMemory_(PhysicalKind kind, void *caller) 
 	urgentLogger() << "thor: Pages: " << numTotalPages() << " total, "
 			<< numFreePages() << " free, " << pinnable << " pinnable;"
 			<< " floors: kernel " << kernelFloor_ << ", user " << userFloor_ << ";"
-			<< " waiting: kernel " << kernelDeficit << ", user " << userDeficit << frg::endlog;
+			<< " waiting: " << numWaiters << " allocations of " << waitingPages << " pages"
+			<< frg::endlog;
 	panicLogger() << "thor: Out of physical memory" << frg::endlog;
 	__builtin_trap();
 }
@@ -290,7 +293,7 @@ std::expected<PhysicalAddr, Error> PhysicalChunkAllocator::tryAllocate(Allocatio
 	auto irqLock = frg::guard(&irqMutex());
 	auto lock = frg::guard(&_mutex);
 
-	auto floor = floorFor_(cls) + deficitAhead_(cls);
+	auto floor = effectiveFloor_(floorFor_(cls));
 	auto physical = allocateChunk_(size, kind, addressBits, floor);
 	if(physical == static_cast<PhysicalAddr>(-1))
 		return std::unexpected{Error::noMemory};
@@ -316,7 +319,7 @@ std::expected<PageChain, Error> PhysicalChunkAllocator::tryAllocateChain(Allocat
 	auto irqLock = frg::guard(&irqMutex());
 	auto lock = frg::guard(&_mutex);
 
-	auto floor = floorFor_(cls) + deficitAhead_(cls);
+	auto floor = effectiveFloor_(floorFor_(cls));
 	if(!canAllocateFungible_(numPages, floor))
 		return std::unexpected{Error::noMemory};
 	return allocateFungible_(kind, numPages, floor);
@@ -344,15 +347,14 @@ void PhysicalChunkAllocator::startWait_(WaitNode *node) {
 		auto irqLock = frg::guard(&irqMutex());
 		auto lock = frg::guard(&_mutex);
 
-		auto floor = floorFor_(node->cls) + deficitAhead_(node->cls);
-		if(!canAllocateFungible_(node->numPages, floor)) {
-			auto &queue = queueOf_(node->cls);
-			queue.deficit += node->numPages;
+		node->floor = floorFor_(node->cls);
+		if(!canAllocateFungible_(node->numPages, effectiveFloor_(node->floor))) {
+			node->seq = nextSeq_++;
 			node->queued = true;
-			queue.list.push_back(node);
+			waitTree_.insert(node);
 			return;
 		}
-		node->result = allocateFungible_(node->kind, node->numPages, floor);
+		node->result = allocateFungible_(node->kind, node->numPages, node->floor);
 	}
 
 	node->event.raise();
@@ -367,14 +369,14 @@ void PhysicalChunkAllocator::cancelWait_(WaitNode *node) {
 		// Otherwise, the node was already served and its completion is on the way.
 		if(!node->queued)
 			return;
-		auto &queue = queueOf_(node->cls);
-		queue.list.erase(queue.list.iterator_to(node));
-		queue.deficit -= node->numPages;
+		auto wasFirst = waitTree_.first() == node;
+		waitTree_.remove(node);
 		node->queued = false;
 		node->result = std::unexpected{Error::cancelled};
 		served.push_back(node);
-		// The node may have prevented later waiters from being served.
-		serveWaiters_(served);
+		// Only the first node prevents other nodes from being served.
+		if(wasFirst)
+			serveWaiters_(served);
 	}
 
 	completeServed_(served);
@@ -389,19 +391,11 @@ size_t PhysicalChunkAllocator::floorFor_(AllocationClass cls) {
 	__builtin_trap();
 }
 
-size_t PhysicalChunkAllocator::deficitAhead_(AllocationClass cls) {
-	size_t ahead = 0;
-	switch(cls) {
-	case AllocationClass::user:
-		ahead += queueOf_(AllocationClass::user).deficit;
-		[[fallthrough]];
-	case AllocationClass::kernel:
-		ahead += queueOf_(AllocationClass::kernel).deficit;
-		[[fallthrough]];
-	case AllocationClass::emergency:
-		;
-	}
-	return ahead;
+size_t PhysicalChunkAllocator::effectiveFloor_(size_t floor) {
+	auto first = waitTree_.first();
+	if(first && floor >= first->floor)
+		return ~size_t{0};
+	return floor;
 }
 
 // The floor of a class holds pages back for requests of earlier classes.
@@ -642,25 +636,14 @@ void PhysicalChunkAllocator::freeChunk_(PhysicalAddr address, size_t size, Physi
 }
 
 void PhysicalChunkAllocator::serveWaiters_(WaitList &served) {
-	// Serving a node only takes pages beyond the deficit of the earlier queues,
-	// so a single pass in class order suffices.
-	size_t ahead = 0;
-	for(auto cls : {AllocationClass::kernel, AllocationClass::user}) {
-		auto &queue = queueOf_(cls);
-		auto floor = floorFor_(cls) + ahead;
-		while(!queue.list.empty()) {
-			auto node = queue.list.front();
-			// The nodes behind the front have more pages ahead of them, so they cannot be
-			// served either.
-			if(!canAllocateFungible_(node->numPages, floor))
-				break;
-			queue.list.pop_front();
-			queue.deficit -= node->numPages;
-			node->queued = false;
-			node->result = allocateFungible_(node->kind, node->numPages, floor);
-			served.push_back(node);
-		}
-		ahead += queue.deficit;
+	// Serving only the first node ensures that smaller nodes cannot overtake larger ones.
+	while(auto node = waitTree_.first()) {
+		if(!canAllocateFungible_(node->numPages, node->floor))
+			break;
+		waitTree_.remove(node);
+		node->queued = false;
+		node->result = allocateFungible_(node->kind, node->numPages, node->floor);
+		served.push_back(node);
 	}
 }
 
