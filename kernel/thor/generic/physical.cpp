@@ -135,7 +135,6 @@ void PhysicalChunkAllocator::updateFloors_() {
 	// Clamp to minimum/maximum sizes to avoid wasting too much RAM.
 	constexpr size_t minBase = size_t{1} << (20 - kPageShift);
 	constexpr size_t maxBase = size_t{32} << (20 - kPageShift);
-	static_assert(maxPagesPerWait <= minBase);
 	if(base < minBase)
 		base = minBase;
 	if(base > maxBase)
@@ -341,7 +340,6 @@ void PhysicalChunkAllocator::startWait_(WaitNode *node) {
 	assert(node->cls == AllocationClass::kernel || node->cls == AllocationClass::user);
 	assert(node->kind != PhysicalKind::contiguous);
 	assert(node->numPages);
-	assert(node->numPages <= maxPagesPerWait);
 
 	{
 		auto irqLock = frg::guard(&irqMutex());
@@ -661,25 +659,25 @@ std::expected<void, Error> PageMagazine::refill() {
 	// Reset wanted before blocking since blocking can allocate (and refill) in this context.
 	auto remaining = std::exchange(wanted, 0);
 
-	while(canBlockForMemory() && remaining) {
-		auto batch = frg::min(remaining, PhysicalChunkAllocator::maxPagesPerWait);
+	if(!remaining)
+		return {};
+
+	if(canBlockForMemory()) {
 		auto blocked = physicalAllocator->allocateChainBlocking(AllocationClass::kernel,
-				PhysicalKind::pinned, batch);
+				PhysicalKind::pinned, remaining);
 		// If blocking failed, fall back to the emergency tryAllocateChain() below.
-		if(!blocked)
-			break;
-		assert(blocked->size() == batch);
-		pages.splice(std::move(*blocked));
-		remaining -= batch;
+		if(blocked) {
+			assert(blocked->size() == remaining);
+			pages.splice(std::move(*blocked));
+			return {};
+		}
 	}
 	// Try the emergency class if we either cannot block or if blocking failed above.
-	if(remaining) {
-		auto emergency = physicalAllocator->tryAllocateChain(AllocationClass::emergency,
-				PhysicalKind::pinned, remaining);
-		if(!emergency)
-			return std::unexpected{emergency.error()};
-		pages.splice(std::move(*emergency));
-	}
+	auto emergency = physicalAllocator->tryAllocateChain(AllocationClass::emergency,
+			PhysicalKind::pinned, remaining);
+	if(!emergency)
+		return std::unexpected{emergency.error()};
+	pages.splice(std::move(*emergency));
 	return {};
 }
 

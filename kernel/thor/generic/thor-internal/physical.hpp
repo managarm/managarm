@@ -295,9 +295,6 @@ public:
 	static constexpr size_t maxRootsPerRegion = 64;
 	static constexpr size_t numRootClasses = 3;
 
-	// Maximum number of pages that a WaitNode can wait for.
-	static constexpr size_t maxPagesPerWait = 256;
-
 	PhysicalChunkAllocator();
 
 	void bootstrapRegion(PhysicalAddr address,
@@ -542,7 +539,6 @@ struct PageMagazine {
 
 	// Allocates the wanted pages in the kernel class.
 	// Blocks for them if possible (i.e., if canBlockForMemory() is true). Falls back to the emergency class.
-	// On failure, the pages that were already allocated stay in the magazine.
 	std::expected<void, Error> refill();
 
 	// Like refill() but never fails; see PhysicalChunkAllocator::allocateInfallible().
