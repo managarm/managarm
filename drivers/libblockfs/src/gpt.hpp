@@ -98,7 +98,7 @@ private:
 	probeSectorSize_(size_t sectorSize);
 
 	BlockDevice *device_;
-	std::vector<Partition> partitions_;
+	std::vector<std::unique_ptr<Partition>> partitions_;
 	size_t gptSectorSize_;
 };
 
@@ -119,6 +119,8 @@ struct Partition : public BlockDevice {
 	Guid id();
 
 	Guid type();
+
+	std::atomic_bool isSwapTarget = false;
 
 private:
 	Table &_table;

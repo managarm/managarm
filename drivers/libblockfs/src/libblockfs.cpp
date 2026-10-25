@@ -233,6 +233,8 @@ struct HandlePartition {
 
 			async::result<std::expected<void, Error>> enableSwap() override {
 				assert(std::has_single_bit(partition_->sectorSize));
+				if (partition_->isSwapTarget.exchange(true))
+					co_return std::unexpected(Error::busy);
 				if (partition_->sectorSize > 0x1000)
 					co_return std::unexpected(Error::notSupported);
 				co_return {};

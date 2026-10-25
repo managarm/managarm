@@ -15,12 +15,15 @@ enum class Error {
 	ioError,
 	// The device does not implement the request.
 	notSupported,
+	// The swap target is busy.
+	busy,
 };
 
 inline protocols::fs::Error operator|(Error e, protocols::fs::ToFsProtoError) {
 	switch(e) {
 		case Error::ioError: return protocols::fs::Error::ioError;
 		case Error::notSupported: return protocols::fs::Error::notSupported;
+		case Error::busy: return protocols::fs::Error::busy;
 	}
 }
 
