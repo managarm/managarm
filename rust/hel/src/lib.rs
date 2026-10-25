@@ -86,6 +86,32 @@ pub fn create_slice_view(bundle: &Handle, offset: usize, size: usize) -> Result<
     Ok(unsafe { Handle::from_raw(handle) })
 }
 
+/// Creates a child of the given hierarchy node. The tag identifies it in kernel messages.
+///
+/// With a `memory_floor`, the child gets its own memory controller: allocations of the child
+/// and its descendants wait (or fail) unless that many bytes of memory stay free.
+pub fn extend_hierarchy(parent: &Handle, tag: &str, memory_floor: Option<usize>) -> Result<Handle> {
+    let mut params = hel_sys::HelHierarchyParameters {
+        tag: [0; 128],
+        controllers: 0,
+        memoryFloor: 0,
+    };
+    // Tags that do not fit are truncated.
+    for (slot, &byte) in params.tag.iter_mut().zip(tag.as_bytes()) {
+        *slot = byte as core::ffi::c_char;
+    }
+    if let Some(floor) = memory_floor {
+        params.controllers |= hel_sys::kHelHierarchyMemoryController;
+        params.memoryFloor = floor;
+    }
+
+    let mut handle = hel_sys::kHelNullHandle as hel_sys::HelHandle;
+    result::hel_check(unsafe {
+        hel_sys::helExtendHierarchy(parent.handle(), &params, &mut handle)
+    })?;
+    Ok(unsafe { Handle::from_raw(handle) })
+}
+
 /// A swap space, the backing store for swappable anonymous memory.
 ///
 /// The swap daemon that owns it services manage requests on the
