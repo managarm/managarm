@@ -216,13 +216,13 @@ void PhysicalChunkAllocator::assignRootClasses(size_t reserveBytes) {
 
 std::expected<PhysicalAddr, Error> PhysicalChunkAllocator::allocate(size_t size, PhysicalKind kind,
 		int addressBits) {
-	if(auto outcome = tryAllocate(AllocationClass::kernel, size, kind, addressBits); outcome)
+	if(auto outcome = tryAllocate({AllocationClass::kernel, 0}, size, kind, addressBits); outcome)
 		return outcome;
 	if(isFungibleAllocation_(size, kind, addressBits) && canBlockForMemory()) {
-		if(auto outcome = allocateBlocking(AllocationClass::kernel, kind); outcome)
+		if(auto outcome = allocateBlocking({AllocationClass::kernel, 0}, kind); outcome)
 			return outcome;
 	}
-	return tryAllocate(AllocationClass::emergency, size, kind, addressBits);
+	return tryAllocate({AllocationClass::emergency, 0}, size, kind, addressBits);
 }
 
 PhysicalAddr PhysicalChunkAllocator::allocate(size_t size, int addressBits) {
@@ -240,7 +240,7 @@ PhysicalAddr PhysicalChunkAllocator::allocateInfallible(PhysicalKind kind) {
 	// impossible or cancelled by termination. The caller cannot fail, so wait uncancellably.
 	if(canBlockForMemory()) {
 		auto outcome = Thread::asyncBlockCurrent(
-			allocateAwaitable(AllocationClass::kernel, kind, async::cancellation_token{}),
+			allocateAwaitable({AllocationClass::kernel, 0}, kind, async::cancellation_token{}),
 			nullptr
 		);
 		assert(outcome);
@@ -287,49 +287,49 @@ void PhysicalChunkAllocator::panicOutOfMemory_(PhysicalKind kind, void *caller) 
 	__builtin_trap();
 }
 
-std::expected<PhysicalAddr, Error> PhysicalChunkAllocator::tryAllocate(AllocationClass cls,
+std::expected<PhysicalAddr, Error> PhysicalChunkAllocator::tryAllocate(AllocationPolicy policy,
 		size_t size, PhysicalKind kind, int addressBits) {
 	auto irqLock = frg::guard(&irqMutex());
 	auto lock = frg::guard(&_mutex);
 
-	auto floor = effectiveFloor_(floorFor_(cls));
+	auto floor = effectiveFloor_(floorFor_(policy.cls) + policy.floor);
 	auto physical = allocateChunk_(size, kind, addressBits, floor);
 	if(physical == static_cast<PhysicalAddr>(-1))
 		return std::unexpected{Error::noMemory};
 	return physical;
 }
 
-std::expected<PhysicalAddr, Error> PhysicalChunkAllocator::allocateBlocking(AllocationClass cls,
-		PhysicalKind kind) {
+std::expected<PhysicalAddr, Error> PhysicalChunkAllocator::allocateBlocking(
+		AllocationPolicy policy, PhysicalKind kind) {
 	assert(canBlockForMemory());
 	return Thread::asyncBlockCurrentInterruptible(
 		[&] (async::cancellation_token ct) {
-			return allocateAwaitable(cls, kind, ct);
+			return allocateAwaitable(policy, kind, ct);
 		},
 		nullptr,
 		condition::interrupt
 	);
 }
 
-std::expected<PageChain, Error> PhysicalChunkAllocator::tryAllocateChain(AllocationClass cls,
+std::expected<PageChain, Error> PhysicalChunkAllocator::tryAllocateChain(AllocationPolicy policy,
 		PhysicalKind kind, size_t numPages) {
 	assert(numPages);
 	assert(kind != PhysicalKind::contiguous);
 	auto irqLock = frg::guard(&irqMutex());
 	auto lock = frg::guard(&_mutex);
 
-	auto floor = effectiveFloor_(floorFor_(cls));
+	auto floor = effectiveFloor_(floorFor_(policy.cls) + policy.floor);
 	if(!canAllocateFungible_(numPages, floor))
 		return std::unexpected{Error::noMemory};
 	return allocateFungible_(kind, numPages, floor);
 }
 
-std::expected<PageChain, Error> PhysicalChunkAllocator::allocateChainBlocking(AllocationClass cls,
-		PhysicalKind kind, size_t numPages) {
+std::expected<PageChain, Error> PhysicalChunkAllocator::allocateChainBlocking(
+		AllocationPolicy policy, PhysicalKind kind, size_t numPages) {
 	assert(canBlockForMemory());
 	return Thread::asyncBlockCurrentInterruptible(
 		[&] (async::cancellation_token ct) {
-			return allocateChainAwaitable(cls, kind, numPages, ct);
+			return allocateChainAwaitable(policy, kind, numPages, ct);
 		},
 		nullptr,
 		condition::interrupt
@@ -345,7 +345,7 @@ void PhysicalChunkAllocator::startWait_(WaitNode *node) {
 		auto irqLock = frg::guard(&irqMutex());
 		auto lock = frg::guard(&_mutex);
 
-		node->floor = floorFor_(node->cls);
+		node->floor += floorFor_(node->cls);
 		if(!canAllocateFungible_(node->numPages, effectiveFloor_(node->floor))) {
 			node->seq = nextSeq_++;
 			node->queued = true;
@@ -663,7 +663,7 @@ std::expected<void, Error> PageMagazine::refill() {
 		return {};
 
 	if(canBlockForMemory()) {
-		auto blocked = physicalAllocator->allocateChainBlocking(AllocationClass::kernel,
+		auto blocked = physicalAllocator->allocateChainBlocking({AllocationClass::kernel, 0},
 				PhysicalKind::pinned, remaining);
 		// If blocking failed, fall back to the emergency tryAllocateChain() below.
 		if(blocked) {
@@ -673,7 +673,7 @@ std::expected<void, Error> PageMagazine::refill() {
 		}
 	}
 	// Try the emergency class if we either cannot block or if blocking failed above.
-	auto emergency = physicalAllocator->tryAllocateChain(AllocationClass::emergency,
+	auto emergency = physicalAllocator->tryAllocateChain({AllocationClass::emergency, 0},
 			PhysicalKind::pinned, remaining);
 	if(!emergency)
 		return std::unexpected{emergency.error()};

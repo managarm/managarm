@@ -45,7 +45,7 @@ chargeAndAllocate(Hierarchy *hierarchy, PhysicalKind kind) {
 
 	if(auto charge = hierarchy->tryChargeMemory(kPageSize); !charge)
 		co_return std::unexpected{charge.error()};
-	auto physical = co_await physicalAllocator->allocateAwaitable(AllocationClass::user, kind,
+	auto physical = co_await physicalAllocator->allocateAwaitable({AllocationClass::user, 0}, kind,
 			async::cancellation_token{});
 	if(!physical) {
 		hierarchy->unchargeMemory(kPageSize);
@@ -58,7 +58,7 @@ std::expected<PhysicalAddr, Error>
 tryChargeAndAllocate(Hierarchy *hierarchy, size_t size, PhysicalKind kind, int addressBits) {
 	if(auto charge = hierarchy->tryChargeMemory(size); !charge)
 		return std::unexpected{charge.error()};
-	auto physical = physicalAllocator->tryAllocate(AllocationClass::user, size, kind,
+	auto physical = physicalAllocator->tryAllocate({AllocationClass::user, 0}, size, kind,
 			addressBits);
 	if(!physical) {
 		hierarchy->unchargeMemory(size);
@@ -4302,7 +4302,7 @@ coroutine<std::expected<PhysicalAddr, Error>> CopyOnWriteMemory::_allocateCopy()
 	if(_space)
 		co_return co_await chargeAndAllocate(_space->hierarchy.get(), PhysicalKind::evictable);
 	// Non-swappable CopyOnWriteMemory only needs the charge in tryChargePages_().
-	co_return co_await physicalAllocator->allocateAwaitable(AllocationClass::user,
+	co_return co_await physicalAllocator->allocateAwaitable({AllocationClass::user, 0},
 			PhysicalKind::pinned, async::cancellation_token{});
 }
 

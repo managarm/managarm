@@ -236,8 +236,8 @@ class PhysicalChunkAllocator {
 	typedef frg::ticket_spinlock Mutex;
 
 	struct WaitNode {
-		WaitNode(AllocationClass cls, PhysicalKind kind, size_t numPages)
-		: cls{cls}, kind{kind}, numPages{numPages} { }
+		WaitNode(AllocationPolicy policy, PhysicalKind kind, size_t numPages)
+		: cls{policy.cls}, kind{kind}, numPages{numPages}, floor{policy.floor} { }
 
 		WaitNode(const WaitNode &) = delete;
 
@@ -246,8 +246,8 @@ class PhysicalChunkAllocator {
 		AllocationClass cls;
 		PhysicalKind kind;
 		size_t numPages;
-		// Set by startWait_().
-		size_t floor = 0;
+		// Starts out as AllocationPolicy::floor. startWait_() adds the floor of cls.
+		size_t floor;
 		// Arrival order among nodes of equal floor. Set by startWait_().
 		uint64_t seq = 0;
 		// Protected by _mutex.
@@ -306,15 +306,16 @@ public:
 	void assignRootClasses(size_t reserveBytes);
 
 	// Allocates a naturally aligned power-of-two sized chunk.
-	std::expected<PhysicalAddr, Error> tryAllocate(AllocationClass cls, size_t size,
+	std::expected<PhysicalAddr, Error> tryAllocate(AllocationPolicy policy, size_t size,
 			PhysicalKind kind, int addressBits = 64);
 
 	// Asynchronously performs a fungible allocation.
 	// Completes with Error::cancelled on cancellation.
 	// Precondition: isFungibleAllocation_() is true.
-	auto allocateAwaitable(AllocationClass cls, PhysicalKind kind, async::cancellation_token ct) {
+	auto allocateAwaitable(AllocationPolicy policy, PhysicalKind kind,
+			async::cancellation_token ct) {
 		return async::let(
-			[=] { return WaitNode{cls, kind, 1}; },
+			[=] { return WaitNode{policy, kind, 1}; },
 			[this, ct] (WaitNode &node) {
 				startWait_(&node);
 				return async::with_cancel_cb(
@@ -337,17 +338,18 @@ public:
 
 	// Like allocateAwaitable() but blocks.
 	// Cancelled on thread termination (returning Error::cancelled).
-	std::expected<PhysicalAddr, Error> allocateBlocking(AllocationClass cls, PhysicalKind kind);
+	std::expected<PhysicalAddr, Error> allocateBlocking(AllocationPolicy policy,
+			PhysicalKind kind);
 
 	// Like tryAllocate() but for chains of fungible pages.
-	std::expected<PageChain, Error> tryAllocateChain(AllocationClass cls, PhysicalKind kind,
+	std::expected<PageChain, Error> tryAllocateChain(AllocationPolicy policy, PhysicalKind kind,
 			size_t numPages);
 
 	// Like allocateAwaitable() but for chains of fungible pages.
-	auto allocateChainAwaitable(AllocationClass cls, PhysicalKind kind, size_t numPages,
+	auto allocateChainAwaitable(AllocationPolicy policy, PhysicalKind kind, size_t numPages,
 			async::cancellation_token ct) {
 		return async::let(
-			[=] { return WaitNode{cls, kind, numPages}; },
+			[=] { return WaitNode{policy, kind, numPages}; },
 			[this, ct] (WaitNode &node) {
 				startWait_(&node);
 				return async::with_cancel_cb(
@@ -365,8 +367,8 @@ public:
 	}
 
 	// Like allocateBlocking() but for chains of fungible pages.
-	std::expected<PageChain, Error> allocateChainBlocking(AllocationClass cls, PhysicalKind kind,
-			size_t numPages);
+	std::expected<PageChain, Error> allocateChainBlocking(AllocationPolicy policy,
+			PhysicalKind kind, size_t numPages);
 
 	// Allocates a naturally aligned power-of-two sized chunk in the kernel class.
 	// Blocks for fungible pages if possible (i.e., if canBlockForMemory() is true).

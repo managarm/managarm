@@ -210,7 +210,7 @@ void *HeapSlabPolicy::map(size_t length) {
 		// Other contexts try to allocate here and let refillAndAllocate_() deal with failure.
 		auto cls = ctx ? AllocationClass::kernel : AllocationClass::emergency;
 		auto deficit = numPages - magazine.pages.size();
-		auto pages = physicalAllocator->tryAllocateChain(cls, PhysicalKind::pinned, deficit);
+		auto pages = physicalAllocator->tryAllocateChain({cls, 0}, PhysicalKind::pinned, deficit);
 		if(!pages) {
 			if(!ctx)
 				panicLogger() << "thor: Out of memory for the kernel heap" << frg::endlog;
