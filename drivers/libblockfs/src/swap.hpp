@@ -26,8 +26,7 @@ struct SwapTarget {
 	writeSwap(uint64_t offset, arch::dma_buffer_view) = 0;
 };
 
-// Announces a swap target for a Managarm swap partition.
-// TODO: generalize this to also work with regular files.
+// Announces a swap target.
 async::result<protocols::fs::Error> swapon(std::shared_ptr<SwapTarget>);
 
 } // namespace blockfs
