@@ -7,6 +7,7 @@
 #include <async/algorithm.hpp>
 #include <async/cancellation.hpp>
 #include <async/oneshot-event.hpp>
+#include <async/recurring-event.hpp>
 #include <eir/interface.hpp>
 #include <frg/list.hpp>
 #include <frg/optional.hpp>
@@ -402,6 +403,20 @@ public:
 		return _freePages.load(std::memory_order_relaxed);
 	}
 
+	// Pinnable pages that the reclaimer should free: an allocation left less than
+	// reclaimResumeHeadroom_ above its floor, and the resulting reclaim target is not met yet.
+	size_t pressureShortfall();
+
+	// Completes once pressureShortfall() is non-zero.
+	auto awaitPressure(async::cancellation_token ct = {}) {
+		return async::transform(
+			pressureEvent_.async_wait_if([this] -> bool {
+				return !pressureShortfall();
+			}, ct),
+			[] (auto) {}
+		);
+	}
+
 private:
 	void updateFloors_();
 
@@ -412,6 +427,16 @@ private:
 
 	// Callers must hold _mutex.
 	size_t floorFor_(AllocationClass cls);
+
+	// Called for allocations of all classes (successful or not).
+	// Raises reclaimTarget_ if the allocation left less than reclaimResumeHeadroom_ above its floor.
+	// Sets kickReclaim to true if pressureEvent_ needs to be raised after dropping _mutex (and doesn't modify it otherwise).
+	// Callers must hold _mutex.
+	void noteAllocation_(AllocationPolicy policy, bool &kickReclaim);
+
+	// Clears reclaimTarget_ if it is met, such that noteAllocation_() can raise a new target.
+	// Callers must hold _mutex.
+	void updateReclaimTarget_();
 
 	// Floor that an allocation with the given floor must respect.
 	// Allocations must not overtake a waiter with an equal or lower floor, so they get no
@@ -515,6 +540,19 @@ private:
 	// Floors in pages; see AllocationClass. Set by updateFloors_().
 	size_t kernelFloor_ = 0;
 	size_t userFloor_ = 0;
+
+	// Headroom in pinnable pages above the floor of an allocation at which reclaim
+	// starts and stops; see noteAllocation_(). Set by updateFloors_().
+	size_t reclaimResumeHeadroom_ = 0;
+	size_t reclaimSuspendHeadroom_ = 0;
+	// Allocations whose AllocationPolicy::floor exceeds this do not raise the reclaim target.
+	// Set by updateFloors_().
+	size_t maxAssistedFloor_ = 0;
+
+	// Pinnable pages that the reclaimer works towards, or zero if there is no target.
+	// Protected by _mutex.
+	size_t reclaimTarget_ = 0;
+	async::recurring_event pressureEvent_;
 
 	// Waiting allocations, served in the order of WaitNodeLess. Protected by _mutex.
 	WaitTree waitTree_;

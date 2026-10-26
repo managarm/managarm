@@ -141,6 +141,16 @@ void PhysicalChunkAllocator::updateFloors_() {
 		base = maxBase;
 	kernelFloor_ = base;
 	userFloor_ = 2 * base;
+
+	// Background reclaim starts when an allocation leaves less than 1% of memory as headroom
+	// above its floor and stops once the headroom is 2%.
+	auto total = numTotalPages();
+	reclaimResumeHeadroom_ = total / 100;
+	reclaimSuspendHeadroom_ = total / 50;
+	// Floors of up to 5% of memory (but at least 128 MiB) on top of the user floor get
+	// assistance from the reclaimer.
+	constexpr size_t minAssistedFloor = size_t{128} << (20 - kPageShift);
+	maxAssistedFloor_ = frg::min(frg::max(total / 20, minAssistedFloor), total / 4);
 }
 
 void PhysicalChunkAllocator::assignRootClasses(size_t reserveBytes) {
@@ -289,11 +299,19 @@ void PhysicalChunkAllocator::panicOutOfMemory_(PhysicalKind kind, void *caller) 
 
 std::expected<PhysicalAddr, Error> PhysicalChunkAllocator::tryAllocate(AllocationPolicy policy,
 		size_t size, PhysicalKind kind, int addressBits) {
-	auto irqLock = frg::guard(&irqMutex());
-	auto lock = frg::guard(&_mutex);
+	PhysicalAddr physical;
+	bool kickReclaim = false;
+	{
+		auto irqLock = frg::guard(&irqMutex());
+		auto lock = frg::guard(&_mutex);
 
-	auto floor = effectiveFloor_(floorFor_(policy.cls) + policy.floor);
-	auto physical = allocateChunk_(size, kind, addressBits, floor);
+		auto floor = effectiveFloor_(floorFor_(policy.cls) + policy.floor);
+		physical = allocateChunk_(size, kind, addressBits, floor);
+		noteAllocation_(policy, kickReclaim);
+	}
+
+	if(kickReclaim)
+		pressureEvent_.raise();
 	if(physical == static_cast<PhysicalAddr>(-1))
 		return std::unexpected{Error::noMemory};
 	return physical;
@@ -315,13 +333,21 @@ std::expected<PageChain, Error> PhysicalChunkAllocator::tryAllocateChain(Allocat
 		PhysicalKind kind, size_t numPages) {
 	assert(numPages);
 	assert(kind != PhysicalKind::contiguous);
-	auto irqLock = frg::guard(&irqMutex());
-	auto lock = frg::guard(&_mutex);
+	std::expected<PageChain, Error> chain{std::unexpected{Error::noMemory}};
+	bool kickReclaim = false;
+	{
+		auto irqLock = frg::guard(&irqMutex());
+		auto lock = frg::guard(&_mutex);
 
-	auto floor = effectiveFloor_(floorFor_(policy.cls) + policy.floor);
-	if(!canAllocateFungible_(numPages, floor))
-		return std::unexpected{Error::noMemory};
-	return allocateFungible_(kind, numPages, floor);
+		auto floor = effectiveFloor_(floorFor_(policy.cls) + policy.floor);
+		if(canAllocateFungible_(numPages, floor))
+			chain = allocateFungible_(kind, numPages, floor);
+		noteAllocation_(policy, kickReclaim);
+	}
+
+	if(kickReclaim)
+		pressureEvent_.raise();
+	return chain;
 }
 
 std::expected<PageChain, Error> PhysicalChunkAllocator::allocateChainBlocking(
@@ -341,21 +367,29 @@ void PhysicalChunkAllocator::startWait_(WaitNode *node) {
 	assert(node->kind != PhysicalKind::contiguous);
 	assert(node->numPages);
 
+	bool kickReclaim = false;
+	bool completed = false;
 	{
 		auto irqLock = frg::guard(&irqMutex());
 		auto lock = frg::guard(&_mutex);
 
+		AllocationPolicy policy{node->cls, node->floor};
 		node->floor += floorFor_(node->cls);
 		if(!canAllocateFungible_(node->numPages, effectiveFloor_(node->floor))) {
 			node->seq = nextSeq_++;
 			node->queued = true;
 			waitTree_.insert(node);
-			return;
+		} else {
+			node->result = allocateFungible_(node->kind, node->numPages, node->floor);
+			completed = true;
 		}
-		node->result = allocateFungible_(node->kind, node->numPages, node->floor);
+		noteAllocation_(policy, kickReclaim);
 	}
 
-	node->event.raise();
+	if(kickReclaim)
+		pressureEvent_.raise();
+	if(completed)
+		node->event.raise();
 }
 
 void PhysicalChunkAllocator::cancelWait_(WaitNode *node) {
@@ -387,6 +421,42 @@ size_t PhysicalChunkAllocator::floorFor_(AllocationClass cls) {
 	case AllocationClass::user: return userFloor_;
 	}
 	__builtin_trap();
+}
+
+size_t PhysicalChunkAllocator::pressureShortfall() {
+	auto irqLock = frg::guard(&irqMutex());
+	auto lock = frg::guard(&_mutex);
+
+	updateReclaimTarget_();
+	if(!reclaimTarget_)
+		return 0;
+	return reclaimTarget_ - pinnablePages_();
+}
+
+void PhysicalChunkAllocator::noteAllocation_(AllocationPolicy policy, bool &kickReclaim) {
+	// Larger floors get no assistance from the reclaimer.
+	// Otherwise, a floor that can never be met would make the reclaimer evict pages forever.
+	if(policy.floor > maxAssistedFloor_)
+		return;
+
+	// The marks are relative to the user floor for all classes, such that reclaim starts
+	// before user allocations have to wait.
+	auto floor = floorFor_(AllocationClass::user) + policy.floor;
+	// Allocations at or above the floor of the first waiter only proceed once it is served.
+	if(auto first = waitTree_.first(); first && first->floor <= floor)
+		floor += first->numPages;
+	if(pinnablePages_() >= floor + reclaimResumeHeadroom_)
+		return;
+	auto target = floor + reclaimSuspendHeadroom_;
+	if(target <= reclaimTarget_)
+		return;
+	reclaimTarget_ = target;
+	kickReclaim = true;
+}
+
+void PhysicalChunkAllocator::updateReclaimTarget_() {
+	if(reclaimTarget_ && pinnablePages_() >= reclaimTarget_)
+		reclaimTarget_ = 0;
 }
 
 size_t PhysicalChunkAllocator::effectiveFloor_(size_t floor) {
@@ -590,6 +660,7 @@ void PhysicalChunkAllocator::free(PhysicalAddr address, size_t size, PhysicalKin
 
 		freeChunk_(address, size, kind);
 		serveWaiters_(served);
+		updateReclaimTarget_();
 	}
 
 	completeServed_(served);
