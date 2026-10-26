@@ -146,6 +146,8 @@ struct MemoryReclaimer {
 		auto irqLock = frg::guard(&irqMutex());
 		auto lock = frg::guard(&mutex_);
 
+		// Generations are aligned across bundles such that eviction can compare them.
+		bundle->newestGen_ = newestGen_;
 		// Note that this push_back() publishes the bundle since traversal does not hold mutex_.
 		bundleList_.push_back(bundle.get());
 	}
@@ -173,7 +175,9 @@ struct MemoryReclaimer {
 
 			page->generation = bundle->newestGen_;
 			bundle->genLists_[bundle->newestGen_].push_back(page);
+			bundle->genSizes_[bundle->newestGen_]++;
 			page->flags |= CachePage::reclaimRegistered;
+			numInGenerations_.fetch_add(1, std::memory_order_relaxed);
 		}
 
 		rotationTurnaround_.fetch_add(1, std::memory_order_relaxed);
@@ -195,9 +199,13 @@ struct MemoryReclaimer {
 			}
 
 			page->flags &= ~(CachePage::reclaimPosted | CachePage::reclaimInflight);
+			numPosted_.fetch_sub(1, std::memory_order_relaxed);
 		}else{
-			auto it = bundle->genLists_[page->generation].iterator_to(page);
-			bundle->genLists_[page->generation].erase(it);
+			auto g = generationOf_(bundle, page);
+			auto it = bundle->genLists_[g].iterator_to(page);
+			bundle->genLists_[g].erase(it);
+			bundle->genSizes_[g]--;
+			numInGenerations_.fetch_sub(1, std::memory_order_relaxed);
 		}
 		page->flags &= ~CachePage::reclaimRegistered;
 	}
@@ -219,11 +227,17 @@ struct MemoryReclaimer {
 				page->flags &= ~(CachePage::reclaimPosted | CachePage::reclaimInflight);
 				page->generation = bundle->newestGen_;
 				bundle->genLists_[bundle->newestGen_].push_back(page);
+				bundle->genSizes_[bundle->newestGen_]++;
+				numPosted_.fetch_sub(1, std::memory_order_relaxed);
+				numInGenerations_.fetch_add(1, std::memory_order_relaxed);
 			}else if(page->generation != bundle->newestGen_) {
-				auto it = bundle->genLists_[page->generation].iterator_to(page);
-				bundle->genLists_[page->generation].erase(it);
+				auto g = generationOf_(bundle, page);
+				auto it = bundle->genLists_[g].iterator_to(page);
+				bundle->genLists_[g].erase(it);
+				bundle->genSizes_[g]--;
 				page->generation = bundle->newestGen_;
 				bundle->genLists_[bundle->newestGen_].push_back(page);
+				bundle->genSizes_[bundle->newestGen_]++;
 			}
 		}
 
@@ -279,33 +293,21 @@ struct MemoryReclaimer {
 							<< " KiB in use" << frg::endlog;
 				}
 
-				// On memory pressure: rotate generations until pressure drops.
-				if (checkPressure()) {
-					for(unsigned int i = 1; i <= CacheBundle::numGenerations; i++) {
-						if(!checkPressure())
-							break;
-
-						auto result = rotateGenerations_();
-						if(logReclaim) {
-							infoLogger() << frg::fmt(
-								"thor: Reclamation under pressure (iteration {}) reclaims 0x{:x} bytes",
-								i,
-								result.sizeReclaimed
-							) << frg::endlog;
-						}
+				if(tortureUncaching) {
+					evictPages_(~size_t{0});
+				}else if(shortfall_()) {
+					if(!reclaimShortfall_()) {
+						// Retrying immediately would not find more pages either.
+						if(logReclaim)
+							infoLogger() << "thor: Reclamation makes no progress" << frg::endlog;
+						KernelFiber::asyncBlockCurrent(
+							generalTimerEngine()->sleepFor(stalledReclaimBackoffNs));
 					}
 				}
 
-				// Otherwise: rotate generations when number of page bumps crosses threshold.
-				if(shouldRotate_()) {
-					auto result = rotateGenerations_();
-					if(logReclaim) {
-						infoLogger() << frg::fmt(
-							"thor: Generation rotation reclaims 0x{:x} bytes",
-							result.sizeReclaimed
-						) << frg::endlog;
-					}
-				}
+				// Start a new generation when the number of page bumps crosses a threshold.
+				if(shouldRotate_())
+					rotateGenerations_();
 
 				auto sleepNs = tortureUncaching ? 10'000'000 : 1'000'000'000;
 				KernelFiber::asyncBlockCurrent(
@@ -333,49 +335,184 @@ struct MemoryReclaimer {
 	}
 
 private:
-	struct RotateResult {
-		size_t sizeReclaimed{0};
-	};
+	// CachePage::generation of pages in the oldest generation. This generation saturates,
+	// so its index (which moves on rotation) is not stored in the pages.
+	static constexpr uint8_t oldestGeneration = 0xFF;
+	static_assert(oldestGeneration >= CacheBundle::numGenerations);
 
-	RotateResult rotateGenerations_() {
+	// Pages to post per round of reclaimShortfall_().
+	// Bounds over-eviction, since the shortfall is re-measured between batches.
+	// Also ensure that evictPages_() does not do too much work without dropping locks.
+	static constexpr size_t maxEvictBatch = 2048;
+	// Time that the bundles get to evict posted pages before the next round.
+	static constexpr uint64_t evictionPollNs = 10'000'000;
+	// Rounds without new or evicted posted pages after which reclaimShortfall_() gives up.
+	static constexpr unsigned int maxPollsForEviction = 20;
+	// Time that the reclaimer waits after reclaimShortfall_() gave up.
+	static constexpr uint64_t stalledReclaimBackoffNs = 1'000'000'000;
+
+	// Pages that need to be reclaimed to relieve memory pressure.
+	size_t shortfall_() {
+		auto watermark = physicalAllocator->numTotalPages() * 3 / 4;
+		auto usedPages = physicalAllocator->numUsedPages();
+		if(usedPages < watermark)
+			return 0;
+		return usedPages - watermark;
+	}
+
+	// Posts pages until shortfall_() drops to zero, taking the pages that are already posted
+	// (but not evicted yet) into account.
+	// Returns false if no progress could be made.
+	bool reclaimShortfall_() {
+		unsigned int numPolls = 0;
+		auto lastPosted = numPosted_.load(std::memory_order_relaxed);
+		while(true) {
+			auto shortfall = shortfall_();
+			if(!shortfall)
+				return true;
+
+			// Posted pages that the bundles took during the last sleep count as progress.
+			auto posted = numPosted_.load(std::memory_order_relaxed);
+			bool consumed = posted < lastPosted;
+			size_t newlyPosted = 0;
+			if(shortfall > posted)
+				newlyPosted = evictPages_(frg::min(shortfall - posted, maxEvictBatch));
+			if(logReclaim && newlyPosted)
+				infoLogger() << "thor: Reclamation posts " << newlyPosted << " pages" << frg::endlog;
+
+			if(newlyPosted || consumed) {
+				numPolls = 0;
+			}else if(++numPolls > maxPollsForEviction) {
+				return false;
+			}
+			lastPosted = numPosted_.load(std::memory_order_relaxed);
+
+			// The bundles evict the posted pages asynchronously.
+			KernelFiber::asyncBlockCurrent(generalTimerEngine()->sleepFor(evictionPollNs));
+		}
+	}
+
+	// Posts up to n pages to the bundles' reclaim lists, starting at the oldest generation.
+	// Each bundle contributes in proportion to its share of that generation.
+	// Returns the number of posted pages.
+	size_t evictPages_(size_t n) {
+		size_t posted = 0;
+		unsigned int emptyRotations = 0;
+		while(posted < n && numInGenerations_.load(std::memory_order_relaxed)) {
+			unsigned int oldest;
+			{
+				auto irqLock = frg::guard(&irqMutex());
+				auto lock = frg::guard(&mutex_);
+				oldest = (newestGen_ + 1) % CacheBundle::numGenerations;
+			}
+
+			size_t total = 0;
+			auto bundle = pinNextBundle_(nullptr);
+			while(bundle) {
+				{
+					auto irqLock = frg::guard(&irqMutex());
+					auto lock = frg::guard(&bundle->reclaimMutex_);
+					total += bundle->genSizes_[oldest];
+				}
+				bundle = pinNextBundle_(bundle.get());
+			}
+
+			if(!total) {
+				// Start a new generation once the oldest one is empty.
+				// The counters are only approximate, so do not rotate forever.
+				if(++emptyRotations > CacheBundle::numGenerations)
+					break;
+				rotateGenerations_();
+				continue;
+			}
+			emptyRotations = 0;
+
+			auto wanted = frg::min(n - posted, total);
+			size_t seen = 0;
+			bundle = pinNextBundle_(nullptr);
+			while(bundle) {
+				size_t share = 0;
+				{
+					auto irqLock = frg::guard(&irqMutex());
+					auto lock = frg::guard(&bundle->reclaimMutex_);
+
+					auto size = bundle->genSizes_[oldest];
+					// Splitting by cumulative size keeps the sum of the shares at or below wanted.
+					// Sizes only shrink after total was computed, so seen does not exceed total.
+					auto before = wanted * seen / total;
+					seen += size;
+					share = wanted * seen / total - before;
+					assert(share <= size);
+
+					auto &genList = bundle->genLists_[oldest];
+					for(size_t i = 0; i < share; i++) {
+						auto page = genList.pop_front();
+						assert(page->flags & CachePage::reclaimRegistered);
+						assert(!(page->flags & CachePage::reclaimPosted));
+						page->flags |= CachePage::reclaimPosted;
+						bundle->_reclaimList.push_back(page);
+					}
+					bundle->genSizes_[oldest] -= share;
+					numInGenerations_.fetch_sub(share, std::memory_order_relaxed);
+					numPosted_.fetch_add(share, std::memory_order_relaxed);
+				}
+
+				if(share) {
+					posted += share;
+					bundle->_reclaimEvent.raise();
+				}
+
+				// Drops the previous pin outside of the RCU section.
+				bundle = pinNextBundle_(bundle.get());
+			}
+		}
+		return posted;
+	}
+
+	// Starts a new generation in all bundles. This does not evict pages:
+	// the pages of the oldest generation are merged into the next older one.
+	void rotateGenerations_() {
 		rotationTurnaround_.store(0, std::memory_order_relaxed);
 
-		size_t sizeReclaimed = 0;
+		unsigned int newest;
+		{
+			auto irqLock = frg::guard(&irqMutex());
+			auto lock = frg::guard(&mutex_);
+			newest = (newestGen_ + 1) % CacheBundle::numGenerations;
+			newestGen_ = newest;
+		}
+
 		auto bundle = pinNextBundle_(nullptr);
 		while(bundle) {
-			bool anyReclaimed = false;
 			{
 				auto irqLock = frg::guard(&irqMutex());
 				auto lock = frg::guard(&bundle->reclaimMutex_);
 
-				// The slot after newest is the oldest.
-				// This becomes the newest generation after rotation.
-				auto g = (bundle->newestGen_ + 1) % CacheBundle::numGenerations;
-
-				// Drain the oldest generation into _reclaimList.
-				auto &genList = bundle->genLists_[g];
-				while(!genList.empty()) {
-					auto page = genList.pop_front();
-					assert(page->flags & CachePage::reclaimRegistered);
-					assert(!(page->flags & CachePage::reclaimPosted));
-					page->flags |= CachePage::reclaimPosted;
-					bundle->_reclaimList.push_back(page);
-					anyReclaimed = true;
-					sizeReclaimed += kPageSize;
+				// Bundles that registered concurrently may already be at the new generation.
+				if(bundle->newestGen_ != newest) {
+					// The slot after newest is the oldest.
+					// This becomes the newest generation after rotation.
+					auto g = (bundle->newestGen_ + 1) % CacheBundle::numGenerations;
+					// Rotations are serialized on the reclaimer fiber, so bundles are at most one behind.
+					assert(g == newest);
+					auto next = (g + 1) % CacheBundle::numGenerations;
+					// next becomes the oldest generation. The pages of g are already labeled as such,
+					// so only one generation's worth of pages is relabeled.
+					for(auto page : bundle->genLists_[next])
+						page->generation = oldestGeneration;
+					auto &genList = bundle->genLists_[g];
+					// Keep the pages of the oldest generation in front.
+					genList.splice(genList.end(), bundle->genLists_[next]);
+					bundle->genLists_[next].splice(bundle->genLists_[next].end(), genList);
+					bundle->genSizes_[next] += bundle->genSizes_[g];
+					bundle->genSizes_[g] = 0;
+					bundle->newestGen_ = g;
 				}
-				bundle->newestGen_ = g;
 			}
-
-			if(anyReclaimed)
-				bundle->_reclaimEvent.raise();
 
 			// Drops the previous pin outside of the RCU section.
 			bundle = pinNextBundle_(bundle.get());
 		}
-
-		return {
-			.sizeReclaimed = sizeReclaimed
-		};
 	}
 
 	// Pins the first live bundle after previous (or the first live bundle if previous is null).
@@ -397,16 +534,29 @@ private:
 		return {};
 	}
 
+	// Generation index of a page. Callers must hold the bundle's reclaimMutex_.
+	unsigned int generationOf_(CacheBundle *bundle, CachePage *page) {
+		if(page->generation == oldestGeneration)
+			return (bundle->newestGen_ + 1) % CacheBundle::numGenerations;
+		return page->generation;
+	}
+
 	bool shouldRotate_() {
-		// TODO: We assume that half of total memory is available for CachePages.
-		//       Instead, we should track how many non-swappable pages are allocated
-		//       and subtract that from the total page count.
-		auto totalCachePages = physicalAllocator->numTotalPages() / 2;
-		auto threshold = totalCachePages / CacheBundle::numGenerations;
-		return rotationTurnaround_.load(std::memory_order_relaxed) >= threshold;
+		auto threshold = numInGenerations_.load(std::memory_order_relaxed)
+				/ CacheBundle::numGenerations;
+		return rotationTurnaround_.load(std::memory_order_relaxed) >= frg::max(threshold, size_t{1});
 	}
 
 	frg::ticket_spinlock mutex_;
+
+	// Newest generation of all bundles; see CacheBundle::newestGen_.
+	// Protected by mutex_.
+	unsigned int newestGen_ = 0;
+
+	// Number of pages in the generation lists of all bundles.
+	std::atomic<size_t> numInGenerations_{0};
+	// Number of pages that were posted to the bundles' reclaim lists but not removed yet.
+	std::atomic<size_t> numPosted_{0};
 
 	// Protected against modification by mutex_.
 	frg::intrusive_rcu_list<

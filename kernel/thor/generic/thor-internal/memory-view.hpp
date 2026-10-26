@@ -114,8 +114,13 @@ private:
 		>
 	> genLists_[numGenerations];
 
+	// Number of pages in each list of genLists_.
+	// Protected by reclaimMutex_.
+	size_t genSizes_[numGenerations] = {};
+
 	// Points to the newest generation.
-	// This is cyclically incremented on rotation.
+	// This is cyclically incremented when MemoryReclaimer starts a new generation.
+	// Protected by reclaimMutex_.
 	unsigned int newestGen_ = 0;
 
 	// Protected by reclaimMutex_.
