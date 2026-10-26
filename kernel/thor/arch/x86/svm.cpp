@@ -68,7 +68,7 @@ namespace thor::svm {
 		vmcb->guestAsid = 1;
 		vmcb->tlbControl = 1;
 
-		auto iopmOutcome = physicalAllocator->tryAllocate(AllocationClass::kernel,
+		auto iopmOutcome = physicalAllocator->tryAllocate({AllocationClass::kernel, 0},
 				IOPM_BITMAP_SIZE, PhysicalKind::pinned);
 		if(!iopmOutcome)
 			panicLogger() << "thor: Failed to allocate the SVM I/O permission map" << frg::endlog;
@@ -76,7 +76,7 @@ namespace thor::svm {
 		PageAccessor iopmAccessor{iopm_bitmap};
 		memset(iopmAccessor.get(), 0xFF, IOPM_BITMAP_SIZE);
 
-		auto msrpmOutcome = physicalAllocator->tryAllocate(AllocationClass::kernel,
+		auto msrpmOutcome = physicalAllocator->tryAllocate({AllocationClass::kernel, 0},
 				MSRPM_BITMAP_SIZE, PhysicalKind::pinned);
 		if(!msrpmOutcome)
 			panicLogger() << "thor: Failed to allocate the SVM MSR permission map" << frg::endlog;

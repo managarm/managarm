@@ -1,5 +1,7 @@
 #pragma once
 
+#include <stddef.h>
+
 namespace thor {
 
 // Determines the floor below which a physical allocation is refused.
@@ -11,6 +13,13 @@ enum class AllocationClass {
 	kernel,
 	// Frames that back user memory. Refused below the user floor.
 	user,
+};
+
+struct AllocationPolicy {
+	AllocationClass cls;
+	// Pinnable pages kept free on top of the floor of cls,
+	// so that allocations with lower floors can still proceed.
+	size_t floor;
 };
 
 } // namespace thor

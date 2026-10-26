@@ -48,6 +48,34 @@ async fn open_kerncfg_lane() -> anyhow::Result<hel::Handle> {
         .map_err(|e| anyhow!("failed to open kerncfg lane: {e}"))
 }
 
+/// The amount of memory in the system, in bytes.
+pub struct MemoryInformation {
+    pub total_memory: usize,
+    pub available_memory: usize,
+}
+
+pub async fn get_memory_information() -> anyhow::Result<MemoryInformation> {
+    let lane = open_kerncfg_lane().await?;
+
+    let head = bragi::head_to_bytes(&bindings::GetMemoryInformationRequest::new())?;
+    let (_offer, (_send_head, recv)) = hel::submit_async(
+        &lane,
+        hel::Offer::new_with_lane((hel::SendBuffer::new(&head), hel::ReceiveInline)),
+    )
+    .await?;
+
+    let recv_data = recv?;
+    let response: bindings::GetMemoryInformationResponse = bragi::head_from_bytes(&recv_data)?;
+    if response.error() != bindings::Error::Success {
+        bail!("kerncfg returned error {:?}", response.error());
+    }
+
+    Ok(MemoryInformation {
+        total_memory: (response.total_usable_memory() * response.memory_unit()) as usize,
+        available_memory: (response.available_memory() * response.memory_unit()) as usize,
+    })
+}
+
 pub async fn get_acpi_rsdp() -> anyhow::Result<u64> {
     let lane = open_kerncfg_lane().await?;
 

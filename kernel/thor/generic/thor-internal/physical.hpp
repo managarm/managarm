@@ -10,6 +10,7 @@
 #include <eir/interface.hpp>
 #include <frg/list.hpp>
 #include <frg/optional.hpp>
+#include <frg/rbtree.hpp>
 #include <frg/spinlock.hpp>
 #include <frg/manual_box.hpp>
 #include <physical-buddy.hpp>
@@ -235,8 +236,8 @@ class PhysicalChunkAllocator {
 	typedef frg::ticket_spinlock Mutex;
 
 	struct WaitNode {
-		WaitNode(AllocationClass cls, PhysicalKind kind, size_t numPages)
-		: cls{cls}, kind{kind}, numPages{numPages} { }
+		WaitNode(AllocationPolicy policy, PhysicalKind kind, size_t numPages)
+		: cls{policy.cls}, kind{kind}, numPages{numPages}, floor{policy.floor} { }
 
 		WaitNode(const WaitNode &) = delete;
 
@@ -245,9 +246,15 @@ class PhysicalChunkAllocator {
 		AllocationClass cls;
 		PhysicalKind kind;
 		size_t numPages;
+		// Starts out as AllocationPolicy::floor. startWait_() adds the floor of cls.
+		size_t floor;
+		// Arrival order among nodes of equal floor. Set by startWait_().
+		uint64_t seq = 0;
 		// Protected by _mutex.
 		bool queued = false;
-		// Protected by _mutex.
+		// Hooks the node into waitTree_. Protected by _mutex.
+		frg::rbtree_hook treeHook;
+		// Hooks the node into a WaitList of served nodes. Protected by _mutex.
 		frg::default_list_hook<WaitNode> hook;
 		// Written by the code path that dequeues the node.
 		// Protected by _mutex.
@@ -265,11 +272,16 @@ class PhysicalChunkAllocator {
 		>
 	>;
 
-	struct WaitQueue {
-		WaitList list;
-		// Number of pages requested by WaitNodes in the list.
-		size_t deficit = 0;
+	struct WaitNodeLess {
+		bool operator() (const WaitNode &a, const WaitNode &b) {
+			if(a.floor != b.floor)
+				return a.floor < b.floor;
+			return a.seq < b.seq;
+		}
 	};
+
+	// The first node owns all pinnable pages above its floor until it is served.
+	using WaitTree = frg::rbtree<WaitNode, &WaitNode::treeHook, WaitNodeLess>;
 
 	// We call an allocation fungible if it consists only of single (i.e., non-contiguous) pages
 	// with no additional address restrictions.
@@ -283,9 +295,6 @@ public:
 	static constexpr size_t maxRootsPerRegion = 64;
 	static constexpr size_t numRootClasses = 3;
 
-	// Maximum number of pages that a WaitNode can wait for.
-	static constexpr size_t maxPagesPerWait = 256;
-
 	PhysicalChunkAllocator();
 
 	void bootstrapRegion(PhysicalAddr address,
@@ -297,15 +306,16 @@ public:
 	void assignRootClasses(size_t reserveBytes);
 
 	// Allocates a naturally aligned power-of-two sized chunk.
-	std::expected<PhysicalAddr, Error> tryAllocate(AllocationClass cls, size_t size,
+	std::expected<PhysicalAddr, Error> tryAllocate(AllocationPolicy policy, size_t size,
 			PhysicalKind kind, int addressBits = 64);
 
 	// Asynchronously performs a fungible allocation.
 	// Completes with Error::cancelled on cancellation.
 	// Precondition: isFungibleAllocation_() is true.
-	auto allocateAwaitable(AllocationClass cls, PhysicalKind kind, async::cancellation_token ct) {
+	auto allocateAwaitable(AllocationPolicy policy, PhysicalKind kind,
+			async::cancellation_token ct) {
 		return async::let(
-			[=] { return WaitNode{cls, kind, 1}; },
+			[=] { return WaitNode{policy, kind, 1}; },
 			[this, ct] (WaitNode &node) {
 				startWait_(&node);
 				return async::with_cancel_cb(
@@ -328,17 +338,18 @@ public:
 
 	// Like allocateAwaitable() but blocks.
 	// Cancelled on thread termination (returning Error::cancelled).
-	std::expected<PhysicalAddr, Error> allocateBlocking(AllocationClass cls, PhysicalKind kind);
+	std::expected<PhysicalAddr, Error> allocateBlocking(AllocationPolicy policy,
+			PhysicalKind kind);
 
 	// Like tryAllocate() but for chains of fungible pages.
-	std::expected<PageChain, Error> tryAllocateChain(AllocationClass cls, PhysicalKind kind,
+	std::expected<PageChain, Error> tryAllocateChain(AllocationPolicy policy, PhysicalKind kind,
 			size_t numPages);
 
 	// Like allocateAwaitable() but for chains of fungible pages.
-	auto allocateChainAwaitable(AllocationClass cls, PhysicalKind kind, size_t numPages,
+	auto allocateChainAwaitable(AllocationPolicy policy, PhysicalKind kind, size_t numPages,
 			async::cancellation_token ct) {
 		return async::let(
-			[=] { return WaitNode{cls, kind, numPages}; },
+			[=] { return WaitNode{policy, kind, numPages}; },
 			[this, ct] (WaitNode &node) {
 				startWait_(&node);
 				return async::with_cancel_cb(
@@ -356,8 +367,8 @@ public:
 	}
 
 	// Like allocateBlocking() but for chains of fungible pages.
-	std::expected<PageChain, Error> allocateChainBlocking(AllocationClass cls, PhysicalKind kind,
-			size_t numPages);
+	std::expected<PageChain, Error> allocateChainBlocking(AllocationPolicy policy,
+			PhysicalKind kind, size_t numPages);
 
 	// Allocates a naturally aligned power-of-two sized chunk in the kernel class.
 	// Blocks for fungible pages if possible (i.e., if canBlockForMemory() is true).
@@ -392,17 +403,6 @@ public:
 	}
 
 private:
-	WaitQueue &queueOf_(AllocationClass cls) {
-		switch(cls) {
-		case AllocationClass::kernel:
-			return kernelWaitQueue_;
-		case AllocationClass::user:
-			return userWaitQueue_;
-		default:
-			__builtin_trap();
-		}
-	}
-
 	void updateFloors_();
 
 	// Called by allocateAwaitable() to start the wait.
@@ -413,9 +413,11 @@ private:
 	// Callers must hold _mutex.
 	size_t floorFor_(AllocationClass cls);
 
-	// Sum of WaitQueue::deficit for classes equal or higher than cls.
+	// Floor that an allocation with the given floor must respect.
+	// Allocations must not overtake a waiter with an equal or lower floor, so they get no
+	// pinnable pages at all while such a waiter exists.
 	// Callers must hold _mutex.
-	size_t deficitAhead_(AllocationClass cls);
+	size_t effectiveFloor_(size_t floor);
 
 	// Free pages outside of contiguousReserve roots. Every kind can use these pages,
 	// so floors are measured in them.
@@ -443,7 +445,8 @@ private:
 	// Callers must hold _mutex.
 	void freeChunk_(PhysicalAddr address, size_t size, PhysicalKind kind);
 
-	// Completes waiting allocations until no more progress is possible.
+	// Completes waiting allocations in the order of waitTree_ until the first node
+	// cannot be served.
 	// Callers must hold _mutex.
 	void serveWaiters_(WaitList &served);
 
@@ -513,10 +516,10 @@ private:
 	size_t kernelFloor_ = 0;
 	size_t userFloor_ = 0;
 
-	// Wait queues accessed through queueOf_().
-	// All are protected by _mutex.
-	WaitQueue kernelWaitQueue_;
-	WaitQueue userWaitQueue_;
+	// Waiting allocations, served in the order of WaitNodeLess. Protected by _mutex.
+	WaitTree waitTree_;
+	// Next WaitNode::seq. Protected by _mutex.
+	uint64_t nextSeq_ = 0;
 
 	std::atomic<size_t> _totalPages{0};
 	std::atomic<size_t> _usedPages{0};
@@ -538,7 +541,6 @@ struct PageMagazine {
 
 	// Allocates the wanted pages in the kernel class.
 	// Blocks for them if possible (i.e., if canBlockForMemory() is true). Falls back to the emergency class.
-	// On failure, the pages that were already allocated stay in the magazine.
 	std::expected<void, Error> refill();
 
 	// Like refill() but never fails; see PhysicalChunkAllocator::allocateInfallible().

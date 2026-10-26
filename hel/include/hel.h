@@ -752,10 +752,21 @@ struct HelQueueParameters {
 	unsigned int numSqChunks;
 };
 
+//! Gives the new hierarchy its own memory controller with the given memoryFloor.
+static const uint32_t kHelHierarchyMemoryController = UINT32_C(1) << 0;
+
 struct HelHierarchyParameters {
 	// Optional tag to identify the hierarchy in kernel messages.
 	// Null-terminated unless it fills the entire array.
 	char tag[128];
+	// Bitmask of controllers that we want to enable.
+	uint32_t controllers;
+	// Only used with kHelHierarchyMemoryController; must be zero otherwise.
+	// Allocations of the hierarchy and its descendants wait (or fail) unless memoryFloor bytes
+	// of memory stay free on top of the kernel's own reserve.
+	// This keeps memory available to hierarchies with lower floors.
+	// The effective floor is the maximum over this floor and any parent floor.
+	size_t memoryFloor;
 };
 
 //! Set in userNotify after kernel has written progress.

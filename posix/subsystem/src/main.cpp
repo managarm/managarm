@@ -9,6 +9,7 @@
 
 #include "net.hpp"
 #include <core/clock.hpp>
+#include <core/memory-info.hpp>
 #include "devserver.hpp"
 #include "netlink/nl-socket.hpp"
 #include "devices/full.hpp"
@@ -101,6 +102,7 @@ namespace {
 	helix::UniqueLane pmLane;
 	async::oneshot_event foundPm;
 	size_t affinityMaskSize = 0;
+	size_t totalMemory = 0;
 };
 
 helix::UniqueLane &getKerncfgLane() {
@@ -115,6 +117,11 @@ async::result<helix::BorrowedLane> getPmLane() {
 size_t getAffinityMaskSize() {
 	assert(affinityMaskSize);
 	return affinityMaskSize;
+}
+
+size_t getTotalMemory() {
+	assert(totalMemory);
+	return totalMemory;
 }
 
 struct CmdlineNode final : public procfs::RegularNode {
@@ -182,6 +189,8 @@ async::result<void> enumerateKerncfg() {
 
 	auto numCpuResp = bragi::parse_head_only<managarm::kerncfg::GetNumCpuResponse>(recvResp);
 	affinityMaskSize = (numCpuResp->num_cpu() + 7) / 8;
+
+	totalMemory = (co_await core::getMemoryInformation()).totalMemory;
 
 	auto procfsRoot = smarter::static_pointer_cast<procfs::DirectoryNode>(getProcfs()->getTarget());
 	procfsRoot->directMkregular(getProcfs().get(), "cmdline", makeFsShared<CmdlineNode>());

@@ -11,6 +11,7 @@ headers = [
 	'include/core/logging.hpp',
 	'include/core/id-allocator.hpp',
 	'include/core/kernel-logs.hpp',
+	'include/core/memory-info.hpp',
 	'include/core/netlink.hpp',
 	'include/core/process-data.hpp',
 	'include/core/queue.hpp',
@@ -24,6 +25,7 @@ core_lib_sources = files(
 	'lib/clock.cpp',
 	'lib/cmdline.cpp',
 	'lib/kernel-logs.cpp',
+	'lib/memory-info.cpp',
 	'lib/process-data.cpp',
 	'lib/smbios.cpp',
 )

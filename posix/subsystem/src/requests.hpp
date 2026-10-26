@@ -9,3 +9,4 @@ helix::UniqueLane &getKerncfgLane();
 async::result<helix::BorrowedLane> getPmLane();
 
 size_t getAffinityMaskSize();
+size_t getTotalMemory();

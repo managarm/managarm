@@ -302,7 +302,7 @@ private:
 		if(!tables.pages.empty()) {
 			newPtAddr = tables.pages.pop();
 		}else{
-			auto physical = physicalAllocator->tryAllocate(AllocationClass::kernel, kPageSize,
+			auto physical = physicalAllocator->tryAllocate({AllocationClass::kernel, 0}, kPageSize,
 					PhysicalKind::pinned);
 			if(!physical)
 				return false;
