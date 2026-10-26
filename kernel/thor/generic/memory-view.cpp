@@ -1152,8 +1152,13 @@ AllocatedMemory::touchRange(uintptr_t offset, size_t, FetchFlags) {
 	}
 
 	auto kind = _chunkSize > kPageSize ? PhysicalKind::contiguous : PhysicalKind::pinned;
-	auto physicalOutcome = tryChargeAndAllocate(_hierarchy.get(), _chunkSize,
-			kind, _addressBits);
+	std::expected<PhysicalAddr, Error> physicalOutcome;
+	if(_chunkSize == kPageSize && _addressBits >= 64) {
+		physicalOutcome = co_await chargeAndAllocate(_hierarchy.get(), kind);
+	}else{
+		physicalOutcome = tryChargeAndAllocate(_hierarchy.get(), _chunkSize,
+				kind, _addressBits);
+	}
 	if(!physicalOutcome)
 		co_return physicalOutcome.error();
 	auto physical = *physicalOutcome;
