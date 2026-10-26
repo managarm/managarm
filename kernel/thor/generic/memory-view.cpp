@@ -246,11 +246,6 @@ struct MemoryReclaimer {
 			rotationEvent_.raise();
 	}
 
-	bool checkPressure() {
-		auto watermark = physicalAllocator->numTotalPages() * 3 / 4;
-		return tortureUncaching || physicalAllocator->numUsedPages() >= watermark;
-	}
-
 	auto awaitReclaim(CacheBundle *bundle, async::cancellation_token ct = {}) {
 		return async::transform(
 			bundle->_reclaimEvent.async_wait_if(
@@ -295,7 +290,7 @@ struct MemoryReclaimer {
 
 				if(tortureUncaching) {
 					evictPages_(~size_t{0});
-				}else if(shortfall_()) {
+				}else if(physicalAllocator->pressureShortfall()) {
 					if(!reclaimShortfall_()) {
 						// Retrying immediately would not find more pages either.
 						if(logReclaim)
@@ -309,7 +304,13 @@ struct MemoryReclaimer {
 				if(shouldRotate_())
 					rotateGenerations_();
 
-				auto sleepNs = tortureUncaching ? 10'000'000 : 1'000'000'000;
+				if(tortureUncaching) {
+					KernelFiber::asyncBlockCurrent(generalTimerEngine()->sleepFor(10'000'000));
+					continue;
+				}
+
+				// awaitPressure() is woken from allocation paths. We do not race a timer here
+				// since cancelling it would then take the timer engine's lock in those paths.
 				KernelFiber::asyncBlockCurrent(
 					async::race_and_cancel(
 						[&] (async::cancellation_token ct) {
@@ -321,12 +322,7 @@ struct MemoryReclaimer {
 							);
 						},
 						[&] (async::cancellation_token ct) {
-							// TODO: It would be nicer to also handle the pressure case by an event
-							//       but that requires integration with the physical allocator.
-							return async::transform(
-								generalTimerEngine()->sleepFor(sleepNs, ct),
-								[] (auto) {}
-							);
+							return physicalAllocator->awaitPressure(ct);
 						}
 					)
 				);
@@ -351,23 +347,14 @@ private:
 	// Time that the reclaimer waits after reclaimShortfall_() gave up.
 	static constexpr uint64_t stalledReclaimBackoffNs = 1'000'000'000;
 
-	// Pages that need to be reclaimed to relieve memory pressure.
-	size_t shortfall_() {
-		auto watermark = physicalAllocator->numTotalPages() * 3 / 4;
-		auto usedPages = physicalAllocator->numUsedPages();
-		if(usedPages < watermark)
-			return 0;
-		return usedPages - watermark;
-	}
-
-	// Posts pages until shortfall_() drops to zero, taking the pages that are already posted
+	// Posts pages until pressureShortfall() drops to zero, taking the pages that are already posted
 	// (but not evicted yet) into account.
 	// Returns false if no progress could be made.
 	bool reclaimShortfall_() {
 		unsigned int numPolls = 0;
 		auto lastPosted = numPosted_.load(std::memory_order_relaxed);
 		while(true) {
-			auto shortfall = shortfall_();
+			auto shortfall = physicalAllocator->pressureShortfall();
 			if(!shortfall)
 				return true;
 
@@ -1639,9 +1626,9 @@ coroutine<void> ManagedSpace::_runDrainLoop() {
 				deadline = _writebackDeadline;
 			}
 			// Skip the deadline under memory pressure such that dirty pages become reclaimable immediately.
-			// TODO: Pressure is only sampled before we sleep.
-			//       Waking the sleep would require the physical allocator to signal pressure.
-			if(globalReclaimer->checkPressure())
+			// TODO: Pressure is only sampled before we sleep. Racing the sleep against awaitPressure()
+			//       would cancel the timer from allocation paths, which wake that wait.
+			if(tortureUncaching || physicalAllocator->pressureShortfall())
 				break;
 			if(!deadline || getClockNanos() >= deadline)
 				break;
