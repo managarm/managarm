@@ -1,6 +1,8 @@
 #include <async/algorithm.hpp>
+#include <frg/dyn_array.hpp>
 #include <thor-internal/cpu-data.hpp>
 #include <thor-internal/cpu-state.hpp>
+#include <thor-internal/kernel-heap.hpp>
 #include <thor-internal/rcu.hpp>
 #include <thor-internal/work-queue.hpp>
 
@@ -269,6 +271,28 @@ void submitRcu(RcuCallable *callable, void (*call)(RcuCallable *)) {
 
 coroutine<void> rcuBarrier() {
 	return rcuEngine->barrier();
+}
+
+coroutine<void> drainRcuCalls() {
+	struct Marker : RcuCallable {
+		async::wait_group *wg;
+	};
+
+	// Each RcuDispatcher runs its calls in submission order, so the marker runs last.
+	async::wait_group wg{0};
+	frg::dyn_array<Marker, KernelAlloc> markers{getCpuCount(), *kernelAlloc};
+	for (size_t c = 0; c < getCpuCount(); ++c) {
+		auto cpu = &cpuData.getFor(c);
+		// Offline CPUs never submitted any calls.
+		if (cpu->cpuState.load(std::memory_order_seq_cst) == CpuState::offline)
+			continue;
+		markers[c].wg = &wg;
+		wg.add(1);
+		rcuDispatcher.get(cpu).submit(&markers[c], [] (RcuCallable *base) {
+			static_cast<Marker *>(base)->wg->done();
+		});
+	}
+	co_await wg.wait();
 }
 
 } // namespace thor
