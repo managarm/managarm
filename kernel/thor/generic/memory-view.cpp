@@ -1401,8 +1401,9 @@ std::expected<smarter::shared_ptr<ManagedSpace>, Error> ManagedSpace::create(
 		smarter::shared_ptr<Hierarchy> hierarchy, size_t length, bool readahead) {
 	if(length > backingMemoryLength)
 		return std::unexpected{Error::illegalArgs};
-	auto self = allocate_rcu_shared<ManagedSpace>(*kernelAlloc, std::move(hierarchy),
-			length, readahead);
+	smarter::borrowed_ptr<Hierarchy> hierarchyPtr{hierarchy};
+	auto self = allocate_rcu_shared<ManagedSpace>(HierarchyAllocator{std::move(hierarchy)},
+			hierarchyPtr, length, readahead);
 	self->selfPtr = self;
 	globalReclaimer->registerBundle(self);
 	self->_runningLoops.add(3);
@@ -1412,11 +1413,11 @@ std::expected<smarter::shared_ptr<ManagedSpace>, Error> ManagedSpace::create(
 	return self;
 }
 
-ManagedSpace::ManagedSpace(smarter::shared_ptr<Hierarchy> hierarchy, size_t length, bool readahead)
-: hierarchy{std::move(hierarchy)}, pages{*kernelAlloc},
+ManagedSpace::ManagedSpace(smarter::borrowed_ptr<Hierarchy> hierarchy, size_t length, bool readahead)
+: hierarchy{std::move(hierarchy)}, pages{AccountAllocator{this->hierarchy->controller()}},
 		numPages{length >> kPageShift}, readahead{readahead},
 		_evictQueue{frg::allocate_intrusive_shared<EvictionQueue>(Allocator{})},
-		_slotStates{*kernelAlloc} {
+		_slotStates{AccountAllocator{this->hierarchy->controller()}} {
 	assert(!(length & (kPageSize - 1)));
 }
 
@@ -1988,7 +1989,9 @@ void ManagedSpace::_wakeDrain() {
 
 std::expected<smarter::shared_ptr<SwapSpace>, Error> SwapSpace::create(
 		smarter::shared_ptr<Hierarchy> hierarchy) {
-	auto self = allocate_rcu_shared<SwapSpace>(*kernelAlloc, std::move(hierarchy));
+	smarter::borrowed_ptr<Hierarchy> hierarchyPtr{hierarchy};
+	auto self = allocate_rcu_shared<SwapSpace>(HierarchyAllocator{std::move(hierarchy)},
+			hierarchyPtr);
 	self->selfPtr = self;
 	globalReclaimer->registerBundle(self);
 	self->_runningLoops.add(2);
@@ -1997,22 +2000,23 @@ std::expected<smarter::shared_ptr<SwapSpace>, Error> SwapSpace::create(
 	return self;
 }
 
-SwapSpace::SwapSpace(smarter::shared_ptr<Hierarchy> hierarchy)
+SwapSpace::SwapSpace(smarter::borrowed_ptr<Hierarchy> hierarchy)
 : ManagedSpace{std::move(hierarchy), size_t{maxRegions} << (regionShift + kPageShift), false} {
 	isSwapSpace = true;
 }
 
 SwapSpace::~SwapSpace() {
+	AccountAllocator alloc{hierarchy->controller()};
 	auto region = _regions.first();
 	while(region) {
 		auto next = RegionTree::successor(region);
-		frg::destruct(*kernelAlloc, region);
+		frg::destruct(alloc, region);
 		region = next;
 	}
 }
 
-SwapSpace::Region::Region(unsigned int regionIndex, size_t numSlots)
-: regionIndex{regionIndex}, numSlots{numSlots}, metadata{*kernelAlloc} {
+SwapSpace::Region::Region(unsigned int regionIndex, size_t numSlots, AccountAllocator alloc)
+: regionIndex{regionIndex}, numSlots{numSlots}, metadata{alloc} {
 	assert(numSlots);
 	auto base = uint64_t{regionIndex} << regionShift;
 	auto tableOrder = BuddyAccessor::suitableOrder(numSlots);
@@ -2083,7 +2087,8 @@ coroutine<std::expected<void, Error>> SwapSpace::setRegionCapacity(unsigned int 
 		co_return std::unexpected{Error::unsupportedOperation};
 
 	// Build the allocator outside of the mutex since it allocates its metadata.
-	auto attached = frg::construct<Region>(*kernelAlloc, region, numSlots);
+	AccountAllocator alloc{hierarchy->controller()};
+	auto attached = frg::construct<Region>(alloc, region, numSlots, alloc);
 	{
 		auto irqLock = frg::guard(&irqMutex());
 		auto lock = frg::guard(&mutex);
@@ -2106,7 +2111,8 @@ coroutine<std::expected<void, Error>> SwapSpace::setRegionCapacity(unsigned int 
 }
 
 ManagedSpace::ManagedPage *SwapSpace::allocatePage() {
-	return frg::construct<ManagedPage>(*kernelAlloc, this, noSlot);
+	AccountAllocator alloc{hierarchy->controller()};
+	return frg::construct<ManagedPage>(alloc, this, noSlot);
 }
 
 SwapSpace::Region *SwapSpace::_findRegion(unsigned int regionIndex) {
@@ -2237,8 +2243,10 @@ ManagedSpace::ManagedPage *ManagedSpace::findPage(uint64_t index) {
 
 ManagedSpace::ManagedPage *ManagedSpace::findOrInsertPage(uint64_t index) {
 	auto [it, wasInserted] = pages.find_or_insert(index, nullptr);
-	if(wasInserted)
-		*it = frg::construct<ManagedPage>(*kernelAlloc, this, index);
+	if(wasInserted) {
+		AccountAllocator alloc{hierarchy->controller()};
+		*it = frg::construct<ManagedPage>(alloc, this, index);
+	}
 	return *it;
 }
 
@@ -2688,7 +2696,8 @@ void ManagedSpace::markDirtyPage(ManagedPage *page, bool &needsEvent, bool &need
 
 std::expected<smarter::shared_ptr<BackingMemory>, Error> BackingMemory::create(
 		smarter::shared_ptr<ManagedSpace> managed) {
-	auto ptr = allocate_rcu_shared<BackingMemory>(*kernelAlloc, CtorToken{}, std::move(managed));
+	auto ptr = allocate_rcu_shared<BackingMemory>(HierarchyAllocator{managed->hierarchy.lock()},
+			CtorToken{}, std::move(managed));
 	return ptr;
 }
 
@@ -3215,7 +3224,8 @@ coroutine<frg::expected<Error>> BackingMemory::invalidateRange(uintptr_t offset,
 
 std::expected<smarter::shared_ptr<FrontalMemory>, Error> FrontalMemory::create(
 		smarter::shared_ptr<ManagedSpace> managed) {
-	auto ptr = allocate_rcu_shared<FrontalMemory>(*kernelAlloc, CtorToken{}, std::move(managed));
+	auto ptr = allocate_rcu_shared<FrontalMemory>(HierarchyAllocator{managed->hierarchy.lock()},
+			CtorToken{}, std::move(managed));
 	ptr->selfPtr = ptr;
 	return ptr;
 }

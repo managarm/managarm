@@ -885,7 +885,7 @@ struct ManagedSpace : CacheBundle {
 	static std::expected<smarter::shared_ptr<ManagedSpace>, Error> create(
 			smarter::shared_ptr<Hierarchy> hierarchy, size_t length, bool readahead);
 
-	ManagedSpace(smarter::shared_ptr<Hierarchy> hierarchy, size_t length, bool readahead);
+	ManagedSpace(smarter::borrowed_ptr<Hierarchy> hierarchy, size_t length, bool readahead);
 	~ManagedSpace();
 
 	// dispose() hook for allocate_rcu_shared().
@@ -1100,13 +1100,14 @@ struct ManagedSpace : CacheBundle {
 
 	smarter::borrowed_ptr<ManagedSpace> selfPtr;
 
-	smarter::shared_ptr<Hierarchy> hierarchy;
+	// Kept alive by the HierarchyAllocator that allocated this ManagedSpace.
+	smarter::borrowed_ptr<Hierarchy> hierarchy;
 
 	frg::ticket_spinlock mutex;
 
 	// Heap-allocated page objects, indexed by identity. File-backed spaces own their pages;
 	// on swap spaces, the attached views own them and only pages that hold a slot are indexed.
-	frg::rcu_radixtree<ManagedPage *, KernelAlloc, RcuPolicy> pages;
+	frg::rcu_radixtree<ManagedPage *, AccountAllocator, RcuPolicy> pages;
 
 	size_t numPages;
 	bool readahead;
@@ -1140,7 +1141,7 @@ struct ManagedSpace : CacheBundle {
 
 	// See SlotState. Only used on swap spaces.
 	// Protected by mutex.
-	frg::rcu_radixtree<SlotState, KernelAlloc, RcuPolicy> _slotStates;
+	frg::rcu_radixtree<SlotState, AccountAllocator, RcuPolicy> _slotStates;
 
 	ManageList _managementQueue;
 
@@ -1191,7 +1192,7 @@ struct SwapSpace final : ManagedSpace, RcuProtected {
 	static std::expected<smarter::shared_ptr<SwapSpace>, Error> create(
 			smarter::shared_ptr<Hierarchy> hierarchy);
 
-	SwapSpace(smarter::shared_ptr<Hierarchy> hierarchy);
+	SwapSpace(smarter::borrowed_ptr<Hierarchy> hierarchy);
 	~SwapSpace();
 
 	bool claimSlot(ManagedPage *page) override;
@@ -1213,14 +1214,14 @@ struct SwapSpace final : ManagedSpace, RcuProtected {
 private:
 	// Slot allocator of an attached region.
 	struct Region {
-		Region(unsigned int regionIndex, size_t numSlots);
+		Region(unsigned int regionIndex, size_t numSlots, AccountAllocator alloc);
 
 		Region(const Region &) = delete;
 		Region &operator= (const Region &) = delete;
 
 		unsigned int regionIndex;
 		size_t numSlots;
-		frg::vector<int8_t, KernelAlloc> metadata;
+		frg::vector<int8_t, AccountAllocator> metadata;
 		BuddyAccessor accessor;
 		frg::rbtree_hook treeNode;
 	};
