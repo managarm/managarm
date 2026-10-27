@@ -51,6 +51,10 @@ public:
 		return tag_;
 	}
 
+	MemoryController *controller() const {
+		return memoryCtlr_;
+	}
+
 	// Tracks the physical memory (in bytes) currently charged to this node.
 	std::expected<void, Error> tryChargeMemory(size_t bytes);
 
@@ -108,6 +112,28 @@ private:
 	> children_;
 };
 static_assert(HasFinalizeBeforeRcu<Hierarchy>);
+
+// Allocates through a hierarchy's MemoryController and keeps the hierarchy alive.
+// This is used for top-level objects (e.g., MemoryView overloads) that belong to a hierarchy.
+struct HierarchyAllocator {
+	explicit HierarchyAllocator(smarter::shared_ptr<Hierarchy> hierarchy)
+	: hierarchy_{std::move(hierarchy)} { }
+
+	void *allocate(size_t size) const {
+		return AccountAllocator{hierarchy_->controller()}.allocate(size);
+	}
+
+	void deallocate(void *p, size_t size) const {
+		kernelAlloc->deallocate(p, size);
+	}
+
+	void free(void *p) const {
+		kernelAlloc->free(p);
+	}
+
+private:
+	smarter::shared_ptr<Hierarchy> hierarchy_;
+};
 
 smarter::shared_ptr<Hierarchy> rootHierarchy();
 
