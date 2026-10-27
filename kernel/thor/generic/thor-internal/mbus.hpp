@@ -4,8 +4,13 @@
 #include <thor-internal/universe.hpp>
 #include <thor-internal/stream.hpp>
 #include <frg/vector.hpp>
+#include <initgraph.hpp>
 
 namespace thor {
+
+// Once this stage is reached, KernelBusObjects can be created.
+// Since it comes after tasking-available, tasks that require it run on the init fiber.
+initgraph::Stage *getMbusAvailableStage();
 
 struct Properties {
 	friend struct KernelBusObject;

@@ -144,13 +144,10 @@ private:
 } // anonymous namespace
 
 static initgraph::Task initRtcTask{&globalInitEngine, "x86.init-rtc",
-	initgraph::Requires{getFibersAvailableStage()},
+	initgraph::Requires{getMbusAvailableStage()},
 	[] {
-		// Create a fiber to manage requests to the RTC mbus object.
-		KernelFiber::run([=] {
-			auto rtc = frg::construct<RtcBusObject>(*kernelAlloc);
-			spawnOnWorkQueue(*kernelAlloc, WorkQueue::generalQueue().lock(), rtc->run());
-		});
+		auto rtc = frg::construct<RtcBusObject>(*kernelAlloc);
+		spawnOnWorkQueue(*kernelAlloc, WorkQueue::generalQueue().lock(), rtc->run());
 	}
 };
 

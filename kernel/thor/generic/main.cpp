@@ -202,9 +202,6 @@ extern "C" void thorMain() {
 	initializeProfile();
 
 	KernelFiber::run([=] () mutable {
-		// Complete the system initialization.
-		initializeMbusStream();
-
 		// Run all other initgraph tasks.
 		globalInitEngine.run();
 

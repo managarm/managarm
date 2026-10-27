@@ -263,12 +263,10 @@ struct FbMbusNode final : private KernelBusObject {
 } // namespace anonymous
 
 void publishFreestandingFb(FbInfo *associatedFrameBuffer, BootScreen *associatedScreen) {
-	KernelFiber::run([=] {
-		infoLogger() << "thor: Publishing freestanding mbus node for framebuffer" << frg::endlog;
-		auto node = frg::construct<FbMbusNode>(*kernelAlloc,
-				associatedFrameBuffer, associatedScreen);
-		node->run(enable_detached_coroutine{WorkQueue::generalQueue().lock()});
-	});
+	infoLogger() << "thor: Publishing freestanding mbus node for framebuffer" << frg::endlog;
+	auto node = frg::construct<FbMbusNode>(*kernelAlloc,
+			associatedFrameBuffer, associatedScreen);
+	node->run(enable_detached_coroutine{WorkQueue::generalQueue().lock()});
 }
 
 } // namespace thor

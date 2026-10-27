@@ -7,7 +7,6 @@
 namespace thor {
 
 void initializeSvrctl();
-void initializeMbusStream();
 coroutine<void> initPosixEmulation();
 coroutine<void> runMbus();
 
