@@ -684,7 +684,7 @@ public:
 
 	AllocatedMemory(
 		CtorToken,
-		smarter::shared_ptr<Hierarchy> hierarchy,
+		smarter::borrowed_ptr<Hierarchy> hierarchy,
 		size_t length,
 		int addressBits,
 		size_t chunkSize,
@@ -712,8 +712,9 @@ public:
 private:
 	frg::ticket_spinlock _mutex;
 
-	smarter::shared_ptr<Hierarchy> _hierarchy;
-	frg::vector<PhysicalAddr, KernelAlloc> _physicalChunks;
+	// Kept alive by the HierarchyAllocator that allocated this AllocatedMemory.
+	smarter::borrowed_ptr<Hierarchy> _hierarchy;
+	frg::vector<PhysicalAddr, AccountAllocator> _physicalChunks;
 	int _addressBits;
 	size_t _chunkSize, _chunkAlign;
 };
