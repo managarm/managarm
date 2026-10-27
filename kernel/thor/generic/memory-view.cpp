@@ -1405,9 +1405,9 @@ std::expected<smarter::shared_ptr<ManagedSpace>, Error> ManagedSpace::create(
 	self->selfPtr = self;
 	globalReclaimer->registerBundle(self);
 	self->_runningLoops.add(3);
-	spawnOnWorkQueue(*kernelAlloc, WorkQueue::generalQueue().lock(), self->_runReclaimLoop());
-	spawnOnWorkQueue(*kernelAlloc, WorkQueue::generalQueue().lock(), self->_runDrainLoop());
-	spawnOnWorkQueue(*kernelAlloc, WorkQueue::generalQueue().lock(), self->_runInvalidationLoop());
+	spawnOnWorkQueue(*kernelAlloc, WorkQueue::memoryQueue().lock(), self->_runReclaimLoop());
+	spawnOnWorkQueue(*kernelAlloc, WorkQueue::memoryQueue().lock(), self->_runDrainLoop());
+	spawnOnWorkQueue(*kernelAlloc, WorkQueue::memoryQueue().lock(), self->_runInvalidationLoop());
 	return self;
 }
 
@@ -1991,8 +1991,8 @@ std::expected<smarter::shared_ptr<SwapSpace>, Error> SwapSpace::create(
 	self->selfPtr = self;
 	globalReclaimer->registerBundle(self);
 	self->_runningLoops.add(2);
-	spawnOnWorkQueue(*kernelAlloc, WorkQueue::generalQueue().lock(), self->_runReclaimLoop());
-	spawnOnWorkQueue(*kernelAlloc, WorkQueue::generalQueue().lock(), self->_runDrainLoop());
+	spawnOnWorkQueue(*kernelAlloc, WorkQueue::memoryQueue().lock(), self->_runReclaimLoop());
+	spawnOnWorkQueue(*kernelAlloc, WorkQueue::memoryQueue().lock(), self->_runDrainLoop());
 	return self;
 }
 

@@ -9,6 +9,12 @@ smarter::borrowed_ptr<WorkQueue> WorkQueue::criticalQueue() {
 	return cpuData->criticalWorkQueue;
 }
 
+smarter::borrowed_ptr<WorkQueue> WorkQueue::memoryQueue() {
+	auto cpuData = getCpuData();
+	assert(cpuData->memoryWorkQueue);
+	return cpuData->memoryWorkQueue;
+}
+
 smarter::borrowed_ptr<WorkQueue> WorkQueue::generalQueue() {
 	auto cpuData = getCpuData();
 	assert(cpuData->generalWorkQueue);

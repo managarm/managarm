@@ -240,7 +240,7 @@ void VirtualSpace::retire() {
 		debugLogger() << "thor: VirtualSpace is cleared" << frg::endlog;
 
 	// TODO: It would be less ugly to run this in a non-detached way.
-	spawnOnWorkQueue(*kernelAlloc, WorkQueue::generalQueue().lock(), [] (smarter::shared_ptr<VirtualSpace> self)
+	spawnOnWorkQueue(*kernelAlloc, WorkQueue::memoryQueue().lock(), [] (smarter::shared_ptr<VirtualSpace> self)
 			-> coroutine<void> {
 		self->cancelAging_.cancel();
 		co_await self->agingDoneEvent_.wait();

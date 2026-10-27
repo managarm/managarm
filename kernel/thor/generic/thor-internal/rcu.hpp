@@ -206,7 +206,7 @@ struct rcu_meta_object final
 			disposeOp_.construct_with([&] {
 				return async::execution::connect(
 					get()->dispose(),
-					DisposeReceiver{.self = this, .wq = WorkQueue::generalQueue().get()}
+					DisposeReceiver{.self = this, .wq = WorkQueue::memoryQueue().get()}
 				);
 			});
 		}

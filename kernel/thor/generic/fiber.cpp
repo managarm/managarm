@@ -200,6 +200,10 @@ void postWorkQueueFibers(CpuData *cpuData) {
 	cpuData->criticalWorkQueue = cpuData->criticalFiber->associatedWorkQueue().lock();
 	assert(cpuData->criticalWorkQueue);
 
+	cpuData->memoryFiber = postWorkQueueFiber();
+	cpuData->memoryWorkQueue = cpuData->memoryFiber->associatedWorkQueue().lock();
+	assert(cpuData->memoryWorkQueue);
+
 	cpuData->generalFiber = postWorkQueueFiber();
 	cpuData->generalWorkQueue = cpuData->generalFiber->associatedWorkQueue().lock();
 	assert(cpuData->generalWorkQueue);
@@ -207,6 +211,7 @@ void postWorkQueueFibers(CpuData *cpuData) {
 
 void resumeWorkQueueFibers(CpuData *cpuData) {
 	Scheduler::resume(cpuData->criticalFiber);
+	Scheduler::resume(cpuData->memoryFiber);
 	Scheduler::resume(cpuData->generalFiber);
 }
 

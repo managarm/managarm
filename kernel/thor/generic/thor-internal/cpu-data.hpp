@@ -110,10 +110,13 @@ struct CpuData : public PlatformCpuData {
 	smarter::borrowed_ptr<Thread> activeThread;
 	KernelFiber *activeFiber{nullptr};
 	KernelFiber *criticalFiber{nullptr};
+	KernelFiber *memoryFiber{nullptr};
 	KernelFiber *generalFiber{nullptr};
 	std::atomic<SelfIntCallBase *> selfIntCallPtr{nullptr};
 	// See WorkQueue::criticalQueue() for what may run here.
 	smarter::shared_ptr<WorkQueue> criticalWorkQueue;
+	// See WorkQueue::memoryQueue() for what may run here.
+	smarter::shared_ptr<WorkQueue> memoryWorkQueue;
 	// See WorkQueue::generalQueue() for what may run here.
 	smarter::shared_ptr<WorkQueue> generalWorkQueue;
 	std::atomic<uint64_t> heartbeat;

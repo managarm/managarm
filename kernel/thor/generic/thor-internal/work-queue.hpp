@@ -31,6 +31,12 @@ struct WorkQueue {
 	// Handles RCU barriers, shootdowns and load balancing.
 	static smarter::borrowed_ptr<WorkQueue> criticalQueue();
 
+	// Per-CPU WQ for reclaim-relevant but not latency-critical work.
+	// Worklets must never sleep and they must not perform blocking allocations.
+	// However, they may perform longer running work without suspending.
+	// Handles eviction, writeback and aging loops and similar.
+	static smarter::borrowed_ptr<WorkQueue> memoryQueue();
+
 	// Per-CPU WQ. The default for most other work.
 	// Work here may block and sleep on kernel-level allocations.
 	// However, note that a single blocking allocation block the entire WQ,
