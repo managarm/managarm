@@ -9,29 +9,21 @@
 
 namespace thor {
 
-MemoryController::MemoryController(MemoryController *parent, size_t floor)
-: floor_{parent ? frg::max(floor, parent->floor_) : floor} { }
-
 namespace {
 	std::atomic<uint64_t> nextHierarchyId{1};
 }
 
 Hierarchy::Hierarchy(CtorToken, smarter::shared_ptr<Hierarchy> parent, frg::string<KernelAlloc> tag,
-		frg::optional<size_t> memoryFloor)
+		frg::unique_ptr<MemoryController, KernelAlloc> ownMemoryCtlr)
 : id_{nextHierarchyId.fetch_add(1, std::memory_order_relaxed)},
-		parent_{std::move(parent)}, tag_{std::move(tag)} {
-	if (!parent_ || memoryFloor) {
-		auto parentCtlr = parent_ ? parent_->memoryCtlr_ : nullptr;
-		ownMemoryCtlr_.initialize(parentCtlr, memoryFloor ? *memoryFloor : 0);
+		parent_{std::move(parent)}, tag_{std::move(tag)},
+		ownMemoryCtlr_{std::move(ownMemoryCtlr)} {
+	if (ownMemoryCtlr_) {
 		memoryCtlr_ = ownMemoryCtlr_.get();
 	} else {
+		assert(parent_);
 		memoryCtlr_ = parent_->memoryCtlr_;
 	}
-}
-
-Hierarchy::~Hierarchy() {
-	if(ownMemoryCtlr_)
-		ownMemoryCtlr_.destruct();
 }
 
 void Hierarchy::finalizeBeforeRcu() {
@@ -43,12 +35,13 @@ void Hierarchy::finalizeBeforeRcu() {
 }
 
 std::expected<smarter::shared_ptr<Hierarchy>, Error> Hierarchy::createRoot() {
+	auto memoryCtlr = FRG_TRY(MemoryController::create(nullptr, 0));
 	auto ptr = allocate_rcu_shared<Hierarchy>(
 		*kernelAlloc,
 		CtorToken{},
 		smarter::shared_ptr<Hierarchy>{},
 		frg::string<KernelAlloc>{*kernelAlloc, "root"},
-		frg::null_opt
+		std::move(memoryCtlr)
 	);
 	if(!ptr)
 		return std::unexpected{Error::noMemory};
@@ -62,8 +55,11 @@ std::expected<smarter::shared_ptr<Hierarchy>, Error> Hierarchy::extend(
 ) {
 	if(!parent)
 		return std::unexpected{Error::illegalArgs};
+	frg::unique_ptr<MemoryController, KernelAlloc> memoryCtlr{*kernelAlloc};
+	if(memoryFloor)
+		memoryCtlr = FRG_TRY(MemoryController::create(parent->memoryCtlr_, *memoryFloor));
 	auto ptr = allocate_rcu_shared<Hierarchy>(
-		*kernelAlloc, CtorToken{}, std::move(parent), std::move(tag), memoryFloor
+		*kernelAlloc, CtorToken{}, std::move(parent), std::move(tag), std::move(memoryCtlr)
 	);
 	if(!ptr)
 		return std::unexpected{Error::noMemory};

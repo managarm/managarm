@@ -3,37 +3,18 @@
 #include <atomic>
 #include <expected>
 #include <frg/list.hpp>
-#include <frg/manual_box.hpp>
 #include <frg/optional.hpp>
 #include <frg/string.hpp>
 #include <frg/vector.hpp>
 #include <smarter.hpp>
 #include <thor-internal/error.hpp>
 #include <thor-internal/kernel-heap.hpp>
+#include <thor-internal/memory-controller.hpp>
 #include <thor-internal/rcu.hpp>
 
 namespace thor {
 
 struct HierarchySnapshot;
-
-struct MemoryController {
-public:
-	// parent is null for the root controller.
-	MemoryController(MemoryController *parent, size_t floor);
-
-	MemoryController(const MemoryController &) = delete;
-
-	MemoryController &operator= (const MemoryController &) = delete;
-
-	// Pages that user-class allocations of hierarchies using this controller leave free on top
-	// of the user floor; see AllocationPolicy::floor.
-	size_t floor() const {
-		return floor_;
-	}
-
-private:
-	size_t floor_;
-};
 
 struct Hierarchy : RcuProtected {
 	friend frg::vector<HierarchySnapshot, KernelAlloc> snapshotHierarchies();
@@ -49,10 +30,9 @@ public:
 		frg::optional<size_t> memoryFloor
 	);
 
+	// If ownMemoryCtlr is null, the node uses the controller of its parent.
 	Hierarchy(CtorToken, smarter::shared_ptr<Hierarchy> parent, frg::string<KernelAlloc> tag,
-			frg::optional<size_t> memoryFloor);
-
-	~Hierarchy();
+			frg::unique_ptr<MemoryController, KernelAlloc> ownMemoryCtlr);
 
 	// Unlinks this node from its parent; RCU keeps it traversable until the grace period ends.
 	void finalizeBeforeRcu();
@@ -108,7 +88,7 @@ private:
 	MemoryController *memoryCtlr_{nullptr};
 	// Holds memoryCtlr_ if this node owns it.
 	// Child hierarchy nodes keep this node alive so we do not need reference counting here.
-	frg::manual_box<MemoryController> ownMemoryCtlr_;
+	frg::unique_ptr<MemoryController, KernelAlloc> ownMemoryCtlr_;
 
 	IrqSpinlock childrenMutex_;
 
