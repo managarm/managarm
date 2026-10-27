@@ -16,6 +16,8 @@ struct Node {
 	uint64_t parentId;
 	uint64_t chargedMemory;
 	uint64_t chargedSwap;
+	// Only non-zero on nodes that own a memory controller.
+	uint64_t chargedKernel;
 	std::string tag;
 
 	std::vector<uint64_t> children;
@@ -74,7 +76,7 @@ async::result<std::vector<Node>> fetchHierarchy() {
 	nodes.reserve(resp.nodes_size());
 	for(auto &node : resp.nodes())
 		nodes.push_back({node.id(), node.parent_id(), node.charged_memory(),
-				node.charged_swap(), std::move(node.tag()), {}, 0, 0});
+				node.charged_swap(), node.charged_kernel(), std::move(node.tag()), {}, 0, 0});
 
 	co_return nodes;
 }
@@ -114,9 +116,10 @@ void printSubtree(std::map<uint64_t, Node> &byId, uint64_t id, std::string prefi
 		bool isRoot) {
 	auto &node = byId.at(id);
 
-	std::println("{:>7} {:>7} {:>7} {:>7}  {}{}{} #{}",
+	std::println("{:>7} {:>7} {:>7} {:>7} {:>7}  {}{}{} #{}",
 			formatBytes(node.chargedMemory), formatBytes(node.cumulativeMemory),
 			formatBytes(node.chargedSwap), formatBytes(node.cumulativeSwap),
+			formatBytes(node.chargedKernel),
 			prefix, isRoot ? "" : (last ? "`- " : "|- "), node.tag, node.id);
 
 	auto childPrefix = prefix;
@@ -154,7 +157,8 @@ async::result<void> run() {
 		return byId.at(x).cumulativeMemory > byId.at(y).cumulativeMemory;
 	});
 
-	std::println("{:>7} {:>7} {:>7} {:>7}  {}", "MEM", "MEM-C", "SWAP", "SWAP-C", "HIERARCHY");
+	std::println("{:>7} {:>7} {:>7} {:>7} {:>7}  {}", "MEM", "MEM-C", "SWAP", "SWAP-C", "KERNEL",
+			"HIERARCHY");
 	for(auto id : roots)
 		printSubtree(byId, id, "", true, true);
 

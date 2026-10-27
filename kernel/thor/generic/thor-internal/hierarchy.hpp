@@ -144,6 +144,8 @@ struct HierarchySnapshot {
 	frg::string<KernelAlloc> tag;
 	size_t chargedMemory;
 	size_t chargedSwap;
+	// Kernel memory charged to the node's controller; zero unless the node owns the controller.
+	size_t chargedKernel;
 };
 
 // Debugging aid: lists all live hierarchy nodes, parents before children.
