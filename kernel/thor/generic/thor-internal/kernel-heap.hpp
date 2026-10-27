@@ -102,6 +102,10 @@ using CoreAllocator = frg::slab_allocator<CoreSlabPolicy, IrqSpinlock>;
 //       but frg::construct requires it for now.
 CoreAllocator &getCoreAllocator();
 
+// Slow path of heap allocations after the pool failed: refills the current context's magazine.
+// Returns false if the pool failed without wanting pages, i.e., if retrying is pointless.
+bool refillHeapMagazine();
+
 struct Allocator {
 	struct Guard : IplGuard<ipl::noSchedule> {
 		Guard() {
