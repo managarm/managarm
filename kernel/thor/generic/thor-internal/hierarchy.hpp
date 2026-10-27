@@ -32,7 +32,7 @@ public:
 
 	// If ownMemoryCtlr is null, the node uses the controller of its parent.
 	Hierarchy(CtorToken, smarter::shared_ptr<Hierarchy> parent, frg::string<KernelAlloc> tag,
-			frg::unique_ptr<MemoryController, KernelAlloc> ownMemoryCtlr);
+			frg::unique_ptr<MemoryController, AccountAllocator> ownMemoryCtlr);
 
 	~Hierarchy();
 
@@ -94,7 +94,7 @@ private:
 	MemoryController *memoryCtlr_{nullptr};
 	// Holds memoryCtlr_ if this node owns it.
 	// Child hierarchy nodes keep this node alive so we do not need reference counting here.
-	frg::unique_ptr<MemoryController, KernelAlloc> ownMemoryCtlr_;
+	frg::unique_ptr<MemoryController, AccountAllocator> ownMemoryCtlr_;
 
 	IrqSpinlock childrenMutex_;
 

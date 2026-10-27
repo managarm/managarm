@@ -3,10 +3,11 @@
 
 namespace thor {
 
-std::expected<frg::unique_ptr<MemoryController, KernelAlloc>, Error> MemoryController::create(
+std::expected<frg::unique_ptr<MemoryController, AccountAllocator>, Error> MemoryController::create(
 		MemoryController *parent, size_t floor) {
-	frg::unique_ptr<MemoryController, KernelAlloc> ptr{*kernelAlloc,
-			frg::construct<MemoryController>(*kernelAlloc, CtorToken{})};
+	AccountAllocator alloc{parent};
+	frg::unique_ptr<MemoryController, AccountAllocator> ptr{alloc,
+			frg::construct<MemoryController>(alloc, CtorToken{})};
 	if(!ptr)
 		return std::unexpected{Error::noMemory};
 	if(parent)
@@ -17,7 +18,7 @@ std::expected<frg::unique_ptr<MemoryController, KernelAlloc>, Error> MemoryContr
 	// Each pool is in the shard of its CPU, whose pools free each other's objects through the owner path.
 	ptr->pools_ = frg::dyn_array<Pool *, KernelAlloc>{getCpuCount(), *kernelAlloc};
 	for(size_t i = 0; i < ptr->pools_.size(); i++) {
-		ptr->pools_[i] = frg::construct<Pool>(*kernelAlloc,
+		ptr->pools_[i] = frg::construct<Pool>(alloc,
 				HeapSlabPolicy{.account = ptr.get(), .shard = static_cast<uint32_t>(i)});
 		if(!ptr->pools_[i])
 			return std::unexpected{Error::noMemory};

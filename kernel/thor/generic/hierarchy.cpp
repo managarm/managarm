@@ -15,7 +15,7 @@ namespace {
 }
 
 Hierarchy::Hierarchy(CtorToken, smarter::shared_ptr<Hierarchy> parent, frg::string<KernelAlloc> tag,
-		frg::unique_ptr<MemoryController, KernelAlloc> ownMemoryCtlr)
+		frg::unique_ptr<MemoryController, AccountAllocator> ownMemoryCtlr)
 : id_{nextHierarchyId.fetch_add(1, std::memory_order_relaxed)},
 		parent_{std::move(parent)}, tag_{std::move(tag)},
 		ownMemoryCtlr_{std::move(ownMemoryCtlr)} {
@@ -34,10 +34,13 @@ Hierarchy::~Hierarchy() {
 	// Memory that is charged to the controller can still be freed by RCU calls
 	// (e.g., the nodes of rcu_radixtree), but these were submitted before the last reference to this node was dropped.
 	// TODO: It may be cleaner to let the users of these data structures do the drain instead of doing it here.
+	// The controller is allocated from the parent's controller, so it must die before the parent.
 	spawnOnWorkQueue(*kernelAlloc, WorkQueue::generalQueue().lock(),
-			[] (frg::unique_ptr<MemoryController, KernelAlloc>) -> coroutine<void> {
+			[] (frg::unique_ptr<MemoryController, AccountAllocator> memoryCtlr,
+				smarter::shared_ptr<Hierarchy>) -> coroutine<void> {
 		co_await drainRcuCalls();
-	}(std::move(ownMemoryCtlr_)));
+		memoryCtlr.reset(nullptr);
+	}(std::move(ownMemoryCtlr_), parent_));
 }
 
 void Hierarchy::finalizeBeforeRcu() {
@@ -69,11 +72,11 @@ std::expected<smarter::shared_ptr<Hierarchy>, Error> Hierarchy::extend(
 ) {
 	if(!parent)
 		return std::unexpected{Error::illegalArgs};
-	frg::unique_ptr<MemoryController, KernelAlloc> memoryCtlr{*kernelAlloc};
+	frg::unique_ptr<MemoryController, AccountAllocator> memoryCtlr{AccountAllocator{}};
 	if(memoryFloor)
 		memoryCtlr = FRG_TRY(MemoryController::create(parent->memoryCtlr_, *memoryFloor));
 	auto ptr = allocate_rcu_shared<Hierarchy>(
-		*kernelAlloc, CtorToken{}, std::move(parent), std::move(tag), std::move(memoryCtlr)
+		HierarchyAllocator{parent}, CtorToken{}, std::move(parent), std::move(tag), std::move(memoryCtlr)
 	);
 	if(!ptr)
 		return std::unexpected{Error::noMemory};

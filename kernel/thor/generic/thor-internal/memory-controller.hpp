@@ -9,6 +9,8 @@
 
 namespace thor {
 
+struct AccountAllocator;
+
 struct MemoryController {
 private:
 	struct CtorToken {};
@@ -18,7 +20,7 @@ public:
 
 	// parent is null for the root controller.
 	// The floor (in pages) is raised to the floor of the parent.
-	static std::expected<frg::unique_ptr<MemoryController, KernelAlloc>, Error> create(
+	static std::expected<frg::unique_ptr<MemoryController, AccountAllocator>, Error> create(
 			MemoryController *parent, size_t floor);
 
 	MemoryController(CtorToken) { }
