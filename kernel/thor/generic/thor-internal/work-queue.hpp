@@ -38,9 +38,10 @@ struct WorkQueue {
 	static smarter::borrowed_ptr<WorkQueue> memoryQueue();
 
 	// Per-CPU WQ. The default for most other work.
-	// Work here may block and sleep on kernel-level allocations.
-	// However, note that a single blocking allocation block the entire WQ,
-	// so work must not block on user-level allocations.
+	// Work here may block and sleep on kernel-level allocations, which blocks the entire WQ.
+	// Hence, worklets must tolerate being blocked whenever allocations at the kernel floor block;
+	// in particular, reclaim must not depend on this WQ.
+	// Work must not block on user-level allocations since those can block above the kernel floor.
 	static smarter::borrowed_ptr<WorkQueue> generalQueue();
 
 	void post(Worklet *worklet);

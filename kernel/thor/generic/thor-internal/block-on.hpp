@@ -10,11 +10,12 @@ namespace thor {
 template<typename S>
 typename S::value_type blockOn(S sender) {
 	if (getCurrentThread()) {
-		Thread::asyncBlockCurrent(std::move(sender), nullptr);
+		return Thread::asyncBlockCurrent(std::move(sender), nullptr);
 	} else if(thisFiber()) {
-		KernelFiber::asyncBlockCurrent(std::move(sender), nullptr);
+		return KernelFiber::asyncBlockCurrent(std::move(sender), nullptr);
 	} else {
 		panicLogger() << "thor: Trying to block outside of thread-like context" << frg::endlog;
+		__builtin_unreachable();
 	}
 }
 

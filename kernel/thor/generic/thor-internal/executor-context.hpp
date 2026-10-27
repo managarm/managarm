@@ -28,6 +28,8 @@ struct ExecutorContext : RcuCallable {
 	PageMagazine heapMagazine;
 	// Pages on top of the class floor that allocations which this context blocks for leave free.
 	size_t memoryFloor{0};
+	// Whether allocations may block this context to wait for memory (see canBlockForMemory()).
+	bool mayBlockForMemory{false};
 };
 
 } // namespace thor

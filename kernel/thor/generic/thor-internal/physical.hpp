@@ -231,6 +231,8 @@ enum class RootClass : uint8_t {
 };
 
 // Whether the current context may block for memory allocations.
+// True below ipl::noSchedule if ExecutorContext::mayBlockForMemory is set,
+// i.e., for threads and the general WQ fiber.
 bool canBlockForMemory();
 
 // Floor (see AllocationPolicy::floor) of allocations that the current context blocks for.
@@ -342,7 +344,7 @@ public:
 	}
 
 	// Like allocateAwaitable() but blocks.
-	// Cancelled on thread termination (returning Error::cancelled).
+	// Cancelled on thread termination (returning Error::cancelled); fibers are never cancelled.
 	std::expected<PhysicalAddr, Error> allocateBlocking(AllocationPolicy policy,
 			PhysicalKind kind);
 
