@@ -187,7 +187,7 @@ namespace {
 
 		infoLogger() << "Hello world on CPU #" << getCpuData()->cpuIndex << frg::endlog;
 
-		Scheduler::resume(cpuContext->wqFiber);
+		resumeWorkQueueFibers(cpuContext);
 
 		LoadBalancer::singleton().setOnline(cpuContext);
 		setRcuOnline(cpuContext);

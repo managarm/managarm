@@ -93,7 +93,7 @@ void smpMain(StatusBlock *statusBlock) {
 		    //       It needs to happen on the detached stack!
 		    frg::destruct(*kernelAlloc, statusBlock);
 
-		    Scheduler::resume(getCpuData()->wqFiber);
+		    resumeWorkQueueFibers(getCpuData());
 
 		    auto cpuContext = getCpuData();
 		    LoadBalancer::singleton().setOnline(cpuContext);

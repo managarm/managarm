@@ -17,6 +17,11 @@ struct KernelFiber;
 
 KernelFiber *thisFiber();
 
+// Creates the per-CPU work queue fibers of the current CPU but does not start them yet.
+void postWorkQueueFibers(CpuData *cpuData);
+// Starts the fibers created by postWorkQueueFibers().
+void resumeWorkQueueFibers(CpuData *cpuData);
+
 struct FiberBlocker {
 	friend struct KernelFiber;
 

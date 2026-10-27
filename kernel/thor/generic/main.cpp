@@ -357,7 +357,7 @@ extern "C" void thorMain() {
 		KernelFiber::asyncBlockCurrent(runServerFromInitrd("usr/lib/managarm/server/tty-virtio-console.bin"));
 	});
 
-	Scheduler::resume(getCpuData()->wqFiber);
+	resumeWorkQueueFibers(getCpuData());
 
 	infoLogger() << "thor: Entering initilization fiber." << frg::endlog;
 	LoadBalancer::singleton().setOnline(getCpuData());
