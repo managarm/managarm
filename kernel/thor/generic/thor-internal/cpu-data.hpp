@@ -6,6 +6,7 @@
 
 #include <new>
 #include <tuple>
+#include <utility>
 
 namespace thor {
 
@@ -138,9 +139,9 @@ inline CpuData *getCpuData() {
 
 extern "C" char percpuStart[], percpuEnd[];
 
-template<typename T>
-concept HasCpuDataConstructor = requires(CpuData *cpuData) {
-	{ T{cpuData} };
+template<typename T, typename... Args>
+concept HasCpuDataConstructor = requires(CpuData *cpuData, Args &&... args) {
+	{ T{cpuData, std::forward<Args>(args)...} };
 };
 
 // To add a new per-CPU variable, add a forward declaration like
@@ -168,17 +169,18 @@ struct PerCpu {
 					reinterpret_cast<uintptr_t>(&reservation) + size * cpu));
 	}
 
-	void initialize(CpuData *context) {
+	template<typename... Args>
+	void initialize(CpuData *context, Args &&... args) {
 		auto offset =
 			reinterpret_cast<uintptr_t>(&reservation)
 			- reinterpret_cast<uintptr_t>(percpuStart);
 
 		auto ptr = reinterpret_cast<void *>(reinterpret_cast<uintptr_t>(context) + offset);
 
-		if constexpr (HasCpuDataConstructor<T>) {
-			new(ptr) T{context};
+		if constexpr (HasCpuDataConstructor<T, Args...>) {
+			new(ptr) T{context, std::forward<Args>(args)...};
 		} else {
-			new(ptr) T{}; // Value-initialize primitive types.
+			new(ptr) T{std::forward<Args>(args)...}; // Value-initialize primitive types.
 		}
 	}
 

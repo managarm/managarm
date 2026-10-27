@@ -6,6 +6,7 @@
 #include <thor-internal/main.hpp>
 #include <thor-internal/physical.hpp>
 #include <thor-internal/rcu.hpp>
+#include <thor-internal/work-queue.hpp>
 
 namespace thor {
 
@@ -24,6 +25,19 @@ Hierarchy::Hierarchy(CtorToken, smarter::shared_ptr<Hierarchy> parent, frg::stri
 		assert(parent_);
 		memoryCtlr_ = parent_->memoryCtlr_;
 	}
+}
+
+Hierarchy::~Hierarchy() {
+	if(!ownMemoryCtlr_)
+		return;
+
+	// Memory that is charged to the controller can still be freed by RCU calls
+	// (e.g., the nodes of rcu_radixtree), but these were submitted before the last reference to this node was dropped.
+	// TODO: It may be cleaner to let the users of these data structures do the drain instead of doing it here.
+	spawnOnWorkQueue(*kernelAlloc, WorkQueue::generalQueue().lock(),
+			[] (frg::unique_ptr<MemoryController, KernelAlloc>) -> coroutine<void> {
+		co_await drainRcuCalls();
+	}(std::move(ownMemoryCtlr_)));
 }
 
 void Hierarchy::finalizeBeforeRcu() {

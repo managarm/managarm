@@ -9,6 +9,7 @@
 #include <thor-internal/kernel-heap.hpp>
 #include <thor-internal/kernel-io.hpp>
 #include <thor-internal/main.hpp>
+#include <thor-internal/memory-controller.hpp>
 #include <thor-internal/physical.hpp>
 #include <thor-internal/ring-buffer.hpp>
 #include <thor-internal/thread.hpp>
@@ -301,6 +302,9 @@ void *HeapSlabPolicy::map(size_t length, size_t align) {
 		magazine.pages.splice(std::move(*pages));
 	}
 
+	if(account)
+		account->chargeKernel(length);
+
 	auto p = KernelVirtualMemory::global().allocate(length, align);
 
 	// TODO: The slab_pool unpoisons memory before calling this.
@@ -328,6 +332,10 @@ void HeapSlabPolicy::unmap(void *ptr, size_t length) {
 	PageChain pages;
 	for(size_t offset = 0; offset < length; offset += kPageSize)
 		pages.push(KernelPageSpace::global().unmapSingle4k(address + offset));
+
+	// Uncharge synchronously since the account can be gone once the shootdown completes.
+	if(account)
+		account->unchargeKernel(length);
 
 	spawnOnWorkQueue(
 		getCoreAllocator(),

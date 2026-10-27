@@ -34,6 +34,8 @@ public:
 	Hierarchy(CtorToken, smarter::shared_ptr<Hierarchy> parent, frg::string<KernelAlloc> tag,
 			frg::unique_ptr<MemoryController, KernelAlloc> ownMemoryCtlr);
 
+	~Hierarchy();
+
 	// Unlinks this node from its parent; RCU keeps it traversable until the grace period ends.
 	void finalizeBeforeRcu();
 
