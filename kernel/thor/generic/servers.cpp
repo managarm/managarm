@@ -41,7 +41,7 @@ static frg::manual_box<
 > allServers;
 
 // TODO: move this declaration to a header file
-void runService(
+coroutine<void> runService(
 	managarm::svrctl::Description<KernelAlloc> desc,
 	smarter::shared_ptr<Stream, LanePolicy> control_lane,
 	smarter::shared_ptr<Hierarchy> hierarchy,
@@ -410,7 +410,7 @@ coroutine<void> executeModule(managarm::svrctl::Description<KernelAlloc> &desc, 
 
 	// Listen to POSIX calls from the thread.
 	// Call this after resumeOther() to ensure that we do not see the initial interrupt.
-	runService(desc, control_lane, std::move(*hierarchyOutcome), thread);
+	co_await runService(desc, control_lane, std::move(*hierarchyOutcome), thread);
 }
 
 initgraph::Stage *getMbusAvailableStage() {
