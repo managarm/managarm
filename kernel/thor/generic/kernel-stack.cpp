@@ -37,13 +37,13 @@ UniqueKernelStack::~UniqueKernelStack() {
 
 	spawnOnWorkQueue(
 		*kernelAlloc,
-		WorkQueue::generalQueue().lock(),
+		WorkQueue::criticalQueue().lock(),
 		async::transform(
 			shootdown(
 				&KernelPageSpace::global(),
 				address,
 				guardedSize,
-				WorkQueue::generalQueue().get()
+				WorkQueue::criticalQueue().get()
 			),
 			[address, guardedSize, pages = std::move(pages)] mutable {
 				while(!pages.empty())

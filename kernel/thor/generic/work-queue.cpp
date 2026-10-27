@@ -3,6 +3,12 @@
 
 namespace thor {
 
+smarter::borrowed_ptr<WorkQueue> WorkQueue::criticalQueue() {
+	auto cpuData = getCpuData();
+	assert(cpuData->criticalWorkQueue);
+	return cpuData->criticalWorkQueue;
+}
+
 smarter::borrowed_ptr<WorkQueue> WorkQueue::generalQueue() {
 	auto cpuData = getCpuData();
 	assert(cpuData->generalWorkQueue);

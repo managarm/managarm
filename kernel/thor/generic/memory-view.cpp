@@ -1051,7 +1051,7 @@ ImmediateWindow::~ImmediateWindow() {
 		KernelPageSpace::global().unmapSingle4k(reinterpret_cast<VirtualAddr>(_base) + offset);
 	spawnOnWorkQueue(
 		*kernelAlloc,
-		WorkQueue::generalQueue().lock(),
+		WorkQueue::criticalQueue().lock(),
 		[](smarter::shared_ptr<ImmediateMemory> memory, void *base, size_t size) -> coroutine<void> {
 			// The pages are still accessible until shootdown completes, so keep the shared_ptr around.
 			(void)memory;
@@ -1059,7 +1059,7 @@ ImmediateWindow::~ImmediateWindow() {
 				&KernelPageSpace::global(),
 				reinterpret_cast<VirtualAddr>(base),
 				size,
-				WorkQueue::generalQueue().get()
+				WorkQueue::criticalQueue().get()
 			);
 			KernelVirtualMemory::global().deallocate(base, size);
 		}(std::move(_memory), _base, _size)

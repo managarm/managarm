@@ -331,13 +331,13 @@ void HeapSlabPolicy::unmap(void *ptr, size_t length) {
 
 	spawnOnWorkQueue(
 		getCoreAllocator(),
-		WorkQueue::generalQueue().lock(),
+		WorkQueue::criticalQueue().lock(),
 		async::transform(
 			shootdown(
 				&KernelPageSpace::global(),
 				address,
 				length,
-				WorkQueue::generalQueue().get()
+				WorkQueue::criticalQueue().get()
 			),
 			[address, length, pages = std::move(pages)] mutable {
 				while(!pages.empty())

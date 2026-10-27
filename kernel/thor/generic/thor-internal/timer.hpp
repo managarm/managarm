@@ -143,7 +143,9 @@ public:
 				auto op = frg::container_of(base, &SleepOperation::worklet_);
 				async::execution::set_value(op->receiver_, !op->node_.wasCancelled());
 			});
-			node_.setup(s_.deadline, s_.cancellation, WorkQueue::generalQueue().get(), &worklet_);
+			// The worklet only forwards to the receiver, but delivering it on the general WQ would let
+			// a sleeping worklet there delay every timed wait on this CPU.
+			node_.setup(s_.deadline, s_.cancellation, WorkQueue::criticalQueue().get(), &worklet_);
 			s_.self->installTimer(&node_);
 		}
 
