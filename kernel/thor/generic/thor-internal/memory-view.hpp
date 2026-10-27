@@ -1340,7 +1340,7 @@ public:
 			smarter::shared_ptr<Hierarchy> hierarchy, smarter::shared_ptr<SwapSpace> space,
 			size_t length);
 
-	SwappableMemory(CtorToken, smarter::shared_ptr<Hierarchy> hierarchy,
+	SwappableMemory(CtorToken, smarter::borrowed_ptr<Hierarchy> hierarchy,
 			smarter::shared_ptr<SwapSpace> space, size_t length);
 	~SwappableMemory();
 
@@ -1371,12 +1371,13 @@ private:
 	// Must be called under the SwapSpace mutex.
 	void _unlockPagesLocked(uintptr_t offset, size_t size, bool &raiseDiscard);
 
-	smarter::shared_ptr<Hierarchy> _hierarchy;
+	// Kept alive by the HierarchyAllocator that allocated this SwappableMemory.
+	smarter::borrowed_ptr<Hierarchy> _hierarchy;
 	smarter::shared_ptr<SwapSpace> _space;
 	size_t _length;
 
 	// Maps page index -> swap page. The swap pages are owned by _space.
-	frg::rcu_radixtree<ManagedSpace::ManagedPage *, KernelAlloc, RcuPolicy> _table;
+	frg::rcu_radixtree<ManagedSpace::ManagedPage *, AccountAllocator, RcuPolicy> _table;
 };
 
 struct IndirectMemory final : MemoryView {

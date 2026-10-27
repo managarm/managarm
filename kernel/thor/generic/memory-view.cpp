@@ -3398,16 +3398,17 @@ size_t FrontalMemory::getLength() {
 std::expected<smarter::shared_ptr<SwappableMemory>, Error> SwappableMemory::create(
 		smarter::shared_ptr<Hierarchy> hierarchy, smarter::shared_ptr<SwapSpace> space,
 		size_t length) {
-	auto ptr = allocate_rcu_shared<SwappableMemory>(*kernelAlloc, CtorToken{},
-			std::move(hierarchy), std::move(space), length);
+	smarter::borrowed_ptr<Hierarchy> hierarchyPtr{hierarchy};
+	auto ptr = allocate_rcu_shared<SwappableMemory>(HierarchyAllocator{std::move(hierarchy)},
+			CtorToken{}, hierarchyPtr, std::move(space), length);
 	ptr->selfPtr = ptr;
 	return ptr;
 }
 
-SwappableMemory::SwappableMemory(CtorToken, smarter::shared_ptr<Hierarchy> hierarchy,
+SwappableMemory::SwappableMemory(CtorToken, smarter::borrowed_ptr<Hierarchy> hierarchy,
 		smarter::shared_ptr<SwapSpace> space, size_t length)
 : _hierarchy{std::move(hierarchy)}, _space{std::move(space)}, _length{length},
-		_table{*kernelAlloc} {
+		_table{AccountAllocator{_hierarchy->controller()}} {
 	assert(!(length & (kPageSize - 1)));
 }
 
