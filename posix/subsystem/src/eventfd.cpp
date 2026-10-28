@@ -2,6 +2,7 @@
 #include <async/cancellation.hpp>
 #include <string.h>
 #include <sys/epoll.h>
+#include <mutex>
 #include <print>
 
 #include <async/recurring-event.hpp>
@@ -38,28 +39,35 @@ struct OpenFile : FileWithDefaults {
 		if (max_length < 8)
 			co_return std::unexpected{Error::illegalArguments};
 
-		while (1) {
-			if (_counter) {
-				if(_semaphore) {
-					auto ptr = reinterpret_cast<uint64_t *>(data);
-					*ptr = 1;
-					_counter--;
-				} else {
-					memcpy(data, &_counter, 8);
-					_counter = 0;
-				}
-				_writeableSeq = ++_currentSeq;
-				_doorbell.raise();
-				co_return size_t{8};
+		{
+			std::unique_lock lock{mutex_};
+			while (!_counter) {
+				if (_nonBlock)
+					co_return std::unexpected{Error::wouldBlock};
+
+				lock.unlock();
+				auto result = co_await _doorbell.async_wait_if([&] {
+					std::lock_guard lock{mutex_};
+					return !_counter;
+				}, ce);
+				if (!result)
+					co_return std::unexpected{Error::interrupted};
+				lock.lock();
 			}
 
-			if (_nonBlock) {
-				co_return std::unexpected{Error::wouldBlock};
+			if(_semaphore) {
+				auto ptr = reinterpret_cast<uint64_t *>(data);
+				*ptr = 1;
+				_counter--;
 			} else {
-				if (!co_await _doorbell.async_wait(ce))
-					co_return std::unexpected{Error::interrupted};
+				memcpy(data, &_counter, 8);
+				_counter = 0;
 			}
+			_writeableSeq = ++_currentSeq;
 		}
+
+		_doorbell.raise();
+		co_return size_t{8};
 	}
 
 	async::result<frg::expected<Error, size_t>>
@@ -73,17 +81,28 @@ struct OpenFile : FileWithDefaults {
 		if(num == 0xFFFFFFFFFFFFFFFF)
 			co_return Error::illegalArguments;
 
-		// The counter can hold at most 0xFFFFFFFFFFFFFFFE.
-		if (num > 0xFFFFFFFFFFFFFFFE - _counter) {
-			if (_nonBlock)
-				co_return Error::wouldBlock;
-			while (num > 0xFFFFFFFFFFFFFFFE - _counter)
-				co_await _doorbell.async_wait(); // wait for read
+		{
+			// The counter can hold at most 0xFFFFFFFFFFFFFFFE.
+			std::unique_lock lock{mutex_};
+			if (num > 0xFFFFFFFFFFFFFFFE - _counter) {
+				if (_nonBlock)
+					co_return Error::wouldBlock;
+				while (num > 0xFFFFFFFFFFFFFFFE - _counter) {
+					// Wait for a read.
+					lock.unlock();
+					co_await _doorbell.async_wait_if([&] {
+						std::lock_guard lock{mutex_};
+						return num > 0xFFFFFFFFFFFFFFFE - _counter;
+					});
+					lock.lock();
+				}
+			}
+
+			_counter += num;
+
+			_readableSeq = ++_currentSeq;
 		}
 
-		_counter += num;
-
-		_readableSeq = ++_currentSeq;
 		_doorbell.raise();
 		co_return length;
 	}
@@ -93,10 +112,19 @@ struct OpenFile : FileWithDefaults {
 			async::cancellation_token cancellation) override {
 		(void)mask; // TODO: utilize mask.
 
+		std::unique_lock lock{mutex_};
 		assert(sequence <= _currentSeq);
 		while (_currentSeq == sequence &&
-				!cancellation.is_cancellation_requested())
-			co_await _doorbell.async_wait(cancellation);
+				!cancellation.is_cancellation_requested()) {
+			lock.unlock();
+			auto result = co_await _doorbell.async_wait_if([&] {
+				std::lock_guard lock{mutex_};
+				return _currentSeq == sequence;
+			}, cancellation);
+			lock.lock();
+			if (!result)
+				break;
+		}
 
 		int edges = 0;
 		if (_readableSeq > sequence)
@@ -109,6 +137,7 @@ struct OpenFile : FileWithDefaults {
 
 	async::result<frg::expected<Error, PollStatusResult>>
 	pollStatus(Process *) override {
+		std::lock_guard lock{mutex_};
 		int events = 0;
 		if (_counter > 0)
 			events |= EPOLLIN;
@@ -147,10 +176,16 @@ private:
 	async::recurring_event _doorbell;
 	async::cancellation_event cancelServe_;
 
+	// Leaf lock; _doorbell is raised after releasing it.
+	std::mutex mutex_;
+	// Protected by mutex_.
 	uint64_t _currentSeq;
+	// Protected by mutex_.
 	uint64_t _readableSeq;
+	// Protected by mutex_.
 	uint64_t _writeableSeq;
 
+	// Protected by mutex_.
 	uint64_t _counter;
 	std::atomic<bool> _nonBlock;
 	bool _semaphore;

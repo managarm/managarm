@@ -50,9 +50,13 @@ MemoryFile::allocate(int64_t offset, size_t size) {
 
 FutureMaybe<helix::UniqueDescriptor>
 MemoryFile::accessMemory() {
+	co_await _mutex.async_lock();
+	frg::unique_lock lock{frg::adopt_lock, _mutex};
+
 	co_return _memory.dup();
 }
 
+// Must be called with _mutex held.
 async::result<frg::expected<Error>> MemoryFile::_resizeFile(size_t new_size) {
 	if(new_size > _fileSize && _seals & F_SEAL_GROW)
 		co_return Error::insufficientPermissions;
@@ -83,6 +87,9 @@ async::result<frg::expected<Error>> MemoryFile::_resizeFile(size_t new_size) {
 
 async::result<frg::expected<protocols::fs::Error, int>>
 MemoryFile::getSeals() {
+	co_await _mutex.async_lock();
+	frg::unique_lock lock{frg::adopt_lock, _mutex};
+
 	co_return int{_seals};
 }
 

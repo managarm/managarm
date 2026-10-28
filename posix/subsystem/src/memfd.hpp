@@ -1,6 +1,8 @@
 #pragma once
 
 #include <fcntl.h>
+#include <atomic>
+
 #include <async/mutex.hpp>
 
 #include "file.hpp"
@@ -45,7 +47,7 @@ public:
 	}
 
 	size_t fileSize() const {
-		return _fileSize;
+		return _fileSize.load(std::memory_order_relaxed);
 	}
 
 private:
@@ -54,13 +56,19 @@ private:
 	helix::UniqueLane _passthrough;
 	async::cancellation_event _cancelServe;
 
-	// Serializes I/O against changes of the offset, size and seals that it depends on.
+	// Held across the resize of the memory object.
 	async::mutex _mutex;
+
+	// Protected by _mutex.
 	uint64_t _offset;
 
+	// Protected by _mutex.
 	helix::UniqueDescriptor _memory;
+	// Protected by _mutex.
 	size_t _areaSize = 0;
-	size_t _fileSize = 0;
+	// Protected by _mutex; can also be read without holding it.
+	std::atomic<size_t> _fileSize = 0;
+	// Protected by _mutex.
 	int _seals = 0;
 };
 

@@ -14,8 +14,12 @@
 #include <termios.h>
 
 #include <bitset>
+#include <mutex>
 
+std::mutex vtMutex;
+// Protected by vtMutex.
 int activeVt = 1;
+// Protected by vtMutex.
 int nextVt = 2;
 
 namespace {
@@ -83,14 +87,19 @@ private:
 				);
 				HEL_CHECK(extractCreds.error());
 
-				if(nextVt == MAX_NR_CONSOLES)
-					nextVt = -1;
-				else
-					nextVt++;
+				int vt;
+				{
+					std::lock_guard lock{vtMutex};
+					if(nextVt == MAX_NR_CONSOLES)
+						nextVt = -1;
+					else
+						nextVt++;
+					vt = nextVt;
+				}
 
 				managarm::fs::VtOpenqryResponse resp;
 				resp.set_error(managarm::fs::Errors::SUCCESS);
-				resp.set_vt_nr(nextVt);
+				resp.set_vt_nr(vt);
 
 				auto [send_resp] = co_await helix_ng::exchangeMsgs(conversation,
 					helix_ng::sendBragiHeadOnly(resp, frg::stl_allocator{})
@@ -121,14 +130,19 @@ private:
 					helix_ng::extractCredentials()
 				);
 				HEL_CHECK(extractCreds.error());
+				int vt;
+				{
+					std::lock_guard lock{vtMutex};
+					vt = activeVt;
+				}
 				if(logVTRequests) {
-					std::println("posix: VT_GETSTATE: Active VT is {}", activeVt);
+					std::println("posix: VT_GETSTATE: Active VT is {}", vt);
 				}
 
 				managarm::fs::VtGetStateResponse resp;
 				resp.set_error(managarm::fs::Errors::SUCCESS);
-				resp.set_vt_nr(activeVt);
-				resp.set_vt_state(1 << (activeVt - 1));
+				resp.set_vt_nr(vt);
+				resp.set_vt_state(1 << (vt - 1));
 				if(self->_mode == VT_AUTO) {
 					resp.set_vt_relsig(0);
 				} else {
@@ -230,9 +244,14 @@ private:
 				helix_ng::extractCredentials()
 			);
 			HEL_CHECK(extractCreds.error());
-			if(req.vt_mode() >= nextVt)
+			bool opened;
+			{
+				std::lock_guard lock{vtMutex};
+				opened = req.vt_mode() < nextVt;
+				activeVt = req.vt_mode();
+			}
+			if(!opened)
 				std::println("\e[35mposix: Warning: Activating VT {} which has not been opened yet\e[39m", req.vt_mode());
-			activeVt = req.vt_mode();
 			if(logVTRequests) {
 				std::println("posix: VT_ACTIVATE/VT_WAITACTIVE: Activated VT {}", req.vt_mode());
 			}

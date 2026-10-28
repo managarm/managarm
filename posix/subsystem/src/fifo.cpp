@@ -4,6 +4,7 @@
 #include <sys/epoll.h>
 #include <iostream>
 #include <map>
+#include <mutex>
 #include <print>
 
 #include <async/recurring-event.hpp>
@@ -32,18 +33,29 @@ struct Channel {
 
 	// Status management for poll().
 	async::recurring_event statusBell;
+
+	// Leaf lock; the events are raised after releasing it.
+	std::mutex mutex;
 	// Start at currentSeq = 1 since the pipe is always writable.
+	// Protected by mutex.
 	uint64_t currentSeq = 1;
+	// Protected by mutex.
 	uint64_t noWriterSeq = 0;
+	// Protected by mutex.
 	uint64_t noReaderSeq = 0;
+	// Protected by mutex.
 	uint64_t inSeq = 0;
+	// Protected by mutex.
 	uint64_t outSeq = 1;
+	// Protected by mutex.
 	int writerCount;
+	// Protected by mutex.
 	int readerCount;
 
 	async::recurring_event readerPresent;
 	async::recurring_event writerPresent;
 
+	// Protected by mutex.
 	frg::byte_ring_buffer<frg::stl_allocator> ring;
 };
 
@@ -66,6 +78,7 @@ public:
 	void connectChannel(std::shared_ptr<Channel> channel) {
 		assert(!_channel);
 		_channel = std::move(channel);
+		std::lock_guard lock{_channel->mutex};
 		if (isReader_)
 			_channel->readerCount++;
 		if (isWriter_)
@@ -73,18 +86,24 @@ public:
 	}
 
 	void handleClose() override {
-		if (isReader_) {
-			if (_channel->readerCount-- == 1) {
-				_channel->noReaderSeq = ++_channel->currentSeq;
-				_channel->statusBell.raise();
+		bool raise = false;
+		{
+			std::lock_guard lock{_channel->mutex};
+			if (isReader_) {
+				if (_channel->readerCount-- == 1) {
+					_channel->noReaderSeq = ++_channel->currentSeq;
+					raise = true;
+				}
+			}
+			if (isWriter_) {
+				if(_channel->writerCount-- == 1) {
+					_channel->noWriterSeq = ++_channel->currentSeq;
+					raise = true;
+				}
 			}
 		}
-		if (isWriter_) {
-			if(_channel->writerCount-- == 1) {
-				_channel->noWriterSeq = ++_channel->currentSeq;
-				_channel->statusBell.raise();
-			}
-		}
+		if (raise)
+			_channel->statusBell.raise();
 		// Keep _channel until destruction since epoll can still poll closed files.
 	}
 
@@ -98,23 +117,31 @@ public:
 			co_return size_t{0};
 
 		size_t chunk = 0;
-		while (true) {
-			chunk = _channel->ring.dequeue({static_cast<uint8_t *>(data), maxLength});
-			if (chunk)
-				break;
+		{
+			std::unique_lock lock{_channel->mutex};
+			while (true) {
+				chunk = _channel->ring.dequeue({static_cast<uint8_t *>(data), maxLength});
+				if (chunk)
+					break;
 
-			if (!_channel->writerCount)
-				co_return std::unexpected{Error::eof};
-			else if(nonBlock_)
-				co_return std::unexpected{Error::wouldBlock};
+				if (!_channel->writerCount)
+					co_return std::unexpected{Error::eof};
+				else if(nonBlock_)
+					co_return std::unexpected{Error::wouldBlock};
 
-			if (!(co_await _channel->statusBell.async_wait_if([&]() {
-				return !_channel->ring.size();
-			}, ce)))
-				co_return std::unexpected{Error::interrupted};
+				lock.unlock();
+				auto result = co_await _channel->statusBell.async_wait_if([&]() {
+					std::lock_guard lock{_channel->mutex};
+					return !_channel->ring.size() && _channel->writerCount;
+				}, ce);
+				if (!result)
+					co_return std::unexpected{Error::interrupted};
+				lock.lock();
+			}
+
+			_channel->outSeq = ++_channel->currentSeq;
 		}
 
-		_channel->outSeq = ++_channel->currentSeq;
 		_channel->statusBell.raise();
 		co_return chunk;
 	}
@@ -123,28 +150,36 @@ public:
 	writeAll(Process *, const void *data, size_t maxLength) override {
 		if (!isWriter_)
 			co_return Error::insufficientPermissions;
-		if (!maxLength)
-			co_return 0;
 
 		size_t chunk = 0;
-		while (true) {
-			// Check before every enqueue since readers can drain the ring and then close.
-			if (!_channel->readerCount)
-				co_return Error::brokenPipe; // TODO: SIGPIPE
+		{
+			std::unique_lock lock{_channel->mutex};
+			if (!maxLength)
+				co_return 0;
 
-			chunk = _channel->ring.enqueue({static_cast<const uint8_t *>(data), maxLength});
-			if (chunk)
-				break;
+			while (true) {
+				// Check before every enqueue since readers can drain the ring and then close.
+				if (!_channel->readerCount)
+					co_return Error::brokenPipe; // TODO: SIGPIPE
 
-			if (nonBlock_)
-				co_return Error::wouldBlock;
+				chunk = _channel->ring.enqueue({static_cast<const uint8_t *>(data), maxLength});
+				if (chunk)
+					break;
 
-			co_await _channel->statusBell.async_wait_if([&]() {
-				return !_channel->ring.available_space();
-			}); // TODO: EINTR
+				if (nonBlock_)
+					co_return Error::wouldBlock;
+
+				lock.unlock();
+				co_await _channel->statusBell.async_wait_if([&]() {
+					std::lock_guard lock{_channel->mutex};
+					return !_channel->ring.available_space() && _channel->readerCount;
+				}); // TODO: EINTR
+				lock.lock();
+			}
+
+			_channel->inSeq = ++_channel->currentSeq;
 		}
 
-		_channel->inSeq = ++_channel->currentSeq;
 		_channel->statusBell.raise();
 		co_return chunk;
 	}
@@ -152,14 +187,11 @@ public:
 	async::result<frg::expected<Error, PollWaitResult>>
 	pollWait(Process *, uint64_t pastSeq, int mask,
 			async::cancellation_token cancellation) override {
+		std::unique_lock lock{_channel->mutex};
 		assert(pastSeq <= _channel->currentSeq);
-		int edges = 0;
 
-		while (true) {
-			if(!isOpen())
-				co_return Error::fileClosed;
-
-			edges = 0;
+		auto computeEdges = [&] {
+			int edges = 0;
 			if (isReader_) {
 				if(_channel->noWriterSeq > pastSeq)
 					edges |= EPOLLHUP;
@@ -172,11 +204,25 @@ public:
 				if(_channel->noReaderSeq > pastSeq)
 					edges |= EPOLLERR;
 			}
+			return edges;
+		};
 
+		int edges = 0;
+		while (true) {
+			if(!isOpen())
+				co_return Error::fileClosed;
+
+			edges = computeEdges();
 			if (edges & mask)
 				break;
 
-			if (!co_await _channel->statusBell.async_wait(cancellation))
+			lock.unlock();
+			auto result = co_await _channel->statusBell.async_wait_if([&] {
+				std::lock_guard lock{_channel->mutex};
+				return isOpen() && !(computeEdges() & mask);
+			}, cancellation);
+			lock.lock();
+			if (!result)
 				break;
 		}
 
@@ -188,6 +234,7 @@ public:
 
 	async::result<frg::expected<Error, PollStatusResult>>
 	pollStatus(Process *) override {
+		std::lock_guard lock{_channel->mutex};
 		int events = 0;
 		if (isReader_) {
 			if(!_channel->writerCount)
@@ -247,8 +294,10 @@ public:
 			switch(req.command()) {
 				case FIONREAD: {
 					size_t count = 0;
-					if (self->isReader_)
+					if (self->isReader_) {
+						std::lock_guard lock{self->_channel->mutex};
 						count = self->_channel->ring.size();
+					}
 
 					resp.set_fionread_count(count);
 					resp.set_error(managarm::fs::Errors::SUCCESS);
@@ -298,27 +347,48 @@ private:
 
 } // anonymous namespace
 
+std::mutex globalChannelMutex;
 // This maps FsNodes to Channels for named pipes (FIFOs)
+// Protected by globalChannelMutex.
 std::map<FsNode *, std::shared_ptr<Channel>> globalChannelMap;
 
 // TODO: Instead of relying on this function, openNamedChannel() should associate
 //       the FsNode with a Channel on demand.
 void createNamedChannel(FsNode *node) {
+	auto channel = std::make_shared<Channel>(defaultFifoBufferSize);
+	std::lock_guard lock{globalChannelMutex};
 	assert(globalChannelMap.find(node) == globalChannelMap.end());
-	globalChannelMap[node] = std::make_shared<Channel>(defaultFifoBufferSize);
+	globalChannelMap[node] = std::move(channel);
 }
 
 void unlinkNamedChannel(FsNode *node) {
-	assert(globalChannelMap.find(node) != globalChannelMap.end());
-	globalChannelMap.erase(node);
+	std::shared_ptr<Channel> channel;
+	std::lock_guard lock{globalChannelMutex};
+	auto it = globalChannelMap.find(node);
+	assert(it != globalChannelMap.end());
+	channel = std::move(it->second);
+	globalChannelMap.erase(it);
 }
 
 async::result<frg::expected<Error, smarter::shared_ptr<File, FileHandle>>>
 openNamedChannel(std::shared_ptr<MountView> mount, smarter::shared_ptr<FsLink, LinkRc> link, FsNode *node, SemanticFlags flags) {
-	if (globalChannelMap.find(node) == globalChannelMap.end())
-		co_return nullptr;
+	std::shared_ptr<Channel> channel;
+	{
+		std::lock_guard lock{globalChannelMutex};
+		auto it = globalChannelMap.find(node);
+		if (it == globalChannelMap.end())
+			co_return nullptr;
+		channel = it->second;
+	}
 
-	auto channel = globalChannelMap.at(node);
+	auto hasReaders = [&] {
+		std::lock_guard lock{channel->mutex};
+		return channel->readerCount > 0;
+	};
+	auto hasWriters = [&] {
+		std::lock_guard lock{channel->mutex};
+		return channel->writerCount > 0;
+	};
 
 	bool nonBlock = flags & semanticNonBlock;
 	if ((flags & semanticRead) && (flags & semanticWrite)) {
@@ -338,8 +408,10 @@ openNamedChannel(std::shared_ptr<MountView> mount, smarter::shared_ptr<FsLink, L
 		r_file->connectChannel(channel);
 
 		channel->readerPresent.raise();
-		if (!channel->writerCount && !nonBlock)
-			co_await channel->writerPresent.async_wait();
+		if (!nonBlock)
+			co_await channel->writerPresent.async_wait_if([&] {
+				return !hasWriters();
+			});
 
 		OpenFile::serve(r_file);
 
@@ -350,8 +422,10 @@ openNamedChannel(std::shared_ptr<MountView> mount, smarter::shared_ptr<FsLink, L
 		w_file->connectChannel(channel);
 
 		channel->writerPresent.raise();
-		if (!channel->readerCount && !nonBlock)
-			co_await channel->readerPresent.async_wait();
+		if (!nonBlock)
+			co_await channel->readerPresent.async_wait_if([&] {
+				return !hasReaders();
+			});
 
 		// TODO: Opening for write-only with no reader present should return NXIO (man 7 fifo).
 

@@ -1,4 +1,5 @@
 #include <arch/dma_pool.hpp>
+#include <async/mutex.hpp>
 #include <bitset>
 #include <bragi/helpers-std.hpp>
 #include <kerncfg.bragi.hpp>
@@ -17,6 +18,9 @@ private:
 		// TODO(geert): Make this cancellable.
 		(void)ct;
 		std::vector<char> buffer(2048);
+
+		co_await offsetMutex_.async_lock();
+		frg::unique_lock lock{frg::adopt_lock, offsetMutex_};
 
 		uint32_t flags = managarm::kerncfg::GetBufferContentsFlags::ONE_RECORD;
 
@@ -108,9 +112,14 @@ private:
 	}
 
 	async::result<frg::expected<Error, off_t>> seek(off_t offset, VfsSeek whence) override {
+		// Do not wait for a blocking read to release the mutex if we do not need it.
 		if(whence == VfsSeek::relative)
 			co_return Error::seekOnPipe;
-		else if(whence == VfsSeek::absolute)
+
+		co_await offsetMutex_.async_lock();
+		frg::unique_lock lock{frg::adopt_lock, offsetMutex_};
+
+		if(whence == VfsSeek::absolute)
 			if(!offset)
 				offset_ = 0;
 			else
@@ -134,6 +143,9 @@ private:
 	async::cancellation_event cancelServe_;
 	helix::UniqueLane lane_;
 
+	// Held across the kerncfg request since offset_ is updated from its response.
+	async::mutex offsetMutex_;
+	// Protected by offsetMutex_.
 	size_t offset_ = 0;
 	std::atomic<bool> nonBlock_;
 

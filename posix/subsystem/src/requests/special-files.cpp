@@ -252,10 +252,10 @@ HandleRequest::operator()(managarm::posix::TimerFdSetRequest &&req,
 	}
 	timespec initial = {};
 	timespec interval = {};
-	timerfd::getTime(file.get(), initial, interval);
 	timerfd::setTime(file.get(), req.flags(),
 			{static_cast<time_t>(req.value_sec()), static_cast<long>(req.value_nsec())},
-			{static_cast<time_t>(req.interval_sec()), static_cast<long>(req.interval_nsec())});
+			{static_cast<time_t>(req.interval_sec()), static_cast<long>(req.interval_nsec())},
+			initial, interval);
 
 	managarm::posix::TimerFdSetResponse resp;
 	resp.set_error(managarm::posix::Errors::SUCCESS);
