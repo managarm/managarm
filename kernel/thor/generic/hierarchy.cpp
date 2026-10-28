@@ -35,7 +35,7 @@ Hierarchy::~Hierarchy() {
 	// (e.g., the nodes of rcu_radixtree), but these were submitted before the last reference to this node was dropped.
 	// TODO: It may be cleaner to let the users of these data structures do the drain instead of doing it here.
 	// The controller is allocated from the parent's controller, so it must die before the parent.
-	spawnOnWorkQueue(*kernelAlloc, WorkQueue::generalQueue().lock(),
+	spawnOnWorkQueue(*kernelAlloc, WorkQueue::memoryQueue().lock(),
 			[] (frg::unique_ptr<MemoryController, AccountAllocator> memoryCtlr,
 				smarter::shared_ptr<Hierarchy>) -> coroutine<void> {
 		co_await drainRcuCalls();
