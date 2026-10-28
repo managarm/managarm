@@ -191,7 +191,7 @@ struct LbSparePool {
 	// other than irqMutex().
 	void requestRefill();
 
-	// Must run on the generalWorkQueue of the pool's CPU.
+	// Must run on the criticalWorkQueue of the pool's CPU.
 	coroutine<void> runRefillLoop();
 
 private:

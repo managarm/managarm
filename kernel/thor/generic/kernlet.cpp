@@ -459,11 +459,8 @@ private:
 } // anonymous namespace
 
 void initializeKernletCtl() {
-	// Create a fiber to manage requests to the kernletctl mbus object.
-	KernelFiber::run([=] {
-		auto ctl = frg::construct<KernletCtlBusObject>(*kernelAlloc);
-		spawnOnWorkQueue(*kernelAlloc, WorkQueue::generalQueue().lock(), ctl->run());
-	});
+	auto ctl = frg::construct<KernletCtlBusObject>(*kernelAlloc);
+	spawnOnWorkQueue(*kernelAlloc, WorkQueue::generalQueue().lock(), ctl->run());
 }
 
 } // namespace thor

@@ -232,22 +232,19 @@ private:
 
 initgraph::Task initOsTraceMbus{&globalInitEngine, "generic.init-ostrace-sinks",
 	initgraph::Requires{&initOsTraceCore,
-		getFibersAvailableStage(),
+		getMbusAvailableStage(),
 		getIoChannelsDiscoveredStage()},
 	[] {
-		// Create a fiber to manage requests to the ostrace mbus object.
-		KernelFiber::run([=] {
-			// We unconditionally create the mbus object since userspace might use it.
-			auto ostrace = frg::construct<OstraceBusObject>(*kernelAlloc);
-			spawnOnWorkQueue(*kernelAlloc, WorkQueue::generalQueue().lock(), ostrace->run());
+		// We unconditionally create the mbus object since userspace might use it.
+		auto ostrace = frg::construct<OstraceBusObject>(*kernelAlloc);
+		spawnOnWorkQueue(*kernelAlloc, WorkQueue::generalQueue().lock(), ostrace->run());
 
-			// Only dump to an I/O channel if ostrace is supported (otherwise, the ring buffer
-			// does not even exist).
-			if(wantOsTrace) {
-				spawnOnWorkQueue(*kernelAlloc, WorkQueue::generalQueue().lock(),
-						dumpRingToChannel(globalOsTraceRing.get(), "ostrace", maxFrameSize));
-			}
-		});
+		// Only dump to an I/O channel if ostrace is supported (otherwise, the ring buffer
+		// does not even exist).
+		if(wantOsTrace) {
+			spawnOnWorkQueue(*kernelAlloc, WorkQueue::generalQueue().lock(),
+					dumpRingToChannel(globalOsTraceRing.get(), "ostrace", maxFrameSize));
+		}
 	}
 };
 

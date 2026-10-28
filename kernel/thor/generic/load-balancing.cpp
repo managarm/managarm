@@ -93,9 +93,9 @@ void LoadBalancer::setOnline(CpuData *cpu) {
 	auto *node = &lbNode.get(cpu);
 	node->cpu = cpu;
 	node->online.store(true, std::memory_order_release);
-	spawnOnWorkQueue(*kernelAlloc, cpu->generalWorkQueue, loadBalancer->runRequestLoop_(cpu));
-	spawnOnWorkQueue(*kernelAlloc, cpu->generalWorkQueue, loadBalancer->runPullLoop_(cpu));
-	spawnOnWorkQueue(*kernelAlloc, cpu->generalWorkQueue, lbSparePool.get(cpu).runRefillLoop());
+	spawnOnWorkQueue(*kernelAlloc, cpu->criticalWorkQueue, loadBalancer->runRequestLoop_(cpu));
+	spawnOnWorkQueue(*kernelAlloc, cpu->criticalWorkQueue, loadBalancer->runPullLoop_(cpu));
+	spawnOnWorkQueue(*kernelAlloc, cpu->criticalWorkQueue, lbSparePool.get(cpu).runRefillLoop());
 }
 
 void LoadBalancer::connect(Thread *thread, CpuData *cpu) {

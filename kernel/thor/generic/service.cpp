@@ -30,7 +30,7 @@ coroutine<bool> createMfsFile(frg::string_view path, const void *buffer, size_t 
 
 static MfsRegular *urandomNode = nullptr;
 
-void runService(
+coroutine<void> runService(
 	managarm::svrctl::Description<KernelAlloc> desc,
 	smarter::shared_ptr<Stream, LanePolicy> controlLane,
 	smarter::shared_ptr<Hierarchy> hierarchy,
@@ -1257,49 +1257,42 @@ coroutine<void> initPosixEmulation() {
 	co_await createMfsFile("/dev/urandom", nullptr, 0, &urandomNode);
 }
 
-void runService(managarm::svrctl::Description<KernelAlloc> desc,
+coroutine<void> runService(managarm::svrctl::Description<KernelAlloc> desc,
 		smarter::shared_ptr<Stream, LanePolicy> controlLane,
 		smarter::shared_ptr<Hierarchy> hierarchy,
 		smarter::shared_ptr<Thread, ActiveHandle> thread) {
-	KernelFiber::run([=] () mutable {
-		auto stdioStreamOutcome = createStream();
-		if(!stdioStreamOutcome)
-			panicLogger() << "thor: Failed to create stream" << frg::endlog;
-		auto stdioStream = std::move(*stdioStreamOutcome);
-		auto stdioFile = frg::construct<StdioFile>(*kernelAlloc);
-		stdioFile->clientLane = std::move(stdioStream.get<1>());
+	auto stdioStreamOutcome = createStream();
+	if(!stdioStreamOutcome)
+		panicLogger() << "thor: Failed to create stream" << frg::endlog;
+	auto stdioStream = std::move(*stdioStreamOutcome);
+	auto stdioFile = frg::construct<StdioFile>(*kernelAlloc);
+	stdioFile->clientLane = std::move(stdioStream.get<1>());
 
-		spawnOnWorkQueue(*kernelAlloc, WorkQueue::generalQueue().lock(),
-				stdio::runStdioRequests(stdioStream.get<0>()));
+	spawnOnWorkQueue(*kernelAlloc, WorkQueue::generalQueue().lock(),
+			stdio::runStdioRequests(stdioStream.get<0>()));
 
-		bool hasHardwareAccess = std::any_of(
-			desc.owned_tokens().begin(),
-			desc.owned_tokens().end(),
-			[] (auto &token) {
-				return token.identifier() == "access:thor.hardware";
-			}
-		);
-
-		auto process = frg::construct<posix::Process>(*kernelAlloc, desc.exec());
-		KernelFiber::asyncBlockCurrent(process->setupAddressSpace(thread));
-		if (hasHardwareAccess) {
-			process->hardwareAccessHandle = thread->getUniverse()->attachDescriptor(
-				AnyDescriptor::make<DescriptorType::token>(hardwareAccessToken(), kHelRightInvoke)
-			);
+	bool hasHardwareAccess = std::any_of(
+		desc.owned_tokens().begin(),
+		desc.owned_tokens().end(),
+		[] (auto &token) {
+			return token.identifier() == "access:thor.hardware";
 		}
-		process->attachControl(thread, std::move(controlLane));
-		process->attachHierarchy(thread, std::move(hierarchy));
-		process->attachMbus(thread);
-		KernelFiber::asyncBlockCurrent(process->attachFile(thread, stdioFile));
-		KernelFiber::asyncBlockCurrent(process->attachFile(thread, stdioFile));
-		KernelFiber::asyncBlockCurrent(process->attachFile(thread, stdioFile));
-		process->attachThread(std::move(thread));
+	);
 
-		// Just block this fiber forever (we're still processing worklets).
-		FiberBlocker blocker;
-		blocker.setup();
-		KernelFiber::blockCurrent(&blocker);
-	});
+	auto process = frg::construct<posix::Process>(*kernelAlloc, desc.exec());
+	co_await process->setupAddressSpace(thread);
+	if (hasHardwareAccess) {
+		process->hardwareAccessHandle = thread->getUniverse()->attachDescriptor(
+			AnyDescriptor::make<DescriptorType::token>(hardwareAccessToken(), kHelRightInvoke)
+		);
+	}
+	process->attachControl(thread, std::move(controlLane));
+	process->attachHierarchy(thread, std::move(hierarchy));
+	process->attachMbus(thread);
+	co_await process->attachFile(thread, stdioFile);
+	co_await process->attachFile(thread, stdioFile);
+	co_await process->attachFile(thread, stdioFile);
+	process->attachThread(std::move(thread));
 }
 
 } // namespace thor

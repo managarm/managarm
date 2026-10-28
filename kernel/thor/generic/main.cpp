@@ -202,9 +202,6 @@ extern "C" void thorMain() {
 	initializeProfile();
 
 	KernelFiber::run([=] () mutable {
-		// Complete the system initialization.
-		initializeMbusStream();
-
 		// Run all other initgraph tasks.
 		globalInitEngine.run();
 
@@ -360,7 +357,7 @@ extern "C" void thorMain() {
 		KernelFiber::asyncBlockCurrent(runServerFromInitrd("usr/lib/managarm/server/tty-virtio-console.bin"));
 	});
 
-	Scheduler::resume(getCpuData()->wqFiber);
+	resumeWorkQueueFibers(getCpuData());
 
 	infoLogger() << "thor: Entering initilization fiber." << frg::endlog;
 	LoadBalancer::singleton().setOnline(getCpuData());

@@ -185,6 +185,36 @@ void FiberBlocker::setup() {
 	_done = false;
 }
 
+namespace {
+
+KernelFiber *postWorkQueueFiber() {
+	return KernelFiber::post([] {
+		// Do nothing. Our only purpose is to run the associated work queue.
+	});
+}
+
+} // anonymous namespace
+
+void postWorkQueueFibers(CpuData *cpuData) {
+	cpuData->criticalFiber = postWorkQueueFiber();
+	cpuData->criticalWorkQueue = cpuData->criticalFiber->associatedWorkQueue().lock();
+	assert(cpuData->criticalWorkQueue);
+
+	cpuData->memoryFiber = postWorkQueueFiber();
+	cpuData->memoryWorkQueue = cpuData->memoryFiber->associatedWorkQueue().lock();
+	assert(cpuData->memoryWorkQueue);
+
+	cpuData->generalFiber = postWorkQueueFiber();
+	cpuData->generalWorkQueue = cpuData->generalFiber->associatedWorkQueue().lock();
+	assert(cpuData->generalWorkQueue);
+}
+
+void resumeWorkQueueFibers(CpuData *cpuData) {
+	Scheduler::resume(cpuData->criticalFiber);
+	Scheduler::resume(cpuData->memoryFiber);
+	Scheduler::resume(cpuData->generalFiber);
+}
+
 KernelFiber *thisFiber() {
 	return getCpuData()->activeFiber;
 }

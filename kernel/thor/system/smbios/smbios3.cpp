@@ -192,10 +192,10 @@ namespace smbios {
 
 void publish() {
 	if (smbios3) {
-		KernelFiber::run([=] { spawnOnWorkQueue(*kernelAlloc, WorkQueue::generalQueue().lock(), smbios3->run()); });
+		spawnOnWorkQueue(*kernelAlloc, WorkQueue::generalQueue().lock(), smbios3->run());
 	} else {
 		noSmbios.initialize();
-		KernelFiber::run([=] { spawnOnWorkQueue(*kernelAlloc, WorkQueue::generalQueue().lock(), noSmbios->run()); });
+		spawnOnWorkQueue(*kernelAlloc, WorkQueue::generalQueue().lock(), noSmbios->run());
 	}
 }
 

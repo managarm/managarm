@@ -8,6 +8,7 @@
 #include <thor-internal/debug.hpp>
 #include <thor-internal/hierarchy.hpp>
 #include <thor-internal/load-balancing.hpp>
+#include <thor-internal/main.hpp>
 #include <thor-internal/universe.hpp>
 #include <thor-internal/fiber.hpp>
 #include <thor-internal/module.hpp>
@@ -40,7 +41,7 @@ static frg::manual_box<
 > allServers;
 
 // TODO: move this declaration to a header file
-void runService(
+coroutine<void> runService(
 	managarm::svrctl::Description<KernelAlloc> desc,
 	smarter::shared_ptr<Stream, LanePolicy> control_lane,
 	smarter::shared_ptr<Hierarchy> hierarchy,
@@ -409,16 +410,25 @@ coroutine<void> executeModule(managarm::svrctl::Description<KernelAlloc> &desc, 
 
 	// Listen to POSIX calls from the thread.
 	// Call this after resumeOther() to ensure that we do not see the initial interrupt.
-	runService(desc, control_lane, std::move(*hierarchyOutcome), thread);
+	co_await runService(desc, control_lane, std::move(*hierarchyOutcome), thread);
 }
 
-void initializeMbusStream() {
-	auto mbusStreamOutcome = createStream();
-	if(!mbusStreamOutcome)
-		panicLogger() << "thor: Failed to create stream" << frg::endlog;
-	mbusClient.initialize(std::move(mbusStreamOutcome->get<1>()));
-	futureMbusServer.initialize(std::move(mbusStreamOutcome->get<0>()));
+initgraph::Stage *getMbusAvailableStage() {
+	static initgraph::Stage s{&globalInitEngine, "generic.mbus-available"};
+	return &s;
 }
+
+static initgraph::Task initMbusStream{&globalInitEngine, "generic.init-mbus-stream",
+	initgraph::Requires{getTaskingAvailableStage()},
+	initgraph::Entails{getMbusAvailableStage()},
+	[] {
+		auto mbusStreamOutcome = createStream();
+		if(!mbusStreamOutcome)
+			panicLogger() << "thor: Failed to create stream" << frg::endlog;
+		mbusClient.initialize(std::move(mbusStreamOutcome->get<1>()));
+		futureMbusServer.initialize(std::move(mbusStreamOutcome->get<0>()));
+	}
+};
 
 coroutine<void> runMbus() {
 	if(debugLaunch)
@@ -602,11 +612,8 @@ private:
 void initializeSvrctl() {
 	allServers.initialize(frg::hash<frg::string<KernelAlloc>>{}, *kernelAlloc);
 
-	// Create a fiber to manage requests to the svrctl mbus object.
-	KernelFiber::run([=] {
-		auto svrctl = frg::construct<SvrctlBusObject>(*kernelAlloc);
-		spawnOnWorkQueue(*kernelAlloc, WorkQueue::generalQueue().lock(), svrctl->run());
-	});
+	auto svrctl = frg::construct<SvrctlBusObject>(*kernelAlloc);
+	spawnOnWorkQueue(*kernelAlloc, WorkQueue::generalQueue().lock(), svrctl->run());
 }
 
 } // namespace thor

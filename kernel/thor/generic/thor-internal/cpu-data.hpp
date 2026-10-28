@@ -110,8 +110,15 @@ struct CpuData : public PlatformCpuData {
 	ExecutorContext *executorContext{nullptr};
 	smarter::borrowed_ptr<Thread> activeThread;
 	KernelFiber *activeFiber{nullptr};
-	KernelFiber *wqFiber{nullptr};
+	KernelFiber *criticalFiber{nullptr};
+	KernelFiber *memoryFiber{nullptr};
+	KernelFiber *generalFiber{nullptr};
 	std::atomic<SelfIntCallBase *> selfIntCallPtr{nullptr};
+	// See WorkQueue::criticalQueue() for what may run here.
+	smarter::shared_ptr<WorkQueue> criticalWorkQueue;
+	// See WorkQueue::memoryQueue() for what may run here.
+	smarter::shared_ptr<WorkQueue> memoryWorkQueue;
+	// See WorkQueue::generalQueue() for what may run here.
 	smarter::shared_ptr<WorkQueue> generalWorkQueue;
 	std::atomic<uint64_t> heartbeat;
 	// Set to true to indicate that the CPU is in an explicit quiescent state.

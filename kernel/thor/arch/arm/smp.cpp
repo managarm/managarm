@@ -163,7 +163,7 @@ namespace {
 				&KernelPageSpace::global(),
 				VirtualAddr(virtPtr),
 				kPageSize,
-				WorkQueue::generalQueue().get()
+				WorkQueue::criticalQueue().get()
 			)
 		);
 		// Only after the shootdown no TLB maps the old page, so the VA can be handed out again.
@@ -187,7 +187,7 @@ namespace {
 
 		infoLogger() << "Hello world on CPU #" << getCpuData()->cpuIndex << frg::endlog;
 
-		Scheduler::resume(cpuContext->wqFiber);
+		resumeWorkQueueFibers(cpuContext);
 
 		LoadBalancer::singleton().setOnline(cpuContext);
 		setRcuOnline(cpuContext);

@@ -641,7 +641,7 @@ struct IntelIommu final : Iommu, IrqSink {
 			iommu_->regs_.store(regs::invalidationCompletionStatus, invalidationCompletionStatus::complete(true));
 			iommu_->regs_.store(regs::invalidationEventControl, invalidationEventControl::interruptMask(false));
 
-			spawnOnWorkQueue(*kernelAlloc, WorkQueue::generalQueue().lock(), drainBacklog());
+			spawnOnWorkQueue(*kernelAlloc, WorkQueue::criticalQueue().lock(), drainBacklog());
 			return {};
 		}
 

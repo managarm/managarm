@@ -4,6 +4,7 @@
 #include <arch/register.hpp>
 #include <thor-internal/arch/pic.hpp>
 #include <thor-internal/arch/hpet.hpp>
+#include <thor-internal/coroutine.hpp>
 #include <thor-internal/cpu-state.hpp>
 #include <thor-internal/debug.hpp>
 #include <thor-internal/fiber.hpp>
@@ -872,14 +873,15 @@ void setupIoApic(int apic_id, int gsi_base, PhysicalAddr address) {
 		acpi::setGlobalSystemIrq(gsi_base + i, pin);
 	}
 
-	KernelFiber::run([=] {
+	spawnOnWorkQueue(*kernelAlloc, WorkQueue::generalQueue().lock(),
+			[] (IoApic *apic) -> coroutine<void> {
 		while(true) {
 			for(size_t i = 0; i < apic->pinCount(); ++i)
 				apic->accessPin(i)->warnIfPending();
 
-			KernelFiber::asyncBlockCurrent(generalTimerEngine()->sleepFor(500'000'000));
+			co_await generalTimerEngine()->sleepFor(500'000'000);
 		}
-	});
+	}(apic));
 }
 
 // --------------------------------------------------------

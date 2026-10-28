@@ -1037,7 +1037,7 @@ public:
 		auto ptr = allocate_rcu_shared<AddressSpace>(Allocator{}, CtorToken{});
 		ptr->selfPtr = ptr;
 		ptr->setupInitialHole(0x1000, (UINT64_C(1) << getLowerHalfBits()) - 0x1000);
-		spawnOnWorkQueue(*kernelAlloc, WorkQueue::generalQueue().lock(), ptr->runAgingLoop());
+		spawnOnWorkQueue(*kernelAlloc, WorkQueue::memoryQueue().lock(), ptr->runAgingLoop());
 		return constructHandle(std::move(ptr));
 	}
 

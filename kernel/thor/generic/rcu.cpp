@@ -93,7 +93,7 @@ coroutine<void> RcuEngine::barrier() {
 			// TODO: We can do this without allocation by putting the operations into a member vector.
 			spawnOnWorkQueue(
 				Allocator{},
-				cpu->generalWorkQueue,
+				cpu->criticalWorkQueue,
 				async::invocable([this] {
 					// Perform an explicit fence here since WorkQueue::schedule() may not be strong enough
 					// (e.g., when scheduling to the current thread's WQ).
@@ -191,13 +191,13 @@ coroutine<void> LocalRcuEngine::barrier() {
 }
 
 // Allows the registration of callbacks that run after an RCU barrier.
-// This is per-CPU. The calls run on the CPU's generalWorkQueue.
+// This is per-CPU. The calls run on the CPU's criticalWorkQueue.
 struct RcuDispatcher {
 	RcuDispatcher(CpuData *cpu)
 	: cpu_{cpu} { }
 
 	void run() {
-		runLoop_(enable_detached_coroutine{.wq = cpu_->generalWorkQueue});
+		runLoop_(enable_detached_coroutine{.wq = cpu_->criticalWorkQueue});
 	}
 
 	void submit(RcuCallable *callable, void (*call)(RcuCallable *)) {

@@ -842,11 +842,7 @@ void initializeThisProcessor() {
 		cpuData->haveVirtualization = thor::svm::init();
 
 	// Setup the per-CPU work queue.
-	cpuData->wqFiber = KernelFiber::post([] {
-		// Do nothing. Our only purpose is to run the associated work queue.
-	});
-	cpuData->generalWorkQueue = cpuData->wqFiber->associatedWorkQueue().lock();
-	assert(cpuData->generalWorkQueue);
+	postWorkQueueFibers(cpuData);
 
 	initializeIdleStates();
 
@@ -878,7 +874,7 @@ void secondaryMain(StatusBlock *statusBlock) {
 
 	debugLogger() << "Hello world from CPU #" << getLocalApicId() << frg::endlog;
 
-	Scheduler::resume(cpuContext->wqFiber);
+	resumeWorkQueueFibers(cpuContext);
 
 	LoadBalancer::singleton().setOnline(cpuContext);
 	setRcuOnline(cpuContext);
