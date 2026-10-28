@@ -96,6 +96,15 @@ bool canBlockForMemory() {
 	return getCurrentThread() && currentIpl() < ipl::noSchedule;
 }
 
+size_t currentContextFloor() {
+	if(!canBlockForMemory())
+		return 0;
+	auto ctx = currentExecutorContext();
+	if(!ctx)
+		return 0;
+	return ctx->memoryFloor;
+}
+
 void PhysicalChunkAllocator::bootstrapRegion(PhysicalAddr address,
 		int order, size_t numRoots, int8_t *buddyTree) {
 	if(_numRegions >= static_cast<int>(eirMaxMemoryRegions)) {
@@ -226,10 +235,11 @@ void PhysicalChunkAllocator::assignRootClasses(size_t reserveBytes) {
 
 std::expected<PhysicalAddr, Error> PhysicalChunkAllocator::allocate(size_t size, PhysicalKind kind,
 		int addressBits) {
-	if(auto outcome = tryAllocate({AllocationClass::kernel, 0}, size, kind, addressBits); outcome)
+	AllocationPolicy policy{AllocationClass::kernel, currentContextFloor()};
+	if(auto outcome = tryAllocate(policy, size, kind, addressBits); outcome)
 		return outcome;
 	if(isFungibleAllocation_(size, kind, addressBits) && canBlockForMemory()) {
-		if(auto outcome = allocateBlocking({AllocationClass::kernel, 0}, kind); outcome)
+		if(auto outcome = allocateBlocking(policy, kind); outcome)
 			return outcome;
 	}
 	return tryAllocate({AllocationClass::emergency, 0}, size, kind, addressBits);
@@ -250,7 +260,8 @@ PhysicalAddr PhysicalChunkAllocator::allocateInfallible(PhysicalKind kind) {
 	// impossible or cancelled by termination. The caller cannot fail, so wait uncancellably.
 	if(canBlockForMemory()) {
 		auto outcome = Thread::asyncBlockCurrent(
-			allocateAwaitable({AllocationClass::kernel, 0}, kind, async::cancellation_token{}),
+			allocateAwaitable({AllocationClass::kernel, currentContextFloor()}, kind,
+					async::cancellation_token{}),
 			nullptr
 		);
 		assert(outcome);
@@ -734,7 +745,7 @@ std::expected<void, Error> PageMagazine::refill() {
 		return {};
 
 	if(canBlockForMemory()) {
-		auto blocked = physicalAllocator->allocateChainBlocking({AllocationClass::kernel, 0},
+		auto blocked = physicalAllocator->allocateChainBlocking({AllocationClass::kernel, currentContextFloor()},
 				PhysicalKind::pinned, remaining);
 		// If blocking failed, fall back to the emergency tryAllocateChain() below.
 		if(blocked) {

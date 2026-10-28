@@ -7,6 +7,8 @@ namespace thor {
 ExecutorContext *ExecutorContext::create(MemoryController *account) {
 	AccountAllocator alloc{account};
 	auto ctx = frg::construct<ExecutorContext>(alloc);
+	if(account)
+		ctx->memoryFloor = account->floor();
 	return ctx;
 }
 

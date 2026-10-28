@@ -26,6 +26,8 @@ struct ExecutorContext : RcuCallable {
 	std::atomic<bool> active{false};
 	WorkQueue *exceptionalWq{nullptr};
 	PageMagazine heapMagazine;
+	// Pages on top of the class floor that allocations which this context blocks for leave free.
+	size_t memoryFloor{0};
 };
 
 } // namespace thor

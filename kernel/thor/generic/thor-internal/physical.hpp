@@ -233,6 +233,10 @@ enum class RootClass : uint8_t {
 // Whether the current context may block for memory allocations.
 bool canBlockForMemory();
 
+// Floor (see AllocationPolicy::floor) of kernel-class allocations of the current context.
+// Zero if the context cannot block since it would fall back to the emergency class sooner.
+size_t currentContextFloor();
+
 class PhysicalChunkAllocator {
 	typedef frg::ticket_spinlock Mutex;
 
@@ -371,7 +375,7 @@ public:
 	std::expected<PageChain, Error> allocateChainBlocking(AllocationPolicy policy,
 			PhysicalKind kind, size_t numPages);
 
-	// Allocates a naturally aligned power-of-two sized chunk in the kernel class.
+	// Allocates a naturally aligned power-of-two sized chunk in the kernel class at the current context's floor.
 	// Blocks for fungible pages if possible (i.e., if canBlockForMemory() is true).
 	// Falls back to the emergency class.
 	std::expected<PhysicalAddr, Error> allocate(size_t size, PhysicalKind kind,
@@ -577,7 +581,7 @@ struct PageMagazine {
 
 	~PageMagazine();
 
-	// Allocates the wanted pages in the kernel class.
+	// Allocates the wanted pages in the kernel class at the current context's floor.
 	// Blocks for them if possible (i.e., if canBlockForMemory() is true). Falls back to the emergency class.
 	std::expected<void, Error> refill();
 
