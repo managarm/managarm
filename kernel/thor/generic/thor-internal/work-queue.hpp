@@ -28,7 +28,7 @@ struct WorkQueue {
 	// Per-CPU WQ for latency-critical work.
 	// Worklets must never sleep and they must not perform blocking allocations.
 	// Worklets must be short, i.e., they must only run for bounded time before suspending.
-	// Handles RCU barriers, shootdowns and load balancing.
+	// Handles RCU barriers, shootdowns, load balancing and IRQ unstalling.
 	static smarter::borrowed_ptr<WorkQueue> criticalQueue();
 
 	// Per-CPU WQ for reclaim-relevant but not latency-critical work.

@@ -167,7 +167,7 @@ IrqPin::IrqPin(frg::string<KernelAlloc> name)
 				self->_kick(false);
 			}
 		}
-	}(this, enable_detached_coroutine{WorkQueue::generalQueue().lock()});
+	}(this, enable_detached_coroutine{WorkQueue::criticalQueue().lock()});
 }
 
 void IrqPin::configure(IrqConfiguration desired) {
