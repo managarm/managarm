@@ -393,7 +393,8 @@ coroutine<void> executeModule(managarm::svrctl::Description<KernelAlloc> &desc, 
 	params.sp = mapResult.value() + tail_disp;
 	params.argument = 0;
 
-	auto threadOutcome = Thread::create(std::move(universe), std::move(space), params);
+	auto threadOutcome = Thread::create(*hierarchyOutcome, std::move(universe), std::move(space),
+			params);
 	if(!threadOutcome)
 		panicLogger() << "thor: Failed to create thread" << frg::endlog;
 	auto thread = std::move(*threadOutcome);

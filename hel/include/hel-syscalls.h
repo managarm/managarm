@@ -288,12 +288,12 @@ extern inline __attribute__ (( always_inline )) HelError helLoadahead(HelHandle 
 	return helSyscall3(kHelCallLoadahead, (HelWord)handle, (HelWord)offset, (HelWord)length);
 };
 
-extern inline __attribute__ (( always_inline )) HelError helCreateThread(HelHandle universe,
-		HelHandle address_space, HelAbi abi, void *ip, void *sp, uint32_t flags,
+extern inline __attribute__ (( always_inline )) HelError helCreateThread(HelHandle hierarchy,
+		HelHandle universe, HelHandle address_space, void *ip, void *sp, uint32_t flags,
 		HelHandle *handle) {
 	HelWord out_handle;
-	HelError error = helSyscall6_1(kHelCallCreateThread, (HelWord)universe, (HelWord)address_space,
-			(HelWord)abi, (HelWord)ip, (HelWord)sp, (HelWord)flags, &out_handle);
+	HelError error = helSyscall6_1(kHelCallCreateThread, (HelWord)hierarchy, (HelWord)universe,
+			(HelWord)address_space, (HelWord)ip, (HelWord)sp, (HelWord)flags, &out_handle);
 	*handle = (HelHandle)out_handle;
 	return error;
 };

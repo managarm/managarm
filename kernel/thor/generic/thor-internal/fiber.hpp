@@ -189,7 +189,7 @@ private:
 	bool _blocked;
 
 	// Used by the AssociatedWorkQueue below so must be initialized before.
-	ExecutorContext *_executorContext{ExecutorContext::create()};
+	ExecutorContext *_executorContext{ExecutorContext::create(nullptr)};
 
 	smarter::shared_ptr<AssociatedWorkQueue> _associatedWorkQueue;
 	FiberContext _fiberContext;

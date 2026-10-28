@@ -1191,7 +1191,9 @@ namespace posix {
 				params.sp = argSp;
 				params.argument = 0;
 
-				auto threadOutcome = Thread::create(info.thread->getUniverse().lock(), info.thread->getAddressSpace().lock(), params);
+				auto threadOutcome = Thread::create(info.thread->getHierarchy().lock(),
+						info.thread->getUniverse().lock(), info.thread->getAddressSpace().lock(),
+						params);
 				if(!threadOutcome)
 					panicLogger() << "thor: Failed to create thread" << frg::endlog;
 				auto new_thread = std::move(*threadOutcome);

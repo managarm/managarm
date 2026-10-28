@@ -399,8 +399,8 @@ execute(ViewPath root, ViewPath workdir,
 	HEL_CHECK(store.error());
 
 	HelHandle thread;
-	HEL_CHECK(helCreateThread(universe.getHandle(),
-			vmContext->getSpace().getHandle(), kHelAbiSystemV,
+	HEL_CHECK(helCreateThread(vmContext->getHierarchy().getHandle(), universe.getHandle(),
+			vmContext->getSpace().getHandle(),
 			(void *)ldsoInfo.entryIp, (char *)stackBase + d,
 			kHelThreadStopped, &thread));
 

@@ -2420,9 +2420,8 @@ HelError helLoadahead(HelHandle handle, uintptr_t offset, size_t length) {
 
 std::atomic<unsigned int> globalNextCpu = 0;
 
-HelError helCreateThread(HelHandle universe_handle, HelHandle space_handle,
-		int abi, void *ip, void *sp, uint32_t flags, HelHandle *handle) {
-	(void)abi;
+HelError helCreateThread(HelHandle hierarchy_handle, HelHandle universe_handle,
+		HelHandle space_handle, void *ip, void *sp, uint32_t flags, HelHandle *handle) {
 	auto this_thread = getCurrentThread();
 	auto this_universe = this_thread->getUniverse();
 
@@ -2451,11 +2450,18 @@ HelError helCreateThread(HelHandle universe_handle, HelHandle space_handle,
 		space = std::move(*spaceOutcome);
 	}
 
+	auto hierarchyOutcome = this_universe->resolveObject<DescriptorType::hierarchy>(
+		hierarchy_handle, kHelRightProvision
+	);
+	if(!hierarchyOutcome)
+		return translateError(hierarchyOutcome.error());
+
 	AbiParameters params;
 	params.ip = (uintptr_t)ip;
 	params.sp = (uintptr_t)sp;
 
-	auto threadOutcome = Thread::create(std::move(universe), std::move(space), params);
+	auto threadOutcome = Thread::create(std::move(*hierarchyOutcome), std::move(universe),
+			std::move(space), params);
 	if(!threadOutcome)
 		return translateError(threadOutcome.error());
 	auto new_thread = std::move(*threadOutcome);
@@ -4448,7 +4454,7 @@ HelError helBindKernlet(HelHandle handle, const HelKernletData *data, size_t num
 				return translateError(e);
 
 			auto touchOutcome = Thread::asyncBlockCurrent(
-					memory->touchFullRange(0, memorySize, fetchNone),
+					memory->touchFullRange(0, memorySize, fetchSynchronous),
 					this_thread->pagingWorkQueue().get());
 			if(!touchOutcome) {
 				memory->unlockRange(0, memorySize);

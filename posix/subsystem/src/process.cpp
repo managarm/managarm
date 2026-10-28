@@ -1570,8 +1570,9 @@ async::result<std::shared_ptr<Process>> Process::fork(std::shared_ptr<Process> o
 	process->procfsTaskLink_ = procfs_root->createProcTaskDirectory(getProcfs().get(), process.get());
 
 	HelHandle new_thread;
-	HEL_CHECK(helCreateThread(process->fileContext()->getUniverse().getHandle(),
-			process->vmContext()->getSpace().getHandle(), kHelAbiSystemV,
+	HEL_CHECK(helCreateThread(process->vmContext()->getHierarchy().getHandle(),
+			process->fileContext()->getUniverse().getHandle(),
+			process->vmContext()->getSpace().getHandle(),
 			nullptr, nullptr, kHelThreadStopped, &new_thread));
 	process->_threadDescriptor = helix::UniqueDescriptor{new_thread};
 	process->_posixLane = std::move(server_lane);
@@ -1722,8 +1723,9 @@ Process::clone(std::shared_ptr<Process> original, void *ip, void *sp, posix::sup
 	process->procfsTaskLink_ = procfs_root->createProcTaskDirectory(getProcfs().get(), process.get());
 
 	HelHandle new_thread;
-	HEL_CHECK(helCreateThread(process->fileContext()->getUniverse().getHandle(),
-			process->vmContext()->getSpace().getHandle(), kHelAbiSystemV,
+	HEL_CHECK(helCreateThread(process->vmContext()->getHierarchy().getHandle(),
+			process->fileContext()->getUniverse().getHandle(),
+			process->vmContext()->getSpace().getHandle(),
 			ip, sp, kHelThreadStopped, &new_thread));
 	process->_threadDescriptor = helix::UniqueDescriptor{new_thread};
 

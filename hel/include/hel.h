@@ -397,10 +397,6 @@ enum {
 };
 
 enum {
-	kHelAbiSystemV = 1
-};
-
-enum {
 	kHelActionNone = 0,
 	kHelActionDismiss = 11,
 	kHelActionOffer = 5,
@@ -1666,20 +1662,21 @@ HEL_C_LINKAGE HelError helCreateVirtualizedSpace(HelHandle *handle);
 //! @{
 
 //! Create a new thread.
+//! @param[in] hierarchy
+//!     Handle to the hierarchy that owns the new thread.
+//!     The kernel memory of the thread is accounted to this hierarchy node.
 //! @param[in] universeHandle
 //!     Handle to universe of the new thread.
 //! @param[in] spaceHandle
 //!     Handle to universe of the new thread.
-//! @param[in] abi
-//!     ABI that the new thread should adhere to.
 //! @param[in] ip
 //!     Instruction pointer of the new thread.
 //! @param[in] sp
 //!     Stack pointer of the new thread.
 //! @param[out] handle
 //!     Handle to the new thread.
-HEL_C_LINKAGE HelError helCreateThread(HelHandle universe, HelHandle spaceHandle,
-		HelAbi abi, void *ip, void *sp, uint32_t flags, HelHandle *handle);
+HEL_C_LINKAGE HelError helCreateThread(HelHandle hierarchy, HelHandle universe,
+		HelHandle spaceHandle, void *ip, void *sp, uint32_t flags, HelHandle *handle);
 
 //! Query run-time statistics of a thread.
 //! @param[in] handle

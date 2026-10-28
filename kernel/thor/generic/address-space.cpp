@@ -701,6 +701,8 @@ VirtualSpace::handleFault(VirtualAddr address, uint32_t faultFlags) {
 			fetchFlags |= fetchDisallowBacking;
 		if(faultFlags & VirtualSpace::kFaultWrite)
 			fetchFlags |= fetchRequireMutable;
+		if(faultFlags & VirtualSpace::kFaultSynchronous)
+			fetchFlags |= fetchSynchronous;
 
 		// Calling touchRange() on stale mappings is allowed,
 		// so we do not enter a critical section here.
@@ -793,8 +795,9 @@ VirtualSpace::retrievePhysical(VirtualAddr address) {
 		if(mapping->flags.load(std::memory_order_relaxed) & MappingFlags::dontRequireBacking)
 			fetchFlags |= fetchDisallowBacking;
 
+		// helPointerPhysical() blocks the calling thread.
 		FRG_CO_TRY(co_await mapping->view->touchRange(
-				mapping->viewOffset + offset, kPageSize, fetchFlags));
+				mapping->viewOffset + offset, kPageSize, fetchFlags | fetchSynchronous));
 
 		LocalRcuEngine::Guard exposeGuard{mapping->exposeRcu};
 		auto physicalRange = mapping->view->peekRange(mapping->viewOffset + offset, fetchFlags);

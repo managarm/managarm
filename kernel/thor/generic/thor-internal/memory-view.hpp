@@ -237,18 +237,25 @@ inline constexpr FetchFlags fetchRequireMutable = 1;
 // Fail touchRange() calls that need to block on unavailable pages.
 // This is useful for userspace page caches that want to detect deadlocks.
 inline constexpr FetchFlags fetchDisallowBacking = 2;
+// The caller's thread is blocked until the call completes (e.g., for page faults).
+// This makes corresponding page allocations await at the current context's allocation policy
+// instead of using the memory object's allocation policy.
+inline constexpr FetchFlags fetchSynchronous = 4;
 
 using CachingFlags = uint32_t;
 inline constexpr CachingFlags cacheWriteCombine = 1;
 
 // Charges a single page to hierarchy, then allocates a fungible frame.
+// The frame is allocated at the floor of hierarchy, or at the current context's floor
+// if flags contains fetchSynchronous.
 coroutine<std::expected<PhysicalAddr, Error>>
-chargeAndAllocate(Hierarchy *hierarchy, PhysicalKind kind);
+chargeAndAllocate(Hierarchy *hierarchy, PhysicalKind kind, FetchFlags flags);
 
 // Like chargeAndAllocate() but fails instead of waiting.
 // In contrast to chargeAndAllocate(), this can handle non-fungible allocations.
 std::expected<PhysicalAddr, Error>
-tryChargeAndAllocate(Hierarchy *hierarchy, size_t size, PhysicalKind kind, int addressBits);
+tryChargeAndAllocate(Hierarchy *hierarchy, size_t size, PhysicalKind kind, int addressBits,
+		FetchFlags flags);
 
 void deallocateAndUncharge(Hierarchy *hierarchy, PhysicalAddr physical, size_t size,
 		PhysicalKind kind);
@@ -1479,7 +1486,7 @@ private:
 	void unchargePages_(size_t n);
 
 	// Allocate/free an owned copy of a page.
-	coroutine<std::expected<PhysicalAddr, Error>> _allocateCopy();
+	coroutine<std::expected<PhysicalAddr, Error>> _allocateCopy(FetchFlags flags);
 	void _freeCopy(PhysicalAddr physical);
 
 public:

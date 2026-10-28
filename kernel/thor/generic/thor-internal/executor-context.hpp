@@ -11,7 +11,7 @@ struct WorkQueue;
 // RCU protected such that we can reference this from mutex implementations,
 // WorkQueue or similar with worrying about lifetimes.
 struct ExecutorContext : RcuCallable {
-	static ExecutorContext *create();
+	static ExecutorContext *create(MemoryController *account);
 
 	// Destroy this ExecutorContext after RCU grace period.
 	static void retire(ExecutorContext *ctx);
@@ -26,6 +26,8 @@ struct ExecutorContext : RcuCallable {
 	std::atomic<bool> active{false};
 	WorkQueue *exceptionalWq{nullptr};
 	PageMagazine heapMagazine;
+	// Pages on top of the class floor that allocations which this context blocks for leave free.
+	size_t memoryFloor{0};
 };
 
 } // namespace thor

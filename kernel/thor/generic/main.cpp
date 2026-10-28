@@ -447,7 +447,7 @@ void handlePageFault(FaultImageAccessor image, uintptr_t address, Word errorCode
 	}
 
 	// Try to handle the page fault.
-	uint32_t flags = 0;
+	uint32_t flags = AddressSpace::kFaultSynchronous;
 	if(errorCode & kPfWrite)
 		flags |= AddressSpace::kFaultWrite;
 	if(errorCode & kPfInstruction)
@@ -776,7 +776,7 @@ void handleSyscall(SyscallImageAccessor image) {
 	case kHelCallCreateThread: {
 		HelHandle handle;
 		*image.error() = helCreateThread((HelHandle)arg0, (HelHandle)arg1,
-				(int)arg2, (void *)arg3, (void *)arg4, (uint32_t)arg5, &handle);
+				(HelHandle)arg2, (void *)arg3, (void *)arg4, (uint32_t)arg5, &handle);
 		*image.out0() = handle;
 	} break;
 	case kHelCallQueryThreadStats: {
