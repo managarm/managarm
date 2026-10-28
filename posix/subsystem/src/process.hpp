@@ -2,9 +2,13 @@
 
 #include <map>
 #include <memory>
+#include <mutex>
+#include <optional>
 #include <sys/signalfd.h>
 #include <unordered_map>
+#include <vector>
 
+#include <async/mutex.hpp>
 #include <async/result.hpp>
 #include <async/oneshot-event.hpp>
 #include <async/recurring-event.hpp>
@@ -86,76 +90,62 @@ private:
 	helix::UniqueDescriptor _hierarchy;
 	helix::UniqueDescriptor _space;
 
+	// Held across the hel calls that change the address space,
+	// such that the area tree stays consistent with the address space.
+	async::shared_mutex _mutex;
+	// Protected by _mutex.
 	std::map<uintptr_t, Area> _areaTree;
 
 public:
-	struct AreaAccessor {
-		AreaAccessor(std::map<uintptr_t, Area>::iterator iter)
-		:_it{iter} {}
-
-		uintptr_t baseAddress() {
-			return _it->first;
+	// Copy of an area that remains valid when the area tree changes.
+	struct AreaSnapshot {
+		uintptr_t baseAddress() const {
+			return baseAddress_;
 		}
 
-		size_t size() {
-			return _it->second.areaSize;
+		size_t size() const {
+			return size_;
 		}
 
-		bool isPrivate() {
-			return _it->second.copyOnWrite;
+		bool isPrivate() const {
+			return copyOnWrite_;
 		}
 
-		bool isReadable() {
-			return _it->second.nativeFlags & kHelMapProtRead;
+		bool isReadable() const {
+			return nativeFlags_ & kHelMapProtRead;
 		}
 
-		bool isWritable() {
-			return _it->second.nativeFlags & kHelMapProtWrite;
+		bool isWritable() const {
+			return nativeFlags_ & kHelMapProtWrite;
 		}
 
-		bool isExecutable() {
-			return _it->second.nativeFlags & kHelMapProtExecute;
+		bool isExecutable() const {
+			return nativeFlags_ & kHelMapProtExecute;
 		}
 
-		smarter::borrowed_ptr<File, FileHandle> backingFile() {
-			return _it->second.file;
+		const smarter::shared_ptr<File, FileHandle> &backingFile() const {
+			return file_;
 		}
 
-		intptr_t backingFileOffset() {
-			return _it->second.offset;
+		intptr_t backingFileOffset() const {
+			return offset_;
 		}
 
-	private:
-		std::map<uintptr_t, Area>::iterator _it;
+		uintptr_t baseAddress_;
+		size_t size_;
+		bool copyOnWrite_;
+		uint32_t nativeFlags_;
+		smarter::shared_ptr<File, FileHandle> file_;
+		intptr_t offset_;
 	};
 
-	struct AreaIterator {
-		AreaIterator(std::map<uintptr_t, Area>::iterator iter)
-		:_it{iter} {}
+	async::result<std::vector<AreaSnapshot>> snapshotAreas();
 
-		AreaIterator &operator++() {
-			_it++;
-			return *this;
-		}
+	// Returns std::nullopt if the area tree is currently being modified.
+	std::optional<std::vector<AreaSnapshot>> trySnapshotAreas();
 
-		AreaAccessor operator*() {
-			return AreaAccessor{_it};
-		}
-
-		bool operator!=(const AreaIterator &other) {
-			return _it != other._it;
-		}
-	private:
-		std::map<uintptr_t, Area>::iterator _it;
-	};
-
-	AreaIterator begin() {
-		return AreaIterator{_areaTree.begin()};
-	}
-
-	AreaIterator end() {
-		return AreaIterator{_areaTree.end()};
-	}
+private:
+	std::vector<AreaSnapshot> snapshotAreasLocked_();
 };
 
 struct FsContext {
@@ -171,8 +161,13 @@ struct FsContext {
 	mode_t setUmask(mode_t mask);
 
 private:
+	// Leaf lock; replaced paths are dropped after releasing it.
+	std::mutex _mutex;
+	// Protected by _mutex.
 	ViewPath _root;
+	// Protected by _mutex.
 	ViewPath _workDir;
+	// Protected by _mutex.
 	mode_t _umask = 0022;
 };
 
@@ -214,11 +209,11 @@ public:
 		return _clientMbusLane;
 	}
 
-	const std::unordered_map<int, FileDescriptor> &fileTable() {
-		return _fileTable;
-	}
+	// Returns a copy of the file table.
+	std::unordered_map<int, FileDescriptor> snapshotFileTable();
 
 	void setFdLimit(uint64_t limit) {
+		std::lock_guard lock{_mutex};
 		// TODO: increase the limit once we allow more than one shared fd -> HelHandle mapping page
 		fdLimit_ = std::min(limit, 0x1000 / sizeof(HelHandle));
 	}
@@ -230,13 +225,19 @@ private:
 
 	helix::UniqueDescriptor _universe;
 
+	// Leaf lock; displaced files are dropped after releasing it since that can close them.
+	std::mutex _mutex;
+
 	// TODO: replace this by a tree that remembers gaps between keys.
+	// Protected by _mutex.
 	std::unordered_map<int, FileDescriptor> _fileTable;
 
 	helix::UniqueDescriptor _fileTableMemory;
+	// Contents protected by _mutex.
 	helix::Mapping fileTableWindow_;
 
 	// TODO: increase the limit once we allow more than one shared fd -> HelHandle mapping page
+	// Protected by _mutex.
 	uint64_t fdLimit_ = 0x1000 / sizeof(HelHandle);
 
 	HelHandle _clientMbusLane;
@@ -406,10 +407,13 @@ private:
 		> asyncQueue;
 	};
 
+	// Must be called with the ThreadGroup's signalMutex_ held. The caller raises signalBell_.
 	void issueSignal(int sn, SignalInfo info, uint64_t seq);
 
+	// Protected by the ThreadGroup's signalMutex_.
 	SignalSlot slots_[64];
 	async::recurring_event signalBell_;
+	// Protected by the ThreadGroup's signalMutex_.
 	uint64_t activeSet_ = 0;
 };
 
@@ -450,6 +454,8 @@ struct SignalContext {
 	async::result<void> restoreContext(helix::BorrowedDescriptor thread, Process *process);
 
 private:
+	std::mutex _mutex;
+	// Protected by _mutex.
 	SignalHandler _handlers[64];
 };
 
@@ -577,14 +583,17 @@ public:
 	int tid();
 
 	std::string path() {
+		std::lock_guard lock{taskMutex_};
 		return _path;
 	}
 
 	std::string name() {
+		std::lock_guard lock{taskMutex_};
 		return _name;
 	}
 
 	void setName(std::string name) {
+		std::lock_guard lock{taskMutex_};
 		_name = name;
 	}
 
@@ -710,7 +719,7 @@ public:
 	}
 
 	// Forces terminate() to be called on next kHelObserveInterrupt.
-	bool forceTermination = false;
+	std::atomic<bool> forceTermination = false;
 
 	SignalQueue signalQueue;
 
@@ -731,7 +740,10 @@ public:
 
 private:
 	std::shared_ptr<PidHull> hull_;
+	std::mutex taskMutex_;
+	// Protected by taskMutex_.
 	std::string _path;
+	// Protected by taskMutex_.
 	std::string _name;
 	helix::UniqueLane _posixLane;
 	helix::UniqueDescriptor _threadDescriptor;
@@ -907,11 +919,13 @@ struct ThreadGroup : std::enable_shared_from_this<ThreadGroup> {
 		return Error::success;
 	}
 
-	ResourceUsage selfUsage() const {
+	ResourceUsage selfUsage() {
+		std::lock_guard lock{usageMutex_};
 		return _generationUsage;
 	}
 
-	ResourceUsage accumulatedUsage() const {
+	ResourceUsage accumulatedUsage() {
+		std::lock_guard lock{usageMutex_};
 		return _childrenUsage;
 	}
 
@@ -942,7 +956,7 @@ struct ThreadGroup : std::enable_shared_from_this<ThreadGroup> {
 	void issueThreadGroupSignal(int sn, SignalInfo info);
 
 	void setParentDeathSignal(std::optional<int> sig) {
-		parentDeathSignal_ = sig;
+		parentDeathSignal_ = sig.value_or(0);
 	}
 
 	async::result<bool> awaitNotifyTypeChange(async::cancellation_token token = {});
@@ -971,6 +985,7 @@ struct ThreadGroup : std::enable_shared_from_this<ThreadGroup> {
 
 	struct PosixTimerContext {
 		clockid_t clockid;
+		// Protected by timerMutex.
 		std::shared_ptr<PosixTimer> timer = {};
 		std::optional<int> tid = std::nullopt;
 		int signo;
@@ -1006,14 +1021,20 @@ struct ThreadGroup : std::enable_shared_from_this<ThreadGroup> {
 		std::optional<int> tid = std::nullopt;
 		int signo;
 		int timerId;
-		bool isExpired = false;
+		std::atomic<bool> isExpired = false;
 	};
 
+	// Leaf lock; timers are armed and cancelled after releasing it.
+	std::mutex timerMutex;
+	// Protected by timerMutex.
 	std::shared_ptr<IntervalTimer> realTimer;
+	// Protected by timerMutex.
 	std::unordered_map<int, std::shared_ptr<PosixTimerContext>> timers;
+	// Protected by timerMutex.
 	id_allocator<int> timerIdAllocator{};
 
 	void raiseNotifyBell() {
+		notifySeq_.fetch_add(1, std::memory_order_release);
 		_notifyBell.raise();
 	}
 
@@ -1027,7 +1048,7 @@ private:
 
 	std::shared_ptr<SignalContext> _signalContext;
 
-	bool didExecute_ = false;
+	std::atomic<bool> didExecute_ = false;
 
 	std::shared_ptr<ProcessGroup> pgPointer_;
 	frg::default_list_hook<ThreadGroup> pgHook_;
@@ -1041,16 +1062,20 @@ private:
 
 	std::vector<gid_t> supplementaryGids_;
 
-	// Raised by Process::terminate().
+	// Raised by Process::terminate() after incrementing processTerminationSeq_.
+	std::atomic<uint64_t> processTerminationSeq_ = 0;
 	async::recurring_event processTerminationEvent_;
 
+	std::mutex usageMutex_;
 	// Resource usage accumulated from previous generations.
+	// Protected by usageMutex_.
 	ResourceUsage _generationUsage = {};
 	// Resource usage accumulated from children.
+	// Protected by usageMutex_.
 	ResourceUsage _childrenUsage = {};
 
 	// The following intrusive queue stores notifications for wait().
-	NotifyType notifyType_ = NotifyType::null;
+	std::atomic<NotifyType> notifyType_ = NotifyType::null;
 	async::recurring_event notifyTypeChange_;
 	TerminationState _state;
 
@@ -1061,17 +1086,23 @@ private:
 		ThreadGroup,
 		frg::locate_member<ThreadGroup, frg::default_list_hook<ThreadGroup>, &ThreadGroup::notifyHook_>
 	> _notifyQueue;
+	// Raised by raiseNotifyBell() after incrementing notifySeq_.
+	std::atomic<uint64_t> notifySeq_ = 0;
 	async::recurring_event _notifyBell;
 
 	smarter::shared_ptr<procfs::Link, LinkRc> procfsLink_;
 
+	// Leaf lock; the signal bells are raised after releasing it.
+	std::mutex signalMutex_;
+	// Protected by signalMutex_.
 	uint64_t currentSignalSeq_ = 1;
 	// ThreadGroup-wide signal queue for signals with no thread to accept them.
 	SignalQueue signalQueue_;
-	std::optional<int> parentDeathSignal_ = std::nullopt;
+	// Zero if no signal is requested.
+	std::atomic<int> parentDeathSignal_ = 0;
 
 	// equivalent to PR_[SG]ET_DUMPABLE
-	bool dumpable_ = true;
+	std::atomic<bool> dumpable_ = true;
 
 	std::vector<std::shared_ptr<Process>> threads_;
 };

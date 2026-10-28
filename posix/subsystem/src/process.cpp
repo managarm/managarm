@@ -8,6 +8,7 @@
 #include <print>
 
 #include <async/scope.hpp>
+#include <frg/mutex.hpp>
 #include <frg/std_compat.hpp>
 
 #include "common.hpp"
@@ -135,6 +136,10 @@ async::result<std::shared_ptr<VmContext>> VmContext::clone(
 	HEL_CHECK(helCreateSpace(&space));
 	context->_space = helix::UniqueDescriptor(space);
 
+	// The forks borrow the copy views of the original areas.
+	co_await original->_mutex.async_lock_shared();
+	frg::shared_lock lock{frg::adopt_lock, original->_mutex};
+
 	co_await async::dynamic_scope<async::result<void>>(frg::stl_allocator{}, [&] (auto &spawn) {
 		for(const auto &entry : original->_areaTree) {
 			const auto &[address, area] = entry;
@@ -229,6 +234,11 @@ VmContext::mapFile(uintptr_t hint, helix::UniqueDescriptor memory,
 		intptr_t offset, size_t size, bool copyOnWrite, uint32_t nativeFlags) {
 	size_t alignedSize = (size + 0xFFF) & ~size_t(0xFFF);
 
+	// Files of replaced areas are dropped after unlocking since that can close them.
+	std::vector<smarter::shared_ptr<File, FileHandle>> dropped;
+	co_await _mutex.async_lock();
+	frg::unique_lock lock{frg::adopt_lock, _mutex};
+
 	// Perform the actual mapping.
 	// POSIX specifies that non-page-size mappings are rounded up and filled with zeros.
 	helix::UniqueDescriptor copyView;
@@ -278,11 +288,13 @@ VmContext::mapFile(uintptr_t hint, helix::UniqueDescriptor memory,
 	auto [startIt, endIt] = splitAreaOn_(address, alignedSize);
 
 	for (auto it = startIt; it != endIt;) {
-		const auto &[addr, area] = *it;
-		if (addr >= address && (addr + area.areaSize) <= (address + alignedSize))
+		auto &[addr, area] = *it;
+		if (addr >= address && (addr + area.areaSize) <= (address + alignedSize)) {
+			dropped.push_back(std::move(area.file));
 			it = _areaTree.erase(it);
-		else
+		} else {
 			++it;
+		}
 	}
 
 	// Construct the new area.
@@ -304,6 +316,9 @@ async::result<void *> VmContext::remapFile(void *oldPointer,
 		size_t oldSize, size_t newSize) {
 	size_t alignedOldSize = (oldSize + 0xFFF) & ~size_t(0xFFF);
 	size_t alignedNewSize = (newSize + 0xFFF) & ~size_t(0xFFF);
+
+	co_await _mutex.async_lock();
+	frg::unique_lock lock{frg::adopt_lock, _mutex};
 
 //	std::cout << "posix: Remapping " << oldPointer << std::endl;
 	auto it = _areaTree.find(reinterpret_cast<uintptr_t>(oldPointer));
@@ -357,6 +372,9 @@ async::result<void> VmContext::protectFile(void *pointer, size_t size, uint32_t 
 	size_t alignedSize = (size + 0xFFF) & ~size_t(0xFFF);
 	auto address = reinterpret_cast<uintptr_t>(pointer);
 
+	co_await _mutex.async_lock();
+	frg::unique_lock lock{frg::adopt_lock, _mutex};
+
 	helix::ProtectMemory protect;
 	auto &&submit = helix::submitProtectMemory(_space, &protect,
 			pointer, alignedSize, protectionFlags, helix::Dispatcher::global());
@@ -378,6 +396,11 @@ async::result<void> VmContext::unmapFile(void *pointer, size_t size) {
 	size_t alignedSize = (size + 0xFFF) & ~size_t(0xFFF);
 	auto address = reinterpret_cast<uintptr_t>(pointer);
 
+	// Files of unmapped areas are dropped after unlocking since that can close them.
+	std::vector<smarter::shared_ptr<File, FileHandle>> dropped;
+	co_await _mutex.async_lock();
+	frg::unique_lock lock{frg::adopt_lock, _mutex};
+
 	auto unmapResult = co_await helix_ng::unmapMemory(_space, pointer, alignedSize);
 	HEL_CHECK(unmapResult.error());
 
@@ -386,11 +409,40 @@ async::result<void> VmContext::unmapFile(void *pointer, size_t size) {
 	for (auto it = startIt; it != endIt;) {
 		auto &[addr, area] = *it;
 		if (addr >= address && (addr + area.areaSize) <= (address + alignedSize)) {
+			dropped.push_back(std::move(area.file));
 			it = _areaTree.erase(it);
 		} else {
 			++it;
 		}
 	}
+}
+
+async::result<std::vector<VmContext::AreaSnapshot>> VmContext::snapshotAreas() {
+	co_await _mutex.async_lock_shared();
+	frg::shared_lock lock{frg::adopt_lock, _mutex};
+	co_return snapshotAreasLocked_();
+}
+
+std::optional<std::vector<VmContext::AreaSnapshot>> VmContext::trySnapshotAreas() {
+	if(!_mutex.try_lock_shared())
+		return std::nullopt;
+	frg::shared_lock lock{frg::adopt_lock, _mutex};
+	return snapshotAreasLocked_();
+}
+
+std::vector<VmContext::AreaSnapshot> VmContext::snapshotAreasLocked_() {
+	std::vector<AreaSnapshot> areas;
+	for(const auto &[address, area] : _areaTree) {
+		areas.push_back(AreaSnapshot{
+			.baseAddress_ = address,
+			.size_ = area.areaSize,
+			.copyOnWrite_ = area.copyOnWrite,
+			.nativeFlags_ = area.nativeFlags,
+			.file_ = area.file,
+			.offset_ = area.offset,
+		});
+	}
+	return areas;
 }
 
 // ----------------------------------------------------------------------------
@@ -409,6 +461,7 @@ std::shared_ptr<FsContext> FsContext::create() {
 std::shared_ptr<FsContext> FsContext::clone(std::shared_ptr<FsContext> original) {
 	auto context = std::make_shared<FsContext>();
 
+	std::lock_guard lock{original->_mutex};
 	context->_root = original->_root;
 	context->_workDir = original->_workDir;
 	context->_umask = original->_umask;
@@ -417,32 +470,38 @@ std::shared_ptr<FsContext> FsContext::clone(std::shared_ptr<FsContext> original)
 }
 
 ViewPath FsContext::getRoot() {
+	std::lock_guard lock{_mutex};
 	return _root;
 }
 
 ViewPath FsContext::getWorkingDirectory() {
+	std::lock_guard lock{_mutex};
 	return _workDir;
 }
 
 std::expected<void, Error> FsContext::changeRoot(ViewPath root) {
 	if(root.second->getTarget()->getType() != VfsType::directory)
 		return std::unexpected(Error::notDirectory);
-	_root = std::move(root);
+	std::lock_guard lock{_mutex};
+	std::swap(_root, root);
 	return {};
 }
 
 std::expected<void, Error> FsContext::changeWorkingDirectory(ViewPath workdir) {
 	if(workdir.second->getTarget()->getType() != VfsType::directory)
 		return std::unexpected(Error::notDirectory);
-	_workDir = std::move(workdir);
+	std::lock_guard lock{_mutex};
+	std::swap(_workDir, workdir);
 	return {};
 }
 
 mode_t FsContext::getUmask() {
+	std::lock_guard lock{_mutex};
 	return _umask;
 }
 
 mode_t FsContext::setUmask(mode_t mask) {
+	std::lock_guard lock{_mutex};
 	mode_t old = _umask;
 	_umask = mask & 0777;
 	return old;
@@ -496,7 +555,7 @@ std::shared_ptr<FileContext> FileContext::clone(std::shared_ptr<FileContext> ori
 	context->_fileTableMemory = helix::UniqueDescriptor(memory);
 	context->fileTableWindow_ = helix::Mapping{context->_fileTableMemory, 0, 0x1000};
 
-	for(auto entry : original->_fileTable) {
+	for(auto entry : original->snapshotFileTable()) {
 		//std::cout << "Clone FD " << entry.first << std::endl;
 
 		// the new number of fd in the file context is always <= the number of fd in the original
@@ -533,6 +592,7 @@ std::expected<int, Error> FileContext::attachFile(smarter::shared_ptr<File, File
 		&handle
 	));
 
+	std::lock_guard lock{_mutex};
 	for(int fd = startAt; ; fd++) {
 		if(_fileTable.find(fd) != _fileTable.end())
 			continue;
@@ -551,8 +611,11 @@ std::expected<int, Error> FileContext::attachFile(smarter::shared_ptr<File, File
 
 std::expected<void, Error> FileContext::attachFile(int fd, smarter::shared_ptr<File, FileHandle> file,
 		bool close_on_exec) {
-	if (static_cast<uint64_t>(fd) >= fdLimit_)
-		return std::unexpected{Error::noFileDescriptorsAvailable};
+	{
+		std::lock_guard lock{_mutex};
+		if (static_cast<uint64_t>(fd) >= fdLimit_)
+			return std::unexpected{Error::noFileDescriptorsAvailable};
+	}
 
 	HelHandle handle;
 	HEL_CHECK(helTransferDescriptor(
@@ -567,9 +630,11 @@ std::expected<void, Error> FileContext::attachFile(int fd, smarter::shared_ptr<F
 	if(logFileAttach)
 		std::cout << "posix: Attaching fixed FD " << fd << std::endl;
 
+	FileDescriptor displaced;
+	std::lock_guard lock{_mutex};
 	auto it = _fileTable.find(fd);
 	if(it != _fileTable.end()) {
-		it->second = {std::move(file), close_on_exec};
+		displaced = std::exchange(it->second, {std::move(file), close_on_exec});
 	}else{
 		_fileTable.insert({fd, {std::move(file), close_on_exec}});
 	}
@@ -579,6 +644,7 @@ std::expected<void, Error> FileContext::attachFile(int fd, smarter::shared_ptr<F
 }
 
 std::optional<FileDescriptor> FileContext::getDescriptor(int fd) {
+	std::lock_guard lock{_mutex};
 	auto file = _fileTable.find(fd);
 	if(file == _fileTable.end())
 		return std::nullopt;
@@ -586,6 +652,7 @@ std::optional<FileDescriptor> FileContext::getDescriptor(int fd) {
 }
 
 Error FileContext::setDescriptor(int fd, bool close_on_exec) {
+	std::lock_guard lock{_mutex};
 	auto it = _fileTable.find(fd);
 	if(it == _fileTable.end()) {
 		return Error::noSuchFile;
@@ -595,6 +662,7 @@ Error FileContext::setDescriptor(int fd, bool close_on_exec) {
 }
 
 smarter::shared_ptr<File, FileHandle> FileContext::getFile(int fd) {
+	std::lock_guard lock{_mutex};
 	auto file = _fileTable.find(fd);
 	if(file == _fileTable.end())
 		return smarter::shared_ptr<File, FileHandle>{};
@@ -604,6 +672,8 @@ smarter::shared_ptr<File, FileHandle> FileContext::getFile(int fd) {
 Error FileContext::closeFile(int fd) {
 	if(logFileAttach)
 		std::cout << "posix: Closing FD " << fd << std::endl;
+	FileDescriptor closed;
+	std::lock_guard lock{_mutex};
 	auto it = _fileTable.find(fd);
 	if(it == _fileTable.end()) {
 		return Error::noSuchFile;
@@ -612,22 +682,31 @@ Error FileContext::closeFile(int fd) {
 	HEL_CHECK(helCloseDescriptor(_universe.getHandle(), fileTableWindow()[fd]));
 
 	fileTableWindow()[fd] = 0;
+	closed = std::move(it->second);
 	_fileTable.erase(it);
 	return Error::success;
 }
 
 void FileContext::closeOnExec() {
+	std::vector<FileDescriptor> closed;
+	std::lock_guard lock{_mutex};
 	auto it = _fileTable.begin();
 	while(it != _fileTable.end()) {
 		if(it->second.closeOnExec) {
 			HEL_CHECK(helCloseDescriptor(_universe.getHandle(), fileTableWindow()[it->first]));
 
 			fileTableWindow()[it->first] = 0;
+			closed.push_back(std::move(it->second));
 			it = _fileTable.erase(it);
 		}else{
 			it++;
 		}
 	}
+}
+
+std::unordered_map<int, FileDescriptor> FileContext::snapshotFileTable() {
+	std::lock_guard lock{_mutex};
+	return _fileTable;
 }
 
 // ----------------------------------------------------------------------------
@@ -717,6 +796,7 @@ std::shared_ptr<SignalContext> SignalContext::clone(std::shared_ptr<SignalContex
 	auto context = std::make_shared<SignalContext>();
 
 	// Copy the current signal handler table.
+	std::lock_guard lock{original->_mutex};
 	for(int sn = 1; sn <= 64; sn++)
 		context->_handlers[sn - 1] = original->_handlers[sn - 1];
 
@@ -724,6 +804,7 @@ std::shared_ptr<SignalContext> SignalContext::clone(std::shared_ptr<SignalContex
 }
 
 void SignalContext::resetHandlers() {
+	std::lock_guard lock{_mutex};
 	for(int sn = 1; sn <= 64; sn++)
 		if(_handlers[sn - 1].disposition == SignalDisposition::handle)
 			_handlers[sn - 1] = SignalHandler{SignalDisposition::none};
@@ -732,12 +813,14 @@ void SignalContext::resetHandlers() {
 SignalHandler SignalContext::getHandler(int sn) {
 	assert(sn > 0);
 	assert(sn - 1 < 64);
+	std::lock_guard lock{_mutex};
 	return _handlers[sn - 1];
 }
 
 SignalHandler SignalContext::changeHandler(int sn, SignalHandler handler) {
 	assert(sn > 0);
 	assert(sn - 1 < 64);
+	std::lock_guard lock{_mutex};
 	return std::exchange(_handlers[sn - 1], handler);
 }
 
@@ -751,23 +834,36 @@ void SignalQueue::issueSignal(int sn, SignalInfo info, uint64_t seq) {
 	slots_[sn - 1].raiseSeq = seq;
 	slots_[sn - 1].asyncQueue.push_back(item);
 	activeSet_ |= (UINT64_C(1) << (sn - 1));
-	signalBell_.raise();
 }
 
 void ThreadGroup::issueThreadGroupSignal(int sn, SignalInfo info) {
-	signalQueue_.issueSignal(sn, info, ++currentSignalSeq_);
+	{
+		std::lock_guard lock{signalMutex_};
+		signalQueue_.issueSignal(sn, info, ++currentSignalSeq_);
+	}
+	signalQueue_.signalBell_.raise();
 }
 
 void Process::issueThreadSignal(int sn, SignalInfo info) {
-	signalQueue.issueSignal(sn, info, ++threadGroup()->currentSignalSeq_);
+	auto tg = threadGroup();
+	{
+		std::lock_guard lock{tg->signalMutex_};
+		signalQueue.issueSignal(sn, info, ++tg->currentSignalSeq_);
+	}
+	signalQueue.signalBell_.raise();
 }
 
 async::result<PollSignalResult>
 Process::pollSignal(uint64_t in_seq, uint64_t mask, async::cancellation_token cancellation) {
-	assert(in_seq <= threadGroup()->currentSignalSeq_);
+	auto tg = threadGroup();
+	{
+		std::lock_guard lock{tg->signalMutex_};
+		assert(in_seq <= tg->currentSignalSeq_);
+	}
 
 	auto threadSignalUnavailable = [&]() {
-		if (in_seq == threadGroup()->currentSignalSeq_)
+		std::lock_guard lock{tg->signalMutex_};
+		if (in_seq == tg->currentSignalSeq_)
 			return true;
 		if (!(signalQueue.activeSet_ & mask))
 			return true;
@@ -775,9 +871,10 @@ Process::pollSignal(uint64_t in_seq, uint64_t mask, async::cancellation_token ca
 	};
 
 	auto processSignalUnavailable = [&]() {
-		if (in_seq == threadGroup()->currentSignalSeq_)
+		std::lock_guard lock{tg->signalMutex_};
+		if (in_seq == tg->currentSignalSeq_)
 			return true;
-		if (!(threadGroup()->signalQueue_.activeSet_ & mask))
+		if (!(tg->signalQueue_.activeSet_ & mask))
 			return true;
 		return false;
 	};
@@ -804,22 +901,25 @@ Process::pollSignal(uint64_t in_seq, uint64_t mask, async::cancellation_token ca
 		);
 	}
 
+	std::lock_guard lock{tg->signalMutex_};
 	uint64_t edges = 0;
 	for(int sn = 1; sn <= 64; sn++) {
 		if (signalQueue.slots_[sn - 1].raiseSeq > in_seq)
 			edges |= UINT64_C(1) << (sn - 1);
-		else if (threadGroup()->signalQueue().slots_[sn - 1].raiseSeq > in_seq)
+		else if (tg->signalQueue().slots_[sn - 1].raiseSeq > in_seq)
 			edges |= UINT64_C(1) << (sn - 1);
 	}
 
-	co_return PollSignalResult{threadGroup()->currentSignalSeq_, edges & mask};
+	co_return PollSignalResult{tg->currentSignalSeq_, edges & mask};
 }
 
 CheckSignalResult Process::checkSignal() {
+	std::lock_guard lock{threadGroup()->signalMutex_};
 	return CheckSignalResult(threadGroup()->currentSignalSeq_, signalQueue.activeSet_ | threadGroup()->signalQueue_.activeSet_);
 }
 
 SignalItem * Process::tryFetchSignal(uint64_t mask) {
+	std::lock_guard lock{threadGroup()->signalMutex_};
 	for(int sn = 1; sn <= 64; sn++) {
 		if(!(mask & (UINT64_C(1) << (sn - 1))))
 			continue;
@@ -847,7 +947,11 @@ SignalItem * Process::tryFetchSignal(uint64_t mask) {
 }
 
 async::result<SignalItem *> Process::fetchSignal(uint64_t mask, bool nonBlock, async::cancellation_token ct) {
-	auto seq = threadGroup()->currentSignalSeq_;
+	uint64_t seq;
+	{
+		std::lock_guard lock{threadGroup()->signalMutex_};
+		seq = threadGroup()->currentSignalSeq_;
+	}
 
 	while(true) {
 		auto item = tryFetchSignal(mask);
@@ -904,17 +1008,21 @@ static const auto simdStateSize = [] () -> size_t {
 }();
 
 SignalContext::SignalHandling SignalContext::acceptSignal(SignalItem *item, Process *process) {
-	SignalHandler handler = _handlers[item->signalNumber - 1];
+	SignalHandler handler;
+	{
+		std::lock_guard lock{_mutex};
+		handler = _handlers[item->signalNumber - 1];
+
+		// Implement SA_RESETHAND by resetting the signal disposition to default.
+		if(handler.flags & signalOnce)
+			_handlers[item->signalNumber - 1].disposition = SignalDisposition::none;
+	}
 
 	process->enterSignal();
 
 	SignalContext::SignalHandling result {
 		.handler = handler,
 	};
-
-	// Implement SA_RESETHAND by resetting the signal disposition to default.
-	if(handler.flags & signalOnce)
-		_handlers[item->signalNumber - 1].disposition = SignalDisposition::none;
 
 	// Handle default dispositions properly
 	if(handler.disposition == SignalDisposition::none) {
@@ -1339,7 +1447,10 @@ void Process::dumpRegisters() {
 #endif
 
 	printf("Mappings:\n");
-	for (auto mapping : *(vmContext())) {
+	auto areas = vmContext()->trySnapshotAreas();
+	if(!areas)
+		printf("(unavailable while the address space is being modified)\n");
+	for (auto &mapping : areas.value_or(std::vector<VmContext::AreaSnapshot>{})) {
 		uintptr_t start = mapping.baseAddress();
 		uintptr_t end = start + mapping.size();
 
@@ -1818,8 +1929,11 @@ async::result<Error> Process::exec(std::shared_ptr<Process> process,
 	// "Commit" the exec() operation.
 	size_t pos = path.rfind('/');
 	assert(pos != std::string::npos);
-	process->_name = path.substr(pos + 1);
-	process->_path = std::move(path);
+	{
+		std::lock_guard lock{process->taskMutex_};
+		process->_name = path.substr(pos + 1);
+		process->_path = std::move(path);
+	}
 	process->_posixLane = std::move(server_lane);
 	process->_threadDescriptor = std::move(execResult.thread);
 	process->_vmContext = std::move(exec_vm_context);
@@ -1866,7 +1980,12 @@ async::result<void> Process::terminate(bool *lastInGroup) {
 	// TODO: Do the accumulation + _currentGeneration reset after the thread has really terminated?
 	HelThreadStats stats;
 	HEL_CHECK(helQueryThreadStats(_threadDescriptor.getHandle(), &stats));
-	threadGroup()->_generationUsage.userTime += stats.userTime;
+	uint64_t groupUserTime;
+	{
+		std::lock_guard lock{threadGroup()->usageMutex_};
+		threadGroup()->_generationUsage.userTime += stats.userTime;
+		groupUserTime = threadGroup()->_generationUsage.userTime;
+	}
 
 	_posixLane = {};
 	_threadDescriptor = {};
@@ -1876,13 +1995,17 @@ async::result<void> Process::terminate(bool *lastInGroup) {
 	//_signalContext = nullptr; // TODO: Migrate the notifications to PID 1.
 	_currentGeneration = nullptr;
 
-	parent->_childrenUsage.userTime += threadGroup()->_generationUsage.userTime;
+	{
+		std::lock_guard lock{parent->usageMutex_};
+		parent->_childrenUsage.userTime += groupUserTime;
+	}
 
 	std::erase_if(tgPointer_->threads_, [&](auto e) {
 		return e.get() == this;
 	});
 	if (lastInGroup)
 		*lastInGroup = tgPointer_->threads_.empty();
+	tgPointer_->processTerminationSeq_.fetch_add(1, std::memory_order_release);
 	tgPointer_->processTerminationEvent_.raise();
 }
 
@@ -1938,11 +2061,13 @@ Process::wait(int pid, WaitFlags flags, async::cancellation_token ct) {
 		}
 	};
 
-	if(!hasMatchingChildren() || (pid > 0 && !hasChild(pid)))
-		co_return Error::noChildProcesses;
-
 	std::optional<WaitResult> result{};
 	while(true) {
+		auto seq = threadGroup()->notifySeq_.load(std::memory_order_acquire);
+		// Checked after reading the sequence number, such that a concurrent reap wakes us up.
+		if(!hasMatchingChildren() || (pid > 0 && !hasChild(pid)))
+			co_return Error::noChildProcesses;
+
 		for(auto it = threadGroup()->_notifyQueue.begin(); it != threadGroup()->_notifyQueue.end(); ++it) {
 			if(!notificationMatch(*it))
 				continue;
@@ -1973,11 +2098,11 @@ Process::wait(int pid, WaitFlags flags, async::cancellation_token ct) {
 		else if(flags & waitNonBlocking)
 			co_return Error::wouldBlock;
 
-		if (!co_await threadGroup()->_notifyBell.async_wait(ct))
+		auto waitResult = co_await threadGroup()->_notifyBell.async_wait_if([&] {
+			return threadGroup()->notifySeq_.load(std::memory_order_acquire) == seq;
+		}, ct);
+		if (!waitResult)
 			co_return Error::interrupted;
-
-		if (!hasMatchingChildren())
-			co_return Error::noChildProcesses;
 	}
 }
 
@@ -1988,7 +2113,10 @@ bool Process::hasChild(int pid) {
 }
 
 async::result<bool> ThreadGroup::awaitNotifyTypeChange(async::cancellation_token token) {
-	co_return co_await notifyTypeChange_.async_wait(token);
+	auto result = co_await notifyTypeChange_.async_wait_if([&] {
+		return notifyType_.load() == NotifyType::null;
+	}, token);
+	co_return bool(result);
 }
 
 ThreadGroup::ThreadGroup(std::shared_ptr<PidHull> hull, ThreadGroup *parent)
@@ -2188,6 +2316,7 @@ async::result<void> ThreadGroup::terminateGroup(TerminationState state) {
 	// Note that the process that caused the thread group termination has already called terminate() by now,
 	// so we do not need to worry about that process deadlocking if it waits for terminateGroup().
 	while (true) {
+		auto seq = processTerminationSeq_.load(std::memory_order_acquire);
 		for (auto &process : threads_) {
 			if (process->forceTermination)
 				continue;
@@ -2197,11 +2326,18 @@ async::result<void> ThreadGroup::terminateGroup(TerminationState state) {
 
 		if (threads_.empty())
 			break;
-		co_await processTerminationEvent_.async_wait();
+		co_await processTerminationEvent_.async_wait_if([&] {
+			return processTerminationSeq_.load(std::memory_order_acquire) == seq;
+		});
 	}
 
-	if(realTimer)
-		realTimer->cancel();
+	std::shared_ptr<IntervalTimer> timer;
+	{
+		std::lock_guard lock{timerMutex};
+		timer = realTimer;
+	}
+	if(timer)
+		timer->cancel();
 
 	// Walk up the chain until we hit a process that has no parent.
 	if (!parent_) {
@@ -2217,10 +2353,10 @@ async::result<void> ThreadGroup::terminateGroup(TerminationState state) {
 		reparentTo->_children.push_back((*it));
 
 		// send the signal if it requested one on parent death
-		if((*it)->parentDeathSignal_) {
+		if(int sig = (*it)->parentDeathSignal_; sig) {
 			UserSignal info;
 			info.pid = hull_->getPid();
-			(*it)->issueThreadGroupSignal((*it)->parentDeathSignal_.value(), info);
+			(*it)->issueThreadGroupSignal(sig, info);
 		}
 
 		it = _children.erase(it);
@@ -2236,7 +2372,7 @@ async::result<void> ThreadGroup::terminateGroup(TerminationState state) {
 	}
 
 	if(ringReparent)
-		reparentTo->_notifyBell.raise();
+		reparentTo->raiseNotifyBell();
 
 	// Notify the parent of our status change.
 	// We need to do that even when not sending SIGCHLD since it wakes up pidfd.
@@ -2247,12 +2383,12 @@ async::result<void> ThreadGroup::terminateGroup(TerminationState state) {
 	auto sigchldHandling = parent_->signalContext()->getHandler(SIGCHLD);
 	if (sigchldHandling.disposition != SignalDisposition::ignore && !(sigchldHandling.flags & signalNoChildWait)) {
 		parent_->_notifyQueue.push_back(this);
-		parent_->_notifyBell.raise();
+		parent_->raiseNotifyBell();
 
 		// Send SIGCHLD to the parent.
 		ChildSignal info;
 		info.pid = hull_->getPid();
-		info.utime = _generationUsage.userTime;
+		info.utime = selfUsage().userTime;
 
 		if(std::get_if<TerminationByExit>(&_state)) {
 			info.status = std::get<TerminationByExit>(_state).code;
@@ -2286,7 +2422,7 @@ void ThreadGroup::retire(ThreadGroup *tg) {
 
 	// We need to ring _notifyBell once the process is retired
 	// since waitpid() returns an error once no children are left.
-	tg->parent_->_notifyBell.raise();
+	tg->parent_->raiseNotifyBell();
 }
 
 void ThreadGroup::associateProcess(std::shared_ptr<Process> process) {

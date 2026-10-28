@@ -643,9 +643,9 @@ async::result<std::expected<std::string, Error>> MapNode::show(Process *) {
 	if (!p)
 		co_return std::unexpected(Error::noSuchProcess);
 
-	auto vmContext = p->vmContext();
+	auto areas = co_await p->vmContext()->snapshotAreas();
 	std::stringstream stream;
-	for (auto area : *vmContext) {
+	for (auto &area : areas) {
 		stream << std::hex << area.baseAddress();
 		stream << "-";
 		stream << std::hex << area.baseAddress() + area.size();
@@ -1140,7 +1140,7 @@ void FdDirectoryFile::serve(smarter::shared_ptr<FdDirectoryFile> file) {
 
 FdDirectoryFile::FdDirectoryFile(std::shared_ptr<MountView> mount, smarter::shared_ptr<FsLink, LinkRc> link, Process *process)
 : FileWithDefaults{FileKind::unknown,  StructName::get("procfs.fddir"), std::move(mount), std::move(link)},
-		_process{process->weak_from_this()}, _fileTable{process->fileContext()->fileTable()}, _iter{_fileTable.begin()} {}
+		_process{process->weak_from_this()}, _fileTable{process->fileContext()->snapshotFileTable()}, _iter{_fileTable.begin()} {}
 
 void FdDirectoryFile::handleClose() {
 	_cancelServe.cancel();
@@ -1205,7 +1205,7 @@ async::result<frg::expected<Error, smarter::shared_ptr<FsLink, LinkRc>>> FdDirec
 	if (!p)
 		co_return Error::noSuchProcess;
 
-	for(const auto &[fdnum, fd] : p->fileContext()->fileTable()) {
+	for(const auto &[fdnum, fd] : p->fileContext()->snapshotFileTable()) {
 		if(name != std::to_string(fdnum))
 			continue;
 		auto pointee = makeFsShared<SymlinkNode>(p.get(), fd.file->associatedMount(), fd.file->associatedLink());
@@ -1408,8 +1408,7 @@ async::result<frg::expected<Error, smarter::shared_ptr<FsLink, LinkRc>>> FdInfoD
 		co_return Error::noSuchProcess;
 
 	auto nameNum = std::stoi(name);
-	if(p->fileContext()->fileTable().contains(nameNum)) {
-		auto file = p->fileContext()->fileTable().at(nameNum).file;
+	if(auto file = p->fileContext()->getFile(nameNum)) {
 		auto pointee = makeFsShared<FdInfoNode>(file->associatedMount(), file);
 		co_return makeFsShared<Link>(parent->sharedFromThis(), name, pointee);
 	}
@@ -1426,7 +1425,7 @@ void FdInfoDirectoryFile::serve(smarter::shared_ptr<FdInfoDirectoryFile> file) {
 
 FdInfoDirectoryFile::FdInfoDirectoryFile(std::shared_ptr<MountView> mount, smarter::shared_ptr<FsLink, LinkRc> link, Process* process)
 : FileWithDefaults{FileKind::unknown,  StructName::get("procfs.fdinfodir"), std::move(mount), std::move(link)},
-		_process{process->weak_from_this()}, _fileTable{process->fileContext()->fileTable()}, _iter{_fileTable.begin()} {}
+		_process{process->weak_from_this()}, _fileTable{process->fileContext()->snapshotFileTable()}, _iter{_fileTable.begin()} {}
 
 void FdInfoDirectoryFile::handleClose() {
 	_cancelServe.cancel();
