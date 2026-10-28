@@ -7,6 +7,10 @@
 
 namespace thor {
 
+// Halts the current CPU.
+// This does not flush logs that are still queued for the log drain.
+// Hence, a bare panic() is only valid within the logging infrastructure itself, which cannot log.
+// Other code paths should either use panicLogger(), or urgentLogger() followed by panic().
 void panic();
 
 // Boot-time debug options populated by Eir via the debugOptions ELF note.

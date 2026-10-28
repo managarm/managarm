@@ -139,7 +139,7 @@ void __asan_set_shadow_f8(void *pointer, size_t size) {
 namespace {
 	[[gnu::no_sanitize_address]]
 	void doReport(bool write, uintptr_t address, size_t size, void *ip) {
-		thor::infoLogger() << "thor: KASAN failure at IP " << ip << ", "
+		thor::urgentLogger() << "thor: KASAN failure at IP " << ip << ", "
 				<< size << "-byte "
 				<< (write ? "write to " : "read from ")
 				<< "address " << (void *)address << frg::endlog;
@@ -152,7 +152,7 @@ namespace {
 		auto shownAhead = frg::min(validAhead, size_t{2 * 16});
 		ptrdiff_t i = -static_cast<ptrdiff_t>(shownBehind);
 		while(i < static_cast<ptrdiff_t>(16 + shownAhead)) {
-			auto msg = thor::infoLogger();
+			auto msg = thor::urgentLogger();
 			msg << "thor: Shadow[" << thor::kasanPointerOf(&shadow[-lSigned + i]) << "]:";
 			for(size_t j = 0; j < 16; ++j) {
 				auto v = static_cast<uint8_t>(shadow[-lSigned + i]);
@@ -164,7 +164,7 @@ namespace {
 			}
 			msg << frg::endlog;
 		}
-		thor::panic();
+		thor::panicLogger() << "thor: Panic due to KASAN failure" << frg::endlog;
 	}
 }
 
