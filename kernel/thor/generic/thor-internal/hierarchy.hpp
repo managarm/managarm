@@ -3,37 +3,18 @@
 #include <atomic>
 #include <expected>
 #include <frg/list.hpp>
-#include <frg/manual_box.hpp>
 #include <frg/optional.hpp>
 #include <frg/string.hpp>
 #include <frg/vector.hpp>
 #include <smarter.hpp>
 #include <thor-internal/error.hpp>
 #include <thor-internal/kernel-heap.hpp>
+#include <thor-internal/memory-controller.hpp>
 #include <thor-internal/rcu.hpp>
 
 namespace thor {
 
 struct HierarchySnapshot;
-
-struct MemoryController {
-public:
-	// parent is null for the root controller.
-	MemoryController(MemoryController *parent, size_t floor);
-
-	MemoryController(const MemoryController &) = delete;
-
-	MemoryController &operator= (const MemoryController &) = delete;
-
-	// Pages that user-class allocations of hierarchies using this controller leave free on top
-	// of the user floor; see AllocationPolicy::floor.
-	size_t floor() const {
-		return floor_;
-	}
-
-private:
-	size_t floor_;
-};
 
 struct Hierarchy : RcuProtected {
 	friend frg::vector<HierarchySnapshot, KernelAlloc> snapshotHierarchies();
@@ -49,8 +30,9 @@ public:
 		frg::optional<size_t> memoryFloor
 	);
 
+	// If ownMemoryCtlr is null, the node uses the controller of its parent.
 	Hierarchy(CtorToken, smarter::shared_ptr<Hierarchy> parent, frg::string<KernelAlloc> tag,
-			frg::optional<size_t> memoryFloor);
+			frg::unique_ptr<MemoryController, AccountAllocator> ownMemoryCtlr);
 
 	~Hierarchy();
 
@@ -67,6 +49,10 @@ public:
 
 	frg::string_view tag() const {
 		return tag_;
+	}
+
+	MemoryController *controller() const {
+		return memoryCtlr_;
 	}
 
 	// Tracks the physical memory (in bytes) currently charged to this node.
@@ -108,7 +94,7 @@ private:
 	MemoryController *memoryCtlr_{nullptr};
 	// Holds memoryCtlr_ if this node owns it.
 	// Child hierarchy nodes keep this node alive so we do not need reference counting here.
-	frg::manual_box<MemoryController> ownMemoryCtlr_;
+	frg::unique_ptr<MemoryController, AccountAllocator> ownMemoryCtlr_;
 
 	IrqSpinlock childrenMutex_;
 
@@ -127,6 +113,28 @@ private:
 };
 static_assert(HasFinalizeBeforeRcu<Hierarchy>);
 
+// Allocates through a hierarchy's MemoryController and keeps the hierarchy alive.
+// This is used for top-level objects (e.g., MemoryView overloads) that belong to a hierarchy.
+struct HierarchyAllocator {
+	explicit HierarchyAllocator(smarter::shared_ptr<Hierarchy> hierarchy)
+	: hierarchy_{std::move(hierarchy)} { }
+
+	void *allocate(size_t size) const {
+		return AccountAllocator{hierarchy_->controller()}.allocate(size);
+	}
+
+	void deallocate(void *p, size_t size) const {
+		kernelAlloc->deallocate(p, size);
+	}
+
+	void free(void *p) const {
+		kernelAlloc->free(p);
+	}
+
+private:
+	smarter::shared_ptr<Hierarchy> hierarchy_;
+};
+
 smarter::shared_ptr<Hierarchy> rootHierarchy();
 
 // Flattened view of a single node, as handed out by snapshotHierarchies().
@@ -136,6 +144,8 @@ struct HierarchySnapshot {
 	frg::string<KernelAlloc> tag;
 	size_t chargedMemory;
 	size_t chargedSwap;
+	// Kernel memory charged to the node's controller; zero unless the node owns the controller.
+	size_t chargedKernel;
 };
 
 // Debugging aid: lists all live hierarchy nodes, parents before children.

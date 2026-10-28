@@ -9,6 +9,7 @@
 #include <thor-internal/kernel-heap.hpp>
 #include <thor-internal/kernel-io.hpp>
 #include <thor-internal/main.hpp>
+#include <thor-internal/memory-controller.hpp>
 #include <thor-internal/physical.hpp>
 #include <thor-internal/ring-buffer.hpp>
 #include <thor-internal/thread.hpp>
@@ -301,6 +302,9 @@ void *HeapSlabPolicy::map(size_t length, size_t align) {
 		magazine.pages.splice(std::move(*pages));
 	}
 
+	if(account)
+		account->chargeKernel(length);
+
 	auto p = KernelVirtualMemory::global().allocate(length, align);
 
 	// TODO: The slab_pool unpoisons memory before calling this.
@@ -329,6 +333,10 @@ void HeapSlabPolicy::unmap(void *ptr, size_t length) {
 	for(size_t offset = 0; offset < length; offset += kPageSize)
 		pages.push(KernelPageSpace::global().unmapSingle4k(address + offset));
 
+	// Uncharge synchronously since the account can be gone once the shootdown completes.
+	if(account)
+		account->unchargeKernel(length);
+
 	spawnOnWorkQueue(
 		getCoreAllocator(),
 		WorkQueue::generalQueue().lock(),
@@ -350,20 +358,26 @@ void HeapSlabPolicy::unmap(void *ptr, size_t length) {
 	);
 }
 
-void *Allocator::refillAndAllocate_(size_t size) const {
+bool refillHeapMagazine() {
 	// map() panics instead of failing if there is no ExecutorContext.
 	auto ctx = currentExecutorContext();
 	if(!ctx)
 		panicLogger() << "thor: Kernel heap allocation failed outside of ExecutorContext" << frg::endlog;
 	auto &magazine = ctx->heapMagazine;
 
-	while(true) {
-		// The pool failed without calling map() (e.g., due to an overflowing size).
-		if(!magazine.wanted)
-			return nullptr;
+	// The pool failed without calling map() (e.g., due to an overflowing size).
+	if(!magazine.wanted)
+		return false;
 
-		if(auto refilled = magazine.refill(); !refilled)
-			panicLogger() << "thor: Out of memory for the kernel heap" << frg::endlog;
+	if(auto refilled = magazine.refill(); !refilled)
+		panicLogger() << "thor: Out of memory for the kernel heap" << frg::endlog;
+	return true;
+}
+
+void *Allocator::refillAndAllocate_(size_t size) const {
+	while(true) {
+		if(!refillHeapMagazine())
+			return nullptr;
 
 		// Retry the allocation after filling the magazine.
 		Guard guard;

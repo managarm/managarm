@@ -150,6 +150,9 @@ void submitRcu(RcuCallable *callable, void (*call)(RcuCallable *));
 // that are active on entry have ended. See RcuEngine::barrier() for details.
 coroutine<void> rcuBarrier();
 
+// Waits until all calls that were passed to submitRcu() (on any CPU) before entry have run.
+coroutine<void> drainRcuCalls();
+
 // Policy class for frigg::rcu_radixtree.
 struct RcuPolicy {
 	template<typename T, typename D>

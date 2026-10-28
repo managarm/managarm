@@ -50,6 +50,8 @@ private:
 	Mutex mutex_;
 };
 
+struct MemoryController;
+
 class HeapSlabPolicy {
 public:
 	void *map(size_t length) {
@@ -76,9 +78,19 @@ public:
 	void poison(void *pointer, size_t size);
 
 	void output_trace(void *buffer, size_t size);
+
+	uint32_t shard_id() const {
+		return shard;
+	}
+
+	// Controller that is charged for the pages that the pool maps (or null for the kernel).
+	MemoryController *account = nullptr;
+	// Index of the CPU that uses the pool. Pools of a CPU are never used concurrently.
+	uint32_t shard = 0;
 };
 
 static_assert(frg::sharded_slab::aligned_map_policy<HeapSlabPolicy>);
+static_assert(frg::sharded_slab::sharded_policy<HeapSlabPolicy>);
 static_assert(frg::slab::has_poisoning_support<HeapSlabPolicy>);
 #ifdef KERNEL_LOG_ALLOCATIONS
 static_assert(frg::slab::has_trace_support<HeapSlabPolicy>);
@@ -101,6 +113,10 @@ using CoreAllocator = frg::slab_allocator<CoreSlabPolicy, IrqSpinlock>;
 // TODO: we do not really want to return a mutable reference here,
 //       but frg::construct requires it for now.
 CoreAllocator &getCoreAllocator();
+
+// Slow path of heap allocations after the pool failed: refills the current context's magazine.
+// Returns false if the pool failed without wanting pages, i.e., if retrying is pointless.
+bool refillHeapMagazine();
 
 struct Allocator {
 	struct Guard : IplGuard<ipl::noSchedule> {

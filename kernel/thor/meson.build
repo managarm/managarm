@@ -67,6 +67,7 @@ src = files(
 	'generic/load-balancing.cpp',
 	'generic/main.cpp',
 	'generic/mbus.cpp',
+	'generic/memory-controller.cpp',
 	'generic/memory-view.cpp',
 	'generic/ostrace.cpp',
 	'generic/pfn-db.cpp',

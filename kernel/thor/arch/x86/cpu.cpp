@@ -589,7 +589,7 @@ void setupCpuContext(AssemblyCpuData *context) {
 
 void prepareCpuDataFor(CpuData *context, int cpu) {
 	cpuData.initialize(context);
-	heapSlabPool.initialize(context);
+	heapSlabPool.initialize(context, HeapSlabPolicy{.shard = static_cast<uint32_t>(cpu)});
 
 	context->selfPointer = context;
 	context->cpuIndex = cpu;
