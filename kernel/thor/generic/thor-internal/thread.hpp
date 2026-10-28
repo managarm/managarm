@@ -9,6 +9,7 @@
 #include <thor-internal/credentials.hpp>
 #include <thor-internal/cpu-data.hpp>
 #include <thor-internal/error.hpp>
+#include <thor-internal/hierarchy.hpp>
 #include <thor-internal/load-balancing.hpp>
 #include <thor-internal/load-tracking.hpp>
 #include <thor-internal/rcu.hpp>
@@ -137,11 +138,13 @@ private:
 
 public:
 	static std::expected<smarter::shared_ptr<Thread, ActiveHandle>, Error> create(
+			smarter::shared_ptr<Hierarchy> hierarchy,
 			smarter::shared_ptr<Universe> universe,
 			smarter::shared_ptr<AddressSpace, BindableHandle> address_space,
 			AbiParameters abi) {
-		auto thread = allocate_rcu_shared<Thread>(*kernelAlloc, CtorToken{},
-				std::move(universe), std::move(address_space), abi);
+		smarter::borrowed_ptr<Hierarchy> hierarchyPtr{hierarchy};
+		auto thread = allocate_rcu_shared<Thread>(HierarchyAllocator{std::move(hierarchy)},
+				CtorToken{}, hierarchyPtr, std::move(universe), std::move(address_space), abi);
 		thread->self = thread;
 		thread->_executorContext->exceptionalWq = &thread->_pagingWorkQueue;
 
@@ -298,7 +301,8 @@ public:
 		kFlagServer = 1
 	};
 
-	Thread(CtorToken, smarter::shared_ptr<Universe> universe,
+	Thread(CtorToken, smarter::borrowed_ptr<Hierarchy> hierarchy,
+			smarter::shared_ptr<Universe> universe,
 			smarter::shared_ptr<AddressSpace, BindableHandle> address_space,
 			AbiParameters abi);
 	~Thread();
@@ -313,6 +317,7 @@ public:
 	UserContext &getContext();
 	smarter::borrowed_ptr<Universe> getUniverse();
 	smarter::borrowed_ptr<AddressSpace, BindableHandle> getAddressSpace();
+	smarter::borrowed_ptr<Hierarchy> getHierarchy();
 
 	// ----------------------------------------------------------------------------------
 	// observe() and its boilerplate.
@@ -490,7 +495,7 @@ private:
 	}
 
 	// Used by the AssociatedWorkQueues below so must be initialized before.
-	ExecutorContext *_executorContext{ExecutorContext::create()};
+	ExecutorContext *_executorContext;
 
 	AssociatedWorkQueue _mainWorkQueue;
 	AssociatedWorkQueue _pagingWorkQueue;
@@ -567,6 +572,8 @@ public:
 private:
 	smarter::shared_ptr<Universe> _universe;
 	smarter::shared_ptr<AddressSpace, BindableHandle> _addressSpace;
+	// Kept alive by the HierarchyAllocator that allocated this Thread.
+	smarter::borrowed_ptr<Hierarchy> _hierarchy;
 
 	using ObserveQueue = frg::intrusive_list<
 		ObserveNode,

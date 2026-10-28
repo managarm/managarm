@@ -520,14 +520,17 @@ void Thread::raiseCondition_(Condition c) {
 	}
 }
 
-Thread::Thread(CtorToken, smarter::shared_ptr<Universe> universe,
+Thread::Thread(CtorToken, smarter::borrowed_ptr<Hierarchy> hierarchy,
+		smarter::shared_ptr<Universe> universe,
 		smarter::shared_ptr<AddressSpace, BindableHandle> address_space, AbiParameters abi)
-: flags{0}, _mainWorkQueue{this, ipl::passiveWork}, _pagingWorkQueue{this, ipl::exceptionalWork},
+: flags{0}, _executorContext{ExecutorContext::create(hierarchy->controller())},
+		_mainWorkQueue{this, ipl::passiveWork}, _pagingWorkQueue{this, ipl::exceptionalWork},
 		_runState{kRunDeferred},
 		_runCount{1},
 		_executor{&_userContext, &Thread::launchCurrent_},
 		intrImage_{&_userContext, abi},
-		_universe{std::move(universe)}, _addressSpace{std::move(address_space)} {
+		_universe{std::move(universe)}, _addressSpace{std::move(address_space)},
+		_hierarchy{std::move(hierarchy)} {
 	_lastRunTimeUpdate = getClockNanos();
 	_publishLoad();
 	// TODO: Alternatively, we could add a separate observation for new launched threads.
@@ -587,6 +590,9 @@ smarter::borrowed_ptr<Universe> Thread::getUniverse() {
 }
 smarter::borrowed_ptr<AddressSpace, BindableHandle> Thread::getAddressSpace() {
 	return _addressSpace;
+}
+smarter::borrowed_ptr<Hierarchy> Thread::getHierarchy() {
+	return _hierarchy;
 }
 
 void Thread::invoke() {

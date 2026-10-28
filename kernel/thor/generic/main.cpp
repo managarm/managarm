@@ -776,7 +776,7 @@ void handleSyscall(SyscallImageAccessor image) {
 	case kHelCallCreateThread: {
 		HelHandle handle;
 		*image.error() = helCreateThread((HelHandle)arg0, (HelHandle)arg1,
-				(int)arg2, (void *)arg3, (void *)arg4, (uint32_t)arg5, &handle);
+				(HelHandle)arg2, (void *)arg3, (void *)arg4, (uint32_t)arg5, &handle);
 		*image.out0() = handle;
 	} break;
 	case kHelCallQueryThreadStats: {

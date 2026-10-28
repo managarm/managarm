@@ -9,8 +9,6 @@
 //! Integer type that represents an error or success value.
 typedef int HelError;
 
-typedef int HelAbi;
-
 //! Integer handle that represents a kernel resource.
 typedef int64_t HelHandle;
 

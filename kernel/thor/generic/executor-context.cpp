@@ -1,10 +1,13 @@
 #include <thor-internal/executor-context.hpp>
+#include <thor-internal/memory-controller.hpp>
 #include <thor-internal/rcu.hpp>
 
 namespace thor {
 
-ExecutorContext *ExecutorContext::create() {
-	return frg::construct<ExecutorContext>(*kernelAlloc);
+ExecutorContext *ExecutorContext::create(MemoryController *account) {
+	AccountAllocator alloc{account};
+	auto ctx = frg::construct<ExecutorContext>(alloc);
+	return ctx;
 }
 
 void ExecutorContext::retire(ExecutorContext *ctx) {
