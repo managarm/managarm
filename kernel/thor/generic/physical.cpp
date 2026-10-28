@@ -3,6 +3,7 @@
 #include <utility>
 #include <frg/algorithm.hpp>
 #include <thor-internal/arch-generic/paging.hpp>
+#include <thor-internal/block-on.hpp>
 #include <thor-internal/cpu-data.hpp>
 #include <thor-internal/debug.hpp>
 #include <thor-internal/fiber.hpp>
@@ -90,10 +91,10 @@ PhysicalChunkAllocator::PhysicalChunkAllocator() {
 }
 
 bool canBlockForMemory() {
-	// Right now only threads can block for memory.
-	// Letting fibers block for memory would potentially stall RCU and thus make it harder to free memory.
-	// TODO: Run RCU work on separate fibers that don't allocate. Also audit other fibers.
-	return getCurrentThread() && currentIpl() < ipl::noSchedule;
+	if(currentIpl() >= ipl::noSchedule)
+		return false;
+	auto ctx = currentExecutorContext();
+	return ctx && ctx->mayBlockForMemory;
 }
 
 size_t currentContextFloor() {
@@ -259,10 +260,9 @@ PhysicalAddr PhysicalChunkAllocator::allocateInfallible(PhysicalKind kind) {
 	// allocate() only fails here if the emergency class is exhausted and blocking was either
 	// impossible or cancelled by termination. The caller cannot fail, so wait uncancellably.
 	if(canBlockForMemory()) {
-		auto outcome = Thread::asyncBlockCurrent(
+		auto outcome = blockOn(
 			allocateAwaitable({AllocationClass::kernel, currentContextFloor()}, kind,
-					async::cancellation_token{}),
-			nullptr
+					async::cancellation_token{})
 		);
 		assert(outcome);
 		return *outcome;
@@ -331,6 +331,9 @@ std::expected<PhysicalAddr, Error> PhysicalChunkAllocator::tryAllocate(Allocatio
 std::expected<PhysicalAddr, Error> PhysicalChunkAllocator::allocateBlocking(
 		AllocationPolicy policy, PhysicalKind kind) {
 	assert(canBlockForMemory());
+	// Fibers have no interrupts that could cancel the wait.
+	if(!getCurrentThread())
+		return blockOn(allocateAwaitable(policy, kind, async::cancellation_token{}));
 	return Thread::asyncBlockCurrentInterruptible(
 		[&] (async::cancellation_token ct) {
 			return allocateAwaitable(policy, kind, ct);
@@ -364,6 +367,9 @@ std::expected<PageChain, Error> PhysicalChunkAllocator::tryAllocateChain(Allocat
 std::expected<PageChain, Error> PhysicalChunkAllocator::allocateChainBlocking(
 		AllocationPolicy policy, PhysicalKind kind, size_t numPages) {
 	assert(canBlockForMemory());
+	// Fibers have no interrupts that could cancel the wait.
+	if(!getCurrentThread())
+		return blockOn(allocateChainAwaitable(policy, kind, numPages, async::cancellation_token{}));
 	return Thread::asyncBlockCurrentInterruptible(
 		[&] (async::cancellation_token ct) {
 			return allocateChainAwaitable(policy, kind, numPages, ct);

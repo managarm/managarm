@@ -207,6 +207,8 @@ void postWorkQueueFibers(CpuData *cpuData) {
 	cpuData->generalFiber = postWorkQueueFiber();
 	cpuData->generalWorkQueue = cpuData->generalFiber->associatedWorkQueue().lock();
 	assert(cpuData->generalWorkQueue);
+	// Only the general WQ may sleep for memory, see WorkQueue::generalQueue().
+	cpuData->generalWorkQueue->executorContext()->mayBlockForMemory = true;
 }
 
 void resumeWorkQueueFibers(CpuData *cpuData) {

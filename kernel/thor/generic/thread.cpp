@@ -531,6 +531,7 @@ Thread::Thread(CtorToken, smarter::borrowed_ptr<Hierarchy> hierarchy,
 		intrImage_{&_userContext, abi},
 		_universe{std::move(universe)}, _addressSpace{std::move(address_space)},
 		_hierarchy{std::move(hierarchy)} {
+	_executorContext->mayBlockForMemory = true;
 	_lastRunTimeUpdate = getClockNanos();
 	_publishLoad();
 	// TODO: Alternatively, we could add a separate observation for new launched threads.

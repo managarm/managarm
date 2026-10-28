@@ -99,14 +99,18 @@ public:
 
 	template<typename Sender>
 	requires (!std::is_same_v<typename Sender::value_type, void>)
-	static typename Sender::value_type asyncBlockCurrent(Sender s) {
-		assert(currentIpl() < ipl::exceptionalWork);
+	static typename Sender::value_type asyncBlockCurrent(Sender s, WorkQueue *wq) {
+		if (wq) {
+			assert(currentIpl() < wq->wqIpl());
+		} else {
+			assert(currentIpl() < ipl::noSchedule);
+		}
 
 		struct Closure {
 			frg::optional<typename Sender::value_type> value;
 			FiberBlocker blocker;
 			WorkQueue *wq;
-		} closure{.wq = thisFiber()->associatedWorkQueue().get()};
+		} closure{.wq = wq};
 
 		struct Env {
 			WorkQueue *get_work_queue() {
