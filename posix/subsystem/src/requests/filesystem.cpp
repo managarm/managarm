@@ -269,6 +269,9 @@ HandleRequest::operator()(managarm::posix::MkdirAtRequest &&req,
 
 	auto parentLink = resolver.currentLink();
 	auto parent = parentLink->getTarget();
+	// Report existing entries before calling into the file system, which may
+	// not support creating entries at all. This is only a hint: a concurrent creation is
+	// caught by the file system, whose error stays authoritative.
 	auto existsResult = co_await parent->getLink(parentLink.get(), resolver.nextComponent());
 	if (existsResult) {
 		co_await sendErrorResponse<managarm::posix::MkdirAtResponse>(conversation, managarm::posix::Errors::ALREADY_EXISTS);
@@ -337,6 +340,9 @@ HandleRequest::operator()(managarm::posix::MkfifoAtRequest &&req,
 
 	auto parentLink = resolver.currentLink();
 	auto parent = parentLink->getTarget();
+	// Report existing entries before calling into the file system, which may
+	// not support creating entries at all. This is only a hint: a concurrent creation is
+	// caught by the file system, whose error stays authoritative.
 	if(co_await parent->getLink(parentLink.get(), resolver.nextComponent())) {
 		co_await sendErrorResponse<managarm::posix::MkfifoAtResponse>(conversation, managarm::posix::Errors::ALREADY_EXISTS);
 		co_return {};
@@ -348,7 +354,8 @@ HandleRequest::operator()(managarm::posix::MkfifoAtRequest &&req,
 		req.mode() & ~self->fsContext()->getUmask()
 	);
 	if(!result) {
-		std::cout << "posix: Unexpected failure from mkfifo()" << std::endl;
+		co_await sendErrorResponse<managarm::posix::MkfifoAtResponse>(conversation,
+				result.error() | toPosixProtoError);
 		co_return {};
 	}
 
@@ -444,6 +451,11 @@ HandleRequest::operator()(managarm::posix::LinkAtRequest &&req,
 	auto directory = directoryLink->getTarget();
 	if(target->superblock() != directory->superblock()) {
 		co_await sendErrorResponse<managarm::posix::LinkAtResponse>(conversation, managarm::posix::Errors::CROSS_DEVICE_LINK);
+		co_return {};
+	}
+	// Never create hard links to directories: the directory tree must stay acyclic.
+	if(target->getType() == VfsType::directory) {
+		co_await sendErrorResponse<managarm::posix::LinkAtResponse>(conversation, managarm::posix::Errors::INSUFFICIENT_PERMISSION);
 		co_return {};
 	}
 	auto result = co_await directory->link(directoryLink.get(), new_resolver.nextComponent(), target);
@@ -1680,6 +1692,9 @@ HandleRequest::operator()(managarm::posix::MknodAtRequest &&req,
 
 	auto parentLink = resolver.currentLink();
 	auto parent = parentLink->getTarget();
+	// Report existing entries before calling into the file system, which may
+	// not support creating entries at all. This is only a hint: a concurrent creation is
+	// caught by the file system, whose error stays authoritative.
 	auto existsResult = co_await parent->getLink(parentLink.get(), resolver.nextComponent());
 	if (existsResult) {
 		co_await sendErrorResponse<managarm::posix::MknodAtResponse>(conversation, managarm::posix::Errors::ALREADY_EXISTS);
@@ -1717,7 +1732,8 @@ HandleRequest::operator()(managarm::posix::MknodAtRequest &&req,
 				co_await sendErrorResponse<managarm::posix::MknodAtResponse>(conversation, managarm::posix::Errors::ILLEGAL_ARGUMENTS);
 				co_return {};
 			} else {
-				std::cout << "posix: Unexpected failure from mkdev()" << std::endl;
+				co_await sendErrorResponse<managarm::posix::MknodAtResponse>(conversation,
+						result.error() | toPosixProtoError);
 				co_return {};
 			}
 		}
@@ -1732,7 +1748,8 @@ HandleRequest::operator()(managarm::posix::MknodAtRequest &&req,
 				co_await sendErrorResponse<managarm::posix::MknodAtResponse>(conversation, managarm::posix::Errors::ILLEGAL_ARGUMENTS);
 				co_return {};
 			} else {
-				std::cout << "posix: Unexpected failure from mkfifo()" << std::endl;
+				co_await sendErrorResponse<managarm::posix::MknodAtResponse>(conversation,
+						result.error() | toPosixProtoError);
 				co_return {};
 			}
 		}
@@ -1743,7 +1760,8 @@ HandleRequest::operator()(managarm::posix::MknodAtRequest &&req,
 				co_await sendErrorResponse<managarm::posix::MknodAtResponse>(conversation, managarm::posix::Errors::ILLEGAL_ARGUMENTS);
 				co_return {};
 			} else {
-				std::cout << "posix: Unexpected failure from mksocket()" << std::endl;
+				co_await sendErrorResponse<managarm::posix::MknodAtResponse>(conversation,
+						result.error() | toPosixProtoError);
 				co_return {};
 			}
 		}

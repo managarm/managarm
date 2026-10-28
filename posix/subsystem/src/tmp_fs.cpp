@@ -352,6 +352,9 @@ private:
 
 	async::result<frg::expected<Error, smarter::shared_ptr<FsLink, LinkRc>>> link(FsLink *parent, std::string name,
 			smarter::shared_ptr<FsNode> target) override {
+		// Directories have a single parent, such that the directory tree stays acyclic.
+		if(target->getType() == VfsType::directory)
+			co_return Error::insufficientPermissions;
 		if(!(_entries.find(name) == _entries.end()))
 			co_return Error::alreadyExists;
 		static_cast<Node *>(target.get())->adjustLinkCount(1);
@@ -629,6 +632,14 @@ struct Superblock final : FsSuperblock {
 			co_return Error::alreadyExists;
 
 		auto target = src_link->getTarget();
+
+		// Moving a directory into its own subtree would detach it into a cycle.
+		if(target->getType() == VfsType::directory) {
+			for(auto ancestor = dest_fs_link->sharedFromThis(); ancestor; ancestor = ancestor->getParent()) {
+				if(ancestor.get() == src_link)
+					co_return Error::illegalArguments;
+			}
+		}
 
 		// Unlink an existing link if such a link exists.
 		if(auto dest_it = dest_dir->_entries.find(dest_name);

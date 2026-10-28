@@ -251,8 +251,6 @@ public:
 				item.policy().decrement();
 				assert(item->state & statePending);
 
-				auto itemEvents = item->eventMask & epollEvents;
-
 				// Discard dead or inactive items without returning them.
 				if(!(item->state & stateAlive) || !(item->state & stateActive)) {
 					if(logEpoll)
@@ -266,6 +264,15 @@ public:
 					std::println("posix.epoll \e[1;34m{}\e[0m: Checking item \e[1;34m{}\e[0m",
 						structName(), item->file->structName());
 				auto result_or_error = co_await item->file->pollStatus(item->process);
+
+				// Discard items that were deleted while we polled them.
+				if(!(item->state & stateAlive)) {
+					item->state &= ~statePending;
+					continue;
+				}
+
+				// The mask may have changed while we polled the item.
+				auto itemEvents = item->eventMask & epollEvents;
 
 				// Discard closed items.
 				if(!result_or_error) {
