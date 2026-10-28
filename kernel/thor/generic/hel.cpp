@@ -4454,7 +4454,7 @@ HelError helBindKernlet(HelHandle handle, const HelKernletData *data, size_t num
 				return translateError(e);
 
 			auto touchOutcome = Thread::asyncBlockCurrent(
-					memory->touchFullRange(0, memorySize, fetchNone),
+					memory->touchFullRange(0, memorySize, fetchSynchronous),
 					this_thread->pagingWorkQueue().get());
 			if(!touchOutcome) {
 				memory->unlockRange(0, memorySize);

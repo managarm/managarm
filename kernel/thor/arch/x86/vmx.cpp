@@ -365,7 +365,7 @@ namespace thor::vmx {
 			} else if(reason == VMEXIT_EPT_VIOLATION) {
 				size_t address = vmread(EPT_VIOLATION_ADDRESS);
 				size_t exitFlags = vmread(EPT_VIOLATION_FLAGS);
-				uint32_t flags = 0;
+				uint32_t flags = AddressSpace::kFaultSynchronous;
 				if(exitFlags & 1)
 					flags |= AddressSpace::kFaultWrite;
 				if(exitFlags & (1 << 2))

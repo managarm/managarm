@@ -447,7 +447,7 @@ void handlePageFault(FaultImageAccessor image, uintptr_t address, Word errorCode
 	}
 
 	// Try to handle the page fault.
-	uint32_t flags = 0;
+	uint32_t flags = AddressSpace::kFaultSynchronous;
 	if(errorCode & kPfWrite)
 		flags |= AddressSpace::kFaultWrite;
 	if(errorCode & kPfInstruction)

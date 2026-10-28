@@ -769,7 +769,9 @@ public:
 
 	enum FaultFlags : uint32_t {
 		kFaultWrite = (1 << 1),
-		kFaultExecute = (1 << 2)
+		kFaultExecute = (1 << 2),
+		// The faulting thread is blocked until handleFault() completes; see fetchSynchronous.
+		kFaultSynchronous = (1 << 3)
 	};
 
 	VirtualSpace(VirtualOperations *ops);
@@ -868,8 +870,9 @@ public:
 				}
 
 				// Otherwise, try to make the page available.
+				// Futex syscalls block the calling thread.
 				FRG_CO_TRY(co_await mapping->view->touchRange(
-					mapping->viewOffset + alignedOffset, kPageSize, fetchNone
+					mapping->viewOffset + alignedOffset, kPageSize, fetchSynchronous
 				));
 			}
 		}

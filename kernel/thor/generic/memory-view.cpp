@@ -39,14 +39,23 @@ namespace {
 // Frame allocation
 // --------------------------------------------------------
 
+namespace {
+	// Synchronous callers wait at their own floor; asynchronous ones at the floor of the owner.
+	AllocationPolicy userAllocationPolicy(Hierarchy *owner, FetchFlags flags) {
+		if(flags & fetchSynchronous)
+			return {AllocationClass::user, currentContextFloor()};
+		return {AllocationClass::user, owner->memoryFloor()};
+	}
+}
+
 coroutine<std::expected<PhysicalAddr, Error>>
-chargeAndAllocate(Hierarchy *hierarchy, PhysicalKind kind) {
+chargeAndAllocate(Hierarchy *hierarchy, PhysicalKind kind, FetchFlags flags) {
 	assert(currentIpl() == ipl::exceptionalWork);
 
 	if(auto charge = hierarchy->tryChargeMemory(kPageSize); !charge)
 		co_return std::unexpected{charge.error()};
 	auto physical = co_await physicalAllocator->allocateAwaitable(
-			{AllocationClass::user, hierarchy->memoryFloor()}, kind, async::cancellation_token{});
+			userAllocationPolicy(hierarchy, flags), kind, async::cancellation_token{});
 	if(!physical) {
 		hierarchy->unchargeMemory(kPageSize);
 		co_return std::unexpected{physical.error()};
@@ -55,11 +64,12 @@ chargeAndAllocate(Hierarchy *hierarchy, PhysicalKind kind) {
 }
 
 std::expected<PhysicalAddr, Error>
-tryChargeAndAllocate(Hierarchy *hierarchy, size_t size, PhysicalKind kind, int addressBits) {
+tryChargeAndAllocate(Hierarchy *hierarchy, size_t size, PhysicalKind kind, int addressBits,
+		FetchFlags flags) {
 	if(auto charge = hierarchy->tryChargeMemory(size); !charge)
 		return std::unexpected{charge.error()};
 	auto physical = physicalAllocator->tryAllocate(
-			{AllocationClass::user, hierarchy->memoryFloor()}, size, kind, addressBits);
+			userAllocationPolicy(hierarchy, flags), size, kind, addressBits);
 	if(!physical) {
 		hierarchy->unchargeMemory(size);
 		return std::unexpected{physical.error()};
@@ -1273,7 +1283,7 @@ std::expected<size_t, Error> AllocatedMemory::accessRange(uintptr_t offset, size
 }
 
 coroutine<frg::expected<Error, size_t>>
-AllocatedMemory::touchRange(uintptr_t offset, size_t, FetchFlags) {
+AllocatedMemory::touchRange(uintptr_t offset, size_t, FetchFlags flags) {
 	assert(currentIpl() == ipl::exceptionalWork);
 
 	auto index = offset / _chunkSize;
@@ -1292,10 +1302,10 @@ AllocatedMemory::touchRange(uintptr_t offset, size_t, FetchFlags) {
 	auto kind = _chunkSize > kPageSize ? PhysicalKind::contiguous : PhysicalKind::pinned;
 	std::expected<PhysicalAddr, Error> physicalOutcome;
 	if(_chunkSize == kPageSize && _addressBits >= 64) {
-		physicalOutcome = co_await chargeAndAllocate(_hierarchy.get(), kind);
+		physicalOutcome = co_await chargeAndAllocate(_hierarchy.get(), kind, flags);
 	}else{
 		physicalOutcome = tryChargeAndAllocate(_hierarchy.get(), _chunkSize,
-				kind, _addressBits);
+				kind, _addressBits, flags);
 	}
 	if(!physicalOutcome)
 		co_return physicalOutcome.error();
@@ -2804,7 +2814,7 @@ std::expected<size_t, Error> BackingMemory::accessRange(uintptr_t offset, size_t
 }
 
 coroutine<frg::expected<Error, size_t>>
-BackingMemory::touchRange(uintptr_t offset, size_t, FetchFlags) {
+BackingMemory::touchRange(uintptr_t offset, size_t, FetchFlags flags) {
 	assert(currentIpl() == ipl::exceptionalWork);
 
 	auto index = offset >> kPageShift;
@@ -2854,7 +2864,7 @@ BackingMemory::touchRange(uintptr_t offset, size_t, FetchFlags) {
 		// Faulting threads attach frames before they request initialization (see initializePage()),
 		// so this is only reached if the manager touches pages outside of initialization.
 		auto physicalOutcome = co_await chargeAndAllocate(_managed->hierarchy.get(),
-				PhysicalKind::evictable);
+				PhysicalKind::evictable, flags);
 		if(!physicalOutcome)
 			co_return physicalOutcome.error();
 		freshPhysical = *physicalOutcome;
@@ -3350,7 +3360,7 @@ FrontalMemory::touchRange(uintptr_t offset, size_t, FetchFlags flags) {
 			// initializePage() needs a frame, allocate one without the mutex held and retry.
 			assert(freshPhysical == PhysicalAddr(-1));
 			auto physicalOutcome = co_await chargeAndAllocate(_managed->hierarchy.get(),
-					PhysicalKind::evictable);
+					PhysicalKind::evictable, flags);
 			if(!physicalOutcome)
 				co_return physicalOutcome.error();
 			freshPhysical = *physicalOutcome;
@@ -3369,8 +3379,9 @@ FrontalMemory::touchRange(uintptr_t offset, size_t, FetchFlags flags) {
 		auto wantReadaheadPhysicals = frg::min(numReadaheadPhysicals + readaheadFrames.missing,
 				readaheadPhysicals.size());
 		while(numReadaheadPhysicals < wantReadaheadPhysicals) {
+			// Readahead is speculative, so it does not use the floor of a synchronous caller.
 			auto readaheadOutcome = tryChargeAndAllocate(_managed->hierarchy.get(), kPageSize,
-					PhysicalKind::evictable, 64);
+					PhysicalKind::evictable, 64, flags & ~fetchSynchronous);
 			if(!readaheadOutcome)
 				break;
 			PageAccessor readaheadAccessor{*readaheadOutcome};
@@ -3611,7 +3622,7 @@ SwappableMemory::touchRange(uintptr_t offset, size_t, FetchFlags flags) {
 
 		assert(freshPhysical == PhysicalAddr(-1));
 		auto physicalOutcome = co_await chargeAndAllocate(_space->hierarchy.get(),
-				PhysicalKind::evictable);
+				PhysicalKind::evictable, flags);
 		if(!physicalOutcome)
 			co_return physicalOutcome.error();
 		freshPhysical = *physicalOutcome;
@@ -3885,7 +3896,7 @@ CopyOnWriteMemory::_ensureResident(CowPage *page, FetchFlags flags) {
 		// initializePage() needs a frame, allocate one without the mutex held and retry.
 		assert(freshPhysical == PhysicalAddr(-1));
 		auto physicalOutcome = co_await chargeAndAllocate(_space->hierarchy.get(),
-				PhysicalKind::evictable);
+				PhysicalKind::evictable, flags);
 		if(!physicalOutcome)
 			co_return physicalOutcome.error();
 		freshPhysical = *physicalOutcome;
@@ -4059,7 +4070,7 @@ coroutine<frg::expected<Error, smarter::shared_ptr<MemoryView>>> CopyOnWriteMemo
 
 	// Copy all the pages that were locked.
 	for(auto [pg, src] : lockedCopies) {
-		auto physicalOutcome = co_await _allocateCopy();
+		auto physicalOutcome = co_await _allocateCopy(fetchNone);
 		if(!physicalOutcome)
 			co_return physicalOutcome.error();
 		auto copyPhysical = *physicalOutcome;
@@ -4389,7 +4400,7 @@ CopyOnWriteMemory::_materializePage(uintptr_t offset,
 			unchargePages_(1);
 	}};
 
-	auto physicalOutcome = co_await _allocateCopy();
+	auto physicalOutcome = co_await _allocateCopy(flags);
 	if(!physicalOutcome)
 		co_return physicalOutcome.error();
 	auto physical = *physicalOutcome;
@@ -4452,12 +4463,14 @@ void CopyOnWriteMemory::unchargePages_(size_t n) {
 	_hierarchy->unchargeMemory(n << kPageShift);
 }
 
-coroutine<std::expected<PhysicalAddr, Error>> CopyOnWriteMemory::_allocateCopy() {
+coroutine<std::expected<PhysicalAddr, Error>>
+CopyOnWriteMemory::_allocateCopy(FetchFlags flags) {
 	if(_space)
-		co_return co_await chargeAndAllocate(_space->hierarchy.get(), PhysicalKind::evictable);
+		co_return co_await chargeAndAllocate(_space->hierarchy.get(), PhysicalKind::evictable,
+				flags);
 	// Non-swappable CopyOnWriteMemory only needs the charge in tryChargePages_().
 	co_return co_await physicalAllocator->allocateAwaitable(
-			{AllocationClass::user, _hierarchy->memoryFloor()}, PhysicalKind::pinned,
+			userAllocationPolicy(_hierarchy.get(), flags), PhysicalKind::pinned,
 			async::cancellation_token{});
 }
 

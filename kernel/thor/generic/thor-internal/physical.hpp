@@ -233,8 +233,8 @@ enum class RootClass : uint8_t {
 // Whether the current context may block for memory allocations.
 bool canBlockForMemory();
 
-// Floor (see AllocationPolicy::floor) of kernel-class allocations of the current context.
-// Zero if the context cannot block since it would fall back to the emergency class sooner.
+// Floor (see AllocationPolicy::floor) of allocations that the current context blocks for.
+// Zero if the context cannot block (see canBlockForMemory()).
 size_t currentContextFloor();
 
 class PhysicalChunkAllocator {

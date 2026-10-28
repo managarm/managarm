@@ -166,7 +166,7 @@ namespace thor::svm {
 			case kSvmExitNPTFault: {
 				size_t address = vmcb->exitinfo2;
 				size_t exitFlags = vmcb->exitinfo1;
-				uint32_t flags = 0;
+				uint32_t flags = AddressSpace::kFaultSynchronous;
 				if(exitFlags & (1 << 1))
 					flags |= AddressSpace::kFaultWrite;
 				if(exitFlags & (1 << 4))
