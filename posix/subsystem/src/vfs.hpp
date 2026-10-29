@@ -3,6 +3,8 @@
 #include <string.h>
 #include <iostream>
 #include <set>
+#include <shared_mutex>
+#include <vector>
 #include <deque>
 
 #include <async/result.hpp>
@@ -101,9 +103,8 @@ struct MountView : std::enable_shared_from_this<MountView> {
 		}
 	};
 
-	const std::set<std::shared_ptr<MountView>, Compare> &mounts() const {
-		return _mounts;
-	}
+	// Returns a snapshot of the mounts below this view.
+	std::vector<std::shared_ptr<MountView>> mounts() const;
 
 private:
 
@@ -112,6 +113,8 @@ private:
 	smarter::shared_ptr<FsLink, LinkRc> _anchor;
 	smarter::shared_ptr<FsLink, LinkRc> _origin;
 	ViewPath deviceLink_;
+	mutable std::shared_mutex _mutex;
+	// Protected by _mutex.
 	std::set<std::shared_ptr<MountView>, Compare> _mounts;
 };
 

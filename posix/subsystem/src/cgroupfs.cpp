@@ -1,5 +1,6 @@
 #include <linux/magic.h>
 #include <string.h>
+#include <shared_mutex>
 #include <sstream>
 
 #include <core/clock.hpp>
@@ -12,6 +13,13 @@
 namespace cgroupfs {
 
 SuperBlock cgroupfsSuperblock;
+
+namespace {
+
+// Leaf lock; unlinked entries are destroyed after releasing it.
+std::shared_mutex treeMutex;
+
+} // anonymous namespace
 
 // ----------------------------------------------------------------------------
 // LinkCompare implementation.
@@ -107,30 +115,33 @@ void DirectoryFile::serve(smarter::shared_ptr<DirectoryFile> file) {
 
 DirectoryFile::DirectoryFile(std::shared_ptr<MountView> mount, smarter::shared_ptr<FsLink, LinkRc> link)
 : FileWithDefaults{FileKind::unknown,  StructName::get("cgroupfs.dir"), std::move(mount), std::move(link)},
-		_node{static_cast<DirectoryNode *>(associatedLink()->getTarget().get())},
-		_iter{_node->_entries.begin()} { }
+		_node{static_cast<DirectoryNode *>(associatedLink()->getTarget().get())} { }
 
 void DirectoryFile::handleClose() {
 	_cancelServe.cancel();
 }
 
-// TODO: This iteration mechanism only works as long as _iter is not concurrently deleted.
 async::result<std::expected<protocols::fs::ReadEntriesResult, managarm::fs::Errors>> DirectoryFile::readEntries() {
 	if(auto entry = nextDotEntry(_dots, 0, 0); entry)
 		co_return *entry;
 
-	if(_iter != _node->_entries.end()) {
-		auto name = (*_iter)->getName();
-		_iter++;
-
-		co_return protocols::fs::ReadEntriesResult{
-			.name = name,
-			.inode = 0,
-			.offset = 2 + std::distance(_node->_entries.begin(), _iter)
-		};
-	}else{
-		co_return std::unexpected(managarm::fs::Errors::END_OF_FILE);
+	std::string name;
+	{
+		std::shared_lock lock{treeMutex};
+		// Continue after the last name such that concurrent insertions and removals are tolerated.
+		auto it = _lastName ? _node->_entries.upper_bound(*_lastName) : _node->_entries.begin();
+		if(it == _node->_entries.end())
+			co_return std::unexpected(managarm::fs::Errors::END_OF_FILE);
+		name = (*it)->getName();
 	}
+	_lastName = name;
+	_numEntries++;
+
+	co_return protocols::fs::ReadEntriesResult{
+		.name = name,
+		.inode = 0,
+		.offset = static_cast<long>(2 + _numEntries)
+	};
 }
 
 helix::BorrowedDescriptor DirectoryFile::getPassthroughLane() {
@@ -247,30 +258,24 @@ DirectoryNode::DirectoryNode()
 
 smarter::shared_ptr<Link, LinkRc> DirectoryNode::directMkregular(FsLink *parent, std::string name,
 		smarter::shared_ptr<RegularNode> regular) {
-	assert(_entries.find(name) == _entries.end());
 	auto link = makeFsShared<Link>(parent->sharedFromThis(), name, std::move(regular));
-	_entries.insert(link);
-	return link;
-}
-
-smarter::shared_ptr<Link, LinkRc> DirectoryNode::directMkdir(FsLink *parent, std::string name) {
+	std::unique_lock lock{treeMutex};
 	assert(_entries.find(name) == _entries.end());
-	auto node = makeFsShared<DirectoryNode>();
-	auto link = makeFsShared<Link>(parent->sharedFromThis(), std::move(name), std::move(node));
 	_entries.insert(link);
 	return link;
 }
 
 async::result<std::variant<Error, smarter::shared_ptr<FsLink, LinkRc>>> DirectoryNode::mkdir(FsLink *parent, Process *, std::string name, mode_t) {
-	if(!(_entries.find(name) == _entries.end()))
+	auto link = createCgroupDirectory(parent, std::move(name));
+	if(!link)
 		co_return Error::alreadyExists;
-	auto link = createCgroupDirectory(parent, name);
 	co_return link;
 }
 
 smarter::shared_ptr<Link, LinkRc> DirectoryNode::directMknode(FsLink *parent, std::string name, smarter::shared_ptr<FsNode> node) {
-	assert(_entries.find(name) == _entries.end());
 	auto link = makeFsShared<Link>(parent->sharedFromThis(), name, std::move(node));
+	std::unique_lock lock{treeMutex};
+	assert(_entries.find(name) == _entries.end());
 	_entries.insert(link);
 	return link;
 }
@@ -322,26 +327,47 @@ DirectoryNode::open(Process *, std::shared_ptr<MountView> mount, smarter::shared
 }
 
 async::result<frg::expected<Error, smarter::shared_ptr<FsLink, LinkRc>>> DirectoryNode::getLink(FsLink *, std::string name) {
-	auto it = _entries.find(name);
-	if(it != _entries.end())
-		co_return *it;
-	co_return Error::noSuchFile;
+	smarter::shared_ptr<Link, LinkRc> link;
+	{
+		std::shared_lock lock{treeMutex};
+		auto it = _entries.find(name);
+		if(it == _entries.end())
+			co_return Error::noSuchFile;
+		link = *it;
+	}
+	co_return link;
 }
 
 async::result<frg::expected<Error>> DirectoryNode::unlink(std::string name) {
-	auto it = _entries.find(name);
-	if (it == _entries.end())
-		co_return Error::noSuchFile;
-	_entries.erase(it);
+	decltype(_entries)::node_type entry;
+	{
+		std::unique_lock lock{treeMutex};
+		auto it = _entries.find(name);
+		if (it == _entries.end())
+			co_return Error::noSuchFile;
+		entry = _entries.extract(it);
+	}
 	co_return frg::expected<Error>{};
 }
 
 smarter::shared_ptr<Link, LinkRc> DirectoryNode::createCgroupDirectory(FsLink *parent, std::string name) {
-	auto link = directMkdir(parent, name);
-	auto cgroup_dir = static_cast<DirectoryNode*>(link->getTarget().get());
+	auto node = makeFsShared<DirectoryNode>();
+	auto cgroup_dir = node.get();
+	auto link = makeFsShared<Link>(parent->sharedFromThis(), name, std::move(node));
 
+	// Populate the directory before it becomes visible, such that concurrent mkdir()s cannot
+	// take the names of its files.
 	cgroup_dir->createCgroupFiles(link.get());
 
+	// The files keep the link alive, hence a directory that loses the race is torn down.
+	// They are dropped after unlocking.
+	decltype(_entries) orphans;
+	std::unique_lock lock{treeMutex};
+	if(_entries.find(name) != _entries.end()) {
+		orphans = std::move(cgroup_dir->_entries);
+		return nullptr;
+	}
+	_entries.insert(link);
 	return link;
 }
 

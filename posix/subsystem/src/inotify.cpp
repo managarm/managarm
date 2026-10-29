@@ -4,6 +4,7 @@
 #include <core/dispatch.hpp>
 #include <helix/ipc.hpp>
 #include <iostream>
+#include <mutex>
 #include <print>
 #include <protocols/fs/common.hpp>
 #include <string.h>
@@ -59,26 +60,43 @@ public:
 			if(!f)
 				return;
 
+			{
+				std::lock_guard lock{f->mutex_};
+				// FsNode may still notify us after removeWatch(); nothing may follow IN_IGNORED.
+				if(removed)
+					return;
+				if(!queueLocked(f.get(), inotifyEvents, name, cookie, isDir))
+					return;
+			}
+			f->_statusBell.raise();
+		}
+
+		// Must be called with the mutex_ of the OpenFile held. Returns whether an event was queued.
+		bool queueLocked(OpenFile *f, uint32_t inotifyEvents, const std::string &name,
+				uint32_t cookie, bool isDir) {
 			auto preexists = std::ranges::find_if(f->_queue, [&name, inotifyEvents](auto a) {
 				return a.name == name && (a.events & inotifyEvents) == inotifyEvents;
 			}) != f->_queue.end();
 			if(preexists)
-				return;
+				return false;
 
 			if(isDir)
 				inotifyEvents |= IN_ISDIR;
 
 			if(!(inotifyEvents & (mask | alwaysReturnedFlags)))
-				return;
+				return false;
 
 			f->_queue.push_back(Packet{descriptor, inotifyEvents & (mask | alwaysReturnedFlags), name, cookie});
 			f->_inSeq = ++f->_currentSeq;
-			f->_statusBell.raise();
+			return true;
 		}
 
 		smarter::weak_ptr<File> file;
 		int descriptor;
+		// Protected by the mutex_ of the OpenFile.
 		uint32_t mask;
+		// Protected by the mutex_ of the OpenFile.
+		bool removed = false;
 		smarter::weak_ptr<FsNode> node;
 	};
 
@@ -93,7 +111,13 @@ public:
 		cancelServe_.cancel();
 		_passthrough = {};
 
-		for(auto [_, watch] : watches_) {
+		std::unordered_map<int, std::shared_ptr<Watch>> watches;
+		{
+			std::lock_guard lock{mutex_};
+			watches = std::move(watches_);
+		}
+
+		for(auto [_, watch] : watches) {
 			auto node = watch->node.lock();
 
 			if(node)
@@ -108,14 +132,26 @@ public:
 
 	async::result<std::expected<size_t, Error>>
 	readSome(Process *, void *data, size_t maxLength, async::cancellation_token ce) override {
-		if (_queue.empty() && nonBlock_)
-			co_return std::unexpected{Error::wouldBlock};
+		while(true) {
+			{
+				std::lock_guard lock{mutex_};
+				if(!_queue.empty())
+					co_return dequeueLocked(data, maxLength);
+				if(nonBlock_)
+					co_return std::unexpected{Error::wouldBlock};
+			}
 
-		while(_queue.empty()) {
-			if (!co_await _statusBell.async_wait(ce))
+			auto result = co_await _statusBell.async_wait_if([&] {
+				std::lock_guard lock{mutex_};
+				return _queue.empty();
+			}, ce);
+			if (!result)
 				co_return std::unexpected{Error::interrupted};
 		}
+	}
 
+	// Must be called with mutex_ held and a non-empty _queue.
+	std::expected<size_t, Error> dequeueLocked(void *data, size_t maxLength) {
 		size_t written = 0;
 
 		while(written < maxLength) {
@@ -148,9 +184,9 @@ public:
 		}
 
 		if(written)
-			co_return written;
+			return written;
 		else
-			co_return std::unexpected{Error::illegalArguments};
+			return std::unexpected{Error::illegalArguments};
 	}
 
 	async::result<frg::expected<Error, PollWaitResult>>
@@ -158,26 +194,35 @@ public:
 	async::cancellation_token cancellation) override {
 		// TODO: Return Error::fileClosed as appropriate.
 
-		assert(sequence <= _currentSeq);
-
+		uint64_t currentSeq;
 		int edges = 0;
 		while(true) {
-			edges = 0;
-			if(_inSeq > sequence)
-				edges |= EPOLLIN;
+			{
+				std::lock_guard lock{mutex_};
+				assert(sequence <= _currentSeq);
+				currentSeq = _currentSeq;
+				edges = 0;
+				if(_inSeq > sequence)
+					edges |= EPOLLIN;
+			}
 
 			if (edges & mask)
 				break;
 
-			if (!co_await _statusBell.async_wait(cancellation))
+			auto result = co_await _statusBell.async_wait_if([&] {
+				std::lock_guard lock{mutex_};
+				return _inSeq <= sequence;
+			}, cancellation);
+			if (!result)
 				break;
 		}
 
-		co_return PollWaitResult(_currentSeq, edges & mask);
+		co_return PollWaitResult(currentSeq, edges & mask);
 	}
 
 	async::result<frg::expected<Error, PollStatusResult>>
 	pollStatus(Process *) override {
+		std::lock_guard lock{mutex_};
 		int events = 0;
 		if(!_queue.empty())
 			events |= EPOLLIN;
@@ -193,38 +238,54 @@ public:
 		if(mask & ~supportedFlags)
 			std::println("posix: inotify mask {:#x} is partially ignored", mask);
 
-		for(const auto &[desc, watch] : watches_) {
-			if(watch->node.lock().get() != node.get())
+		// Node references are dropped after releasing mutex_ since destroying a node notifies observers.
+		std::vector<smarter::shared_ptr<FsNode>> nodes;
+		std::lock_guard lock{mutex_};
+		for(const auto &[desc, existing] : watches_) {
+			auto &other = nodes.emplace_back(existing->node.lock());
+			if(other.get() != node.get())
 				continue;
 			if(mask & IN_MASK_ADD)
-				watch->mask |= mask;
+				existing->mask |= mask;
 			else
-				watch->mask = mask;
+				existing->mask = mask;
 			return desc;
 		}
 
 		auto descriptor = descriptorAllocator_.allocate();
 		auto watch = std::make_shared<Watch>(weakFile(), descriptor, mask, node);
-		node->addObserver(watch);
-		watches_.insert({descriptor, std::move(watch)});
+		watches_.insert({descriptor, watch});
+		// Registered under mutex_ such that removeWatch() always finds the observer.
+		// The lock order is mutex_ -> FsNode::_observersMutex.
+		node->addObserver(std::move(watch));
 		return descriptor;
 	}
 
 	bool removeWatch(int wd) {
-		if(!watches_.contains(wd))
-			return false;
+		// Dropped after releasing mutex_.
+		std::shared_ptr<Watch> watch;
+		smarter::shared_ptr<FsNode> node;
+		bool queued = false;
+		{
+			std::lock_guard lock{mutex_};
+			auto it = watches_.find(wd);
+			if(it == watches_.end())
+				return false;
+			watch = std::move(it->second);
+			watches_.erase(it);
 
-		auto watch = watches_.at(wd);
-		auto node = watch->node.lock();
-
-		if(node) {
-			node->removeObserver(watch.get());
-			watch->observeNotification(FsObserver::ignoredEvent, {}, 0, false);
+			node = watch->node.lock();
+			if(node) {
+				node->removeObserver(watch.get());
+				queued = watch->queueLocked(this, IN_IGNORED, {}, 0, false);
+			}
+			// The descriptor can be reused once IN_IGNORED is queued; stale notifications see removed.
+			watch->removed = true;
+			descriptorAllocator_.free(wd);
 		}
 
-		watches_.erase(wd);
-		descriptorAllocator_.free(wd);
-
+		if(queued)
+			_statusBell.raise();
 		return true;
 	}
 
@@ -238,9 +299,13 @@ public:
 				case FIONREAD: {
 					resp.set_error(managarm::fs::Errors::SUCCESS);
 
-					size_t size = std::ranges::fold_left(self->_queue, 0ULL, [](size_t total, const auto& packet) {
-						return total + sizeof(inotify_event) + (packet.name.empty() ? 0 : packet.name.size() + 1);
-					});
+					size_t size;
+					{
+						std::lock_guard lock{self->mutex_};
+						size = std::ranges::fold_left(self->_queue, 0ULL, [](size_t total, const auto& packet) {
+							return total + sizeof(inotify_event) + (packet.name.empty() ? 0 : packet.name.size() + 1);
+						});
+					}
 					resp.set_fionread_count(size);
 					break;
 				}
@@ -277,13 +342,21 @@ public:
 private:
 	helix::UniqueLane _passthrough;
 	async::cancellation_event cancelServe_;
+
+	// Taken before FsNode::_observersMutex; _statusBell is raised after releasing it.
+	std::mutex mutex_;
+	// Protected by mutex_.
 	std::deque<Packet> _queue;
 
+	// Protected by mutex_.
 	id_allocator<int> descriptorAllocator_{1};
+	// Protected by mutex_.
 	std::unordered_map<int, std::shared_ptr<Watch>> watches_;
 
 	async::recurring_event _statusBell;
+	// Protected by mutex_.
 	uint64_t _currentSeq = 1;
+	// Protected by mutex_.
 	uint64_t _inSeq = 0;
 
 	std::atomic<bool> nonBlock_;

@@ -94,15 +94,21 @@ void FsNode::addObserver(std::shared_ptr<FsObserver> observer) {
 
 	// TODO: For increased efficiency, Observers could be stored in an intrusive list.
 	auto borrowed = observer.get();
+	std::lock_guard lock{_observersMutex};
 	auto [it, inserted] = _observers.insert({borrowed, std::move(observer)});
 	(void)it;
 	assert(inserted); // Registering observers twice is an error.
 }
 
 void FsNode::removeObserver(FsObserver *observer) {
-	auto it = _observers.find(observer);
-	assert(it != _observers.end());
-	_observers.erase(it);
+	std::shared_ptr<FsObserver> removed;
+	{
+		std::lock_guard lock{_observersMutex};
+		auto it = _observers.find(observer);
+		assert(it != _observers.end());
+		removed = std::move(it->second);
+		_observers.erase(it);
+	}
 }
 
 async::result<std::expected<smarter::shared_ptr<FsLink, LinkRc>, Error>>
@@ -214,8 +220,15 @@ async::result<frg::expected<Error, smarter::shared_ptr<FsLink, LinkRc>>> FsNode:
 }
 
 void FsNode::notifyObservers(uint32_t events, const std::string &name, uint32_t cookie, bool isDir) {
-	for(const auto &[borrowed, observer] : _observers) {
-		borrowed->observeNotification(events, name, cookie, isDir);
-		(void)observer;
+	std::vector<std::shared_ptr<FsObserver>> observers;
+	{
+		std::lock_guard lock{_observersMutex};
+		if(_observers.empty())
+			return;
+		for(const auto &[borrowed, observer] : _observers)
+			observers.push_back(observer);
 	}
+
+	for(const auto &observer : observers)
+		observer->observeNotification(events, name, cookie, isDir);
 }

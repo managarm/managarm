@@ -2,6 +2,7 @@
 #include <functional>
 #include <linux/magic.h>
 #include <print>
+#include <shared_mutex>
 #include <string.h>
 #include <sstream>
 #include <iomanip>
@@ -18,6 +19,13 @@
 namespace procfs {
 
 SuperBlock procfsSuperblock;
+
+namespace {
+
+// Leaf lock; unlinked entries are destroyed after releasing it.
+std::shared_mutex treeMutex;
+
+} // anonymous namespace
 
 // ----------------------------------------------------------------------------
 // LinkCompare implementation.
@@ -141,30 +149,33 @@ void DirectoryFile::serve(smarter::shared_ptr<DirectoryFile> file) {
 
 DirectoryFile::DirectoryFile(std::shared_ptr<MountView> mount, smarter::shared_ptr<FsLink, LinkRc> link)
 : FileWithDefaults{FileKind::unknown,  StructName::get("procfs.dir"), std::move(mount), std::move(link)},
-		_node{static_cast<DirectoryNode *>(associatedLink()->getTarget().get())},
-		_iter{_node->_entries.begin()} { }
+		_node{static_cast<DirectoryNode *>(associatedLink()->getTarget().get())} { }
 
 void DirectoryFile::handleClose() {
 	_cancelServe.cancel();
 }
 
-// TODO: This iteration mechanism only works as long as _iter is not concurrently deleted.
 async::result<std::expected<protocols::fs::ReadEntriesResult, managarm::fs::Errors>> DirectoryFile::readEntries() {
 	if(auto entry = nextDotEntry(_dots, 0, 0); entry)
 		co_return *entry;
 
-	if(_iter != _node->_entries.end()) {
-		auto name = (*_iter)->getName();
-		_iter++;
-
-		co_return protocols::fs::ReadEntriesResult{
-			.name = name,
-			.inode = 0,
-			.offset = 2 + std::distance(_node->_entries.begin(), _iter)
-		};
-	}else{
-		co_return std::unexpected(managarm::fs::Errors::END_OF_FILE);
+	std::string name;
+	{
+		std::shared_lock lock{treeMutex};
+		// Continue after the last name such that concurrent insertions and removals are tolerated.
+		auto it = _lastName ? _node->_entries.upper_bound(*_lastName) : _node->_entries.begin();
+		if(it == _node->_entries.end())
+			co_return std::unexpected(managarm::fs::Errors::END_OF_FILE);
+		name = (*it)->getName();
 	}
+	_lastName = name;
+	_numEntries++;
+
+	co_return protocols::fs::ReadEntriesResult{
+		.name = name,
+		.inode = 0,
+		.offset = static_cast<long>(2 + _numEntries)
+	};
 }
 
 helix::BorrowedDescriptor DirectoryFile::getPassthroughLane() {
@@ -299,10 +310,12 @@ smarter::shared_ptr<Link, LinkRc> DirectoryNode::createRootDirectory() {
 	auto link = makeFsShared<Link>(std::move(node));
 
 	auto self_link = makeFsShared<Link>(link, "self", makeFsShared<SelfLink>());
-	the_node->_entries.insert(std::move(self_link));
-
 	auto self_thread_link = makeFsShared<Link>(link, "thread-self", makeFsShared<SelfThreadLink>());
-	the_node->_entries.insert(std::move(self_thread_link));
+	{
+		std::unique_lock lock{treeMutex};
+		the_node->_entries.insert(std::move(self_link));
+		the_node->_entries.insert(std::move(self_thread_link));
+	}
 
 	the_node->directMkregular(link.get(), "uptime", makeFsShared<UptimeNode>());
 	the_node->directMknode(link.get(), "mounts", makeFsShared<MountsLink>());
@@ -329,30 +342,35 @@ DirectoryNode::DirectoryNode()
 
 smarter::shared_ptr<Link, LinkRc> DirectoryNode::directMkregular(FsLink *parent, std::string name,
 		smarter::shared_ptr<RegularNode> regular) {
-	assert(_entries.find(name) == _entries.end());
-	auto link = makeFsShared<Link>(parent->sharedFromThis(), name, std::move(regular));
-	_entries.insert(link);
+	auto link = makeFsShared<Link>(parent->sharedFromThis(), std::move(name), std::move(regular));
+	directInsert(link);
 	return link;
 }
 
 smarter::shared_ptr<Link, LinkRc> DirectoryNode::directMkdir(FsLink *parent, std::string name) {
-	assert(_entries.find(name) == _entries.end());
 	auto node = makeFsShared<DirectoryNode>();
 	auto link = makeFsShared<Link>(parent->sharedFromThis(), std::move(name), std::move(node));
-	_entries.insert(link);
+	directInsert(link);
 	return link;
+}
+
+void DirectoryNode::directInsert(smarter::shared_ptr<Link, LinkRc> link) {
+	std::unique_lock lock{treeMutex};
+	assert(_entries.find(link->getName()) == _entries.end());
+	_entries.insert(std::move(link));
 }
 
 smarter::shared_ptr<Link, LinkRc> DirectoryNode::directMknode(FsLink *parent, std::string name, smarter::shared_ptr<FsNode> node) {
-	assert(_entries.find(name) == _entries.end());
-	auto link = makeFsShared<Link>(parent->sharedFromThis(), name, std::move(node));
-	_entries.insert(link);
+	auto link = makeFsShared<Link>(parent->sharedFromThis(), std::move(name), std::move(node));
+	directInsert(link);
 	return link;
 }
 
+// The caller publishes the directory once it is complete.
 smarter::shared_ptr<Link, LinkRc> DirectoryNode::createProcDirectory(FsLink *parent, Process *process) {
-	auto link = directMkdir(parent, std::to_string(process->pid()));
-	auto proc_dir = static_cast<DirectoryNode*>(link->getTarget().get());
+	auto node = makeFsShared<DirectoryNode>();
+	auto proc_dir = node.get();
+	auto link = makeFsShared<Link>(parent->sharedFromThis(), std::to_string(process->pid()), std::move(node));
 
 	proc_dir->directMknode(link.get(), "exe", makeFsShared<ExeLink>(process));
 	proc_dir->directMknode(link.get(), "root", makeFsShared<RootLink>(process));
@@ -375,27 +393,37 @@ smarter::shared_ptr<Link, LinkRc> DirectoryNode::createProcDirectory(FsLink *par
 
 smarter::shared_ptr<Link, LinkRc> DirectoryNode::createProcTaskDirectory(FsLink *parent, Process *process) {
 	auto pidProcfsLink = process->threadGroup()->procfsLink();
-	// Create /proc/[pid] on demand to minimize observable states of /proc/[pid] being visible
-	// without any /proc/[pid]/task/[tid] attached.
+	// Create /proc/[pid] on demand and only publish it once /proc/[pid]/task/[tid] exists,
+	// such that /proc/[pid] is never visible incomplete or without any task.
+	bool publishPidDirectory = false;
 	if (!pidProcfsLink) {
 		pidProcfsLink = createProcDirectory(parent, process);
 		process->threadGroup()->setProcfsLink(pidProcfsLink);
+		publishPidDirectory = true;
 	}
 
 	auto proc_dir = static_cast<DirectoryNode *>(pidProcfsLink->getTarget().get());
 
-	auto taskLinkIt = std::ranges::find_if(proc_dir->_entries, [](auto e) {
-		return e->getName() == "task";
-	});
-	assert(taskLinkIt != proc_dir->_entries.end());
-	auto task_dir = static_cast<DirectoryNode *>(((*taskLinkIt)->getTarget()).get());
+	smarter::shared_ptr<Link, LinkRc> taskLink;
+	{
+		std::shared_lock lock{treeMutex};
+		auto taskLinkIt = proc_dir->_entries.find(std::string{"task"});
+		assert(taskLinkIt != proc_dir->_entries.end());
+		taskLink = *taskLinkIt;
+	}
+	auto task_dir = static_cast<DirectoryNode *>(taskLink->getTarget().get());
 
-	auto tid_link = task_dir->directMkdir(taskLinkIt->get(), std::to_string(process->tid()));
-	auto tid_dir = static_cast<DirectoryNode *>(tid_link->getTarget().get());
+	auto tid_node = makeFsShared<DirectoryNode>();
+	auto tid_dir = tid_node.get();
+	auto tid_link = makeFsShared<Link>(taskLink->sharedFromThis(), std::to_string(process->tid()),
+			std::move(tid_node));
 
 	tid_dir->directMkregular(tid_link.get(), "comm", makeFsShared<CommNode>(process));
 	tid_dir->directMkregular(tid_link.get(), "status", makeFsShared<StatusNode>(process->weak_from_this()));
 
+	task_dir->directInsert(tid_link);
+	if(publishPidDirectory)
+		directInsert(pidProcfsLink);
 	return tid_link;
 }
 
@@ -431,25 +459,30 @@ DirectoryNode::open(Process *, std::shared_ptr<MountView> mount, smarter::shared
 }
 
 async::result<frg::expected<Error, smarter::shared_ptr<FsLink, LinkRc>>> DirectoryNode::getLink(FsLink *, std::string name) {
-	auto it = _entries.find(name);
-	if(it != _entries.end())
-		co_return *it;
-	co_return Error::noSuchFile;
+	smarter::shared_ptr<Link, LinkRc> link;
+	{
+		std::shared_lock lock{treeMutex};
+		auto it = _entries.find(name);
+		if(it == _entries.end())
+			co_return Error::noSuchFile;
+		link = *it;
+	}
+	co_return link;
 }
 
 async::result<frg::expected<Error>> DirectoryNode::unlink(std::string name) {
-	auto it = _entries.find(name);
-	if (it == _entries.end())
-		co_return Error::noSuchFile;
-	_entries.erase(it);
+	if(auto e = directUnlink(std::move(name)); e != Error::success)
+		co_return e;
 	co_return frg::expected<Error>{};
 }
 
 Error DirectoryNode::directUnlink(std::string name) {
+	decltype(_entries)::node_type entry;
+	std::unique_lock lock{treeMutex};
 	auto it = _entries.find(name);
 	if (it == _entries.end())
 		return Error::noSuchFile;
-	_entries.erase(it);
+	entry = _entries.extract(it);
 	return Error::success;
 }
 
@@ -1273,7 +1306,7 @@ async::result<std::expected<std::string, Error>> MountsNode::show(Process *proc)
 			devName, mountPath, fsType);
 	};
 
-	std::function<std::string(const std::set<std::shared_ptr<MountView>, MountView::Compare>&)> processChildren =
+	std::function<std::string(const std::vector<std::shared_ptr<MountView>> &)> processChildren =
 		[&](auto &mounts) -> std::string {
 		std::string ret;
 
@@ -1334,7 +1367,7 @@ async::result<std::expected<std::string, Error>> MountInfoNode::show(Process *pr
 			mountId, parentId, major(devno), minor(devno), "/", mountPath, fsType, devName);
 	};
 
-	std::function<std::string(const std::set<std::shared_ptr<MountView>, MountView::Compare> &)> processChildren =
+	std::function<std::string(const std::vector<std::shared_ptr<MountView>> &)> processChildren =
 		[&](auto &mounts) -> std::string {
 		std::string ret;
 
