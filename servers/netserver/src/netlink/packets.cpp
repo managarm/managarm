@@ -98,21 +98,21 @@ core::netlink::Packet buildAddrPacket(uint16_t type, CidrAddress addr, std::shar
 
 	b.rtattr(IFA_ADDRESS, htonl(addr.ip));
 	b.rtattr(IFA_LOCAL, htonl(addr.ip));
+	if(addr.prefix < 31 && !isIpv4Loopback(addr.ip))
+		b.rtattr(IFA_BROADCAST, htonl(addr.ip | ~addr.mask()));
 	b.rtattr(IFA_LABEL, nic->name());
 
 	return b.packet();
 }
 
-void NetlinkSocket::sendAddrPacket(const struct nlmsghdr *hdr, const struct ifaddrmsg *msg, std::shared_ptr<nic::Link> nic) {
-	auto addr_check = ip4().getCidrByIndex(nic->index());
+void NetlinkSocket::sendAddrPackets(const struct nlmsghdr *hdr, const struct ifaddrmsg *msg, std::shared_ptr<nic::Link> nic) {
+	for(auto &[addr, link] : ip4().getAddresses()) {
+		if(link.lock() != nic)
+			continue;
 
-	if(!addr_check)
-		return;
-
-	auto addr = addr_check.value();
-
-	deliver(buildAddrPacket(RTM_NEWADDR, addr, nic, msg->ifa_flags, 0,
-			NLM_F_MULTI | NLM_F_DUMP_FILTERED, hdr->nlmsg_seq, 0));
+		deliver(buildAddrPacket(RTM_NEWADDR, addr, nic, msg->ifa_flags, 0,
+				NLM_F_MULTI | NLM_F_DUMP_FILTERED, hdr->nlmsg_seq, 0));
+	}
 }
 
 void NetlinkSocket::sendRoutePacket(const struct nlmsghdr *hdr, Ip4Router::Route &route) {

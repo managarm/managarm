@@ -297,13 +297,9 @@ void NetlinkSocket::newAddr(struct nlmsghdr *hdr) {
 	if(hdr->nlmsg_flags & NLM_F_ACK)
 		sendAck(this, hdr);
 
-	core::netlink::NetlinkBuilder b;
-	b.group(RTNLGRP_IPV4_IFADDR);
-	b.header(RTM_NEWADDR, 0, _currentSeq, 0);
-	b.message<struct ifaddrmsg>(*msg);
-	b.nlattr(IFA_ADDRESS, htonl(addr));
-
-	broadcast(b.packet());
+	if(addr)
+		broadcast(buildAddrPacket(RTM_NEWADDR, {addr, prefix}, nic, 0, RTNLGRP_IPV4_IFADDR,
+				0, hdr->nlmsg_seq, hdr->nlmsg_pid));
 
 	return;
 }
@@ -327,9 +323,9 @@ void NetlinkSocket::getAddr(struct nlmsghdr *hdr) {
 	auto links = nic::Link::getLinks();
 	for(auto m = links.begin(); m != links.end(); m++) {
 		if(!msg || msg->ifa_index == 0) {
-			sendAddrPacket(hdr, msg, m->second);
+			sendAddrPackets(hdr, msg, m->second);
 		} else if(static_cast<uint32_t>(m->second->index()) == msg->ifa_index) {
-			sendAddrPacket(hdr, msg, m->second);
+			sendAddrPackets(hdr, msg, m->second);
 			break;
 		}
 	}

@@ -173,6 +173,10 @@ struct Ip4 {
 	std::optional<CidrAddress> getCidrByIndex(int index);
 	bool deleteLink(CidrAddress addr);
 	void setLink(CidrAddress addr, std::weak_ptr<nic::Link> link);
+
+	inline const std::map<CidrAddress, std::weak_ptr<nic::Link>> &getAddresses() const {
+		return ips;
+	}
 	std::optional<uint32_t> findLinkIp(uint32_t ipOnNet, nic::Link *link);
 
 	async::result<std::optional<Ip4TargetInfo>> targetByRemote(uint32_t, std::shared_ptr<nic::Link> link = {});

@@ -92,7 +92,7 @@ private:
 	void getNeighbor(struct nlmsghdr *hdr);
 
 	void sendLinkPacket(std::shared_ptr<nic::Link> nic, void *h, uint16_t flags);
-	void sendAddrPacket(const struct nlmsghdr *hdr, const struct ifaddrmsg *msg, std::shared_ptr<nic::Link>);
+	void sendAddrPackets(const struct nlmsghdr *hdr, const struct ifaddrmsg *msg, std::shared_ptr<nic::Link> nic);
 	void sendRoutePacket(const struct nlmsghdr *hdr, Ip4Router::Route &route);
 	void sendNeighPacket(const struct nlmsghdr *hdr, uint32_t addr, Neighbours::Entry &entry);
 
