@@ -82,6 +82,7 @@ public:
 private:
 	void getRoute(struct nlmsghdr *hdr);
 	void newRoute(struct nlmsghdr *hdr);
+	void deleteRoute(struct nlmsghdr *hdr);
 
 	void getLink(struct nlmsghdr *hdr);
 
