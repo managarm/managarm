@@ -174,7 +174,7 @@ async::result<frg::expected<protocols::fs::Error, size_t>> NetlinkSocket::sendMs
 			self->getNeighbor(hdr);
 		} else {
 			std::cout << "netlink: unknown nlmsg_type " << hdr->nlmsg_type << std::endl;
-			co_return protocols::fs::Error::illegalArguments;
+			sendError(self, hdr, EOPNOTSUPP);
 		}
 	}
 
