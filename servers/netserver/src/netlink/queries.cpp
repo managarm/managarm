@@ -353,7 +353,8 @@ void NetlinkSocket::deleteAddr(struct nlmsghdr *hdr) {
 		return;
 	}
 
-	uint32_t addr = 0;
+	std::optional<uint32_t> local;
+	std::optional<uint32_t> address;
 	auto nic = nic::Link::byIndex(msg->ifa_index);
 
 	if(!nic) {
@@ -363,17 +364,12 @@ void NetlinkSocket::deleteAddr(struct nlmsghdr *hdr) {
 
 	for(auto attr : *attrs) {
 		switch(attr.type()) {
+			case IFA_LOCAL: {
+				local = ntohl(attr.data<uint32_t>().value_or(0));
+				break;
+			}
 			case IFA_ADDRESS: {
-				addr = ntohl(attr.data<uint32_t>().value_or(0));
-
-				if(addr) {
-					auto nic_by_addr = ip4().getLink(addr);
-
-					if(nic_by_addr == nullptr || nic_by_addr->index() != nic->index()) {
-						sendError(this, hdr, EINVAL);
-						return;
-					}
-				}
+				address = ntohl(attr.data<uint32_t>().value_or(0));
 				break;
 			}
 			default: {
@@ -387,17 +383,38 @@ void NetlinkSocket::deleteAddr(struct nlmsghdr *hdr) {
 		}
 	}
 
-	auto cidr = ip4().getCidrByIndex(msg->ifa_index);
+	// Like Linux, delete the first address of the link that matches all of the given attributes.
+	std::optional<CidrAddress> cidr;
+	for(auto &[entry, link] : ip4().getAddresses()) {
+		if(link.lock() != nic)
+			continue;
+		if(local && entry.ip != *local)
+			continue;
+		if(address && (entry.prefix != msg->ifa_prefixlen || !entry.sameNet(*address)))
+			continue;
+		cidr = entry;
+		break;
+	}
 
-	if(cidr)
-		ip4().deleteLink(cidr.value());
-	else {
-		sendError(this, hdr, EINVAL);
+	if(!cidr) {
+		sendError(this, hdr, EADDRNOTAVAIL);
 		return;
+	}
+
+	ip4().deleteLink(*cidr);
+
+	// Like Linux, drop the local route and all other routes that use the address as their source.
+	if(!ip4().hasIp(cidr->ip)) {
+		ip4Router().deleteRoutes([&] (const Ip4Router::Route &r) {
+			return r.source == cidr->ip;
+		});
 	}
 
 	if(hdr->nlmsg_flags & NLM_F_ACK)
 		sendAck(this, hdr);
+
+	broadcast(buildAddrPacket(RTM_DELADDR, *cidr, nic, 0, RTNLGRP_IPV4_IFADDR,
+			0, hdr->nlmsg_seq, hdr->nlmsg_pid));
 
 	return;
 }

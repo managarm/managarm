@@ -81,6 +81,10 @@ struct Ip4Router {
 
 	// false if insertion fails
 	bool addRoute(Route r);
+	template<typename Pred>
+	size_t deleteRoutes(Pred pred) {
+		return std::erase_if(routes, pred);
+	}
 	std::optional<Route> resolveRoute(uint32_t ip, std::shared_ptr<nic::Link> link = {});
 
 	inline const std::set<Route> &getRoutes() const {
