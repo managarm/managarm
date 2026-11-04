@@ -45,6 +45,10 @@ bool Ip4Router::addRoute(Route r) {
 	return routes.emplace(std::move(r)).second;
 }
 
+bool Ip4Router::deleteEquivalentRoute(const Route &r) {
+	return routes.erase(r) > 0;
+}
+
 std::optional<Route> Ip4Router::resolveRoute(uint32_t ip, std::shared_ptr<nic::Link> link) {
 	for (auto i = routes.begin(); i != routes.end();) {
 		const auto &r = *i;

@@ -82,6 +82,8 @@ struct Ip4Router {
 
 	// false if insertion fails
 	bool addRoute(Route r);
+	// Removes the route that compares equal to r; false if there is none.
+	bool deleteEquivalentRoute(const Route &r);
 	// Removes the first route that matches pred; false if there is none.
 	template<typename Pred>
 	bool deleteRoute(Pred pred) {

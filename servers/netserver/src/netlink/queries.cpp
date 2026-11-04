@@ -203,8 +203,28 @@ void NetlinkSocket::newRoute(struct nlmsghdr *hdr) {
 	if(msg->rtm_family)
 		route.family = msg->rtm_family;
 
-	if(route_changed)
-		ip4Router().addRoute(std::move(route));
+	if(route_changed) {
+		// Like Linux, a route is identified by its destination and metric.
+		auto sameRoute = [&] (const Ip4Router::Route &r) {
+			return r.type != RTN_LOCAL && r.network.ip == route.network.ip
+				&& r.network.prefix == route.network.prefix && r.metric == route.metric;
+		};
+		bool exists = std::ranges::any_of(ip4Router().getRoutes(), sameRoute);
+
+		if(exists && (hdr->nlmsg_flags & NLM_F_EXCL)) {
+			sendError(this, hdr, EEXIST);
+			return;
+		}
+		// Prefer replacing an equivalent route so that addRoute() cannot fail after a deletion.
+		if(exists && (hdr->nlmsg_flags & NLM_F_REPLACE)
+				&& !ip4Router().deleteEquivalentRoute(route))
+			ip4Router().deleteRoute(sameRoute);
+
+		if(!ip4Router().addRoute(std::move(route))) {
+			sendError(this, hdr, EEXIST);
+			return;
+		}
+	}
 
 	if(hdr->nlmsg_flags & NLM_F_ACK)
 		sendAck(this, hdr);
