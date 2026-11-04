@@ -82,20 +82,16 @@ void broadcastNewLink(std::shared_ptr<nic::Link> nic) {
 	broadcast(buildLinkPacket(std::move(nic), RTNLGRP_LINK, 0, 0, 0));
 }
 
-void NetlinkSocket::sendAddrPacket(const struct nlmsghdr *hdr, const struct ifaddrmsg *msg, std::shared_ptr<nic::Link> nic) {
-	auto addr_check = ip4().getCidrByIndex(nic->index());
-
-	if(!addr_check)
-		return;
-
-	auto addr = addr_check.value();
-
+core::netlink::Packet buildAddrPacket(uint16_t type, CidrAddress addr, std::shared_ptr<nic::Link> nic,
+		uint8_t ifaFlags, uint32_t group, uint16_t flags, uint32_t seq, uint32_t pid) {
 	NetlinkBuilder b;
-	b.header(RTM_NEWADDR, NLM_F_MULTI | NLM_F_DUMP_FILTERED, hdr->nlmsg_seq, 0);
+
+	b.group(group);
+	b.header(type, flags, seq, pid);
 	b.message<struct ifaddrmsg>({
 		.ifa_family = AF_INET,
 		.ifa_prefixlen = addr.prefix,
-		.ifa_flags = msg->ifa_flags,
+		.ifa_flags = ifaFlags,
 		.ifa_scope = RT_SCOPE_UNIVERSE,
 		.ifa_index = static_cast<uint32_t>(nic->index()),
 	});
@@ -104,7 +100,19 @@ void NetlinkSocket::sendAddrPacket(const struct nlmsghdr *hdr, const struct ifad
 	b.rtattr(IFA_LOCAL, htonl(addr.ip));
 	b.rtattr(IFA_LABEL, nic->name());
 
-	deliver(b.packet());
+	return b.packet();
+}
+
+void NetlinkSocket::sendAddrPacket(const struct nlmsghdr *hdr, const struct ifaddrmsg *msg, std::shared_ptr<nic::Link> nic) {
+	auto addr_check = ip4().getCidrByIndex(nic->index());
+
+	if(!addr_check)
+		return;
+
+	auto addr = addr_check.value();
+
+	deliver(buildAddrPacket(RTM_NEWADDR, addr, nic, msg->ifa_flags, 0,
+			NLM_F_MULTI | NLM_F_DUMP_FILTERED, hdr->nlmsg_seq, 0));
 }
 
 void NetlinkSocket::sendRoutePacket(const struct nlmsghdr *hdr, Ip4Router::Route &route) {

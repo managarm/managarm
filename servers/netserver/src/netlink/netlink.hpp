@@ -25,6 +25,9 @@ core::netlink::Packet buildLinkPacket(std::shared_ptr<nic::Link> nic, uint32_t g
 
 void broadcastNewLink(std::shared_ptr<nic::Link> nic);
 
+core::netlink::Packet buildAddrPacket(uint16_t type, CidrAddress addr, std::shared_ptr<nic::Link> nic,
+		uint8_t ifaFlags, uint32_t group, uint16_t flags, uint32_t seq, uint32_t pid);
+
 class NetlinkSocket final : core::netlink::NetlinkFile {
 public:
 	NetlinkSocket(int flags, int protocol);
