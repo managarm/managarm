@@ -117,6 +117,8 @@ void NetlinkSocket::sendAddrPackets(const struct nlmsghdr *hdr, const struct ifa
 
 void NetlinkSocket::sendRoutePacket(const struct nlmsghdr *hdr, Ip4Router::Route &route) {
 	NetlinkBuilder b;
+	// Like Linux, local routes live in their own table so that flushing the main table keeps them.
+	uint8_t table = (route.type == RTN_LOCAL) ? RT_TABLE_LOCAL : RT_TABLE_MAIN;
 
 	b.header(RTM_NEWROUTE, NLM_F_MULTI, hdr->nlmsg_seq, 0);
 	b.message<struct rtmsg>({
@@ -124,14 +126,14 @@ void NetlinkSocket::sendRoutePacket(const struct nlmsghdr *hdr, Ip4Router::Route
 		.rtm_dst_len = route.network.prefix,
 		.rtm_src_len = 0,
 		.rtm_tos = 0,
-		.rtm_table = RT_TABLE_MAIN,
+		.rtm_table = table,
 		.rtm_protocol = route.protocol,
 		.rtm_scope = route.scope,
 		.rtm_type = route.type,
 		.rtm_flags = route.flags,
 	});
 
-	b.rtattr(RTA_TABLE, RT_TABLE_MAIN);
+	b.rtattr<uint32_t>(RTA_TABLE, table);
 	if(route.network.ip)
 		b.rtattr(RTA_DST, htonl(route.network.ip));
 	if(route.metric)
