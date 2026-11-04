@@ -46,18 +46,23 @@ bool Ip4Router::addRoute(Route r) {
 }
 
 std::optional<Route> Ip4Router::resolveRoute(uint32_t ip, std::shared_ptr<nic::Link> link) {
-	for (auto i = routes.begin(); i != routes.end(); i++) {
+	for (auto i = routes.begin(); i != routes.end();) {
 		const auto &r = *i;
-		if (r.network.sameNet(ip)) {
-			if(link && r.link.lock()->index() != link->index())
-				continue;
-
-			if (r.link.expired()) {
-				i = routes.erase(i);
-				continue;
-			}
-			return { r };
+		if (!r.network.sameNet(ip)) {
+			i++;
+			continue;
 		}
+
+		if (r.link.expired()) {
+			i = routes.erase(i);
+			continue;
+		}
+
+		if(link && r.link.lock()->index() != link->index()) {
+			i++;
+			continue;
+		}
+		return { r };
 	}
 	return {};
 }
