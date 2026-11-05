@@ -49,7 +49,7 @@ async::result<protocols::fs::RecvResult> NetlinkSocket::recvMsg(void *obj,
 	if(logSocket)
 		std::cout << "netserver: Recv from netlink socket" << std::endl;
 
-	if(self->_recvQueue.empty() && self->_nonBlock)
+	if(self->_recvQueue.empty() && (self->_nonBlock || (flags & MSG_DONTWAIT)))
 		co_return protocols::fs::Error::wouldBlock;
 
 	while(self->_recvQueue.empty())
