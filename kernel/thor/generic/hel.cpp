@@ -1837,6 +1837,12 @@ std::expected<UnmapMemoryOperands, Error> resolveUnmapMemory(HelHandle space_han
 					return std::unexpected{addressSpaceOutcome.error()};
 				space = std::move(*addressSpaceOutcome);
 				return {};
+			}else if(desc.is<DescriptorType::virtualizedSpace>()) {
+				auto vspaceOutcome = desc.resolveObject<DescriptorType::virtualizedSpace>(kHelRightGrant);
+				if(!vspaceOutcome)
+					return std::unexpected{vspaceOutcome.error()};
+				vspace = std::move(*vspaceOutcome);
+				return {};
 			}else if(desc.is<DescriptorType::dmaSpace>()) {
 				auto dmaOutcome = desc.resolveObject<DescriptorType::dmaSpace>(kHelRightGrant);
 				if(!dmaOutcome)
