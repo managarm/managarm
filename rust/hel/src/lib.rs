@@ -41,6 +41,79 @@ pub fn create_stream() -> Result<(Handle, Handle)> {
     Ok(unsafe { (Handle::from_raw(lane1), Handle::from_raw(lane2)) })
 }
 
+/// Creates an address space for a virtual machine.
+/// Fails with [`Error::NoHardwareSupport`] if the CPU does not support virtualization.
+pub fn create_virtualized_space() -> Result<Handle> {
+    let mut space = hel_sys::kHelNullHandle as hel_sys::HelHandle;
+
+    result::hel_check(unsafe { hel_sys::helCreateVirtualizedSpace(&mut space) })?;
+
+    // SAFETY: helCreateVirtualizedSpace returns a freshly created handle in the current universe.
+    Ok(unsafe { Handle::from_raw(space) })
+}
+
+/// Creates a virtual CPU that runs in the given virtualized space.
+pub fn create_virtualized_cpu(space: &Handle) -> Result<Handle> {
+    let mut vcpu = hel_sys::kHelNullHandle as hel_sys::HelHandle;
+
+    result::hel_check(unsafe { hel_sys::helCreateVirtualizedCpu(space.handle(), &mut vcpu) })?;
+
+    // SAFETY: helCreateVirtualizedCpu returns a freshly created handle in the current universe.
+    Ok(unsafe { Handle::from_raw(vcpu) })
+}
+
+/// Runs the virtualized CPU until it exits. `completion` completes the previous exit if it
+/// needs a completion (see `HelVmexitCompletion`); it must be `None` otherwise.
+pub fn run_virtualized_cpu(
+    vcpu: &Handle,
+    completion: Option<&hel_sys::HelVmexitCompletion>,
+) -> Result<hel_sys::HelVmexitReason> {
+    // SAFETY: HelVmexitReason is plain old data.
+    let mut reason: hel_sys::HelVmexitReason = unsafe { core::mem::zeroed() };
+    let completion = completion.map_or(core::ptr::null(), |completion| completion as *const _);
+
+    result::hel_check(unsafe {
+        hel_sys::helRunVirtualizedCpu(vcpu.handle(), completion, &mut reason)
+    })?;
+    Ok(reason)
+}
+
+/// Raises an interrupt in the virtualized CPU. On x86, `irq` is a vector (16 - 255) and
+/// `level` selects level-triggered delivery (the guest's EOI then causes an exit).
+pub fn assert_virtualized_irq(vcpu: &Handle, irq: u64, level: bool) -> Result<()> {
+    result::hel_check(unsafe {
+        hel_sys::helAssertVirtualizedIrq(vcpu.handle(), irq, level as u8)
+    })
+}
+
+/// Makes the virtualized CPU exit (or not enter the guest on its next run) with kHelVmexitKicked.
+pub fn kick_virtualized_cpu(vcpu: &Handle) -> Result<()> {
+    result::hel_check(unsafe { hel_sys::helKickVirtualizedCpu(vcpu.handle()) })
+}
+
+/// Loads a register image (one of the `kHelRegs*` sets) of a thread or virtualized CPU.
+///
+/// # Safety
+/// `T` must be the plain-old-data image type of `set` (e.g., `HelVirtualizationRegs`).
+pub unsafe fn load_registers<T: Copy>(handle: &Handle, set: u32) -> Result<T> {
+    // SAFETY: The image types are plain old data.
+    let mut image: T = unsafe { core::mem::zeroed() };
+    result::hel_check(unsafe {
+        hel_sys::helLoadRegisters(handle.handle(), set as i32, (&raw mut image).cast())
+    })?;
+    Ok(image)
+}
+
+/// Stores a register image (one of the `kHelRegs*` sets) to a thread or virtualized CPU.
+///
+/// # Safety
+/// `T` must be the image type of `set`.
+pub unsafe fn store_registers<T: Copy>(handle: &Handle, set: u32, image: &T) -> Result<()> {
+    result::hel_check(unsafe {
+        hel_sys::helStoreRegisters(handle.handle(), set as i32, (&raw const *image).cast())
+    })
+}
+
 /// Creates an event that counts how often it was raised.
 /// Returns the wait handle and the raise handle (in this order).
 /// Each side gets [`Error::EndOfLane`] once all handles to the other end are closed.
