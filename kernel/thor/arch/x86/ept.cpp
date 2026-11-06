@@ -10,6 +10,7 @@ constexpr uint64_t eptExecute = UINT64_C(1) << 2;
 constexpr uint64_t eptCacheType = UINT64_C(7) << 3;
 constexpr uint64_t eptCacheWb = UINT64_C(6) << 3;
 constexpr uint64_t eptIgnorePat = UINT64_C(1) << 6;
+constexpr uint64_t eptPageSize = UINT64_C(1) << 7;
 constexpr uint64_t eptDirty = UINT64_C(1) << 9;
 // TODO: Support user-executable permissions (needs VM-x bit).
 // constexpr uint64_t eptUserExecute = UINT64_C(1) << 10;
@@ -77,6 +78,9 @@ struct EptCursorPolicy {
 	static constexpr void pteWriteBarrier(uint64_t *) { }
 	static constexpr void pteSyncICache(uintptr_t) { }
 
+	static constexpr bool pteIsHugePage(uint64_t pte) {
+		return (pte & eptRead) && (pte & eptPageSize);
+	}
 
 	static constexpr bool pteTablePresent(uint64_t pte) {
 		return pte & eptRead;
