@@ -1,5 +1,6 @@
-// Tests thor's x86 virtualization: exit completions and kicks. The guest runs in real
-// mode; it stores its results in guest memory, which the VMM checks at the end.
+// Tests thor's x86 virtualization: exit completions, kicks and the in-kernel local APIC.
+// The guest runs in real mode; it stores its results in guest memory, which the VMM checks
+// at the end.
 
 #include <assert.h>
 #include <pthread.h>
@@ -22,6 +23,7 @@ constexpr uint64_t results = 0x9000;
 // Ports and MSRs that the guest uses to talk to the VMM.
 constexpr uint16_t portDone = 0x501;
 constexpr uint16_t portIn = 0x502;
+constexpr uint16_t portAssert = 0x503;
 constexpr uint32_t msrCompleted = 0x40000123;
 constexpr uint32_t msrFaulted = 0x40000124;
 
@@ -35,6 +37,12 @@ enum : uint32_t {
 	resMsrLow = 0x14,
 	resMsrHigh = 0x18,
 	resGpCount = 0x1C,
+	resApicId = 0x20,
+	resApicVersion = 0x24,
+	resTimerCount = 0x28,
+	resIpiCount = 0x2C,
+	resAssertCount = 0x30,
+	resLevelCount = 0x34,
 };
 
 } // namespace
@@ -56,6 +64,14 @@ guestCode:
 
 	movw $(gpHandler - guestCode + 0x1000), 13 * 4
 	movw $0, 13 * 4 + 2
+	movw $(timerHandler - guestCode + 0x1000), 0x40 * 4
+	movw $0, 0x40 * 4 + 2
+	movw $(ipiHandler - guestCode + 0x1000), 0x41 * 4
+	movw $0, 0x41 * 4 + 2
+	movw $(assertHandler - guestCode + 0x1000), 0x42 * 4
+	movw $0, 0x42 * 4 + 2
+	movw $(levelHandler - guestCode + 0x1000), 0x43 * 4
+	movw $0, 0x43 * 4 + 2
 
 	// CPUID, completed by the VMM.
 	mov $0x12345678, %eax
@@ -81,12 +97,125 @@ guestCode:
 	mov $0x40000124, %ecx
 	rdmsr
 
+	// x2APIC ID and version (handled by the kernel).
+	mov $0x802, %ecx
+	rdmsr
+	mov %eax, 0x9020
+	mov $0x803, %ecx
+	rdmsr
+	mov %eax, 0x9024
+
+	// Reading EOI (write-only) raises #GP in the kernel.
+	mov $0x80B, %ecx
+	rdmsr
+
+	// The software-disabled local APIC drops interrupts (here: through SELF_IPI).
+	mov $0x83F, %ecx
+	mov $0x41, %eax
+	xor %edx, %edx
+	wrmsr
+
+	// Enable the local APIC (SVR).
+	mov $0x80F, %ecx
+	mov $0x1FF, %eax
+	xor %edx, %edx
+	wrmsr
+
+	// One-shot timer: divide by 1, vector 0x40, 1 ms.
+	mov $0x83E, %ecx
+	mov $0xB, %eax
+	wrmsr
+	mov $0x832, %ecx
+	mov $0x40, %eax
+	wrmsr
+	mov $0x838, %ecx
+	mov $1000000, %eax
+	wrmsr
+1:	cli
+	cmpl $1, 0x9028
+	jae 2f
+	sti
+	hlt
+	jmp 1b
+2:
+	// TSC-deadline timer: 1M TSC ticks from now.
+	mov $0x832, %ecx
+	mov $0x40040, %eax
+	xor %edx, %edx
+	wrmsr
+	rdtsc
+	add $1000000, %eax
+	adc $0, %edx
+	mov $0x6E0, %ecx
+	wrmsr
+1:	cli
+	cmpl $2, 0x9028
+	jae 2f
+	sti
+	hlt
+	jmp 1b
+2:
+	// IPIs to ourselves: vector 0x41 to physical destination 0, then through the
+	// self shorthand. An IPI to all others reaches nobody.
+	mov $0x830, %ecx
+	xor %edx, %edx
+	mov $0x0041, %eax
+	wrmsr
+1:	cli
+	cmpl $1, 0x902C
+	jae 2f
+	sti
+	hlt
+	jmp 1b
+2:
+	mov $0x40041, %eax
+	wrmsr
+1:	cli
+	cmpl $2, 0x902C
+	jae 2f
+	sti
+	hlt
+	jmp 1b
+2:
+	mov $0xC0041, %eax
+	wrmsr
+	// The VMM raises vector 0x42 (edge-triggered).
+	mov $0x503, %dx
+	mov $0x42, %al
+	out %al, %dx
+1:	cli
+	cmpl $1, 0x9030
+	jae 2f
+	sti
+	hlt
+	jmp 1b
+2:
+	// The VMM raises vector 0x43 (level-triggered); our EOI exits to the VMM.
+	mov $0x503, %dx
+	mov $0x43, %al
+	out %al, %dx
+1:	cli
+	cmpl $1, 0x9034
+	jae 2f
+	sti
+	hlt
+	jmp 1b
+2:
 	mov $0x501, %dx
 	mov $1, %al
 	out %al, %dx
 3:	cli
 	hlt
 	jmp 3b
+
+eoi:
+	pushal
+	mov $0x80B, %ecx
+	xor %eax, %eax
+	xor %edx, %edx
+	wrmsr
+	popal
+	ret
 
 gpHandler:
 	// Skip the faulting RDMSR (two bytes); real mode pushes no error code.
@@ -95,6 +224,26 @@ gpHandler:
 	addw $2, 2(%bp)
 	pop %bp
 	incl 0x901C
+	iret
+
+timerHandler:
+	incl 0x9028
+	call eoi
+	iret
+
+ipiHandler:
+	incl 0x902C
+	call eoi
+	iret
+
+assertHandler:
+	incl 0x9030
+	call eoi
+	iret
+
+levelHandler:
+	incl 0x9034
+	call eoi
 	iret
 guestCodeEnd:
 
@@ -209,6 +358,7 @@ int main() {
 
 	bool complete = false;
 	bool testedMissingCompletion = false;
+	bool sawLevelEoi = false;
 	while(true) {
 		HEL_CHECK(helRunVirtualizedCpu(vcpu, complete ? &completion : nullptr, &reason));
 		complete = false;
@@ -237,6 +387,10 @@ int main() {
 			if(reason.address == portIn) {
 				CHECK((reason.flags & kHelVmexitIoIn) && reason.code == 4, "IN flags");
 				completion.data[0] = 0xCAFEBABE;
+			}else if(reason.address == portAssert) {
+				CHECK(!(reason.flags & kHelVmexitIoIn) && reason.code == 1, "OUT flags");
+				bool level = reason.data == 0x43;
+				HEL_CHECK(helAssertVirtualizedIrq(vcpu, reason.data, level));
 			}else if(reason.address == portDone) {
 				break;
 			}else{
@@ -251,17 +405,31 @@ int main() {
 				CHECK(reason.address == msrFaulted, "RDMSR 0x%lx", reason.address);
 				completion.status = kHelVmexitCompletionFault;
 			}
+		}else if(exitReason == kHelVmexitEoi) {
+			CHECK(reason.code == 0x43, "EOI of vector 0x%x", reason.code);
+			sawLevelEoi = true;
 		}else{
 			fatal("unexpected exit", reason);
 		}
 	}
+
+	HelX86VirtualizationRegs regs;
+	HEL_CHECK(helLoadRegisters(vcpu, kHelRegsVirtualization, &regs));
+	CHECK(regs.apic_base == 0xFEE00D00, "IA32_APIC_BASE 0x%lx", regs.apic_base);
 
 	CHECK(result(resCpuidEax) == 0x11 && result(resCpuidEbx) == 0x22
 			&& result(resCpuidEcx) == 0x33 && result(resCpuidEdx) == 0x44, "CPUID result");
 	CHECK(result(resIn) == 0xCAFEBABE, "IN result 0x%x", result(resIn));
 	CHECK(result(resMsrLow) == 0x55667788 && result(resMsrHigh) == 0x11223344,
 			"RDMSR result 0x%x:%x", result(resMsrHigh), result(resMsrLow));
-	CHECK(result(resGpCount) == 1, "#GP count %u", result(resGpCount));
+	CHECK(result(resGpCount) == 2, "#GP count %u", result(resGpCount));
+	CHECK(result(resApicId) == 0, "APIC ID %u", result(resApicId));
+	CHECK(result(resApicVersion) == 0x50014, "APIC version 0x%x", result(resApicVersion));
+	CHECK(result(resTimerCount) >= 2, "timer count %u", result(resTimerCount));
+	CHECK(result(resIpiCount) == 2, "IPI count %u", result(resIpiCount));
+	CHECK(result(resAssertCount) == 1, "edge interrupt count %u", result(resAssertCount));
+	CHECK(result(resLevelCount) == 1, "level interrupt count %u", result(resLevelCount));
+	CHECK(sawLevelEoi, "EOI exit");
 
 	HEL_CHECK(helCloseDescriptor(kHelThisUniverse, vcpu));
 	HEL_CHECK(helCloseDescriptor(kHelThisUniverse, vspace));
