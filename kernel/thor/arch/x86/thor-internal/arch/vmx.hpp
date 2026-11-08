@@ -151,6 +151,7 @@ namespace thor::vmx {
 
 	constexpr uint64_t VMEXIT_EXTERNAL_INTERRUPT           = 1;
 	constexpr uint64_t VMEXIT_TRIPLE_FAULT                 = 2;
+	constexpr uint64_t VMEXIT_INTERRUPT_WINDOW             = 7;
 	constexpr uint64_t VMEXIT_CPUID                        = 10;
 	constexpr uint64_t VMEXIT_HLT                          = 12;
 	constexpr uint64_t VMEXIT_VMCALL                       = 18;
@@ -164,6 +165,7 @@ namespace thor::vmx {
 	constexpr uint64_t VMEXIT_CONTROLS_LONG_MODE      = 1 << 9;
 	constexpr uint64_t VMEXIT_CONTROLS_SAVE_IA32_EFER = 1 << 20;
 	constexpr uint64_t VMEXIT_CONTROLS_LOAD_IA32_EFER = 1 << 21;
+	constexpr uint64_t INTERRUPT_WINDOW_EXITING       = 1 << 2;
 	constexpr uint64_t VMEXIT_ON_HLT                  = 1 << 7;
 	constexpr uint64_t CR8_LOAD_EXITING               = 1 << 19;
 	constexpr uint64_t CR8_STORE_EXITING              = 1 << 20;
@@ -298,6 +300,11 @@ namespace thor::vmx {
 		// While it is clear the guest cannot observe XCR0.
 		bool guestOsxsave_ = false;
 		uint64_t guestXcr0_ = 1;
+
+		// The processor-based controls (without interrupt-window exiting).
+		uint32_t procControls_ = 0;
+		// The value in the VMCS (to avoid needless VMWRITEs, which are slow when nested).
+		uint32_t currentProcControls_ = 0;
 
 		// The VMCS host state is written only when CPU or the FS base changes.
 		bool hostSelectorsWritten_ = false;

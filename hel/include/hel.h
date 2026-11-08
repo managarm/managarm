@@ -1285,6 +1285,9 @@ enum {
   kHelVmexitWrmsr = 8,
   // The guest caused a triple fault.
   kHelVmexitShutdown = 9,
+  // x86 with VMX: the guest EOI'd a level-triggered interrupt (e.g., for the remote IRR of an
+  // emulated I/O APIC); code is the vector.
+  kHelVmexitEoi = 10,
   // VM entry failed, code is the platform's entry failure reason.
   kHelVmexitError = -1,
   // Unknown VM exit reason, code is the platform's exit reason.
@@ -1872,6 +1875,18 @@ HEL_C_LINKAGE HelError helCreateVirtualizedCpu(HelHandle handle, HelHandle *out_
 HEL_C_LINKAGE HelError helRunVirtualizedCpu(HelHandle handle,
 		const struct HelVmexitCompletion *completion, struct HelVmexitReason *reason);
 
+//! Raises an interrupt in a virtualized CPU.
+//!
+//! On x86, @p irq is a vector (16 - 255) delivered like a fixed-mode MSI and @p level selects
+//! level-triggered mode, whose EOI exits with kHelVmexitEoi. A software-disabled local APIC
+//! drops the interrupt. Not supported with SVM yet (kHelErrIllegalArgs).
+//! On RISC-V, @p irq is an interrupt number and @p level is the level of its line.
+//! @param[in] handle
+//!     Handle to the virtualized CPU.
+//! @param[in] irq
+//!     Interrupt to raise.
+//! @param[in] level
+//!     Trigger mode (x86) or line level (RISC-V).
 HEL_C_LINKAGE HelError helAssertVirtualizedIrq(HelHandle handle, uint64_t irq, uint8_t level);
 
 //! Makes helRunVirtualizedCpu() return with kHelVmexitKicked as soon as possible.

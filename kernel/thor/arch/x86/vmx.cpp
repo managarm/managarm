@@ -191,6 +191,7 @@ namespace {
 	}
 
 	// Types of events that we inject (VM-entry interruption information).
+	constexpr uint8_t kEventExternalInterrupt = 0;
 	constexpr uint8_t kEventHardwareException = 3;
 	constexpr uint8_t kEventSoftwareInterrupt = 4;
 
@@ -332,9 +333,14 @@ namespace thor::vmx {
 				| SECONDARY_CONTROLS_ON
 				| CR8_LOAD_EXITING
 				| CR8_STORE_EXITING;
-		vmwrite(PROC_BASED_VM_EXEC_CONTROLS, adjustControls(
+		// Fail early if interrupt-window exiting is unsupported; it is only enabled on demand.
+		procControls_ = adjustControls(
 				trueControls ? IA32_VMX_TRUE_PROCBASED_CTLS_MSR : MSR_IA32_VMX_PROCBASED_CTLS,
-				procControls, procControls, "processor-based"));
+				procControls | INTERRUPT_WINDOW_EXITING,
+				procControls | INTERRUPT_WINDOW_EXITING, "processor-based")
+				& ~INTERRUPT_WINDOW_EXITING;
+		vmwrite(PROC_BASED_VM_EXEC_CONTROLS, procControls_);
+		currentProcControls_ = procControls_;
 		uint32_t secondaryControls = EPT_ENABLE | UNRESTRICTED_GUEST;
 		vmwrite(PROC_BASED_VM_EXEC_CONTROLS2, adjustControls(IA32_VMX_SEC_PROCBASED_CTLS_MSR,
 				secondaryControls, secondaryControls, "secondary processor-based"));
@@ -482,10 +488,10 @@ namespace thor::vmx {
 	}
 
 	bool Vmcs::assertInterrupt(uint64_t number, bool level) {
-		// TODO: Implement using virtualized APIC.
-		(void)number;
-		(void)level;
-		return false;
+		if(number > 0xFF || !lapic_.post(number, level))
+			return false;
+		notify();
+		return true;
 	}
 
 	bool Vmcs::emulateLapicMsr(uint32_t index, bool write, uint64_t now,
@@ -588,6 +594,9 @@ namespace thor::vmx {
 		while(1) {
 			if(getCurrentThread()->checkCancelConditions())
 				return Error::cancelled;
+
+			lapic_.checkTimer(getClockNanos());
+
 			if(!resident_) {
 				migrationGuard.emplace();
 				resident_ = true;
@@ -650,19 +659,45 @@ namespace thor::vmx {
 				regsCacheValid_ = false;
 				basicCacheValid_ = false;
 
-				// Inject an event whose delivery was interrupted or that an emulated instruction raised.
+				// Inject an event: an interrupted or queued event takes precedence over
+				// interrupts from the local APIC. External interrupts need to wait until the guest
+				// can accept them; we exit once an interrupt window opens.
+				bool wantWindow = false;
+				Event interrupt;
+				const Event *injected = nullptr;
+				int vector = lapic_.deliverableVector();
 				if(reinjectValid_) {
-					uint32_t info = reinject_.vector
-							| (static_cast<uint32_t>(reinject_.type) << 8)
+					injected = &reinject_;
+					wantWindow = vector >= 0;
+				}else if(vector >= 0) {
+					bool shadow = vmread(GUEST_INTERRUPTIBILITY_STATE) & 3;
+					bool interruptsEnabled = vmread(GUEST_RFLAG) & (1 << 9);
+					if(!interruptsEnabled || shadow) {
+						wantWindow = true;
+					}else{
+						lapic_.acknowledge(vector);
+						interrupt = {kEventExternalInterrupt, static_cast<uint8_t>(vector), false, 0, 0};
+						injected = &interrupt;
+					}
+				}
+				// Without an event, VM_ENTRY_INTR_INFO needs no write: VM exits clear its valid bit.
+				if(injected) {
+					uint32_t info = injected->vector
+							| (static_cast<uint32_t>(injected->type) << 8)
 							| (UINT32_C(1) << 31);
 					// Error codes are only delivered if guest's CR0.PE is set.
-					if(reinject_.hasErrorCode && (vmread(GUEST_CR0) & CR0_PE)) {
+					if(injected->hasErrorCode && (vmread(GUEST_CR0) & CR0_PE)) {
 						info |= 1 << 11;
-						vmwrite(VM_ENTRY_EXCEPTION_ERROR_CODE, reinject_.errorCode);
+						vmwrite(VM_ENTRY_EXCEPTION_ERROR_CODE, injected->errorCode);
 					}
-					if(reinject_.type >= kEventSoftwareInterrupt)
-						vmwrite(VM_ENTRY_INSTRUCTION_LEN, reinject_.instructionLength);
+					if(injected->type >= kEventSoftwareInterrupt)
+						vmwrite(VM_ENTRY_INSTRUCTION_LEN, injected->instructionLength);
 					vmwrite(VM_ENTRY_INTR_INFO, info);
+				}
+				uint32_t controls = procControls_ | (wantWindow ? INTERRUPT_WINDOW_EXITING : 0);
+				if(controls != currentProcControls_) {
+					vmwrite(PROC_BASED_VM_EXEC_CONTROLS, controls);
+					currentProcControls_ = controls;
 				}
 
 				if(getGlobalCpuFeatures()->haveXsave){
@@ -765,7 +800,8 @@ namespace thor::vmx {
 				// We cache basic registers on halt exits because the VMM might want
 				// to inspect either the RIP or RFLAGS and that will save us an
 				// acquire_()/release_() round-trip in Vmcs::loadRegs().
-				bool cacheBasic = !entryFailed && (needsCompletion || reason == VMEXIT_HLT);
+				bool cacheBasic = !entryFailed && (needsCompletion || reason == VMEXIT_HLT
+						|| (lapicMsr && lapicEffects.levelEoi >= 0));
 				if(cacheBasic) {
 					if(!skipInstruction)
 						rip = vmread(GUEST_RIP);
@@ -847,15 +883,22 @@ namespace thor::vmx {
 					exitInfo.flags = translateEptFaultFlags(qualification);
 					return exitInfo;
 				}
-			} else if(reason == VMEXIT_EXTERNAL_INTERRUPT) {
-				// The interrupt was handled when we re-enabled interrupts.
+			} else if(reason == VMEXIT_EXTERNAL_INTERRUPT || reason == VMEXIT_INTERRUPT_WINDOW) {
+				// The interrupt was handled when we re-enabled interrupts. Interrupt windows
+				// are handled before the next entry.
 			} else if(reason == VMEXIT_TRIPLE_FAULT) {
 				exitInfo.exitReason = kHelVmexitShutdown;
 				return exitInfo;
 			} else if(reason == VMEXIT_CR_ACCESS || reason == VMEXIT_XSETBV) {
 				// Emulated above.
 			} else if(lapicMsr) {
-				// Emulated above.
+				// Emulated above. The I/O APIC (in userspace) needs to know about EOIs of
+				// level-triggered interrupts.
+				if(lapicEffects.levelEoi >= 0) {
+					exitInfo.exitReason = kHelVmexitEoi;
+					exitInfo.code = lapicEffects.levelEoi;
+					return exitInfo;
+				}
 			} else {
 				infoLogger() << "vmx: Unknown VMExit code: " << reason << frg::endlog;
 				exitInfo.exitReason = kHelVmexitUnknownPlatformSpecificExitCode;
