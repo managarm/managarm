@@ -1258,6 +1258,7 @@ struct HelThreadStats {
 };
 
 enum {
+  // The guest executed HLT (x86 with SVM only; with VMX, the kernel handles HLT).
   kHelVmexitHlt = 0,
   // A guest-physical access to an unmapped address (e.g., MMIO).
   // address is the guest-physical address and flags is a combination of kHelVmFault*.
@@ -1851,7 +1852,8 @@ HEL_C_LINKAGE HelError helGetClock(uint64_t *counter);
 // * starts software-disabled,
 // * timer at 1 GHz before the divider,
 // * and the guest's TSC equals the host's.
-// The kernel handles its MSRs (0x800 - 0x8FF, IA32_APIC_BASE, IA32_TSC_DEADLINE) and CR8 without exiting.
+// The kernel handles its MSRs (0x800 - 0x8FF, IA32_APIC_BASE, IA32_TSC_DEADLINE),
+// CR8 and HLT without exiting.
 // SVM has no local APIC yet.
 
 //! Creates a virtualized CPU in a virtualized space.
@@ -1866,6 +1868,7 @@ HEL_C_LINKAGE HelError helCreateVirtualizedCpu(HelHandle handle, HelHandle *out_
 //! Only one thread can use a virtualized CPU at a time. While it runs, or while its registers
 //! are being accessed, helRunVirtualizedCpu()/helLoadRegisters()/helStoreRegisters() on it will
 //! fail with kHelErrIllegalState.
+//! With VMX, a guest that halts with interrupts disabled only returns on a kick or cancellation.
 //! @param[in] handle
 //!     Handle to the virtualized CPU.
 //! @param[in] completion

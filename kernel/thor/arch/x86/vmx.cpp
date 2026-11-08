@@ -487,6 +487,45 @@ namespace thor::vmx {
 		}
 	}
 
+	void Vmcs::waitForGuestInterrupt(frg::optional<uint64_t> deadline, bool interruptsEnabled) {
+		// notify() raises wakeEvent_ after changing the state that cond checks;
+		// the condition is checked under the event's lock, so we cannot miss a wakeup.
+		auto cond = [&] {
+			if(kickPending())
+				return false;
+			if(deadline && getClockNanos() >= *deadline)
+				return false;
+			return !(interruptsEnabled && lapic_.deliverableVector() >= 0);
+		};
+		auto wq = getCurrentThread()->mainWorkQueue().get();
+		// The loop in run() reevaluates the state after waking up; the outcome does not matter.
+		if(!deadline) {
+			(void)Thread::asyncBlockCurrentInterruptible(
+				[&](async::cancellation_token ct) {
+					return wakeEvent_.async_wait_if(cond, ct);
+				},
+				wq
+			);
+			return;
+		}
+
+		Thread::asyncBlockCurrentInterruptible([&](async::cancellation_token ct) {
+			return async::race_and_cancel(
+				[&](async::cancellation_token cancellation) {
+					return async::transform(wakeEvent_.async_wait_if(cond, cancellation),
+							[](auto) {});
+				},
+				[&](async::cancellation_token cancellation) {
+					return async::transform(generalTimerEngine()->sleep(*deadline, cancellation),
+							[](bool) {});
+				},
+				[ct](async::cancellation_token cancellation) {
+					return async::suspend_indefinitely(ct, cancellation);
+				}
+			);
+		}, wq);
+	}
+
 	bool Vmcs::assertInterrupt(uint64_t number, bool level) {
 		if(number > 0xFF || !lapic_.post(number, level))
 			return false;
@@ -596,6 +635,24 @@ namespace thor::vmx {
 				return Error::cancelled;
 
 			lapic_.checkTimer(getClockNanos());
+
+			// HLT ends once an interrupt can be delivered.
+			if(halted_) {
+				// HLT exits cache RFLAGS and helStoreRegisters() updates the cache.
+				bool interruptsEnabled = cachedRflags_ & (1 << 9);
+				if(interruptsEnabled && lapic_.deliverableVector() >= 0) {
+					halted_ = false;
+				}else{
+					if(consumeKick()) {
+						exitInfo.exitReason = kHelVmexitKicked;
+						return exitInfo;
+					}
+					auto deadline = lapic_.timerDeadline();
+					leaveResidency();
+					waitForGuestInterrupt(deadline, interruptsEnabled);
+					continue;
+				}
+			}
 
 			if(!resident_) {
 				migrationGuard.emplace();
@@ -797,9 +854,8 @@ namespace thor::vmx {
 					clearInterruptShadow();
 				}
 
-				// We cache basic registers on halt exits because the VMM might want
-				// to inspect either the RIP or RFLAGS and that will save us an
-				// acquire_()/release_() round-trip in Vmcs::loadRegs().
+				// Completions and EOI exits hand the basic registers to userspace, and run() needs
+				// RFLAGS after HLT; caching saves an acquire_()/release_() round-trip in loadRegs().
 				bool cacheBasic = !entryFailed && (needsCompletion || reason == VMEXIT_HLT
 						|| (lapicMsr && lapicEffects.levelEoi >= 0));
 				if(cacheBasic) {
@@ -861,8 +917,7 @@ namespace thor::vmx {
 			}
 
 			if(reason == VMEXIT_HLT) {
-				exitInfo.exitReason = kHelVmexitHlt;
-				return exitInfo;
+				halted_ = true;
 			} else if(reason == VMEXIT_EPT_VIOLATION) {
 				// Bit 0 of the qualification is set for reads, bit 1 for writes
 				// and bit 2 for instruction fetches.

@@ -340,7 +340,15 @@ namespace thor::vmx {
 		bool reinjectValid_ = false;
 		Event reinject_{};
 
+		// Blocks until an interrupt can be delivered, the deadline passes, a kick is
+		// pending or the thread is cancelled. Spurious wakeups are possible.
+		void waitForGuestInterrupt(frg::optional<uint64_t> deadline, bool interruptsEnabled);
+
 		VirtualLapic lapic_;
+
+		// The guest executed HLT and waits for an interrupt.
+		// TODO: The VMM can neither read nor reset this state (e.g., to reset a halted vCPU).
+		bool halted_ = false;
 
 		// The exit that userspace needs to complete (see HelVmexitCompletion).
 		struct PendingCompletion {
