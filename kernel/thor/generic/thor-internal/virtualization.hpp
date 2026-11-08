@@ -2,6 +2,7 @@
 
 #include <hel.h>
 
+#include <async/recurring-event.hpp>
 #include <thor-internal/address-space.hpp>
 #include <thor-internal/error.hpp>
 #include <thor-internal/rcu-base.hpp>
@@ -48,9 +49,15 @@ namespace thor {
 
 		void kick() {
 			kicked_.store(true, std::memory_order_seq_cst);
-			// If the vCPU is running, the IPI makes it exit.
+			notify();
+		}
+
+		// Makes a running vCPU exit (run() then continues) and wakes a waiting one, so that it
+		// reevaluates its state (e.g., after an interrupt became pending).
+		void notify() {
 			if(auto cpu = runningOn_.load(std::memory_order_seq_cst); cpu)
 				sendPingIpi(cpu);
+			wakeEvent_.raise();
 		}
 
 	protected:
@@ -71,6 +78,18 @@ namespace thor {
 		void leaveGuest() {
 			runningOn_.store(nullptr, std::memory_order_relaxed);
 		}
+
+		// Consumes a pending kick (for vCPUs that wait outside of the guest).
+		bool consumeKick() {
+			return kicked_.exchange(false, std::memory_order_seq_cst);
+		}
+
+		bool kickPending() {
+			return kicked_.load(std::memory_order_seq_cst);
+		}
+
+		// Raised by notify().
+		async::recurring_event wakeEvent_;
 
 	private:
 		std::atomic_bool inUse_{false};
