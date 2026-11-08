@@ -235,6 +235,11 @@ extern inline __attribute__ (( always_inline )) HelError helAssertVirtualizedIrq
 	return error;
 }
 
+extern inline __attribute__ (( always_inline )) HelError helKickVirtualizedCpu(HelHandle handle) {
+	HelError error = helSyscall1(kHelCallKickVirtualizedCpu, (HelWord)handle);
+	return error;
+}
+
 extern inline __attribute__ (( always_inline )) HelError helGetRandomBytes(
 		void *buffer, size_t wantedSize, size_t *actualSize) {
 	HelWord outActualSize;

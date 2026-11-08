@@ -1535,6 +1535,19 @@ HelError helAssertVirtualizedIrq(HelHandle handle, uint64_t irq, uint8_t level) 
 	return kHelErrNone;
 }
 
+HelError helKickVirtualizedCpu(HelHandle handle) {
+	auto this_thread = getCurrentThread();
+	auto this_universe = this_thread->getUniverse();
+
+	auto vcpuOutcome = this_universe->resolveObject<DescriptorType::virtualizedCpu>(handle, kHelRightSignal);
+	if(!vcpuOutcome)
+		return translateError(vcpuOutcome.error());
+	auto vcpu = std::move(*vcpuOutcome);
+
+	vcpu->kick();
+	return kHelErrNone;
+}
+
 HelError helGetRandomBytes(void *buffer, size_t wantedSize, size_t *actualSize) {
 	char bounceBuffer[128];
 	size_t generatedSize = generateRandomBytes(bounceBuffer,
