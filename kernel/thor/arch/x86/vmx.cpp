@@ -8,6 +8,7 @@
 #include <thor-internal/cpu-data.hpp>
 #include <thor-internal/thread.hpp>
 #include <thor-internal/timer.hpp>
+#include <thor-internal/arch/pic.hpp>
 #include <x86/machine.hpp>
 
 namespace {
@@ -323,10 +324,16 @@ namespace thor::vmx {
 
 		//Set up basic controls.
 		auto trueControls = haveTrueControls();
-		auto pinbasedControls = 1; // External interrupt exiting.
-		vmwrite(PIN_BASED_VM_EXEC_CONTROLS, adjustControls(
+		// External interrupt exiting and (if available) the VMX-preemption timer.
+		uint32_t pinControls = adjustControls(
 				trueControls ? IA32_VMX_TRUE_PINBASED_CTLS_MSR : MSR_IA32_VMX_PINBASED_CTLS,
-				pinbasedControls, pinbasedControls, "pin-based"));
+				1 | PIN_BASED_PREEMPTION_TIMER, 1, "pin-based");
+		vmwrite(PIN_BASED_VM_EXEC_CONTROLS, pinControls);
+		havePreemptionTimer_ = pinControls & PIN_BASED_PREEMPTION_TIMER;
+		if(havePreemptionTimer_) {
+			preemptionTimerShift_ = common::x86::rdmsr(IA32_VMX_MISC_MSR) & 0x1F;
+			vmwrite(GUEST_VMX_PREEMPTION_TIMER, UINT32_MAX);
+		}
 		// Without a TPR shadow, CR8 accesses would otherwise reach the host's TPR.
 		uint32_t procControls = VMEXIT_ON_HLT
 				| VMEXIT_ON_PIO
@@ -757,6 +764,29 @@ namespace thor::vmx {
 					currentProcControls_ = controls;
 				}
 
+				// Exit when the local APIC timer expires: through the VMX-preemption timer or
+				// (if the CPU lacks it) through a timer interrupt of the host.
+				auto timerDeadline = lapic_.timerDeadline();
+				if(havePreemptionTimer_) {
+					// The CPU does not save the remaining time on exits; hence, we write it
+					// before each entry while the timer is armed.
+					uint32_t value = UINT32_MAX;
+					if(timerDeadline) {
+						uint64_t now = getClockNanos();
+						uint64_t ticks = nanosToTscTicks(*timerDeadline > now ? *timerDeadline - now : 0);
+						// Round up to avoid needless exits before the deadline.
+						uint64_t mask = (UINT64_C(1) << preemptionTimerShift_) - 1;
+						uint64_t units = (ticks >> preemptionTimerShift_) + ((ticks & mask) ? 1 : 0);
+						value = units > UINT32_MAX ? UINT32_MAX : units;
+					}
+					if(timerDeadline || value != preemptionTimerValue_) {
+						vmwrite(GUEST_VMX_PREEMPTION_TIMER, value);
+						preemptionTimerValue_ = value;
+					}
+				}else if(timerDeadline) {
+					setGuestDeadline(timerDeadline);
+				}
+
 				if(getGlobalCpuFeatures()->haveXsave){
 					common::x86::xsave((uint8_t*)hostFstate, ~0);
 					common::x86::xrstor((uint8_t*)guestFstate, ~0);
@@ -790,6 +820,9 @@ namespace thor::vmx {
 				asm volatile("sgdt %[gdt]": [gdt]"=m"(gdtr));
 				gdtr.limit = HOST_GDT_LIMIT;
 				asm volatile("lgdt %[gdt]": [gdt]"=m"(gdtr));
+
+				if(!havePreemptionTimer_ && timerDeadline)
+					setGuestDeadline(frg::null_opt);
 
 				error = entryFailed ? vmread(VM_INSTRUCTION_ERROR) : 0;
 				reason = entryFailed ? ~UINT64_C(0) : vmread(VM_EXIT_REASON);
@@ -938,9 +971,10 @@ namespace thor::vmx {
 					exitInfo.flags = translateEptFaultFlags(qualification);
 					return exitInfo;
 				}
-			} else if(reason == VMEXIT_EXTERNAL_INTERRUPT || reason == VMEXIT_INTERRUPT_WINDOW) {
+			} else if(reason == VMEXIT_EXTERNAL_INTERRUPT || reason == VMEXIT_INTERRUPT_WINDOW
+					|| reason == VMEXIT_PREEMPTION_TIMER) {
 				// The interrupt was handled when we re-enabled interrupts. Interrupt windows
-				// are handled before the next entry.
+				// and the local APIC timer are handled before the next entry.
 			} else if(reason == VMEXIT_TRIPLE_FAULT) {
 				exitInfo.exitReason = kHelVmexitShutdown;
 				return exitInfo;

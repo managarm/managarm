@@ -160,7 +160,11 @@ namespace thor::vmx {
 	constexpr uint64_t VMEXIT_RDMSR                        = 31;
 	constexpr uint64_t VMEXIT_WRMSR                        = 32;
 	constexpr uint64_t VMEXIT_EPT_VIOLATION                = 48;
+	constexpr uint64_t VMEXIT_PREEMPTION_TIMER             = 52;
 	constexpr uint64_t VMEXIT_XSETBV                       = 55;
+
+	constexpr uint64_t IA32_VMX_MISC_MSR              = 0x485;
+	constexpr uint64_t PIN_BASED_PREEMPTION_TIMER     = 1 << 6;
 
 	constexpr uint64_t VMEXIT_CONTROLS_LONG_MODE      = 1 << 9;
 	constexpr uint64_t VMEXIT_CONTROLS_SAVE_IA32_EFER = 1 << 20;
@@ -362,5 +366,10 @@ namespace thor::vmx {
 		};
 		bool completionPending_ = false;
 		PendingCompletion pendingCompletion_{};
+
+		bool havePreemptionTimer_ = false;
+		unsigned preemptionTimerShift_ = 0;
+		// The value in the VMCS (UINT32_MAX: effectively disarmed).
+		uint32_t preemptionTimerValue_ = UINT32_MAX;
 	};
 }
