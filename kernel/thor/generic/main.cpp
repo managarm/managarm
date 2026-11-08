@@ -768,6 +768,10 @@ void handleSyscall(SyscallImageAccessor image) {
 		*image.error() = helAssertVirtualizedIrq((HelHandle)arg0, (uint64_t)arg1, (uint8_t)arg2);
 		break;
 	}
+	case kHelCallKickVirtualizedCpu: {
+		*image.error() = helKickVirtualizedCpu((HelHandle)arg0);
+		break;
+	}
 	case kHelCallGetRandomBytes: {
 		size_t actualSize;
 		*image.error() = helGetRandomBytes((void *)arg0, (size_t)arg1, &actualSize);

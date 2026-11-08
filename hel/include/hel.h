@@ -84,6 +84,7 @@ enum {
 	kHelCallCreateVirtualizedCpu = 37,
 	kHelCallRunVirtualizedCpu = 38,
 	kHelCallAssertVirtualizedIrq = 107,
+	kHelCallKickVirtualizedCpu = 112,
 	kHelCallGetRandomBytes = 101,
 	kHelCallWriteGsBase = 54,
 	kHelCallReadFsBase = 55,
@@ -1222,6 +1223,7 @@ enum {
   kHelVmexitTranslationFault = 1,
   kHelVmexitHyperCall = 2,
   kHelVmexitInstructionTrap = 3,
+  kHelVmexitKicked = 4,
   kHelVmexitError = -1,
   kHelVmexitUnknownPlatformSpecificExitCode = -2,
 };
@@ -1766,6 +1768,12 @@ HEL_C_LINKAGE HelError helCreateVirtualizedCpu(HelHandle handle, HelHandle *out_
 HEL_C_LINKAGE HelError helRunVirtualizedCpu(HelHandle handle, struct HelVmexitReason *reason);
 
 HEL_C_LINKAGE HelError helAssertVirtualizedIrq(HelHandle handle, uint64_t irq, uint8_t level);
+
+//! Makes helRunVirtualizedCpu() return with kHelVmexitKicked as soon as possible.
+//! If the virtualized CPU does not run, the next helRunVirtualizedCpu() returns immediately.
+//! @param[in] handle
+//!     Handle to the virtualized CPU.
+HEL_C_LINKAGE HelError helKickVirtualizedCpu(HelHandle handle);
 
 HEL_C_LINKAGE HelError helGetRandomBytes(void *buffer, size_t wantedSize, size_t *actualSize);
 
