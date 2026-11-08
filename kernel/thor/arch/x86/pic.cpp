@@ -131,10 +131,14 @@ namespace {
 	LocalApicContext *localApicContext() {
 		return &apicContext.get();
 	}
+}
 
-	uint64_t tscTicksForDeadline(uint64_t deadline) {
-		return localApicContext()->tscTickFreq * deadline;
-	}
+uint64_t tscTicksToNanos(uint64_t ticks) {
+	return localApicContext()->tscTickDuration * ticks;
+}
+
+uint64_t nanosToTscTicks(uint64_t nanos) {
+	return localApicContext()->tscTickFreq * nanos;
 }
 
 void setTimerDeadline(frg::optional<uint64_t> deadline) {
@@ -146,7 +150,7 @@ void setTimerDeadline(frg::optional<uint64_t> deadline) {
 			return;
 		}
 
-		uint64_t ticks = tscTicksForDeadline(*deadline);
+		uint64_t ticks = nanosToTscTicks(*deadline);
 		common::x86::wrmsr(common::x86::kMsrIa32TscDeadline, ticks);
 		if(debugTimer)
 			infoLogger() << "thor [CPU " << getLocalApicId() << "]: Setting TSC deadline to "

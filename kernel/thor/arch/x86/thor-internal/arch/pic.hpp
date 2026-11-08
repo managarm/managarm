@@ -126,6 +126,11 @@ uint32_t getLocalApicId();
 
 void calibrateApicTimer();
 
+// Converts between TSC ticks and nanoseconds (at the rate of the current CPU's TSC).
+// tscTicksToNanos() rounds down, nanosToTscTicks() rounds up; both saturate on overflow.
+uint64_t tscTicksToNanos(uint64_t ticks);
+uint64_t nanosToTscTicks(uint64_t nanos);
+
 void acknowledgeIpi();
 
 void raiseInitAssertIpi(uint32_t dest_apic_id);
