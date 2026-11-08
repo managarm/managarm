@@ -24,6 +24,7 @@ src += files(
 	'svm.cpp',
 	'system.cpp',
 	'vmx.cpp',
+	'vlapic.cpp',
 	'vt_d.cpp'
 )
 
