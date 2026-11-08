@@ -4,6 +4,7 @@
 
 #include <thor-internal/arch/ept.hpp>
 #include <thor-internal/arch/virtualization.hpp>
+#include <thor-internal/arch/vlapic.hpp>
 
 namespace thor::vmx {
 	constexpr uint64_t MSR_IA32_VMX_PINBASED_CTLS        = 0x00000481;
@@ -270,6 +271,9 @@ namespace thor::vmx {
 		bool writeCr0(uint64_t value);
 		bool writeCr4(uint64_t value);
 		bool emulateXsetbv();
+		// Returns false if the access raises #GP.
+		bool emulateLapicMsr(uint32_t index, bool write, uint64_t now,
+				VirtualLapic::WriteEffects &effects);
 		// Enables the MSR areas if the guest uses any of the switched MSRs.
 		void updateMsrSwitching();
 
@@ -294,9 +298,6 @@ namespace thor::vmx {
 		// While it is clear the guest cannot observe XCR0.
 		bool guestOsxsave_ = false;
 		uint64_t guestXcr0_ = 1;
-
-		// CR8 accesses cause exits since we do not use a TPR shadow.
-		uint64_t cr8_ = 0;
 
 		// The VMCS host state is written only when CPU or the FS base changes.
 		bool hostSelectorsWritten_ = false;
@@ -331,6 +332,8 @@ namespace thor::vmx {
 		};
 		bool reinjectValid_ = false;
 		Event reinject_{};
+
+		VirtualLapic lapic_;
 
 		// The exit that userspace needs to complete (see HelVmexitCompletion).
 		struct PendingCompletion {

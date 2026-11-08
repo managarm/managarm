@@ -7,6 +7,7 @@
 #include <thor-internal/physical.hpp>
 #include <thor-internal/cpu-data.hpp>
 #include <thor-internal/thread.hpp>
+#include <thor-internal/timer.hpp>
 #include <x86/machine.hpp>
 
 namespace {
@@ -487,6 +488,25 @@ namespace thor::vmx {
 		return false;
 	}
 
+	bool Vmcs::emulateLapicMsr(uint32_t index, bool write, uint64_t now,
+			VirtualLapic::WriteEffects &effects) {
+		bool ok;
+		if(write) {
+			uint64_t value = (state.rdx << 32) | (state.rax & 0xFFFF'FFFF);
+			ok = lapic_.writeMsr(index, value, now, effects);
+		}else{
+			uint64_t value;
+			ok = lapic_.readMsr(index, now, value);
+			if(ok) {
+				state.rax = value & 0xFFFF'FFFF;
+				state.rdx = value >> 32;
+			}
+		}
+		if(!ok)
+			queueException(GP_VECTOR, true, 0);
+		return ok;
+	}
+
 	frg::expected<Error, HelVmexitReason> Vmcs::run(const HelVmexitCompletion *completion) {
 		HelVmexitReason exitInfo{};
 
@@ -580,7 +600,9 @@ namespace thor::vmx {
 			bool stringIo = false;
 			uint64_t eptAddress = 0;
 			bool msrExit = false;
+			bool lapicMsr = false;
 			bool needsCompletion = false;
+			VirtualLapic::WriteEffects lapicEffects;
 			uint64_t instructionLength = 0;
 
 			{
@@ -687,11 +709,12 @@ namespace thor::vmx {
 				if(reason == VMEXIT_EPT_VIOLATION)
 					eptAddress = vmread(EPT_VIOLATION_ADDRESS);
 				msrExit = reason == VMEXIT_RDMSR || reason == VMEXIT_WRMSR;
+				lapicMsr = msrExit && isVirtualLapicMsr(state.rcx & 0xFFFF'FFFF);
 				// Instructions that we emulate in the kernel (and skip unless they fault).
 				bool skipInstruction = reason == VMEXIT_HLT || reason == VMEXIT_CR_ACCESS
-						|| reason == VMEXIT_XSETBV;
+						|| reason == VMEXIT_XSETBV || lapicMsr;
 				// Instructions that userspace completes.
-				needsCompletion = msrExit || reason == VMEXIT_CPUID
+				needsCompletion = (msrExit && !lapicMsr) || reason == VMEXIT_CPUID
 						|| reason == VMEXIT_IO_INSTRUCTION || reason == VMEXIT_VMCALL;
 				if(skipInstruction || needsCompletion)
 					instructionLength = vmread(VM_EXIT_INSTRUCTION_LEN);
@@ -730,6 +753,9 @@ namespace thor::vmx {
 					skipInstruction = emulateCrAccess(qualification);
 				else if(reason == VMEXIT_XSETBV)
 					skipInstruction = emulateXsetbv();
+				else if(lapicMsr)
+					skipInstruction = emulateLapicMsr(state.rcx & 0xFFFF'FFFF, reason == VMEXIT_WRMSR,
+							getClockNanos(), lapicEffects);
 
 				if(skipInstruction) {
 					vmwrite(GUEST_RIP, rip + instructionLength);
@@ -827,6 +853,8 @@ namespace thor::vmx {
 				exitInfo.exitReason = kHelVmexitShutdown;
 				return exitInfo;
 			} else if(reason == VMEXIT_CR_ACCESS || reason == VMEXIT_XSETBV) {
+				// Emulated above.
+			} else if(lapicMsr) {
 				// Emulated above.
 			} else {
 				infoLogger() << "vmx: Unknown VMExit code: " << reason << frg::endlog;
@@ -930,7 +958,8 @@ namespace thor::vmx {
 			vmwrite(CR4_READ_SHADOW, regs->cr4);
 			guestOsxsave_ = regs->cr4 & CR4_OSXSAVE;
 		}
-		cr8_ = regs->cr8 & 0xF;
+		lapic_.setCr8(regs->cr8);
+		// regs->apic_base is ignored: the APIC base is fixed.
 
 		if(differs(regs->efer, regsCache_.efer)) {
 			// The CPU updates the IA-32e mode guest control on exits; always write it.
@@ -972,7 +1001,8 @@ namespace thor::vmx {
 		regs->cr2 = state.cr2;
 
 		if(regsCacheValid_) {
-			regs->cr8 = cr8_;
+			regs->cr8 = lapic_.cr8();
+			regs->apic_base = VirtualLapic::apicBase();
 			return;
 		}
 
@@ -1021,7 +1051,8 @@ namespace thor::vmx {
 		regs->cr0 = guestCr0Value();
 		regs->cr3 = vmread(GUEST_CR3);
 		regs->cr4 = (vmread(GUEST_CR4) & ~cr4Mask()) | (vmread(CR4_READ_SHADOW) & cr4Mask());
-		regs->cr8 = cr8_;
+		regs->cr8 = lapic_.cr8();
+		regs->apic_base = VirtualLapic::apicBase();
 
 		regs->efer = vmread(VMCS_FIELD_GUEST_EFER_FULL);
 		release_();
@@ -1247,7 +1278,7 @@ namespace thor::vmx {
 					queueException(GP_VECTOR, true, 0);
 					return false;
 				}
-				cr8_ = value;
+				lapic_.setCr8(value);
 				return true;
 			}
 		} else if(accessType == 1) { // MOV from CR.
@@ -1256,7 +1287,7 @@ namespace thor::vmx {
 				return true;
 			}
 			if(cr == 8) {
-				writeGpr(reg, cr8_);
+				writeGpr(reg, lapic_.cr8());
 				return true;
 			}
 		} else if(accessType == 2) { // CLTS.

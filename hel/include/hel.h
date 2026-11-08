@@ -1843,6 +1843,19 @@ HEL_C_LINKAGE HelError helGetCurrentCpu(int *cpu);
 //!     Current value of the system-wide clock in nanoseconds since boot.
 HEL_C_LINKAGE HelError helGetClock(uint64_t *counter);
 
+// x86 vCPUs with VMX have an in-kernel x2APIC:
+// * ID 0,
+// * starts software-disabled,
+// * timer at 1 GHz before the divider,
+// * and the guest's TSC equals the host's.
+// The kernel handles its MSRs (0x800 - 0x8FF, IA32_APIC_BASE, IA32_TSC_DEADLINE) and CR8 without exiting.
+// SVM has no local APIC yet.
+
+//! Creates a virtualized CPU in a virtualized space.
+//! @param[in] handle
+//!     Handle to the virtualized space.
+//! @param[out] out_handle
+//!     Handle to the new vCPU.
 HEL_C_LINKAGE HelError helCreateVirtualizedCpu(HelHandle handle, HelHandle *out_handle);
 
 //! Runs a virtualized CPU until it exits to the VMM.
