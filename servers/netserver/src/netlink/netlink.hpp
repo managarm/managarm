@@ -25,6 +25,9 @@ core::netlink::Packet buildLinkPacket(std::shared_ptr<nic::Link> nic, uint32_t g
 
 void broadcastNewLink(std::shared_ptr<nic::Link> nic);
 
+core::netlink::Packet buildAddrPacket(uint16_t type, CidrAddress addr, std::shared_ptr<nic::Link> nic,
+		uint8_t ifaFlags, uint32_t group, uint16_t flags, uint32_t seq, uint32_t pid);
+
 class NetlinkSocket final : core::netlink::NetlinkFile {
 public:
 	NetlinkSocket(int flags, int protocol);
@@ -79,6 +82,7 @@ public:
 private:
 	void getRoute(struct nlmsghdr *hdr);
 	void newRoute(struct nlmsghdr *hdr);
+	void deleteRoute(struct nlmsghdr *hdr);
 
 	void getLink(struct nlmsghdr *hdr);
 
@@ -89,7 +93,7 @@ private:
 	void getNeighbor(struct nlmsghdr *hdr);
 
 	void sendLinkPacket(std::shared_ptr<nic::Link> nic, void *h, uint16_t flags);
-	void sendAddrPacket(const struct nlmsghdr *hdr, const struct ifaddrmsg *msg, std::shared_ptr<nic::Link>);
+	void sendAddrPackets(const struct nlmsghdr *hdr, const struct ifaddrmsg *msg, std::shared_ptr<nic::Link> nic);
 	void sendRoutePacket(const struct nlmsghdr *hdr, Ip4Router::Route &route);
 	void sendNeighPacket(const struct nlmsghdr *hdr, uint32_t addr, Neighbours::Entry &entry);
 

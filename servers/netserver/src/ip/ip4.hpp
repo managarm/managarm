@@ -1,5 +1,6 @@
 #pragma once
 
+#include <algorithm>
 #include <arch/bit.hpp>
 #include <arch/dma_structs.hpp>
 #include <helix/ipc.hpp>
@@ -81,6 +82,21 @@ struct Ip4Router {
 
 	// false if insertion fails
 	bool addRoute(Route r);
+	// Removes the route that compares equal to r; false if there is none.
+	bool deleteEquivalentRoute(const Route &r);
+	// Removes the first route that matches pred; false if there is none.
+	template<typename Pred>
+	bool deleteRoute(Pred pred) {
+		auto it = std::ranges::find_if(routes, pred);
+		if(it == routes.end())
+			return false;
+		routes.erase(it);
+		return true;
+	}
+	template<typename Pred>
+	size_t deleteRoutes(Pred pred) {
+		return std::erase_if(routes, pred);
+	}
 	std::optional<Route> resolveRoute(uint32_t ip, std::shared_ptr<nic::Link> link = {});
 
 	inline const std::set<Route> &getRoutes() const {
@@ -173,6 +189,10 @@ struct Ip4 {
 	std::optional<CidrAddress> getCidrByIndex(int index);
 	bool deleteLink(CidrAddress addr);
 	void setLink(CidrAddress addr, std::weak_ptr<nic::Link> link);
+
+	inline const std::map<CidrAddress, std::weak_ptr<nic::Link>> &getAddresses() const {
+		return ips;
+	}
 	std::optional<uint32_t> findLinkIp(uint32_t ipOnNet, nic::Link *link);
 
 	async::result<std::optional<Ip4TargetInfo>> targetByRemote(uint32_t, std::shared_ptr<nic::Link> link = {});

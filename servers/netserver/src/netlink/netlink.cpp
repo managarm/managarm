@@ -49,7 +49,7 @@ async::result<protocols::fs::RecvResult> NetlinkSocket::recvMsg(void *obj,
 	if(logSocket)
 		std::cout << "netserver: Recv from netlink socket" << std::endl;
 
-	if(self->_recvQueue.empty() && self->_nonBlock)
+	if(self->_recvQueue.empty() && (self->_nonBlock || (flags & MSG_DONTWAIT)))
 		co_return protocols::fs::Error::wouldBlock;
 
 	while(self->_recvQueue.empty())
@@ -156,6 +156,8 @@ async::result<frg::expected<protocols::fs::Error, size_t>> NetlinkSocket::sendMs
 			self->newRoute(hdr);
 		} else if(hdr->nlmsg_type == RTM_GETROUTE) {
 			self->getRoute(hdr);
+		} else if(hdr->nlmsg_type == RTM_DELROUTE) {
+			self->deleteRoute(hdr);
 		} else if(hdr->nlmsg_type == RTM_NEWLINK) {
 			sendError(self, hdr, EPERM);
 		} else if(hdr->nlmsg_type == RTM_GETLINK) {
@@ -172,7 +174,7 @@ async::result<frg::expected<protocols::fs::Error, size_t>> NetlinkSocket::sendMs
 			self->getNeighbor(hdr);
 		} else {
 			std::cout << "netlink: unknown nlmsg_type " << hdr->nlmsg_type << std::endl;
-			co_return protocols::fs::Error::illegalArguments;
+			sendError(self, hdr, EOPNOTSUPP);
 		}
 	}
 
