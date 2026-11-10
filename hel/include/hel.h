@@ -325,6 +325,41 @@ struct HelX86VirtualizationRegs {
 	uint64_t apic_base;
 };
 
+// The registers that VMMs need on most exits,
+struct HelX86VirtualizationBasicRegs {
+	uint64_t rax;
+	uint64_t rbx;
+	uint64_t rcx;
+	uint64_t rdx;
+	uint64_t rsi;
+	uint64_t rdi;
+	uint64_t rbp;
+	uint64_t r8;
+	uint64_t r9;
+	uint64_t r10;
+	uint64_t r11;
+	uint64_t r12;
+	uint64_t r13;
+	uint64_t r14;
+	uint64_t r15;
+
+	uint64_t rsp;
+	uint64_t rip;
+	uint64_t rflags;
+};
+
+struct HelX86VirtualizationMsrs {
+	uint64_t kernelGsBase;
+	uint64_t star;
+	uint64_t lstar;
+	uint64_t cstar;
+	uint64_t sfmask;
+	uint64_t sysenterCs;
+	uint64_t sysenterEsp;
+	uint64_t sysenterEip;
+	uint64_t xcr0;
+};
+
 struct HelRiscv64VirtualizationRegs {
 	union {
 		uint64_t x[32];
@@ -569,7 +604,9 @@ enum HelRegisterSets {
 	kHelRegsVirtualization = 5,
 	kHelRegsSimd = 6,
 	kHelRegsSignal = 7,
-	kHelRegsPageFault = 8
+	kHelRegsPageFault = 8,
+	kHelRegsVirtualizationBasic = 9,
+	kHelRegsVirtualizationMsrs = 10
 };
 
 enum HelPageFaultFlags {

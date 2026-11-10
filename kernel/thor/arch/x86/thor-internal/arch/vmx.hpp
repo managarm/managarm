@@ -1,8 +1,9 @@
 #pragma once
 
 #include <hel.h>
+
 #include <thor-internal/arch/ept.hpp>
-#include <thor-internal/virtualization.hpp>
+#include <thor-internal/arch/virtualization.hpp>
 
 namespace thor::vmx {
 	constexpr uint64_t MSR_IA32_VMX_PINBASED_CTLS        = 0x00000481;
@@ -157,7 +158,7 @@ namespace thor::vmx {
 
 	bool vmxon();
 
-	struct Vmcs final : VirtualizedCpu {
+	struct Vmcs final : X86VirtualizedCpu {
 	private:
 		struct CtorToken {};
 
@@ -179,6 +180,29 @@ namespace thor::vmx {
 		void loadRegs(HelX86VirtualizationRegs *res) override;
 
 		bool assertInterrupt(uint64_t number, bool level) override;
+
+		// The basic registers are a prefix of the full set.
+		void storeBasicRegs(const HelX86VirtualizationBasicRegs *basic) override {
+			HelX86VirtualizationRegs regs;
+			loadRegs(&regs);
+			memcpy(&regs, basic, sizeof(*basic));
+			storeRegs(&regs);
+		}
+		void loadBasicRegs(HelX86VirtualizationBasicRegs *basic) override {
+			HelX86VirtualizationRegs regs;
+			loadRegs(&regs);
+			memcpy(basic, &regs, sizeof(*basic));
+		}
+
+		// TODO: Switch these MSRs and XCR0.
+		bool storeMsrs(const HelX86VirtualizationMsrs *msrs) override {
+			msrs_ = *msrs;
+			return true;
+		}
+		void loadMsrs(HelX86VirtualizationMsrs *msrs) override {
+			*msrs = msrs_;
+		}
+		HelX86VirtualizationMsrs msrs_{};
 
 		void *region;
 		uint8_t* hostFstate;
