@@ -471,10 +471,10 @@ namespace thor::vmx {
 		GET_SEGMENT(tr, TR);
 
 		regs->gdt.base = vmread(GUEST_GDTR_BASE);
-		regs->gdt.base = vmread(GUEST_GDTR_LIMIT);
+		regs->gdt.limit = vmread(GUEST_GDTR_LIMIT);
 
 		regs->idt.base = vmread(GUEST_IDTR_BASE);
-		regs->idt.base = vmread(GUEST_IDTR_LIMIT);
+		regs->idt.limit = vmread(GUEST_IDTR_LIMIT);
 
 		regs->cr0 = vmread(GUEST_CR0);
 		regs->cr3 = vmread(GUEST_CR3);
