@@ -553,7 +553,8 @@ namespace thor::vmx {
 				if(reason == VMEXIT_CR_ACCESS)
 					qualification = vmread(EXIT_QUALIFICATION);
 				// Instructions that we emulate in the kernel (and skip unless they fault).
-				bool skipInstruction = reason == VMEXIT_CR_ACCESS || reason == VMEXIT_XSETBV;
+				bool skipInstruction = reason == VMEXIT_HLT || reason == VMEXIT_CR_ACCESS
+						|| reason == VMEXIT_XSETBV;
 				uint64_t instructionLength = 0;
 				if(skipInstruction)
 					instructionLength = vmread(VM_EXIT_INSTRUCTION_LEN);
