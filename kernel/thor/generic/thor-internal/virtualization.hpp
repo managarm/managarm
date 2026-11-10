@@ -11,7 +11,35 @@
 
 namespace thor {
 	struct VirtualizedCpu : RcuProtected {
-		virtual frg::expected<Error, HelVmexitReason> run() = 0;
+		// run() and the register accessors must not run concurrently, their callers must hold this guard.
+		//
+		// The guard construction fails if the vCPU is in use (or if vcpu is null), the user must
+		// use the bool operator to see whether the guard was acquired successfully.
+		struct UseGuard {
+			explicit UseGuard(VirtualizedCpu *vcpu) {
+				if(vcpu && !vcpu->inUse_.exchange(true, std::memory_order_acquire))
+					vcpu_ = vcpu;
+			}
+
+			UseGuard(const UseGuard &) = delete;
+			UseGuard &operator=(const UseGuard &) = delete;
+
+			~UseGuard() {
+				if(vcpu_)
+					vcpu_->inUse_.store(false, std::memory_order_release);
+			}
+
+			explicit operator bool() const {
+				return vcpu_;
+			}
+
+		private:
+			VirtualizedCpu *vcpu_{nullptr};
+		};
+
+		// Runs the vCPU until it exits to userspace. completion completes the previous exit
+		// if it needs one (see hel.h) and must be null otherwise.
+		virtual frg::expected<Error, HelVmexitReason> run(const HelVmexitCompletion *completion) = 0;
 
 		virtual void storeRegs(const HelVirtualizationRegs *regs) = 0;
 		virtual void loadRegs(HelVirtualizationRegs *res) = 0;
@@ -45,6 +73,7 @@ namespace thor {
 		}
 
 	private:
+		std::atomic_bool inUse_{false};
 		std::atomic_bool kicked_{false};
 		std::atomic<CpuData *> runningOn_{nullptr};
 	};

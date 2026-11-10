@@ -43,6 +43,8 @@ concept CursorPolicy = requires (T policy, uint64_t pte, uint64_t *ptePtr,
 	{ policy.pteWriteBarrier(ptePtr) } -> std::same_as<void>;
 	// Synchronize the I-Cache for a page that is about to become executable.
 	{ T::pteSyncICache(pa) } -> std::same_as<void>;
+	// Check whether the given PTE above the last level maps a page instead of a table.
+	{ T::pteIsHugePage(pte) } -> std::same_as<bool>;
 
 	// Check whether the given PTE say the table is present.
 	{ T::pteTablePresent(pte) } -> std::same_as<bool>;
@@ -352,7 +354,8 @@ void freePt(PhysicalAddr tblPa) {
 	PageAccessor accessor{tblPa};
 	auto tblPtr = reinterpret_cast<uint64_t *>(accessor.get());
 	for(int i = 0; i < (LowerHalfOnly ? 256 : 512); i++) { // TODO: Use bitsPerLevel.
-		assert(!Policy::ptePagePresent(tblPtr[i]));
+		// Huge pages are not supported, i.e., no entry above the last level maps a page.
+		assert(!Policy::pteIsHugePage(tblPtr[i]));
 		if(!Policy::pteTablePresent(tblPtr[i]))
 			continue;
 		auto subTblPa = Policy::pteTableAddress(tblPtr[i]);

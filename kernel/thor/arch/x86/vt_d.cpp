@@ -361,6 +361,7 @@ public:
 	static inline constexpr size_t iommuRead = 1 << 0;
 	static inline constexpr size_t iommuWrite = 1 << 1;
 	static inline constexpr size_t iommuIgnorePat = 1 << 6;
+	static inline constexpr size_t iommuPageSize = 1 << 7;
 	static inline constexpr size_t iommuDirty = 1 << 9;
 	// Mask for the physical address bits.
 	static inline constexpr size_t iommuAddress = 0x000F'FFFF'FFFF'F000;
@@ -425,6 +426,10 @@ public:
 	}
 
 	static constexpr void pteSyncICache(uintptr_t) { }
+
+	static constexpr bool pteIsHugePage(uint64_t pte) {
+		return (pte & iommuRead) && (pte & iommuPageSize);
+	}
 
 	static constexpr bool pteTablePresent(uint64_t pte) {
 		return pte & iommuRead;

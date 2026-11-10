@@ -117,7 +117,9 @@ namespace thor::svm {
 		kernelAlloc->free(host_fpu_state);
 	}
 
-	frg::expected<Error, HelVmexitReason> Vcpu::run() {
+	frg::expected<Error, HelVmexitReason> Vcpu::run(const HelVmexitCompletion *completion) {
+		if(completion)
+			return Error::illegalState;
 		HelVmexitReason reason{};
 		while(true) {
 			if(getCurrentThread()->checkCancelConditions())

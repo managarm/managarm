@@ -200,6 +200,10 @@ struct ARMCursorPolicy {
 		asm volatile ("dsb ish; isb");
 	}
 
+	static constexpr bool pteIsHugePage(uint64_t pte) {
+		// Above the last level valid entries without kPageTable are block descriptors.
+		return (pte & kPageValid) && !(pte & kPageTable);
+	}
 
 	static constexpr bool pteTablePresent(uint64_t pte) {
 		return pte & kPageValid;

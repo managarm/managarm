@@ -129,6 +129,11 @@ struct RiscvCursorPolicy {
 	static constexpr void pteWriteBarrier(uint64_t *) {}
 	static constexpr void pteSyncICache(uintptr_t) {}
 
+	static constexpr bool pteIsHugePage(uint64_t pte) {
+		// Valid entries are leaves if any of (R | W | X) is set.
+		return (pte & pteValid) && (pte & (pteRead | pteWrite | pteExecute));
+	}
+
 	static constexpr bool pteTablePresent(uint64_t pte) { return pte & pteValid; }
 
 	static constexpr PhysicalAddr pteTableAddress(uint64_t pte) { return (pte & ptePpnMask) << 2; }

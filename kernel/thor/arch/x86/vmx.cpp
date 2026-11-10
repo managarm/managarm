@@ -1,3 +1,5 @@
+#include <optional>
+
 #include <thor-internal/arch/vmx.hpp>
 #include <thor-internal/address-space.hpp>
 #include <thor-internal/arch/ept.hpp>
@@ -54,9 +56,175 @@ namespace {
 
 		return tmp;
 	}
+
+	inline uint32_t adjustControls(uint64_t msr, uint32_t desired, uint32_t required, const char *name) {
+		auto caps = common::x86::rdmsr(msr);
+		// The low half of the IA32_VMX_*_CTLS MSRs holds the controls that must be 1
+		// and the high half holds the controls that may be 1.
+		uint32_t controls = (desired | static_cast<uint32_t>(caps)) & static_cast<uint32_t>(caps >> 32);
+		if((controls & required) != required) {
+			thor::infoLogger() << "vmx: CPU lacks required " << name << " controls 0x"
+					<< frg::hex_fmt{required & ~controls} << frg::endlog;
+		}
+		return controls;
+	}
+
+	inline bool haveTrueControls() {
+		return common::x86::rdmsr(thor::vmx::IA32_VMX_BASIC_MSR) & (UINT64_C(1) << 55);
+	}
+
+	// The IA32_VMX_CR{0,4}_FIXED{0,1} MSRs, read once by vmxon().
+	uint64_t cr0Fixed0, cr0Fixed1, cr4Fixed0, cr4Fixed1;
+
+	// Bits of CR0/CR4 that VMX forces to 1 in the guest.
+	// The guest sees its own values of these bits through the read shadows.
+	uint64_t cr0Forced() {
+		// Unrestricted guests can run without paging and protected mode.
+		return cr0Fixed0 & ~UINT64_C(0x8000'0001);
+	}
+
+	uint64_t cr4Forced() {
+		return cr4Fixed0;
+	}
+
+	uint64_t guestCr0(uint64_t cr0) {
+		return (cr0 | cr0Forced()) & cr0Fixed1;
+	}
+
+	uint64_t guestCr4(uint64_t cr4) {
+		return (cr4 | cr4Forced()) & cr4Fixed1;
+	}
+
+	constexpr uint64_t CR0_PE = UINT64_C(1) << 0;
+	constexpr uint64_t CR0_TS = UINT64_C(1) << 3;
+	constexpr uint64_t CR0_NW = UINT64_C(1) << 29;
+	constexpr uint64_t CR0_CD = UINT64_C(1) << 30;
+	constexpr uint64_t CR0_PG = UINT64_C(1) << 31;
+	constexpr uint64_t CR4_PAE = UINT64_C(1) << 5;
+	constexpr uint64_t CR4_VMXE = UINT64_C(1) << 13;
+	constexpr uint64_t CR4_OSXSAVE = UINT64_C(1) << 18;
+	constexpr uint64_t EFER_LME = UINT64_C(1) << 8;
+	constexpr uint64_t EFER_LMA = UINT64_C(1) << 10;
+	constexpr uint64_t XCR0_X87 = UINT64_C(1) << 0;
+	constexpr uint64_t XCR0_SSE = UINT64_C(1) << 1;
+	constexpr uint64_t XCR0_AVX = UINT64_C(1) << 2;
+	constexpr uint64_t XCR0_AVX512 = UINT64_C(7) << 5; // Opmask, ZMM_Hi256 and Hi16_ZMM.
+	constexpr uint32_t MSR_CSTAR = 0xC0000083;
+
+	constexpr uint8_t UD_VECTOR = 6;
+	constexpr uint8_t GP_VECTOR = 13;
+
+	// CR4 bits whose writes exit: the bits that VMX forces to 1 and OSXSAVE
+	// which tells us whether XCR0 needs to be switched.
+	uint64_t cr4Mask() {
+		return cr4Forced() | CR4_OSXSAVE;
+	}
+
+	bool isCanonical(uint64_t address) {
+		return static_cast<uint64_t>(static_cast<int64_t>(address << 16) >> 16) == address;
+	}
+
+	// XSETBV raises #GP for all other values.
+	bool isValidXcr0(uint64_t value) {
+		auto features = thor::getGlobalCpuFeatures();
+		uint64_t supported = features->haveXsave ? features->xcr0Mask : XCR0_X87;
+		if(value & ~supported)
+			return false;
+		// x87 is always enabled.
+		if(!(value & XCR0_X87))
+			return false;
+		// AVX requires SSE.
+		if((value & XCR0_AVX) && !(value & XCR0_SSE))
+			return false;
+		// The AVX-512 components can only be enabled together and they require AVX.
+		if(value & XCR0_AVX512) {
+			if((value & XCR0_AVX512) != XCR0_AVX512 || !(value & XCR0_AVX))
+				return false;
+		}
+		return true;
+	}
+
+	// The host values of the MSRs that are used by SYSCALL; read once by vmxon().
+	uint64_t hostStar, hostLstar, hostCstar, hostSfmask;
+
+	// Writes the host selectors, which are the same on all CPUs.
+	void writeHostSelectors() {
+		uint16_t es, cs, ss, ds, fs, gs, tr;
+		asm volatile ("str %[tr]" : [tr]"=rm"(tr));
+		asm volatile ("mov %%es,%0" : "=r"(es));
+		asm volatile ("mov %%cs,%0" : "=r"(cs));
+		asm volatile ("mov %%ss,%0" : "=r"(ss));
+		asm volatile ("mov %%ds,%0" : "=r"(ds));
+		asm volatile ("mov %%fs,%0" : "=r"(fs));
+		asm volatile ("mov %%gs,%0" : "=r"(gs));
+
+		vmwrite(thor::vmx::HOST_ES_SELECTOR, es);
+		vmwrite(thor::vmx::HOST_CS_SELECTOR, cs);
+		vmwrite(thor::vmx::HOST_SS_SELECTOR, ss);
+		vmwrite(thor::vmx::HOST_DS_SELECTOR, ds);
+		vmwrite(thor::vmx::HOST_FS_SELECTOR, fs);
+		vmwrite(thor::vmx::HOST_GS_SELECTOR, gs);
+		vmwrite(thor::vmx::HOST_TR_SELECTOR, tr);
+	}
+
+	// Writes the host state that differs between CPUs.
+	void writeHostCpuState() {
+		vmwrite(thor::vmx::HOST_GS_BASE, common::x86::rdmsr(thor::vmx::MSR_GS_BASE));
+
+		common::x86::Gdtr gdtr;
+		asm volatile("sgdt %[gdt]": [gdt]"=m"(gdtr));
+		common::x86::Idtr idtr;
+		asm volatile("sidt %[idt]": [idt]"=m"(idtr));
+
+		uint32_t* gdt = gdtr.pointer;
+		uint32_t entry1 = (gdt[thor::kGdtIndexTask * 2] >> 16) & 0xFFFF;
+		uint32_t entry2 = (gdt[thor::kGdtIndexTask * 2 + 1]) & 0xFF;
+		uint32_t entry3 = (gdt[thor::kGdtIndexTask * 2 + 1] >> 24) & 0xFF;
+		uint32_t entry4 = (gdt[thor::kGdtIndexTask * 2 + 2]);
+		uint64_t trAddr = ((uint64_t)entry4 << 32) |
+			(entry1 | ((entry2) << 16) | ((entry3) << 24));
+
+		vmwrite(thor::vmx::HOST_TR_BASE, trAddr);
+		vmwrite(thor::vmx::HOST_GDTR_BASE, (size_t)gdtr.pointer);
+		vmwrite(thor::vmx::HOST_IDTR_BASE, (size_t)idtr.pointer);
+	}
+
+	// Types of events that we inject (VM-entry interruption information).
+	constexpr uint8_t kEventHardwareException = 3;
+	constexpr uint8_t kEventSoftwareInterrupt = 4;
+
+	// Translates the qualification of an EPT violation to kHelVmFault* flags.
+	size_t translateEptFaultFlags(uint64_t qualification) {
+		size_t flags = 0;
+		if(qualification & (1 << 0))
+			flags |= kHelVmFaultRead;
+		if(qualification & (1 << 1))
+			flags |= kHelVmFaultWrite;
+		if(qualification & (1 << 2))
+			flags |= kHelVmFaultExecute;
+		return flags;
+	}
+
+	// Returns the GPR with the given encoding in instructions.
+	uint64_t *gprSlot(thor::vmx::GuestState &state, unsigned index) {
+		uint64_t *slots[16] = {
+			&state.rax, &state.rcx, &state.rdx, &state.rbx,
+			nullptr /* RSP is part of the VMCS. */, &state.rbp, &state.rsi, &state.rdi,
+			&state.r8, &state.r9, &state.r10, &state.r11,
+			&state.r12, &state.r13, &state.r14, &state.r15,
+		};
+		return slots[index];
+	}
 }
 
-extern "C" void vmxVmRun(thor::vmx::Vmcs* vm, void* state, bool launched);
+extern "C" bool vmxVmRun(thor::vmx::Vmcs* vm, void* state, bool launched);
+
+namespace thor::vmx {
+	// The VMCS that is current on each CPU (VMPTRLD), or null.
+	extern PerCpu<Vmcs *> currentVmcs;
+	THOR_DEFINE_PERCPU(currentVmcs);
+}
+
 extern "C" uintptr_t vmxDoVmExit[]; // Actually a function that cannot be called in the conventional sense, just need the address
 
 extern "C" void vmxUpdateHostRsp(thor::vmx::Vmcs* vm, uintptr_t rsp) {
@@ -93,6 +261,16 @@ namespace thor::vmx {
 		cr4 |= common::x86::rdmsr(0x488);
 		asm volatile ("mov %0, %%cr4" : : "r" (cr4));
 
+		eptAccessedDirty = common::x86::rdmsr(IA32_VMX_EPT_VPID_CAP_MSR) & (1 << 21);
+		cr0Fixed0 = common::x86::rdmsr(IA32_VMX_CR0_FIXED0_MSR);
+		cr0Fixed1 = common::x86::rdmsr(IA32_VMX_CR0_FIXED1_MSR);
+		cr4Fixed0 = common::x86::rdmsr(IA32_VMX_CR4_FIXED0_MSR);
+		cr4Fixed1 = common::x86::rdmsr(IA32_VMX_CR4_FIXED1_MSR);
+		hostStar = common::x86::rdmsr(common::x86::kMsrStar);
+		hostLstar = common::x86::rdmsr(common::x86::kMsrLstar);
+		hostCstar = common::x86::rdmsr(MSR_CSTAR);
+		hostSfmask = common::x86::rdmsr(common::x86::kMsrFmask);
+
 		//Set vmx revision
 		uint32_t vmxRevision = common::x86::rdmsr(0x480);
 		*(uint32_t*)vmxonAccessor.get() = static_cast<uint32_t>(vmxRevision);
@@ -118,52 +296,93 @@ namespace thor::vmx {
 		return successful;
 	}
 
-	Vmcs::Vmcs(CtorToken, smarter::shared_ptr<EptSpace> ept) : space(ept) {
+	Vmcs::Vmcs(CtorToken, smarter::shared_ptr<EptSpace> ept)
+	: space(std::move(ept)) {
 		infoLogger() << "vmx: Creating VMCS" << frg::endlog;
 		region = (void*)physicalAllocator->allocateInfallible(PhysicalKind::pinned);
 		PageAccessor regionAccessor{(PhysicalAddr)region};
 		memset(regionAccessor.get(), 0, kPageSize);
 		uint32_t vmxRevision = common::x86::rdmsr(0x480);
 		*(uint32_t*)regionAccessor.get() = static_cast<uint32_t>(vmxRevision);
-		if(vmptrld((PhysicalAddr)region)) {
-			infoLogger() << "vmx: VMCS load failed" << frg::endlog;
-		}
+
+		// Allocate before disabling interrupts (the allocator must not run with interrupts disabled).
+		msrArea_ = physicalAllocator->allocateInfallible(PhysicalKind::pinned);
+		PageAccessor msrAccessor{msrArea_};
+		memset(msrAccessor.get(), 0, kPageSize);
+		// The physical memory stays mapped after the accessor is gone.
+		guestMsrs_ = reinterpret_cast<MsrEntry *>(msrAccessor.get());
+		hostMsrs_ = guestMsrs_ + numSwitchedMsrs;
+
+		// A VMCS is only active (and thus may be cached by the CPU) while we cannot migrate
+		// to another CPU. Afterwards, we VMCLEAR it (see acquire_() and release_()).
+		StatelessIrqLock irqLock;
+		vmclear((PhysicalAddr)region);
+		acquire_();
 
 		//Set up basic controls.
-		uint64_t allowedPinBased = common::x86::rdmsr(MSR_IA32_VMX_PINBASED_CTLS);
-		uint32_t pinbased = (uint32_t)allowedPinBased & (uint32_t)(allowedPinBased >> 32);
-		vmwrite(PIN_BASED_VM_EXEC_CONTROLS, pinbased | 1);
-		uint64_t allowedCpu = common::x86::rdmsr(MSR_IA32_VMX_PROCBASED_CTLS);
-		uint32_t cpu = (uint32_t)allowedCpu & (uint32_t)(allowedCpu >> 32);
-		vmwrite(PROC_BASED_VM_EXEC_CONTROLS,
-				cpu |
-				VMEXIT_ON_HLT |
-				VMEXIT_ON_PIO |
-				SECONDARY_CONTROLS_ON);
-		vmwrite(PROC_BASED_VM_EXEC_CONTROLS2,
-				EPT_ENABLE |
-				UNRESTRICTED_GUEST |
-				VMEXIT_ON_DESCRIPTOR);
+		auto trueControls = haveTrueControls();
+		auto pinbasedControls = 1; // External interrupt exiting.
+		vmwrite(PIN_BASED_VM_EXEC_CONTROLS, adjustControls(
+				trueControls ? IA32_VMX_TRUE_PINBASED_CTLS_MSR : MSR_IA32_VMX_PINBASED_CTLS,
+				pinbasedControls, pinbasedControls, "pin-based"));
+		// Without a TPR shadow, CR8 accesses would otherwise reach the host's TPR.
+		uint32_t procControls = VMEXIT_ON_HLT
+				| VMEXIT_ON_PIO
+				| SECONDARY_CONTROLS_ON
+				| CR8_LOAD_EXITING
+				| CR8_STORE_EXITING;
+		vmwrite(PROC_BASED_VM_EXEC_CONTROLS, adjustControls(
+				trueControls ? IA32_VMX_TRUE_PROCBASED_CTLS_MSR : MSR_IA32_VMX_PROCBASED_CTLS,
+				procControls, procControls, "processor-based"));
+		uint32_t secondaryControls = EPT_ENABLE | UNRESTRICTED_GUEST;
+		vmwrite(PROC_BASED_VM_EXEC_CONTROLS2, adjustControls(IA32_VMX_SEC_PROCBASED_CTLS_MSR,
+				secondaryControls, secondaryControls, "secondary processor-based"));
 		vmwrite(EXCEPTION_BITMAP, 0);
 
-		uint64_t vmExitCtrls = common::x86::rdmsr(0x483);
-		uint32_t vmExitCtrlsLo = (uint32_t)vmExitCtrls;
-		uint32_t vmExitCtrlsHi = (uint32_t)(vmExitCtrls >> 32);
-		uint32_t vm_exit_ctls = 0;
-		vm_exit_ctls |= VMEXIT_CONTROLS_LONG_MODE;
-		vm_exit_ctls |= VMEXIT_CONTROLS_LOAD_IA32_EFER; // Load IA32_EFER on vm-exit
-		vm_exit_ctls |= vmExitCtrlsLo;
-		vm_exit_ctls &= vmExitCtrlsHi;
-		vmwrite(VM_EXIT_CONTROLS, vm_exit_ctls);
+		uint32_t exitControls = VMEXIT_CONTROLS_LONG_MODE | VMEXIT_CONTROLS_LOAD_IA32_EFER;
+		// Saving the guest's EFER keeps EFER.LMA up to date (the CPU sets it when entering long mode).
+		vmwrite(VM_EXIT_CONTROLS, adjustControls(
+				trueControls ? IA32_VMX_TRUE_EXIT_CTLS_MSR : MSR_IA32_VMX_EXIT_CTLS,
+				exitControls | VMEXIT_CONTROLS_SAVE_IA32_EFER, exitControls, "VM-exit"));
 
-		uint64_t vmEntryCtrls = common::x86::rdmsr(0x484);
-		uint32_t vmEntryCtrlsLo = (uint32_t)vmEntryCtrls;
-		uint32_t vmEntryCtrlsHi = (uint32_t)(vmEntryCtrls >> 32);
-		uint32_t vm_entry_ctls = 0;
-		vm_entry_ctls |= 1 << 15;
-		vm_entry_ctls |= vmEntryCtrlsLo;
-		vm_entry_ctls &= vmEntryCtrlsHi;
-		vmwrite(VM_ENTRY_CONTROLS, vm_entry_ctls);
+		uint32_t entryControls = 1 << 15; // Load IA32_EFER.
+		entryControls_ = adjustControls(
+				trueControls ? IA32_VMX_TRUE_ENTRY_CTLS_MSR : MSR_IA32_VMX_ENTRY_CTLS,
+				entryControls, entryControls, "VM-entry") & ~VM_ENTRY_IA32E_MODE;
+		vmwrite(VM_ENTRY_CONTROLS, entryControls_);
+
+		// Hide the bits that VMX forces to 1 from the guest.
+		vmwrite(CR0_GUEST_HOST_MASK, cr0Forced());
+		vmwrite(CR4_GUEST_HOST_MASK, cr4Mask());
+
+		// The CPU switches these MSRs through the MSR areas. Unlike WRMSR, this does not
+		// cause additional exits under nested virtualization. The guest's KERNEL_GS_BASE
+		// entry doubles as the VM-exit MSR-store area.
+		uint32_t msrIndices[numSwitchedMsrs] = {
+			common::x86::kMsrStar, common::x86::kMsrLstar, MSR_CSTAR, common::x86::kMsrFmask,
+			common::x86::kMsrIndexKernelGsBase,
+		};
+		// The host's KERNEL_GS_BASE (i.e., the user GS base) is set by run().
+		uint64_t hostValues[numSwitchedMsrs] = {hostStar, hostLstar, hostCstar, hostSfmask, 0};
+		for(unsigned i = 0; i < numSwitchedMsrs; i++) {
+			guestMsrs_[i].index = msrIndices[i];
+			hostMsrs_[i].index = msrIndices[i];
+			hostMsrs_[i].data = hostValues[i];
+		}
+		vmwrite(VM_ENTRY_MSR_LOAD_ADDR, msrArea_);
+		vmwrite(VM_EXIT_MSR_LOAD_ADDR, msrArea_ + numSwitchedMsrs * sizeof(MsrEntry));
+		vmwrite(VM_EXIT_MSR_STORE_ADDR, msrArea_ + kernelGsBaseEntry * sizeof(MsrEntry));
+		vmwrite(VM_ENTRY_MSR_LOAD_COUNT, 0);
+		vmwrite(VM_EXIT_MSR_LOAD_COUNT, 0);
+		vmwrite(VM_EXIT_MSR_STORE_COUNT, 0);
+
+		// Thor does not use SYSENTER.
+		vmwrite(HOST_IA32_SYSENTER_CS, 0);
+		vmwrite(HOST_IA32_SYSENTER_ESP, 0);
+		vmwrite(HOST_IA32_SYSENTER_EIP, 0);
+		vmwrite(GUEST_IA32_SYSENTER_CS, 0);
+		vmwrite(GUEST_IA32_SYSENTER_ESP, 0);
+		vmwrite(GUEST_IA32_SYSENTER_EIP, 0);
 
 		uint64_t cr0, cr4;
 		asm volatile ("mov %%cr0,%0" : "=r"(cr0));
@@ -175,23 +394,6 @@ namespace thor::vmx {
 		uint32_t cr4Fixed = (uint32_t)common::x86::rdmsr(IA32_VMX_CR4_FIXED0_MSR);
 		vmwrite(HOST_CR4, cr4Fixed | cr4);
 
-		common::x86::Gdtr gdtr;
-		asm volatile("sgdt %[gdt]": [gdt]"=m"(gdtr));
-		common::x86::Idtr idtr;
-		asm volatile("sidt %[idt]": [idt]"=m"(idtr));
-
-		uint32_t* gdt = gdtr.pointer;
-		uint32_t entry1 = (gdt[kGdtIndexTask * 2] >> 16) & 0xFFFF;
-		uint32_t entry2 = (gdt[kGdtIndexTask * 2 + 1]) & 0xFF;
-		uint32_t entry3 = (gdt[kGdtIndexTask * 2 + 1] >> 24) & 0xFF;
-		uint32_t entry4 = (gdt[kGdtIndexTask * 2 + 2]);
-		uint64_t trAddr = ((uint64_t)entry4 << 32) |
-			(entry1 | ((entry2) << 16) | ((entry3) << 24));
-
-
-		vmwrite(HOST_TR_BASE, trAddr);
-		vmwrite(HOST_GDTR_BASE, (size_t)gdtr.pointer);
-		vmwrite(HOST_IDTR_BASE, (size_t)idtr.pointer);
 		vmwrite(HOST_EFER_FULL, common::x86::rdmsr(0xc0000080));
 		vmwrite(HOST_RIP, (size_t)vmxDoVmExit);
 
@@ -244,19 +446,22 @@ namespace thor::vmx {
 
 		vmwrite(GUEST_INTR_STATUS, 0);
 		vmwrite(GUEST_PML_INDEX, 0);
-		uint64_t cr0FixedGuest = common::x86::rdmsr(IA32_VMX_CR0_FIXED0_MSR);
-		uint32_t cr0FixedLo = (uint32_t)cr0FixedGuest;
-		uint32_t cr0FixedHi = (uint32_t)(cr0FixedGuest >> 32);
-		cr0FixedLo &= ~(1 << 0); // disable PE
-		cr0FixedLo &= ~(1 << 31); // disable PG
-		vmwrite(GUEST_CR0, cr0FixedLo | ((uint64_t)cr0FixedHi) << 32);
+		vmwrite(GUEST_CR0, guestCr0(0));
+		vmwrite(CR0_READ_SHADOW, 0);
 		vmwrite(GUEST_CR3, 0x0);
-		uint64_t cr4FixedGuest = common::x86::rdmsr(IA32_VMX_CR4_FIXED0_MSR);
-		uint32_t cr4FixedLo = (uint32_t)cr4FixedGuest;
-		uint32_t cr4FixedHi = (uint32_t)(cr4FixedGuest >> 32);
-		vmwrite(GUEST_CR4, cr4FixedLo | ((uint64_t)cr4FixedHi) << 32);
+		vmwrite(GUEST_CR4, guestCr4(0));
+		vmwrite(CR4_READ_SHADOW, 0);
 
-		vmwrite(CTLS_EPTP, ept->rootTable() | 6 | (4 - 1) << 3 | (1 << 6));
+		auto eptCaps = common::x86::rdmsr(IA32_VMX_EPT_VPID_CAP_MSR);
+		if(!(eptCaps & (1 << 6)) || !(eptCaps & (1 << 14)))
+			infoLogger() << "vmx: CPU lacks 4-level EPT or write-back EPT structures" << frg::endlog;
+		if(!(eptCaps & (1 << 25)))
+			infoLogger() << "vmx: CPU lacks single-context INVEPT" << frg::endlog;
+		uint64_t eptp = eptPointer(space->rootTable());
+		vmwrite(CTLS_EPTP, eptp);
+
+		release_();
+		irqLock.unlock();
 		state = {};
 
 
@@ -275,114 +480,354 @@ namespace thor::vmx {
 		}
 	}
 
-	frg::expected<Error, HelVmexitReason> Vmcs::run() {
-		vmptrld((PhysicalAddr)region);
+	bool Vmcs::assertInterrupt(uint64_t number, bool level) {
+		// TODO: Implement using virtualized APIC.
+		(void)number;
+		(void)level;
+		return false;
+	}
 
-		uint16_t es;
-		uint16_t cs;
-		uint16_t ss;
-		uint16_t ds;
-		uint16_t fs;
-		uint16_t gs;
-		uint16_t tr;
-		uint64_t cr3;
-		asm volatile ("mov %%cr3,%0" : "=r"(cr3));
-		asm volatile ("str %[tr]" : [tr]"=rm"(tr));
-		asm volatile ("mov %%es,%0" : "=r"(es));
-		asm volatile ("mov %%cs,%0" : "=r"(cs));
-		asm volatile ("mov %%ss,%0" : "=r"(ss));
-		asm volatile ("mov %%ds,%0" : "=r"(ds));
-		asm volatile ("mov %%fs,%0" : "=r"(fs));
-		asm volatile ("mov %%gs,%0" : "=r"(gs));
-
-		vmwrite(HOST_ES_SELECTOR, es);
-		vmwrite(HOST_CS_SELECTOR, cs);
-		vmwrite(HOST_SS_SELECTOR, ss);
-		vmwrite(HOST_DS_SELECTOR, ds);
-		vmwrite(HOST_FS_SELECTOR, fs);
-		vmwrite(HOST_GS_SELECTOR, gs);
-		vmwrite(HOST_TR_SELECTOR, tr);
-		vmwrite(HOST_FS_BASE, common::x86::rdmsr(MSR_FS_BASE));
-		vmwrite(HOST_GS_BASE, common::x86::rdmsr(MSR_GS_BASE));
-		vmwrite(HOST_CR3, cr3);
-
-		vmclear((PhysicalAddr)region);
-
+	frg::expected<Error, HelVmexitReason> Vmcs::run(const HelVmexitCompletion *completion) {
 		HelVmexitReason exitInfo{};
 
-		bool launched = false;
+		// Exits that need a completion must get one, and no other exit may get one.
+		if(completionPending_ != (completion != nullptr))
+			return Error::illegalState;
+		if(completion && completion->status != kHelVmexitCompletionDone
+				&& completion->status != kHelVmexitCompletionFault)
+			return Error::illegalArgs;
+
+		// Apply the completion. The GPRs are not part of the VMCS. Skipping the instruction
+		// advances the cached RIP; the VMCS is updated before the next entry (even if run()
+		// returns before entering the guest).
+		if(completion) {
+			completionPending_ = false;
+			auto &pending = pendingCompletion_;
+			if(completion->status == kHelVmexitCompletionFault) {
+				queueException(GP_VECTOR, true, 0);
+			}else{
+				const uint64_t *data = completion->data;
+				switch(pending.exitReason) {
+				case kHelVmexitIo:
+					if(pending.ioIn && !pending.ioString) {
+						if(pending.ioSize == 4) {
+							// Like other 32-bit operations, IN EAX zero-extends RAX.
+							state.rax = data[0] & 0xFFFF'FFFF;
+						}else{
+							uint64_t mask = (UINT64_C(1) << (pending.ioSize * 8)) - 1;
+							state.rax = (state.rax & ~mask) | (data[0] & mask);
+						}
+					}
+					break;
+				case kHelVmexitCpuid:
+					state.rax = data[0] & 0xFFFF'FFFF;
+					state.rbx = data[1] & 0xFFFF'FFFF;
+					state.rcx = data[2] & 0xFFFF'FFFF;
+					state.rdx = data[3] & 0xFFFF'FFFF;
+					break;
+				case kHelVmexitRdmsr:
+					state.rax = data[0] & 0xFFFF'FFFF;
+					state.rdx = data[0] >> 32;
+					break;
+				case kHelVmexitHyperCall:
+					state.rax = data[0];
+					break;
+				default:
+					break;
+				}
+				loadBasicRegsCache();
+				cachedRip_ += pendingCompletion_.instructionLength;
+				if(regsCacheValid_)
+					regsCache_.rip = cachedRip_;
+				ripDirty_ = true;
+			}
+		}
+
+		// While we are in the kernel, KERNEL_GS_BASE holds the user GS base of this thread
+		// (and thread switches preserve it).
+		if(msrCount_)
+			hostMsrs_[kernelGsBaseEntry].data = common::x86::rdmsr(common::x86::kMsrIndexKernelGsBase);
+
+		uint64_t hostFsBase = common::x86::rdmsr(MSR_FS_BASE);
+		uint64_t hostXcr0 = getGlobalCpuFeatures()->xcr0Mask;
+
+		// While the VMCS is resident, it stays active on this CPU between entries.
+		std::optional<MigrationGuard> migrationGuard;
+		auto leaveResidency = [&] {
+			if(!resident_)
+				return;
+			{
+				StatelessIrqLock irqLock;
+				resident_ = false;
+				release_();
+			}
+			migrationGuard.reset();
+		};
+		frg::scope_exit residencyScope{leaveResidency};
+
 		while(1) {
 			if(getCurrentThread()->checkCancelConditions())
 				return Error::cancelled;
-
-			/*
-			 * NOTE: this will only work as long as long
-			 * as threads always stay on the same cpu,
-			 * once that's changed all of the vmcs structures
-			 * owned by a thread will have to be vmcleared
-			 * and set launched = false;
-			 */
-			asm volatile("cli");
-			vmptrld((PhysicalAddr)region);
-			if(getGlobalCpuFeatures()->haveXsave){
-				common::x86::xsave((uint8_t*)hostFstate, ~0);
-				common::x86::xrstor((uint8_t*)guestFstate, ~0);
-			} else {
-				asm volatile ("fxsaveq %0" : : "m" (*hostFstate));
-				asm volatile ("fxrstorq %0" : : "m" (*guestFstate));
+			if(!resident_) {
+				migrationGuard.emplace();
+				resident_ = true;
 			}
 
-			vmxVmRun(this, &state, launched);
-			launched = true;
+			bool entryFailed;
+			uint64_t error, reason;
+			// Exit information that we read while the VMCS is active and use afterwards.
+			uint64_t qualification = 0;
+			bool stringIo = false;
+			uint64_t eptAddress = 0;
+			bool msrExit = false;
+			bool needsCompletion = false;
+			uint64_t instructionLength = 0;
 
-			if(getGlobalCpuFeatures()->haveXsave){
-				common::x86::xsave((uint8_t*)guestFstate, ~0);
-				common::x86::xrstor((uint8_t*)hostFstate, ~0);
-			} else {
-				asm volatile ("fxsaveq %0" : : "m" (*guestFstate));
-				asm volatile ("fxrstorq %0" : : "m" (*hostFstate));
+			{
+				StatelessIrqLock irqLock;
+				if(enterGuest(getCpuData())) {
+					exitInfo.exitReason = kHelVmexitKicked;
+					return exitInfo;
+				}
+				acquire_();
+				// VMX instructions are expensive under nested virtualization; avoid needless ones.
+				// The host state only differs between CPUs and threads.
+				auto cpu = getCpuData();
+				if(!hostSelectorsWritten_) {
+					writeHostSelectors();
+					hostSelectorsWritten_ = true;
+				}
+				if(hostStateCpu_ != cpu) {
+					writeHostCpuState();
+					hostStateCpu_ = cpu;
+				}
+				if(!hostFsBaseWritten_ || hostFsBase_ != hostFsBase) {
+					vmwrite(HOST_FS_BASE, hostFsBase);
+					hostFsBase_ = hostFsBase;
+					hostFsBaseWritten_ = true;
+				}
+				// CR3 differs between threads.
+				// Even for the same thread, it changes when the PCID of our address space is rebound.
+				uint64_t cr3;
+				asm volatile ("mov %%cr3, %0" : "=r"(cr3));
+				if(cr3 != hostCr3_) {
+					vmwrite(HOST_CR3, cr3);
+					hostCr3_ = cr3;
+				}
+				if(!space->enterGuest(cpu)) {
+					leaveGuest();
+					return Error::illegalState;
+				}
+				// Write the RIP of the instruction that userspace completed.
+				if(ripDirty_) {
+					vmwrite(GUEST_RIP, cachedRip_);
+					clearInterruptShadow();
+					ripDirty_ = false;
+				}
+				// The guest changes its state while it runs.
+				regsCacheValid_ = false;
+				basicCacheValid_ = false;
+
+				// Inject an event whose delivery was interrupted or that an emulated instruction raised.
+				if(reinjectValid_) {
+					uint32_t info = reinject_.vector
+							| (static_cast<uint32_t>(reinject_.type) << 8)
+							| (UINT32_C(1) << 31);
+					// Error codes are only delivered if guest's CR0.PE is set.
+					if(reinject_.hasErrorCode && (vmread(GUEST_CR0) & CR0_PE)) {
+						info |= 1 << 11;
+						vmwrite(VM_ENTRY_EXCEPTION_ERROR_CODE, reinject_.errorCode);
+					}
+					if(reinject_.type >= kEventSoftwareInterrupt)
+						vmwrite(VM_ENTRY_INSTRUCTION_LEN, reinject_.instructionLength);
+					vmwrite(VM_ENTRY_INTR_INFO, info);
+				}
+
+				if(getGlobalCpuFeatures()->haveXsave){
+					common::x86::xsave((uint8_t*)hostFstate, ~0);
+					common::x86::xrstor((uint8_t*)guestFstate, ~0);
+				} else {
+					asm volatile ("fxsaveq %0" : : "m" (*hostFstate));
+					asm volatile ("fxrstorq %0" : : "m" (*guestFstate));
+				}
+				// XCR0 is only observable by the guest if it set CR4.OSXSAVE.
+				// The FPU state is saved and restored using the (larger) host XCR0.
+				bool switchXcr0 = getGlobalCpuFeatures()->haveXsave
+						&& guestOsxsave_ && guestXcr0_ != hostXcr0;
+				if(switchXcr0)
+					common::x86::wrxcr(0, guestXcr0_);
+
+				entryFailed = vmxVmRun(this, &state, launched_);
+				if(!entryFailed)
+					launched_ = true;
+
+				if(switchXcr0)
+					common::x86::wrxcr(0, hostXcr0);
+				if(getGlobalCpuFeatures()->haveXsave){
+					common::x86::xsave((uint8_t*)guestFstate, ~0);
+					common::x86::xrstor((uint8_t*)hostFstate, ~0);
+				} else {
+					asm volatile ("fxsaveq %0" : : "m" (*guestFstate));
+					asm volatile ("fxrstorq %0" : : "m" (*hostFstate));
+				}
+
+				//Vm exits don't restore the gdt limit
+				common::x86::Gdtr gdtr;
+				asm volatile("sgdt %[gdt]": [gdt]"=m"(gdtr));
+				gdtr.limit = HOST_GDT_LIMIT;
+				asm volatile("lgdt %[gdt]": [gdt]"=m"(gdtr));
+
+				error = entryFailed ? vmread(VM_INSTRUCTION_ERROR) : 0;
+				reason = entryFailed ? ~UINT64_C(0) : vmread(VM_EXIT_REASON);
+				if(reason == VMEXIT_EPT_VIOLATION || reason == VMEXIT_IO_INSTRUCTION
+						|| reason == VMEXIT_CR_ACCESS) {
+					qualification = vmread(EXIT_QUALIFICATION);
+					stringIo = reason == VMEXIT_IO_INSTRUCTION && (qualification & (1 << 4));
+				}
+				if(reason == VMEXIT_EPT_VIOLATION)
+					eptAddress = vmread(EPT_VIOLATION_ADDRESS);
+				msrExit = reason == VMEXIT_RDMSR || reason == VMEXIT_WRMSR;
+				// Instructions that we emulate in the kernel (and skip unless they fault).
+				bool skipInstruction = reason == VMEXIT_HLT || reason == VMEXIT_CR_ACCESS
+						|| reason == VMEXIT_XSETBV;
+				// Instructions that userspace completes.
+				needsCompletion = msrExit || reason == VMEXIT_CPUID
+						|| reason == VMEXIT_IO_INSTRUCTION || reason == VMEXIT_VMCALL;
+				if(skipInstruction || needsCompletion)
+					instructionLength = vmread(VM_EXIT_INSTRUCTION_LEN);
+
+				// The RIP is needed to skip instructions.
+				uint64_t rip = 0;
+				if(skipInstruction)
+					rip = vmread(GUEST_RIP);
+
+				// The injected event was delivered unless its delivery caused this exit.
+				// In the latter case, and also if the guest's own event delivery was interrupted,
+				// IDT-vectoring information describes the event, so we inject it again.
+				// Exits caused by instructions do not happen during event delivery.
+				bool instructionExit = msrExit || reason == VMEXIT_CPUID
+						|| reason == VMEXIT_IO_INSTRUCTION || reason == VMEXIT_HLT
+						|| reason == VMEXIT_VMCALL || reason == VMEXIT_XSETBV
+						|| reason == VMEXIT_CR_ACCESS;
+				reinjectValid_ = false;
+				if(!entryFailed && !instructionExit) {
+					auto vectoring = vmread(IDT_VECTORING_INFO);
+					if(vectoring & (UINT32_C(1) << 31)) {
+						reinjectValid_ = true;
+						reinject_.vector = vectoring & 0xFF;
+						reinject_.type = (vectoring >> 8) & 7;
+						reinject_.hasErrorCode = (vectoring >> 11) & 1;
+						reinject_.errorCode = reinject_.hasErrorCode ? vmread(IDT_VECTORING_ERROR_CODE) : 0;
+						// Software interrupts and exceptions need the instruction length.
+						reinject_.instructionLength = reinject_.type >= kEventSoftwareInterrupt
+								? vmread(VM_EXIT_INSTRUCTION_LEN) : 0;
+					}
+				}
+
+				// Emulate instructions that we handle in the kernel.
+				// If they raise an exception, the guest RIP is not advanced.
+				if(reason == VMEXIT_CR_ACCESS)
+					skipInstruction = emulateCrAccess(qualification);
+				else if(reason == VMEXIT_XSETBV)
+					skipInstruction = emulateXsetbv();
+
+				if(skipInstruction) {
+					vmwrite(GUEST_RIP, rip + instructionLength);
+					clearInterruptShadow();
+				}
+
+				// We cache basic registers on halt exits because the VMM might want
+				// to inspect either the RIP or RFLAGS and that will save us an
+				// acquire_()/release_() round-trip in Vmcs::loadRegs().
+				bool cacheBasic = !entryFailed && (needsCompletion || reason == VMEXIT_HLT);
+				if(cacheBasic) {
+					if(!skipInstruction)
+						rip = vmread(GUEST_RIP);
+					cachedRip_ = skipInstruction ? rip + instructionLength : rip;
+					cachedRsp_ = vmread(GUEST_RSP);
+					cachedRflags_ = vmread(GUEST_RFLAG);
+					basicCacheValid_ = true;
+				}
+				space->leaveGuest();
+				leaveGuest();
 			}
 
-			//Vm exits don't restore the gdt limit
-			common::x86::Gdtr gdtr;
-			asm volatile("sgdt %[gdt]": [gdt]"=m"(gdtr));
-			gdtr.limit = HOST_GDT_LIMIT;
-			asm volatile("lgdt %[gdt]": [gdt]"=m"(gdtr));
-			asm volatile("sti");
-
-			auto error = vmread(VM_INSTRUCTION_ERROR);
-			if(error) {
-				infoLogger() << "vmx: vmx error" << error << frg::endlog;
+			if(entryFailed) {
+				infoLogger() << "vmx: VM entry failed with error " << error << frg::endlog;
 				exitInfo.exitReason = kHelVmexitError;
+				exitInfo.code = error;
 				return exitInfo;
 			}
 
-			auto reason = vmread(VM_EXIT_REASON);
+			if(needsCompletion) {
+				completionPending_ = true;
+				pendingCompletion_ = {};
+				pendingCompletion_.instructionLength = instructionLength;
+				if(msrExit) {
+					bool write = reason == VMEXIT_WRMSR;
+					pendingCompletion_.exitReason = write ? kHelVmexitWrmsr : kHelVmexitRdmsr;
+					exitInfo.address = state.rcx & 0xFFFF'FFFF;
+					if(write)
+						exitInfo.data = (state.rdx << 32) | (state.rax & 0xFFFF'FFFF);
+				}else if(reason == VMEXIT_CPUID) {
+					pendingCompletion_.exitReason = kHelVmexitCpuid;
+					exitInfo.address = state.rax & 0xFFFF'FFFF;
+					exitInfo.data = state.rcx & 0xFFFF'FFFF;
+				}else if(reason == VMEXIT_VMCALL) {
+					pendingCompletion_.exitReason = kHelVmexitHyperCall;
+				}else{
+					pendingCompletion_.exitReason = kHelVmexitIo;
+					auto size = (qualification & 7) + 1;
+					auto in = qualification & (1 << 3);
+					pendingCompletion_.ioSize = size;
+					pendingCompletion_.ioIn = in;
+					pendingCompletion_.ioString = stringIo;
+					exitInfo.address = qualification >> 16;
+					exitInfo.code = size;
+					exitInfo.flags = 0;
+					if(in)
+						exitInfo.flags |= kHelVmexitIoIn;
+					if(stringIo) {
+						exitInfo.flags |= kHelVmexitIoString;
+					}else if(!in) {
+						exitInfo.data = size == 4 ? (state.rax & 0xFFFF'FFFF)
+								: (state.rax & ((UINT64_C(1) << (size * 8)) - 1));
+					}
+				}
+				exitInfo.exitReason = pendingCompletion_.exitReason;
+				return exitInfo;
+			}
+
 			if(reason == VMEXIT_HLT) {
-				infoLogger() << "vmx: hlt" << frg::endlog;
 				exitInfo.exitReason = kHelVmexitHlt;
 				return exitInfo;
 			} else if(reason == VMEXIT_EPT_VIOLATION) {
-				size_t address = vmread(EPT_VIOLATION_ADDRESS);
-				size_t exitFlags = vmread(EPT_VIOLATION_FLAGS);
+				// Bit 0 of the qualification is set for reads, bit 1 for writes
+				// and bit 2 for instruction fetches.
 				uint32_t flags = AddressSpace::kFaultSynchronous;
-				if(exitFlags & 1)
+				if(qualification & (1 << 1))
 					flags |= AddressSpace::kFaultWrite;
-				if(exitFlags & (1 << 2))
+				if(qualification & (1 << 2))
 					flags |= AddressSpace::kFaultExecute;
 
+				leaveResidency();
 				auto faultOutcome = Thread::asyncBlockCurrent(
-					space->handleFault(address, flags),
+					space->handleFault(eptAddress, flags),
 					getCurrentThread()->pagingWorkQueue().get()
 				);
 				if(!faultOutcome) {
 					exitInfo.exitReason = kHelVmexitTranslationFault;
-					exitInfo.address = address;
-					exitInfo.flags = exitFlags;
+					exitInfo.address = eptAddress;
+					exitInfo.flags = translateEptFaultFlags(qualification);
 					return exitInfo;
 				}
 			} else if(reason == VMEXIT_EXTERNAL_INTERRUPT) {
-				infoLogger() << "vmx: external-interrupt exit" << frg::endlog;
+				// The interrupt was handled when we re-enabled interrupts.
+			} else if(reason == VMEXIT_TRIPLE_FAULT) {
+				exitInfo.exitReason = kHelVmexitShutdown;
+				return exitInfo;
+			} else if(reason == VMEXIT_CR_ACCESS || reason == VMEXIT_XSETBV) {
+				// Emulated above.
 			} else {
 				infoLogger() << "vmx: Unknown VMExit code: " << reason << frg::endlog;
 				exitInfo.exitReason = kHelVmexitUnknownPlatformSpecificExitCode;
@@ -392,21 +837,67 @@ namespace thor::vmx {
 		}
 	}
 
-	void Vmcs::storeRegs(const HelX86VirtualizationRegs *regs) {
-		memcpy(&state, regs, sizeof(GuestState));
+	namespace {
+		bool sameValue(uint64_t a, uint64_t b) { return a == b; }
 
-		vmwrite(GUEST_RSP, regs->rsp);
-		vmwrite(GUEST_RIP, regs->rip);
+		// The register structs contain padding, so we compare them member-wise.
+		bool sameValue(const HelX86SegmentRegister &a, const HelX86SegmentRegister &b) {
+			return a.base == b.base && a.limit == b.limit && a.selector == b.selector
+					&& a.type == b.type && a.present == b.present && a.dpl == b.dpl
+					&& a.db == b.db && a.s == b.s && a.l == b.l && a.g == b.g
+					&& a.avl == b.avl && a.unusable == b.unusable;
+		}
+
+		bool sameValue(const HelX86DescriptorTable &a, const HelX86DescriptorTable &b) {
+			return a.base == b.base && a.limit == b.limit;
+		}
+	}
+
+	void Vmcs::storeRegs(const HelX86VirtualizationRegs *regs) {
+		// Only write the fields that differ from the VMCS
+		bool writeAll = !regsCacheValid_;
+		auto differs = [&] (const auto &value, const auto &cached) {
+			return writeAll || !sameValue(value, cached);
+		};
+
+		// See the constructor.
+		StatelessIrqLock irqLock;
+		acquire_();
+
+		if(differs(regs->rsp, regsCache_.rsp))
+			vmwrite(GUEST_RSP, regs->rsp);
+		if(differs(regs->rip, regsCache_.rip))
+			vmwrite(GUEST_RIP, regs->rip);
+		if(differs(regs->rflags, regsCache_.rflags))
+			vmwrite(GUEST_RFLAG, regs->rflags);
+
+		state.rax = regs->rax;
+		state.rbx = regs->rbx;
+		state.rcx = regs->rcx;
+		state.rdx = regs->rdx;
+		state.rsi = regs->rsi;
+		state.rdi = regs->rdi;
+		state.rbp = regs->rbp;
+		state.r8 = regs->r8;
+		state.r9 = regs->r9;
+		state.r10 = regs->r10;
+		state.r11 = regs->r11;
+		state.r12 = regs->r12;
+		state.r13 = regs->r13;
+		state.r14 = regs->r14;
+		state.r15 = regs->r15;
+		state.cr2 = regs->cr2;
 
 		#define SET_SEGMENT(segment, segment_capital) \
-            vmwrite(GUEST_##segment_capital##_BASE, regs->segment.base); \
-            vmwrite(GUEST_##segment_capital##_LIMIT, regs->segment.limit); \
-            vmwrite(GUEST_##segment_capital##_SELECTOR, regs->segment.selector); \
-            { \
+            if(differs(regs->segment, regsCache_.segment)) { \
+                vmwrite(GUEST_##segment_capital##_BASE, regs->segment.base); \
+                vmwrite(GUEST_##segment_capital##_LIMIT, regs->segment.limit); \
+                vmwrite(GUEST_##segment_capital##_SELECTOR, regs->segment.selector); \
                 uint32_t attrib = regs->segment.type | (regs->segment.s << 4) | \
                                   (regs->segment.dpl << 5) | (regs->segment.present << 7) | \
                                   (regs->segment.avl << 12) | (regs->segment.l << 13) | \
-                                  (regs->segment.db << 14) | (regs->segment.g << 15); \
+                                  (regs->segment.db << 14) | (regs->segment.g << 15) | \
+                                  (regs->segment.unusable << 16); \
                 vmwrite(GUEST_##segment_capital##_ACCESS_RIGHT, attrib); \
             }
 
@@ -420,25 +911,78 @@ namespace thor::vmx {
 		SET_SEGMENT(ldt, LDTR);
 		SET_SEGMENT(tr, TR);
 
-		vmwrite(GUEST_GDTR_BASE, regs->gdt.base);
-		vmwrite(GUEST_GDTR_LIMIT, regs->gdt.base);
+		if(differs(regs->gdt, regsCache_.gdt)) {
+			vmwrite(GUEST_GDTR_BASE, regs->gdt.base);
+			vmwrite(GUEST_GDTR_LIMIT, regs->gdt.limit);
+		}
+		if(differs(regs->idt, regsCache_.idt)) {
+			vmwrite(GUEST_IDTR_BASE, regs->idt.base);
+			vmwrite(GUEST_IDTR_LIMIT, regs->idt.limit);
+		}
+		if(differs(regs->cr0, regsCache_.cr0)) {
+			vmwrite(GUEST_CR0, guestCr0(regs->cr0));
+			vmwrite(CR0_READ_SHADOW, regs->cr0);
+		}
+		if(differs(regs->cr3, regsCache_.cr3))
+			vmwrite(GUEST_CR3, regs->cr3);
+		if(differs(regs->cr4, regsCache_.cr4)) {
+			vmwrite(GUEST_CR4, guestCr4(regs->cr4));
+			vmwrite(CR4_READ_SHADOW, regs->cr4);
+			guestOsxsave_ = regs->cr4 & CR4_OSXSAVE;
+		}
+		cr8_ = regs->cr8 & 0xF;
 
-		vmwrite(GUEST_IDTR_BASE, regs->idt.base);
-		vmwrite(GUEST_IDTR_LIMIT, regs->idt.base);
+		if(differs(regs->efer, regsCache_.efer)) {
+			// The CPU updates the IA-32e mode guest control on exits; always write it.
+			setLongModeActive(regs->efer & EFER_LMA, regs->efer);
+			guestLme_ = regs->efer & EFER_LME;
+			updateMsrSwitching();
+		}
+		release_();
 
-
-		vmwrite(GUEST_CR0, regs->cr0);
-		vmwrite(GUEST_CR3, regs->cr3);
-		vmwrite(GUEST_CR4, regs->cr4);
-
-		vmwrite(VMCS_FIELD_GUEST_EFER_FULL, regs->efer);
+		regsCache_ = *regs;
+		regsCacheValid_ = true;
+		cachedRsp_ = regs->rsp;
+		cachedRip_ = regs->rip;
+		cachedRflags_ = regs->rflags;
+		basicCacheValid_ = true;
 	}
 
 	void Vmcs::loadRegs(HelX86VirtualizationRegs *regs) {
-		memcpy(regs, &state, sizeof(GuestState));
+		// Avoid VMREADs if nothing changed since the last load or store.
+		// The GPRs and CR2 are not part of the VMCS, so they are not cached.
+		if(regsCacheValid_)
+			*regs = regsCache_;
+
+		regs->rax = state.rax;
+		regs->rbx = state.rbx;
+		regs->rcx = state.rcx;
+		regs->rdx = state.rdx;
+		regs->rsi = state.rsi;
+		regs->rdi = state.rdi;
+		regs->rbp = state.rbp;
+		regs->r8 = state.r8;
+		regs->r9 = state.r9;
+		regs->r10 = state.r10;
+		regs->r11 = state.r11;
+		regs->r12 = state.r12;
+		regs->r13 = state.r13;
+		regs->r14 = state.r14;
+		regs->r15 = state.r15;
+		regs->cr2 = state.cr2;
+
+		if(regsCacheValid_) {
+			regs->cr8 = cr8_;
+			return;
+		}
+
+		// See storeRegs().
+		StatelessIrqLock irqLock;
+		acquire_();
 
 		regs->rsp = vmread(GUEST_RSP);
-		regs->rip = vmread(GUEST_RIP);
+		regs->rip = ripDirty_ ? cachedRip_ : vmread(GUEST_RIP);
+		regs->rflags = vmread(GUEST_RFLAG);
 
 		#define GET_SEGMENT(segment, segment_capital) \
             regs->segment.base = vmread(GUEST_##segment_capital##_BASE); \
@@ -454,7 +998,8 @@ namespace thor::vmx {
                 regs->segment.l = (seg >> 13) & 1; \
                 regs->segment.db = (seg >> 14) & 1; \
                 regs->segment.g = (seg >> 15) & 1; \
-            } 
+                regs->segment.unusable = (seg >> 16) & 1; \
+            }
 
 		GET_SEGMENT(cs, CS);
 		GET_SEGMENT(ds, DS);
@@ -467,26 +1012,352 @@ namespace thor::vmx {
 		GET_SEGMENT(tr, TR);
 
 		regs->gdt.base = vmread(GUEST_GDTR_BASE);
-		regs->gdt.base = vmread(GUEST_GDTR_LIMIT);
+		regs->gdt.limit = vmread(GUEST_GDTR_LIMIT);
 
 		regs->idt.base = vmread(GUEST_IDTR_BASE);
-		regs->idt.base = vmread(GUEST_IDTR_LIMIT);
+		regs->idt.limit = vmread(GUEST_IDTR_LIMIT);
 
-		regs->cr0 = vmread(GUEST_CR0);
+		// The guest sees the read shadows for the bits that VMX forces to 1.
+		regs->cr0 = guestCr0Value();
 		regs->cr3 = vmread(GUEST_CR3);
-		regs->cr4 = vmread(GUEST_CR4);
+		regs->cr4 = (vmread(GUEST_CR4) & ~cr4Mask()) | (vmread(CR4_READ_SHADOW) & cr4Mask());
+		regs->cr8 = cr8_;
 
 		regs->efer = vmread(VMCS_FIELD_GUEST_EFER_FULL);
+		release_();
+
+		regsCache_ = *regs;
+		regsCacheValid_ = true;
+		cachedRsp_ = regs->rsp;
+		cachedRip_ = regs->rip;
+		cachedRflags_ = regs->rflags;
+		basicCacheValid_ = true;
 	}
 
-	bool Vmcs::assertInterrupt(uint64_t number, bool level) {
-		// TODO: Implement using virtualized APIC.
-		(void)number;
-		(void)level;
+	void Vmcs::storeBasicRegs(const HelX86VirtualizationBasicRegs *regs) {
+		state.rax = regs->rax;
+		state.rbx = regs->rbx;
+		state.rcx = regs->rcx;
+		state.rdx = regs->rdx;
+		state.rsi = regs->rsi;
+		state.rdi = regs->rdi;
+		state.rbp = regs->rbp;
+		state.r8 = regs->r8;
+		state.r9 = regs->r9;
+		state.r10 = regs->r10;
+		state.r11 = regs->r11;
+		state.r12 = regs->r12;
+		state.r13 = regs->r13;
+		state.r14 = regs->r14;
+		state.r15 = regs->r15;
+
+		bool writeRsp = !basicCacheValid_ || regs->rsp != cachedRsp_;
+		bool writeRip = !basicCacheValid_ || regs->rip != cachedRip_;
+		bool writeRflags = !basicCacheValid_ || regs->rflags != cachedRflags_;
+		if(writeRsp || writeRip || writeRflags) {
+			// See the constructor.
+			StatelessIrqLock irqLock;
+			acquire_();
+			if(writeRsp)
+				vmwrite(GUEST_RSP, regs->rsp);
+			if(writeRip)
+				vmwrite(GUEST_RIP, regs->rip);
+			if(writeRflags)
+				vmwrite(GUEST_RFLAG, regs->rflags);
+			release_();
+		}
+
+		cachedRsp_ = regs->rsp;
+		cachedRip_ = regs->rip;
+		cachedRflags_ = regs->rflags;
+		basicCacheValid_ = true;
+		if(regsCacheValid_) {
+			regsCache_.rsp = regs->rsp;
+			regsCache_.rip = regs->rip;
+			regsCache_.rflags = regs->rflags;
+		}
+	}
+
+	void Vmcs::loadBasicRegsCache() {
+		if(basicCacheValid_)
+			return;
+		// See the constructor.
+		StatelessIrqLock irqLock;
+		acquire_();
+		cachedRsp_ = vmread(GUEST_RSP);
+		cachedRip_ = vmread(GUEST_RIP);
+		cachedRflags_ = vmread(GUEST_RFLAG);
+		release_();
+		basicCacheValid_ = true;
+	}
+
+	void Vmcs::loadBasicRegs(HelX86VirtualizationBasicRegs *regs) {
+		regs->rax = state.rax;
+		regs->rbx = state.rbx;
+		regs->rcx = state.rcx;
+		regs->rdx = state.rdx;
+		regs->rsi = state.rsi;
+		regs->rdi = state.rdi;
+		regs->rbp = state.rbp;
+		regs->r8 = state.r8;
+		regs->r9 = state.r9;
+		regs->r10 = state.r10;
+		regs->r11 = state.r11;
+		regs->r12 = state.r12;
+		regs->r13 = state.r13;
+		regs->r14 = state.r14;
+		regs->r15 = state.r15;
+		loadBasicRegsCache();
+		regs->rsp = cachedRsp_;
+		regs->rip = cachedRip_;
+		regs->rflags = cachedRflags_;
+	}
+
+	bool Vmcs::storeMsrs(const HelX86VirtualizationMsrs *msrs) {
+		// Invalid values would make VM entries fail (or fault when we switch XCR0).
+		if(!isValidXcr0(msrs->xcr0))
+			return false;
+		if(!isCanonical(msrs->kernelGsBase) || !isCanonical(msrs->lstar)
+				|| !isCanonical(msrs->cstar) || (msrs->sfmask >> 32)
+				|| !isCanonical(msrs->sysenterEsp) || !isCanonical(msrs->sysenterEip))
+			return false;
+
+		guestMsrs_[0].data = msrs->star;
+		guestMsrs_[1].data = msrs->lstar;
+		guestMsrs_[2].data = msrs->cstar;
+		guestMsrs_[3].data = msrs->sfmask;
+		guestMsrs_[kernelGsBaseEntry].data = msrs->kernelGsBase;
+		guestXcr0_ = msrs->xcr0;
+
+		// See the constructor.
+		StatelessIrqLock irqLock;
+		acquire_();
+		if(msrs->sysenterCs != sysenterCs_)
+			vmwrite(GUEST_IA32_SYSENTER_CS, msrs->sysenterCs);
+		if(msrs->sysenterEsp != sysenterEsp_)
+			vmwrite(GUEST_IA32_SYSENTER_ESP, msrs->sysenterEsp);
+		if(msrs->sysenterEip != sysenterEip_)
+			vmwrite(GUEST_IA32_SYSENTER_EIP, msrs->sysenterEip);
+		updateMsrSwitching();
+		release_();
+
+		sysenterCs_ = msrs->sysenterCs;
+		sysenterEsp_ = msrs->sysenterEsp;
+		sysenterEip_ = msrs->sysenterEip;
+		return true;
+	}
+
+	void Vmcs::loadMsrs(HelX86VirtualizationMsrs *msrs) {
+		// The guest can only change these MSRs through exits to userspace,
+		// except for KERNEL_GS_BASE, which the CPU stores on exits.
+		msrs->star = guestMsrs_[0].data;
+		msrs->lstar = guestMsrs_[1].data;
+		msrs->cstar = guestMsrs_[2].data;
+		msrs->sfmask = guestMsrs_[3].data;
+		msrs->kernelGsBase = guestMsrs_[kernelGsBaseEntry].data;
+		msrs->sysenterCs = sysenterCs_;
+		msrs->sysenterEsp = sysenterEsp_;
+		msrs->sysenterEip = sysenterEip_;
+		msrs->xcr0 = guestXcr0_;
+	}
+
+	void Vmcs::updateMsrSwitching() {
+		// The guest can only use SWAPGS (which changes KERNEL_GS_BASE) after setting EFER.LME.
+		bool used = guestLme_;
+		for(unsigned i = 0; i < numSwitchedMsrs; i++)
+			used = used || guestMsrs_[i].data;
+		unsigned count = used ? numSwitchedMsrs : 0;
+		if(count == msrCount_)
+			return;
+		vmwrite(VM_ENTRY_MSR_LOAD_COUNT, count);
+		vmwrite(VM_EXIT_MSR_LOAD_COUNT, count);
+		vmwrite(VM_EXIT_MSR_STORE_COUNT, count ? 1 : 0);
+		msrCount_ = count;
+	}
+
+	uint64_t Vmcs::readGpr(unsigned index) {
+		if(index == 4)
+			return vmread(GUEST_RSP);
+		return *gprSlot(state, index);
+	}
+
+	void Vmcs::writeGpr(unsigned index, uint64_t value) {
+		if(index == 4) {
+			vmwrite(GUEST_RSP, value);
+			return;
+		}
+		*gprSlot(state, index) = value;
+	}
+
+	void Vmcs::queueException(uint8_t vector, bool hasErrorCode, uint32_t errorCode) {
+		// Exceptions raised by emulated instructions are delivered on the next entry.
+		reinjectValid_ = true;
+		reinject_ = {};
+		reinject_.type = kEventHardwareException;
+		reinject_.vector = vector;
+		reinject_.hasErrorCode = hasErrorCode;
+		reinject_.errorCode = errorCode;
+	}
+
+	void Vmcs::clearInterruptShadow() {
+		auto interruptibility = vmread(GUEST_INTERRUPTIBILITY_STATE);
+		if(interruptibility & 3)
+			vmwrite(GUEST_INTERRUPTIBILITY_STATE, interruptibility & ~UINT64_C(3));
+	}
+
+	uint64_t Vmcs::guestCr0Value() {
+		// The guest sees the read shadow for the bits that VMX forces to 1.
+		return (vmread(GUEST_CR0) & ~cr0Forced()) | (vmread(CR0_READ_SHADOW) & cr0Forced());
+	}
+
+	uint64_t Vmcs::guestEfer() {
+		return vmread(VMCS_FIELD_GUEST_EFER_FULL);
+	}
+
+	void Vmcs::setLongModeActive(bool active, uint64_t efer) {
+		efer = active ? (efer | EFER_LMA) : (efer & ~EFER_LMA);
+		vmwrite(VMCS_FIELD_GUEST_EFER_FULL, efer);
+		vmwrite(VM_ENTRY_CONTROLS, entryControls_ | (active ? VM_ENTRY_IA32E_MODE : 0));
+	}
+
+	bool Vmcs::emulateCrAccess(uint64_t qualification) {
+		auto cr = qualification & 0xF;
+		auto accessType = (qualification >> 4) & 3;
+		auto reg = (qualification >> 8) & 0xF;
+
+		// Outside of long mode, only the low 32 bits of GPRs are used.
+		auto longMode = guestEfer() & EFER_LMA;
+		auto truncate = [&] (uint64_t value) {
+			return longMode ? value : (value & 0xFFFF'FFFF);
+		};
+
+		if(accessType == 0) { // MOV to CR.
+			auto value = truncate(readGpr(reg));
+			if(cr == 0)
+				return writeCr0(value);
+			if(cr == 3) {
+				// Bit 63 only suppresses TLB flushes (with PCIDs).
+				vmwrite(GUEST_CR3, value & ~(UINT64_C(1) << 63));
+				return true;
+			}
+			if(cr == 4)
+				return writeCr4(value);
+			if(cr == 8) {
+				if(value & ~UINT64_C(0xF)) {
+					queueException(GP_VECTOR, true, 0);
+					return false;
+				}
+				cr8_ = value;
+				return true;
+			}
+		} else if(accessType == 1) { // MOV from CR.
+			if(cr == 3) {
+				writeGpr(reg, truncate(vmread(GUEST_CR3)));
+				return true;
+			}
+			if(cr == 8) {
+				writeGpr(reg, cr8_);
+				return true;
+			}
+		} else if(accessType == 2) { // CLTS.
+			return writeCr0(guestCr0Value() & ~CR0_TS);
+		} else { // LMSW: sets the low 4 bits of CR0 but cannot clear PE.
+			auto data = (qualification >> 16) & 0xF;
+			return writeCr0((guestCr0Value() & ~UINT64_C(0xE)) | data);
+		}
+
+		infoLogger() << "vmx: Unexpected CR access, qualification 0x"
+				<< frg::hex_fmt{qualification} << frg::endlog;
+		queueException(UD_VECTOR, false, 0);
 		return false;
 	}
 
+	bool Vmcs::writeCr0(uint64_t value) {
+		if((value >> 32) || ((value & CR0_PG) && !(value & CR0_PE))
+				|| ((value & CR0_NW) && !(value & CR0_CD))) {
+			queueException(GP_VECTOR, true, 0);
+			return false;
+		}
+
+		// The instruction did not execute, so we need to (de)activate long mode
+		// like the CPU would.
+		auto old = guestCr0Value();
+		auto efer = guestEfer();
+		if((value & CR0_PG) && !(old & CR0_PG) && (efer & EFER_LME)) {
+			if(!(vmread(GUEST_CR4) & CR4_PAE)) {
+				queueException(GP_VECTOR, true, 0);
+				return false;
+			}
+			setLongModeActive(true, efer);
+		} else if(!(value & CR0_PG) && (old & CR0_PG) && (efer & EFER_LMA)) {
+			setLongModeActive(false, efer);
+		} else if((value & CR0_PG) && !(old & CR0_PG) && (vmread(GUEST_CR4) & CR4_PAE)) {
+			// TODO: Load the PDPTEs into the VMCS (the CPU does not do that on VM entry).
+			infoLogger() << "vmx: PAE paging without long mode is not supported" << frg::endlog;
+		}
+
+		vmwrite(GUEST_CR0, guestCr0(value));
+		vmwrite(CR0_READ_SHADOW, value);
+		return true;
+	}
+
+	bool Vmcs::writeCr4(uint64_t value) {
+		// We do not support nested virtualization.
+		if((value >> 32) || (value & CR4_VMXE)
+				|| ((guestEfer() & EFER_LMA) && !(value & CR4_PAE))) {
+			queueException(GP_VECTOR, true, 0);
+			return false;
+		}
+		// Without VPIDs, VM entries flush the TLB; hence, we do not need to flush it here.
+		vmwrite(GUEST_CR4, guestCr4(value));
+		vmwrite(CR4_READ_SHADOW, value);
+		guestOsxsave_ = value & CR4_OSXSAVE;
+		return true;
+	}
+
+	bool Vmcs::emulateXsetbv() {
+		if(!guestOsxsave_) {
+			queueException(UD_VECTOR, false, 0);
+			return false;
+		}
+		// XSETBV requires CPL 0 (i.e., SS.DPL 0).
+		bool cpl0 = !((vmread(GUEST_SS_ACCESS_RIGHT) >> 5) & 3);
+		uint32_t index = state.rcx;
+		uint64_t value = (state.rdx << 32) | static_cast<uint32_t>(state.rax);
+		if(!cpl0 || index != 0 || !isValidXcr0(value)) {
+			queueException(GP_VECTOR, true, 0);
+			return false;
+		}
+		guestXcr0_ = value;
+		return true;
+	}
+
+	void Vmcs::acquire_() {
+		auto &current = currentVmcs.get();
+		if(current == this)
+			return;
+		assert(!activeCpu_ || activeCpu_ == getCpuData());
+		if(vmptrld((PhysicalAddr)region))
+			infoLogger() << "vmx: VMCS load failed" << frg::endlog;
+		current = this;
+		activeCpu_ = getCpuData();
+	}
+
+	void Vmcs::release_() {
+		if(resident_ || !activeCpu_)
+			return;
+		assert(activeCpu_ == getCpuData());
+		vmclear((PhysicalAddr)region);
+		auto &current = currentVmcs.get();
+		if(current == this)
+			current = nullptr;
+		activeCpu_ = nullptr;
+		launched_ = false;
+	}
+
 	Vmcs::~Vmcs() {
+		assert(!activeCpu_);
 		physicalAllocator->free((size_t)region, kPageSize);
+		physicalAllocator->free(msrArea_, kPageSize);
 	}
 }

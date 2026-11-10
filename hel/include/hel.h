@@ -288,6 +288,8 @@ struct HelX86SegmentRegister {
 	uint32_t limit;
 	uint16_t selector;
 	uint8_t type, present, dpl, db, s, l, g, avl;
+	// The segment register does not hold a usable segment (e.g., a null selector).
+	uint8_t unusable;
 };
 
 struct HelX86DescriptorTable {
@@ -323,6 +325,41 @@ struct HelX86VirtualizationRegs {
 	uint64_t cr0, cr2, cr3, cr4, cr8;
 	uint64_t efer;
 	uint64_t apic_base;
+};
+
+// The registers that VMMs need on most exits,
+struct HelX86VirtualizationBasicRegs {
+	uint64_t rax;
+	uint64_t rbx;
+	uint64_t rcx;
+	uint64_t rdx;
+	uint64_t rsi;
+	uint64_t rdi;
+	uint64_t rbp;
+	uint64_t r8;
+	uint64_t r9;
+	uint64_t r10;
+	uint64_t r11;
+	uint64_t r12;
+	uint64_t r13;
+	uint64_t r14;
+	uint64_t r15;
+
+	uint64_t rsp;
+	uint64_t rip;
+	uint64_t rflags;
+};
+
+struct HelX86VirtualizationMsrs {
+	uint64_t kernelGsBase;
+	uint64_t star;
+	uint64_t lstar;
+	uint64_t cstar;
+	uint64_t sfmask;
+	uint64_t sysenterCs;
+	uint64_t sysenterEsp;
+	uint64_t sysenterEip;
+	uint64_t xcr0;
 };
 
 struct HelRiscv64VirtualizationRegs {
@@ -569,7 +606,9 @@ enum HelRegisterSets {
 	kHelRegsVirtualization = 5,
 	kHelRegsSimd = 6,
 	kHelRegsSignal = 7,
-	kHelRegsPageFault = 8
+	kHelRegsPageFault = 8,
+	kHelRegsVirtualizationBasic = 9,
+	kHelRegsVirtualizationMsrs = 10
 };
 
 enum HelPageFaultFlags {
@@ -1220,12 +1259,52 @@ struct HelThreadStats {
 
 enum {
   kHelVmexitHlt = 0,
+  // A guest-physical access to an unmapped address (e.g., MMIO).
+  // address is the guest-physical address and flags is a combination of kHelVmFault*.
+  // The instruction is neither decoded nor skipped; the VMM emulates it and advances RIP by itself.
   kHelVmexitTranslationFault = 1,
+  // VMCALL/VMMCALL (x86) or ECALL (RISC-V).
+  // On x86, it needs a completion; data[0] of the completion is written to RAX.
   kHelVmexitHyperCall = 2,
   kHelVmexitInstructionTrap = 3,
   kHelVmexitKicked = 4,
+  // x86 port I/O, it needs a completion.
+  // Address is the port, code is the access size in bytes, flags is a combination of kHelVmexitIo*.
+  // String I/O is emulated by the VMM (which decodes the instruction); the completion skips it.
+  // For non-string IN, data[0] of the completion is the value read.
+  // For non-string OUT, data is the value.
+  kHelVmexitIo = 5,
+  // x86 CPUID, it needs a completion.
+  // address is EAX (the leaf) and data is ECX (the subleaf).
+  // data[0..3] of the completion are written to EAX, EBX, ECX and EDX.
+  kHelVmexitCpuid = 6,
+  // x86 RDMSR, it needs a completion;
+  // address is the MSR index, data[0] of the completion is written to EDX:EAX.
+  kHelVmexitRdmsr = 7,
+  // x86 WRMSR, it needs a completion; address is the MSR index, data is the value.
+  kHelVmexitWrmsr = 8,
+  // The guest caused a triple fault.
+  kHelVmexitShutdown = 9,
+  // VM entry failed, code is the platform's entry failure reason.
   kHelVmexitError = -1,
+  // Unknown VM exit reason, code is the platform's exit reason.
   kHelVmexitUnknownPlatformSpecificExitCode = -2,
+};
+
+enum {
+  kHelVmexitIoIn = 1 << 0,
+  kHelVmexitIoString = 1 << 1,
+};
+
+enum {
+  kHelVmexitCompletionDone = 0,
+  kHelVmexitCompletionFault = 1,
+};
+
+struct HelVmexitCompletion {
+	uint32_t status;
+	uint32_t reserved;
+	uint64_t data[4];
 };
 
 enum {
@@ -1252,6 +1331,7 @@ struct HelVmexitReason {
 	uint32_t code;
 	size_t address;
 	size_t flags;
+	uint64_t data;
 };
 
 #endif
@@ -1765,7 +1845,19 @@ HEL_C_LINKAGE HelError helGetClock(uint64_t *counter);
 
 HEL_C_LINKAGE HelError helCreateVirtualizedCpu(HelHandle handle, HelHandle *out_handle);
 
-HEL_C_LINKAGE HelError helRunVirtualizedCpu(HelHandle handle, struct HelVmexitReason *reason);
+//! Runs a virtualized CPU until it exits to the VMM.
+//!
+//! Only one thread can use a virtualized CPU at a time. While it runs, or while its registers
+//! are being accessed, helRunVirtualizedCpu()/helLoadRegisters()/helStoreRegisters() on it will
+//! fail with kHelErrIllegalState.
+//! @param[in] handle
+//!     Handle to the virtualized CPU.
+//! @param[in] completion
+//!     Completion for the previous exit, must be null if there isn't an exit needing completion.
+//! @param[out] reason
+//!     Receives information about why the vCPU exited.
+HEL_C_LINKAGE HelError helRunVirtualizedCpu(HelHandle handle,
+		const struct HelVmexitCompletion *completion, struct HelVmexitReason *reason);
 
 HEL_C_LINKAGE HelError helAssertVirtualizedIrq(HelHandle handle, uint64_t irq, uint8_t level);
 

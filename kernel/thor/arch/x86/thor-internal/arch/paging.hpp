@@ -23,6 +23,8 @@ constexpr uint64_t ptePcd = 0x10;
 constexpr uint64_t pteAccessed = 0x20;
 constexpr uint64_t pteDirty = 0x40;
 constexpr uint64_t ptePat = 0x80;
+// Same bit as ptePat, but in entries above the last level.
+constexpr uint64_t ptePageSize = 0x80;
 constexpr uint64_t pteGlobal = 0x100;
 constexpr uint64_t pteAgeMask = UINT64_C(3) << pteAgeShift;
 constexpr uint64_t pteXd = 0x8000000000000000;
@@ -134,6 +136,9 @@ struct X86CursorPolicy {
 	static constexpr void pteWriteBarrier(uint64_t *) { }
 	static constexpr void pteSyncICache(uintptr_t) { }
 
+	static constexpr bool pteIsHugePage(uint64_t pte) {
+		return (pte & ptePresent) && (pte & ptePageSize);
+	}
 
 	static constexpr bool pteTablePresent(uint64_t pte) {
 		return pte & ptePresent;

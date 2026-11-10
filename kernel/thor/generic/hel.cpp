@@ -31,6 +31,7 @@
 #include <thor-internal/dtb/dtb.hpp>
 #endif
 #ifdef __x86_64__
+#include <thor-internal/arch/virtualization.hpp>
 #include <thor-internal/arch/debug.hpp>
 #include <thor-internal/arch/ept.hpp>
 #include <thor-internal/arch/vmx.hpp>
@@ -1495,7 +1496,8 @@ HelError helCreateVirtualizedCpu(HelHandle handle, HelHandle *out) {
 #endif
 }
 
-HelError helRunVirtualizedCpu(HelHandle handle, HelVmexitReason *exitInfo) {
+HelError helRunVirtualizedCpu(HelHandle handle, const HelVmexitCompletion *completion,
+		HelVmexitReason *exitInfo) {
 	if(!getCpuData()->haveVirtualization) {
 		return kHelErrNoHardwareSupport;
 	}
@@ -1507,7 +1509,15 @@ HelError helRunVirtualizedCpu(HelHandle handle, HelVmexitReason *exitInfo) {
 		return translateError(vcpuOutcome.error());
 	auto vcpu = std::move(*vcpuOutcome);
 
-	auto runOutcome = vcpu->run();
+	VirtualizedCpu::UseGuard vcpuGuard{vcpu.get()};
+	if(!vcpuGuard)
+		return kHelErrIllegalState;
+
+	HelVmexitCompletion kernelCompletion;
+	if(completion && !readUserObject(completion, kernelCompletion))
+		return kHelErrFault;
+
+	auto runOutcome = vcpu->run(completion ? &kernelCompletion : nullptr);
 	if(!runOutcome)
 		return translateError(runOutcome.error());
 
@@ -1836,6 +1846,12 @@ std::expected<UnmapMemoryOperands, Error> resolveUnmapMemory(HelHandle space_han
 				if(!addressSpaceOutcome)
 					return std::unexpected{addressSpaceOutcome.error()};
 				space = std::move(*addressSpaceOutcome);
+				return {};
+			}else if(desc.is<DescriptorType::virtualizedSpace>()) {
+				auto vspaceOutcome = desc.resolveObject<DescriptorType::virtualizedSpace>(kHelRightGrant);
+				if(!vspaceOutcome)
+					return std::unexpected{vspaceOutcome.error()};
+				vspace = std::move(*vspaceOutcome);
 				return {};
 			}else if(desc.is<DescriptorType::dmaSpace>()) {
 				auto dmaOutcome = desc.resolveObject<DescriptorType::dmaSpace>(kHelRightGrant);
@@ -2674,6 +2690,10 @@ HelError helLoadRegisters(HelHandle handle, int set, void *image) {
 	if(activeThread)
 		thread = smarter::rc_policy_downcast<smarter::default_rc_policy>(activeThread);
 
+	VirtualizedCpu::UseGuard vcpuGuard{vcpu.get()};
+	if(vcpu && !vcpuGuard)
+		return kHelErrIllegalState;
+
 	if(set == kHelRegsProgram) {
 		if(!thread) {
 			return kHelErrIllegalArgs;
@@ -2789,6 +2809,33 @@ HelError helLoadRegisters(HelHandle handle, int set, void *image) {
 		memset(&regs, 0, sizeof(HelRiscv64VirtualizationRegs));
 		vcpu->loadRegs(&regs);
 		if(!writeUserObject(reinterpret_cast<HelRiscv64VirtualizationRegs *>(image), regs))
+			return kHelErrFault;
+#else
+		return kHelErrNoHardwareSupport;
+#endif
+	}else if(set == kHelRegsVirtualizationBasic) {
+		if(!vcpu) {
+			return kHelErrIllegalArgs;
+		}
+#ifdef __x86_64__
+		auto x86Vcpu = smarter::static_pointer_cast<X86VirtualizedCpu>(vcpu);
+		HelX86VirtualizationBasicRegs regs;
+		x86Vcpu->loadBasicRegs(&regs);
+		if(!writeUserObject(reinterpret_cast<HelX86VirtualizationBasicRegs *>(image), regs))
+			return kHelErrFault;
+#else
+		return kHelErrNoHardwareSupport;
+#endif
+	}else if(set == kHelRegsVirtualizationMsrs) {
+		if(!vcpu) {
+			return kHelErrIllegalArgs;
+		}
+#ifdef __x86_64__
+		auto x86Vcpu = smarter::static_pointer_cast<X86VirtualizedCpu>(vcpu);
+		HelX86VirtualizationMsrs msrs;
+		memset(&msrs, 0, sizeof(HelX86VirtualizationMsrs));
+		x86Vcpu->loadMsrs(&msrs);
+		if(!writeUserObject(reinterpret_cast<HelX86VirtualizationMsrs *>(image), msrs))
 			return kHelErrFault;
 #else
 		return kHelErrNoHardwareSupport;
@@ -2957,6 +3004,10 @@ HelError helStoreRegisters(HelHandle handle, int set, const void *image) {
 			thread = smarter::rc_policy_downcast<smarter::default_rc_policy>(activeThread);
 	}
 
+	VirtualizedCpu::UseGuard vcpuGuard{vcpu.get()};
+	if(vcpu && !vcpuGuard)
+		return kHelErrIllegalState;
+
 	if(set == kHelRegsProgram) {
 		if(!thread) {
 			return kHelErrIllegalArgs;
@@ -3083,6 +3134,33 @@ HelError helStoreRegisters(HelHandle handle, int set, const void *image) {
 		if(!readUserObject(reinterpret_cast<const HelRiscv64VirtualizationRegs *>(image), regs))
 			return kHelErrFault;
 		vcpu->storeRegs(&regs);
+#else
+		return kHelErrNoHardwareSupport;
+#endif
+	}else if(set == kHelRegsVirtualizationBasic) {
+		if(!vcpu) {
+			return kHelErrIllegalArgs;
+		}
+#ifdef __x86_64__
+		auto x86Vcpu = smarter::static_pointer_cast<X86VirtualizedCpu>(vcpu);
+		HelX86VirtualizationBasicRegs regs;
+		if(!readUserObject(reinterpret_cast<const HelX86VirtualizationBasicRegs *>(image), regs))
+			return kHelErrFault;
+		x86Vcpu->storeBasicRegs(&regs);
+#else
+		return kHelErrNoHardwareSupport;
+#endif
+	}else if(set == kHelRegsVirtualizationMsrs) {
+		if(!vcpu) {
+			return kHelErrIllegalArgs;
+		}
+#ifdef __x86_64__
+		auto x86Vcpu = smarter::static_pointer_cast<X86VirtualizedCpu>(vcpu);
+		HelX86VirtualizationMsrs msrs;
+		if(!readUserObject(reinterpret_cast<const HelX86VirtualizationMsrs *>(image), msrs))
+			return kHelErrFault;
+		if(!x86Vcpu->storeMsrs(&msrs))
+			return kHelErrIllegalArgs;
 #else
 		return kHelErrNoHardwareSupport;
 #endif
@@ -4611,6 +4689,12 @@ HelError helQueryRegisterInfo(int set, HelRegisterInfo *info) {
 #if defined (__x86_64__)
 		case kHelRegsVirtualization:
 			outInfo.setSize = sizeof(HelX86VirtualizationRegs);
+			break;
+		case kHelRegsVirtualizationMsrs:
+			outInfo.setSize = sizeof(HelX86VirtualizationMsrs);
+			break;
+		case kHelRegsVirtualizationBasic:
+			outInfo.setSize = sizeof(HelX86VirtualizationBasicRegs);
 			break;
 #elif defined (__riscv) && __riscv_xlen == 64
 		case kHelRegsVirtualization:

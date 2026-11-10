@@ -225,8 +225,9 @@ extern inline __attribute__ (( always_inline )) HelError helCreateVirtualizedCpu
 	return error;
 }
 
-extern inline __attribute__ (( always_inline )) HelError helRunVirtualizedCpu(HelHandle handle, struct HelVmexitReason *exitInfo) {
-	HelError error = helSyscall2(kHelCallRunVirtualizedCpu, (HelWord)handle, (HelWord)exitInfo);
+extern inline __attribute__ (( always_inline )) HelError helRunVirtualizedCpu(HelHandle handle,
+		const struct HelVmexitCompletion *completion, struct HelVmexitReason *exitInfo) {
+	HelError error = helSyscall3(kHelCallRunVirtualizedCpu, (HelWord)handle, (HelWord)completion, (HelWord)exitInfo);
 	return error;
 }
 

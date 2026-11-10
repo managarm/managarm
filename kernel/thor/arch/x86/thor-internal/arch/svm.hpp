@@ -1,8 +1,9 @@
 #pragma once
 
-#include "../../../hel/include/hel.h"
+#include <hel.h>
+
 #include <thor-internal/arch/npt.hpp>
-#include <thor-internal/virtualization.hpp>
+#include <thor-internal/arch/virtualization.hpp>
 
 namespace thor::svm {
 	bool init();
@@ -199,7 +200,7 @@ namespace thor::svm {
 		kSvmExitNPTFault = 0x400,
 	};
 
-	struct Vcpu final : VirtualizedCpu {
+	struct Vcpu final : X86VirtualizedCpu {
 	private:
 		struct CtorToken {};
 
@@ -216,11 +217,33 @@ namespace thor::svm {
 		Vcpu(const Vcpu &) = delete;
 		Vcpu &operator=(const Vcpu &) = delete;
 
-		frg::expected<Error, HelVmexitReason> run() override;
+		frg::expected<Error, HelVmexitReason> run(const HelVmexitCompletion *completion) override;
 		void storeRegs(const HelX86VirtualizationRegs *regs) override;
 		void loadRegs(HelX86VirtualizationRegs *res) override;
 
 		bool assertInterrupt(uint64_t number, bool level) override;
+
+		// The basic registers are a prefix of the full set.
+		void storeBasicRegs(const HelX86VirtualizationBasicRegs *basic) override {
+			HelX86VirtualizationRegs regs;
+			loadRegs(&regs);
+			memcpy(&regs, basic, sizeof(*basic));
+			storeRegs(&regs);
+		}
+		void loadBasicRegs(HelX86VirtualizationBasicRegs *basic) override {
+			HelX86VirtualizationRegs regs;
+			loadRegs(&regs);
+			memcpy(basic, &regs, sizeof(*basic));
+		}
+
+		// TODO: Switch these MSRs (VMLOAD/VMSAVE and the save area) and XCR0.
+		bool storeMsrs(const HelX86VirtualizationMsrs *msrs) override {
+			msrs_ = *msrs;
+			return true;
+		}
+		void loadMsrs(HelX86VirtualizationMsrs *msrs) override {
+			*msrs = msrs_;
+		}
 
 		PhysicalAddr vmcb_region, host_additional_save_region, iopm_bitmap, msrpm_bitmap;
 		volatile Vmcb *vmcb;
@@ -229,5 +252,7 @@ namespace thor::svm {
 		uint8_t *host_fpu_state, *guest_fpu_state;
 
 		smarter::shared_ptr<NptSpace> space;
+
+		HelX86VirtualizationMsrs msrs_{};
 	};
 }

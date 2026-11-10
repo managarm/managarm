@@ -1,8 +1,9 @@
 #pragma once
 
 #include <hel.h>
+
 #include <thor-internal/arch/ept.hpp>
-#include <thor-internal/virtualization.hpp>
+#include <thor-internal/arch/virtualization.hpp>
 
 namespace thor::vmx {
 	constexpr uint64_t MSR_IA32_VMX_PINBASED_CTLS        = 0x00000481;
@@ -53,6 +54,15 @@ namespace thor::vmx {
 	constexpr uint64_t IA32_VMX_VM_EXIT_CTLS_MSR         = 0x483;
 	constexpr uint64_t IA32_VMX_VM_ENTRY_CTLS_MSR        = 0x484;
 	constexpr uint64_t HOST_EFER_FULL                    = 0x00002c02;
+	// Used instead of the CTLS MSRs if bit 55 of IA32_VMX_BASIC is set.
+	constexpr uint64_t IA32_VMX_TRUE_PINBASED_CTLS_MSR   = 0x48d;
+	constexpr uint64_t IA32_VMX_TRUE_PROCBASED_CTLS_MSR  = 0x48e;
+	constexpr uint64_t IA32_VMX_TRUE_EXIT_CTLS_MSR       = 0x48f;
+	constexpr uint64_t IA32_VMX_TRUE_ENTRY_CTLS_MSR      = 0x490;
+	constexpr uint64_t CR0_GUEST_HOST_MASK               = 0x00006000;
+	constexpr uint64_t CR4_GUEST_HOST_MASK               = 0x00006002;
+	constexpr uint64_t CR0_READ_SHADOW                   = 0x00006004;
+	constexpr uint64_t CR4_READ_SHADOW                   = 0x00006006;
 
 	constexpr uint64_t GUEST_DR7 = 0x0000681A;
 	constexpr uint64_t GUEST_RSP = 0x0000681C;
@@ -102,6 +112,14 @@ namespace thor::vmx {
 	constexpr uint64_t GUEST_INTERRUPTIBILITY_STATE = 0x00004824;
 	constexpr uint64_t GUEST_SMBASE                 = 0x00004828;
 	constexpr uint64_t GUEST_IA32_SYSENTER_CS       = 0x0000482A;
+	constexpr uint64_t GUEST_IA32_SYSENTER_ESP      = 0x00006824;
+	constexpr uint64_t GUEST_IA32_SYSENTER_EIP      = 0x00006826;
+	constexpr uint64_t VM_EXIT_MSR_STORE_COUNT      = 0x0000400E;
+	constexpr uint64_t VM_EXIT_MSR_LOAD_COUNT       = 0x00004010;
+	constexpr uint64_t VM_ENTRY_MSR_LOAD_COUNT      = 0x00004014;
+	constexpr uint64_t VM_EXIT_MSR_STORE_ADDR       = 0x00002006;
+	constexpr uint64_t VM_EXIT_MSR_LOAD_ADDR        = 0x00002008;
+	constexpr uint64_t VM_ENTRY_MSR_LOAD_ADDR       = 0x0000200A;
 	constexpr uint64_t GUEST_VMX_PREEMPTION_TIMER   = 0x0000482E;
 	constexpr uint64_t VMCS_FIELD_GUEST_EFER_FULL   = 0x00002806;
 	constexpr uint64_t MSR_FS_BASE                  = 0xc0000100;
@@ -117,6 +135,13 @@ namespace thor::vmx {
 	constexpr uint64_t VM_INSTRUCTION_ERROR              = 0x00004400;
 	constexpr uint64_t EPT_VIOLATION_ADDRESS             = 0x00002400;
 	constexpr uint64_t EPT_VIOLATION_FLAGS               = 0x00006400;
+	constexpr uint64_t EXIT_QUALIFICATION                = 0x00006400;
+	constexpr uint64_t VM_EXIT_INSTRUCTION_LEN           = 0x0000440c;
+	constexpr uint64_t VM_ENTRY_INTR_INFO                = 0x00004016;
+	constexpr uint64_t VM_ENTRY_EXCEPTION_ERROR_CODE     = 0x00004018;
+	constexpr uint64_t VM_ENTRY_INSTRUCTION_LEN          = 0x0000401a;
+	constexpr uint64_t IDT_VECTORING_INFO                = 0x00004408;
+	constexpr uint64_t IDT_VECTORING_ERROR_CODE          = 0x0000440a;
 
 	constexpr uint64_t DATA_ACCESS_RIGHT = (0x3 | 1 << 4 | 1 << 7);
 	constexpr uint64_t CODE_ACCESS_RIGHT = (0x3 | 1 << 4 | 1 << 7 | 1 << 13);
@@ -124,14 +149,25 @@ namespace thor::vmx {
 	constexpr uint64_t TR_ACCESS_RIGHT   = (0x3 | 1 << 7);
 
 	constexpr uint64_t VMEXIT_EXTERNAL_INTERRUPT           = 1;
+	constexpr uint64_t VMEXIT_TRIPLE_FAULT                 = 2;
+	constexpr uint64_t VMEXIT_CPUID                        = 10;
 	constexpr uint64_t VMEXIT_HLT                          = 12;
+	constexpr uint64_t VMEXIT_VMCALL                       = 18;
+	constexpr uint64_t VMEXIT_CR_ACCESS                    = 28;
+	constexpr uint64_t VMEXIT_IO_INSTRUCTION               = 30;
+	constexpr uint64_t VMEXIT_RDMSR                        = 31;
+	constexpr uint64_t VMEXIT_WRMSR                        = 32;
 	constexpr uint64_t VMEXIT_EPT_VIOLATION                = 48;
+	constexpr uint64_t VMEXIT_XSETBV                       = 55;
 
 	constexpr uint64_t VMEXIT_CONTROLS_LONG_MODE      = 1 << 9;
+	constexpr uint64_t VMEXIT_CONTROLS_SAVE_IA32_EFER = 1 << 20;
 	constexpr uint64_t VMEXIT_CONTROLS_LOAD_IA32_EFER = 1 << 21;
 	constexpr uint64_t VMEXIT_ON_HLT                  = 1 << 7;
+	constexpr uint64_t CR8_LOAD_EXITING               = 1 << 19;
+	constexpr uint64_t CR8_STORE_EXITING              = 1 << 20;
 	constexpr uint64_t VMEXIT_ON_PIO                  = 1 << 24;
-	constexpr uint64_t SECONDARY_CONTROLS_ON          = 1 << 31;
+	constexpr uint64_t SECONDARY_CONTROLS_ON          = UINT64_C(1) << 31;
 	constexpr uint64_t EPT_ENABLE                     = 1 << 1;
 	constexpr uint64_t UNRESTRICTED_GUEST             = 1 << 7;
 	constexpr uint64_t VMEXIT_ON_DESCRIPTOR           = 1 << 2;
@@ -153,11 +189,12 @@ namespace thor::vmx {
 		uint64_t r13;
 		uint64_t r14;
 		uint64_t r15;
+		uint64_t cr2;
 	};
 
 	bool vmxon();
 
-	struct Vmcs final : VirtualizedCpu {
+	struct Vmcs final : X86VirtualizedCpu {
 	private:
 		struct CtorToken {};
 
@@ -174,11 +211,17 @@ namespace thor::vmx {
 		Vmcs(const Vmcs& vmcs) = delete;
 		Vmcs& operator=(const Vmcs& vmcs) = delete;
 
-		frg::expected<Error, HelVmexitReason> run() override;
+		frg::expected<Error, HelVmexitReason> run(const HelVmexitCompletion *completion) override;
 		void storeRegs(const HelX86VirtualizationRegs *regs) override;
 		void loadRegs(HelX86VirtualizationRegs *res) override;
 
 		bool assertInterrupt(uint64_t number, bool level) override;
+
+		void storeBasicRegs(const HelX86VirtualizationBasicRegs *regs) override;
+		void loadBasicRegs(HelX86VirtualizationBasicRegs *regs) override;
+
+		bool storeMsrs(const HelX86VirtualizationMsrs *msrs) override;
+		void loadMsrs(HelX86VirtualizationMsrs *msrs) override;
 
 		void *region;
 		uint8_t* hostFstate;
@@ -188,5 +231,118 @@ namespace thor::vmx {
 
 		GuestState state;
 		uint64_t saved_host_rsp;
+
+	private:
+		// An entry of the VM-entry / VM-exit MSR areas.
+		struct MsrEntry {
+			uint32_t index;
+			uint32_t reserved;
+			uint64_t data;
+		};
+
+		// Number of MSRs that we switch through the MSR areas (see the constructor).
+		static constexpr unsigned numSwitchedMsrs = 5;
+		static constexpr unsigned kernelGsBaseEntry = 4;
+
+		void acquire_();
+		void release_();
+
+		// The CPU on which the VMCS is active (or null) and whether it was launched there.
+		CpuData *activeCpu_ = nullptr;
+		bool launched_ = false;
+		bool resident_ = false;
+
+		// Access GPRs by their encoding in instructions.
+		// The following functions must be called with interrupts disabled while the VMCS is active.
+		uint64_t readGpr(unsigned index);
+		void writeGpr(unsigned index, uint64_t value);
+		void queueException(uint8_t vector, bool hasErrorCode, uint32_t errorCode);
+		// Blocking by STI / MOV SS ends with the instruction that it covers;
+		// this needs to be called whenever we skip an instruction.
+		void clearInterruptShadow();
+
+		uint64_t guestCr0Value();
+		uint64_t guestEfer();
+		void setLongModeActive(bool active, uint64_t efer);
+
+		// These return false if an exception is injected.
+		bool emulateCrAccess(uint64_t qualification);
+		bool writeCr0(uint64_t value);
+		bool writeCr4(uint64_t value);
+		bool emulateXsetbv();
+		// Enables the MSR areas if the guest uses any of the switched MSRs.
+		void updateMsrSwitching();
+
+		// Makes sure that cachedRsp_, cachedRip_ and cachedRflags_ are valid.
+		void loadBasicRegsCache();
+
+		// The VM-entry controls (without the IA-32e mode guest control).
+		uint32_t entryControls_ = 0;
+
+		// One page for the MSR areas: guest values (loaded on entry) followed by
+		// host values (loaded on exit). The guest's KERNEL_GS_BASE is stored on exit
+		// since SWAPGS changes it without an exit.
+		PhysicalAddr msrArea_;
+		MsrEntry *guestMsrs_;
+		MsrEntry *hostMsrs_;
+		// Number of MSRs in the areas (0 or numSwitchedMsrs).
+		unsigned msrCount_ = 0;
+		uint64_t sysenterCs_ = 0, sysenterEsp_ = 0, sysenterEip_ = 0;
+		// Guest EFER.LME; while it is set, the guest may switch to long mode at any time.
+		bool guestLme_ = false;
+		// Guest CR4.OSXSAVE; CR4 writes that change it cause exits.
+		// While it is clear the guest cannot observe XCR0.
+		bool guestOsxsave_ = false;
+		uint64_t guestXcr0_ = 1;
+
+		// CR8 accesses cause exits since we do not use a TPR shadow.
+		uint64_t cr8_ = 0;
+
+		// The VMCS host state is written only when CPU or the FS base changes.
+		bool hostSelectorsWritten_ = false;
+		bool hostFsBaseWritten_ = false;
+		CpuData *hostStateCpu_ = nullptr;
+		uint64_t hostFsBase_ = 0;
+
+		// The CR3 of the address space changes when its PCID is rebound.
+		uint64_t hostCr3_ = 0;
+
+		// The guest state as in the VMCS, valid from loadRegs()/storeRegs() until the next entry.
+		bool regsCacheValid_ = false;
+		HelX86VirtualizationRegs regsCache_{};
+
+		// RSP, RIP and RFLAGS as in the VMCS.
+		bool basicCacheValid_ = false;
+		uint64_t cachedRsp_ = 0, cachedRip_ = 0, cachedRflags_ = 0;
+
+		// cachedRip_ is newer than the VMCS (after a completion skipped an instruction);
+		// run() writes it before the next entry.
+		bool ripDirty_ = false;
+
+		// An event to inject on the next entry, an event whose delivery was interrupted by
+		// a VM exit or an exception that an emulated instruction raised.
+		struct Event {
+			uint8_t type;
+			uint8_t vector;
+			bool hasErrorCode;
+			uint32_t errorCode;
+			// For software interrupts and exceptions.
+			uint32_t instructionLength;
+		};
+		bool reinjectValid_ = false;
+		Event reinject_{};
+
+		// The exit that userspace needs to complete (see HelVmexitCompletion).
+		struct PendingCompletion {
+			uint32_t exitReason;
+			// Length of the instruction that the completion skips.
+			uint32_t instructionLength;
+			// For port I/O.
+			uint8_t ioSize;
+			bool ioIn;
+			bool ioString;
+		};
+		bool completionPending_ = false;
+		PendingCompletion pendingCompletion_{};
 	};
 }
