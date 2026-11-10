@@ -73,6 +73,36 @@ namespace {
 		return common::x86::rdmsr(thor::vmx::IA32_VMX_BASIC_MSR) & (UINT64_C(1) << 55);
 	}
 
+	// The IA32_VMX_CR{0,4}_FIXED{0,1} MSRs, read once by vmxon().
+	uint64_t cr0Fixed0, cr0Fixed1, cr4Fixed0, cr4Fixed1;
+
+	// Bits of CR0/CR4 that VMX forces to 1 in the guest.
+	// The guest sees its own values of these bits through the read shadows.
+	uint64_t cr0Forced() {
+		// Unrestricted guests can run without paging and protected mode.
+		return cr0Fixed0 & ~UINT64_C(0x8000'0001);
+	}
+
+	uint64_t cr4Forced() {
+		return cr4Fixed0;
+	}
+
+	uint64_t guestCr0(uint64_t cr0) {
+		return (cr0 | cr0Forced()) & cr0Fixed1;
+	}
+
+	uint64_t guestCr4(uint64_t cr4) {
+		return (cr4 | cr4Forced()) & cr4Fixed1;
+	}
+
+	constexpr uint64_t CR4_OSXSAVE = UINT64_C(1) << 18;
+
+	// CR4 bits whose writes exit: the bits that VMX forces to 1 and OSXSAVE
+	// which tells us whether XCR0 needs to be switched.
+	uint64_t cr4Mask() {
+		return cr4Forced() | CR4_OSXSAVE;
+	}
+
 	// Writes the host selectors, which are the same on all CPUs.
 	void writeHostSelectors() {
 		uint16_t es, cs, ss, ds, fs, gs, tr;
@@ -161,6 +191,10 @@ namespace thor::vmx {
 		asm volatile ("mov %0, %%cr4" : : "r" (cr4));
 
 		eptAccessedDirty = common::x86::rdmsr(IA32_VMX_EPT_VPID_CAP_MSR) & (1 << 21);
+		cr0Fixed0 = common::x86::rdmsr(IA32_VMX_CR0_FIXED0_MSR);
+		cr0Fixed1 = common::x86::rdmsr(IA32_VMX_CR0_FIXED1_MSR);
+		cr4Fixed0 = common::x86::rdmsr(IA32_VMX_CR4_FIXED0_MSR);
+		cr4Fixed1 = common::x86::rdmsr(IA32_VMX_CR4_FIXED1_MSR);
 
 		//Set vmx revision
 		uint32_t vmxRevision = common::x86::rdmsr(0x480);
@@ -234,6 +268,10 @@ namespace thor::vmx {
 				entryControls, entryControls, "VM-entry") & ~VM_ENTRY_IA32E_MODE;
 		vmwrite(VM_ENTRY_CONTROLS, entryControls_);
 
+		// Hide the bits that VMX forces to 1 from the guest.
+		vmwrite(CR0_GUEST_HOST_MASK, cr0Forced());
+		vmwrite(CR4_GUEST_HOST_MASK, cr4Mask());
+
 		uint64_t cr0, cr4;
 		asm volatile ("mov %%cr0,%0" : "=r"(cr0));
 		asm volatile ("mov %%cr4,%0" : "=r"(cr4));
@@ -296,17 +334,11 @@ namespace thor::vmx {
 
 		vmwrite(GUEST_INTR_STATUS, 0);
 		vmwrite(GUEST_PML_INDEX, 0);
-		uint64_t cr0FixedGuest = common::x86::rdmsr(IA32_VMX_CR0_FIXED0_MSR);
-		uint32_t cr0FixedLo = (uint32_t)cr0FixedGuest;
-		uint32_t cr0FixedHi = (uint32_t)(cr0FixedGuest >> 32);
-		cr0FixedLo &= ~(1 << 0); // disable PE
-		cr0FixedLo &= ~(1 << 31); // disable PG
-		vmwrite(GUEST_CR0, cr0FixedLo | ((uint64_t)cr0FixedHi) << 32);
+		vmwrite(GUEST_CR0, guestCr0(0));
+		vmwrite(CR0_READ_SHADOW, 0);
 		vmwrite(GUEST_CR3, 0x0);
-		uint64_t cr4FixedGuest = common::x86::rdmsr(IA32_VMX_CR4_FIXED0_MSR);
-		uint32_t cr4FixedLo = (uint32_t)cr4FixedGuest;
-		uint32_t cr4FixedHi = (uint32_t)(cr4FixedGuest >> 32);
-		vmwrite(GUEST_CR4, cr4FixedLo | ((uint64_t)cr4FixedHi) << 32);
+		vmwrite(GUEST_CR4, guestCr4(0));
+		vmwrite(CR4_READ_SHADOW, 0);
 
 		auto eptCaps = common::x86::rdmsr(IA32_VMX_EPT_VPID_CAP_MSR);
 		if(!(eptCaps & (1 << 6)) || !(eptCaps & (1 << 14)))
@@ -579,10 +611,16 @@ namespace thor::vmx {
 			vmwrite(GUEST_IDTR_BASE, regs->idt.base);
 			vmwrite(GUEST_IDTR_LIMIT, regs->idt.limit);
 		}
-
-		vmwrite(GUEST_CR0, regs->cr0);
-		vmwrite(GUEST_CR3, regs->cr3);
-		vmwrite(GUEST_CR4, regs->cr4);
+		if(differs(regs->cr0, regsCache_.cr0)) {
+			vmwrite(GUEST_CR0, guestCr0(regs->cr0));
+			vmwrite(CR0_READ_SHADOW, regs->cr0);
+		}
+		if(differs(regs->cr3, regsCache_.cr3))
+			vmwrite(GUEST_CR3, regs->cr3);
+		if(differs(regs->cr4, regsCache_.cr4)) {
+			vmwrite(GUEST_CR4, guestCr4(regs->cr4));
+			vmwrite(CR4_READ_SHADOW, regs->cr4);
+		}
 
 		vmwrite(VMCS_FIELD_GUEST_EFER_FULL, regs->efer);
 		release_();
@@ -663,9 +701,10 @@ namespace thor::vmx {
 		regs->idt.base = vmread(GUEST_IDTR_BASE);
 		regs->idt.limit = vmread(GUEST_IDTR_LIMIT);
 
-		regs->cr0 = vmread(GUEST_CR0);
+		// The guest sees the read shadows for the bits that VMX forces to 1.
+		regs->cr0 = guestCr0Value();
 		regs->cr3 = vmread(GUEST_CR3);
-		regs->cr4 = vmread(GUEST_CR4);
+		regs->cr4 = (vmread(GUEST_CR4) & ~cr4Mask()) | (vmread(CR4_READ_SHADOW) & cr4Mask());
 
 		regs->efer = vmread(VMCS_FIELD_GUEST_EFER_FULL);
 		release_();
@@ -755,6 +794,11 @@ namespace thor::vmx {
 		regs->rsp = cachedRsp_;
 		regs->rip = cachedRip_;
 		regs->rflags = cachedRflags_;
+	}
+
+	uint64_t Vmcs::guestCr0Value() {
+		// The guest sees the read shadow for the bits that VMX forces to 1.
+		return (vmread(GUEST_CR0) & ~cr0Forced()) | (vmread(CR0_READ_SHADOW) & cr0Forced());
 	}
 
 	void Vmcs::acquire_() {

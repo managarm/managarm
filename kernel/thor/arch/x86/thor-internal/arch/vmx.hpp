@@ -59,6 +59,10 @@ namespace thor::vmx {
 	constexpr uint64_t IA32_VMX_TRUE_PROCBASED_CTLS_MSR  = 0x48e;
 	constexpr uint64_t IA32_VMX_TRUE_EXIT_CTLS_MSR       = 0x48f;
 	constexpr uint64_t IA32_VMX_TRUE_ENTRY_CTLS_MSR      = 0x490;
+	constexpr uint64_t CR0_GUEST_HOST_MASK               = 0x00006000;
+	constexpr uint64_t CR4_GUEST_HOST_MASK               = 0x00006002;
+	constexpr uint64_t CR0_READ_SHADOW                   = 0x00006004;
+	constexpr uint64_t CR4_READ_SHADOW                   = 0x00006006;
 
 	constexpr uint64_t GUEST_DR7 = 0x0000681A;
 	constexpr uint64_t GUEST_RSP = 0x0000681C;
@@ -220,6 +224,8 @@ namespace thor::vmx {
 		CpuData *activeCpu_ = nullptr;
 		bool launched_ = false;
 		bool resident_ = false;
+
+		uint64_t guestCr0Value();
 
 		// Makes sure that cachedRsp_, cachedRip_ and cachedRflags_ are valid.
 		void loadBasicRegsCache();
