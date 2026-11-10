@@ -1,3 +1,5 @@
+#include <optional>
+
 #include <thor-internal/arch/vmx.hpp>
 #include <thor-internal/address-space.hpp>
 #include <thor-internal/arch/ept.hpp>
@@ -70,9 +72,58 @@ namespace {
 	inline bool haveTrueControls() {
 		return common::x86::rdmsr(thor::vmx::IA32_VMX_BASIC_MSR) & (UINT64_C(1) << 55);
 	}
+
+	// Writes the host selectors, which are the same on all CPUs.
+	void writeHostSelectors() {
+		uint16_t es, cs, ss, ds, fs, gs, tr;
+		asm volatile ("str %[tr]" : [tr]"=rm"(tr));
+		asm volatile ("mov %%es,%0" : "=r"(es));
+		asm volatile ("mov %%cs,%0" : "=r"(cs));
+		asm volatile ("mov %%ss,%0" : "=r"(ss));
+		asm volatile ("mov %%ds,%0" : "=r"(ds));
+		asm volatile ("mov %%fs,%0" : "=r"(fs));
+		asm volatile ("mov %%gs,%0" : "=r"(gs));
+
+		vmwrite(thor::vmx::HOST_ES_SELECTOR, es);
+		vmwrite(thor::vmx::HOST_CS_SELECTOR, cs);
+		vmwrite(thor::vmx::HOST_SS_SELECTOR, ss);
+		vmwrite(thor::vmx::HOST_DS_SELECTOR, ds);
+		vmwrite(thor::vmx::HOST_FS_SELECTOR, fs);
+		vmwrite(thor::vmx::HOST_GS_SELECTOR, gs);
+		vmwrite(thor::vmx::HOST_TR_SELECTOR, tr);
+	}
+
+	// Writes the host state that differs between CPUs.
+	void writeHostCpuState() {
+		vmwrite(thor::vmx::HOST_GS_BASE, common::x86::rdmsr(thor::vmx::MSR_GS_BASE));
+
+		common::x86::Gdtr gdtr;
+		asm volatile("sgdt %[gdt]": [gdt]"=m"(gdtr));
+		common::x86::Idtr idtr;
+		asm volatile("sidt %[idt]": [idt]"=m"(idtr));
+
+		uint32_t* gdt = gdtr.pointer;
+		uint32_t entry1 = (gdt[thor::kGdtIndexTask * 2] >> 16) & 0xFFFF;
+		uint32_t entry2 = (gdt[thor::kGdtIndexTask * 2 + 1]) & 0xFF;
+		uint32_t entry3 = (gdt[thor::kGdtIndexTask * 2 + 1] >> 24) & 0xFF;
+		uint32_t entry4 = (gdt[thor::kGdtIndexTask * 2 + 2]);
+		uint64_t trAddr = ((uint64_t)entry4 << 32) |
+			(entry1 | ((entry2) << 16) | ((entry3) << 24));
+
+		vmwrite(thor::vmx::HOST_TR_BASE, trAddr);
+		vmwrite(thor::vmx::HOST_GDTR_BASE, (size_t)gdtr.pointer);
+		vmwrite(thor::vmx::HOST_IDTR_BASE, (size_t)idtr.pointer);
+	}
 }
 
 extern "C" bool vmxVmRun(thor::vmx::Vmcs* vm, void* state, bool launched);
+
+namespace thor::vmx {
+	// The VMCS that is current on each CPU (VMPTRLD), or null.
+	extern PerCpu<Vmcs *> currentVmcs;
+	THOR_DEFINE_PERCPU(currentVmcs);
+}
+
 extern "C" uintptr_t vmxDoVmExit[]; // Actually a function that cannot be called in the conventional sense, just need the address
 
 extern "C" void vmxUpdateHostRsp(thor::vmx::Vmcs* vm, uintptr_t rsp) {
@@ -134,16 +185,20 @@ namespace thor::vmx {
 		return successful;
 	}
 
-	Vmcs::Vmcs(CtorToken, smarter::shared_ptr<EptSpace> ept) : space(ept) {
+	Vmcs::Vmcs(CtorToken, smarter::shared_ptr<EptSpace> ept)
+	: space(std::move(ept)) {
 		infoLogger() << "vmx: Creating VMCS" << frg::endlog;
 		region = (void*)physicalAllocator->allocateInfallible(PhysicalKind::pinned);
 		PageAccessor regionAccessor{(PhysicalAddr)region};
 		memset(regionAccessor.get(), 0, kPageSize);
 		uint32_t vmxRevision = common::x86::rdmsr(0x480);
 		*(uint32_t*)regionAccessor.get() = static_cast<uint32_t>(vmxRevision);
-		if(vmptrld((PhysicalAddr)region)) {
-			infoLogger() << "vmx: VMCS load failed" << frg::endlog;
-		}
+
+		// A VMCS is only active (and thus may be cached by the CPU) while we cannot migrate
+		// to another CPU. Afterwards, we VMCLEAR it (see acquire_() and release_()).
+		StatelessIrqLock irqLock;
+		vmclear((PhysicalAddr)region);
+		acquire_();
 
 		//Set up basic controls.
 		auto trueControls = haveTrueControls();
@@ -187,23 +242,6 @@ namespace thor::vmx {
 		uint32_t cr4Fixed = (uint32_t)common::x86::rdmsr(IA32_VMX_CR4_FIXED0_MSR);
 		vmwrite(HOST_CR4, cr4Fixed | cr4);
 
-		common::x86::Gdtr gdtr;
-		asm volatile("sgdt %[gdt]": [gdt]"=m"(gdtr));
-		common::x86::Idtr idtr;
-		asm volatile("sidt %[idt]": [idt]"=m"(idtr));
-
-		uint32_t* gdt = gdtr.pointer;
-		uint32_t entry1 = (gdt[kGdtIndexTask * 2] >> 16) & 0xFFFF;
-		uint32_t entry2 = (gdt[kGdtIndexTask * 2 + 1]) & 0xFF;
-		uint32_t entry3 = (gdt[kGdtIndexTask * 2 + 1] >> 24) & 0xFF;
-		uint32_t entry4 = (gdt[kGdtIndexTask * 2 + 2]);
-		uint64_t trAddr = ((uint64_t)entry4 << 32) |
-			(entry1 | ((entry2) << 16) | ((entry3) << 24));
-
-
-		vmwrite(HOST_TR_BASE, trAddr);
-		vmwrite(HOST_GDTR_BASE, (size_t)gdtr.pointer);
-		vmwrite(HOST_IDTR_BASE, (size_t)idtr.pointer);
 		vmwrite(HOST_EFER_FULL, common::x86::rdmsr(0xc0000080));
 		vmwrite(HOST_RIP, (size_t)vmxDoVmExit);
 
@@ -268,7 +306,9 @@ namespace thor::vmx {
 		uint32_t cr4FixedHi = (uint32_t)(cr4FixedGuest >> 32);
 		vmwrite(GUEST_CR4, cr4FixedLo | ((uint64_t)cr4FixedHi) << 32);
 
-		vmwrite(CTLS_EPTP, ept->rootTable() | 6 | (4 - 1) << 3 | (1 << 6));
+		vmwrite(CTLS_EPTP, space->rootTable() | 6 | (4 - 1) << 3 | (1 << 6));
+		release_();
+		irqLock.unlock();
 		state = {};
 
 
@@ -287,86 +327,83 @@ namespace thor::vmx {
 		}
 	}
 
+	bool Vmcs::assertInterrupt(uint64_t number, bool level) {
+		// TODO: Implement using virtualized APIC.
+		(void)number;
+		(void)level;
+		return false;
+	}
+
 	frg::expected<Error, HelVmexitReason> Vmcs::run(const HelVmexitCompletion *completion) {
 		// No exit needs a completion yet.
 		if(completion)
 			return Error::illegalState;
 
-		vmptrld((PhysicalAddr)region);
-
-		uint16_t es;
-		uint16_t cs;
-		uint16_t ss;
-		uint16_t ds;
-		uint16_t fs;
-		uint16_t gs;
-		uint16_t tr;
-		uint64_t cr3;
-		asm volatile ("mov %%cr3,%0" : "=r"(cr3));
-		asm volatile ("str %[tr]" : [tr]"=rm"(tr));
-		asm volatile ("mov %%es,%0" : "=r"(es));
-		asm volatile ("mov %%cs,%0" : "=r"(cs));
-		asm volatile ("mov %%ss,%0" : "=r"(ss));
-		asm volatile ("mov %%ds,%0" : "=r"(ds));
-		asm volatile ("mov %%fs,%0" : "=r"(fs));
-		asm volatile ("mov %%gs,%0" : "=r"(gs));
-
-		vmwrite(HOST_ES_SELECTOR, es);
-		vmwrite(HOST_CS_SELECTOR, cs);
-		vmwrite(HOST_SS_SELECTOR, ss);
-		vmwrite(HOST_DS_SELECTOR, ds);
-		vmwrite(HOST_FS_SELECTOR, fs);
-		vmwrite(HOST_GS_SELECTOR, gs);
-		vmwrite(HOST_TR_SELECTOR, tr);
-		vmwrite(HOST_FS_BASE, common::x86::rdmsr(MSR_FS_BASE));
-		vmwrite(HOST_GS_BASE, common::x86::rdmsr(MSR_GS_BASE));
-		vmwrite(HOST_CR3, cr3);
-
-		vmclear((PhysicalAddr)region);
-
 		HelVmexitReason exitInfo{};
 
-		bool launched = false;
+		// While the VMCS is resident, it stays active on this CPU between entries.
+		std::optional<MigrationGuard> migrationGuard;
+		auto leaveResidency = [&] {
+			if(!resident_)
+				return;
+			{
+				StatelessIrqLock irqLock;
+				resident_ = false;
+				release_();
+			}
+			migrationGuard.reset();
+		};
+		frg::scope_exit residencyScope{leaveResidency};
+
 		while(1) {
 			if(getCurrentThread()->checkCancelConditions())
 				return Error::cancelled;
-
-			/*
-			 * NOTE: this will only work as long as long
-			 * as threads always stay on the same cpu,
-			 * once that's changed all of the vmcs structures
-			 * owned by a thread will have to be vmcleared
-			 * and set launched = false;
-			 */
-			asm volatile("cli");
-			vmptrld((PhysicalAddr)region);
-			if(getGlobalCpuFeatures()->haveXsave){
-				common::x86::xsave((uint8_t*)hostFstate, ~0);
-				common::x86::xrstor((uint8_t*)guestFstate, ~0);
-			} else {
-				asm volatile ("fxsaveq %0" : : "m" (*hostFstate));
-				asm volatile ("fxrstorq %0" : : "m" (*guestFstate));
-			}
-			bool entryFailed = vmxVmRun(this, &state, launched);
-			if(!entryFailed)
-				launched = true;
-			if(getGlobalCpuFeatures()->haveXsave){
-				common::x86::xsave((uint8_t*)guestFstate, ~0);
-				common::x86::xrstor((uint8_t*)hostFstate, ~0);
-			} else {
-				asm volatile ("fxsaveq %0" : : "m" (*guestFstate));
-				asm volatile ("fxrstorq %0" : : "m" (*hostFstate));
+			if(!resident_) {
+				migrationGuard.emplace();
+				resident_ = true;
 			}
 
-			//Vm exits don't restore the gdt limit
-			common::x86::Gdtr gdtr;
-			asm volatile("sgdt %[gdt]": [gdt]"=m"(gdtr));
-			gdtr.limit = HOST_GDT_LIMIT;
-			asm volatile("lgdt %[gdt]": [gdt]"=m"(gdtr));
-			asm volatile("sti");
+			bool entryFailed;
+			uint64_t error, reason;
 
-			uint64_t error = entryFailed ? vmread(VM_INSTRUCTION_ERROR) : 0;
-			uint64_t reason = entryFailed ? ~UINT64_C(0) : vmread(VM_EXIT_REASON);
+			{
+				StatelessIrqLock irqLock;
+				acquire_();
+				// The host state differs between CPUs and threads.
+				writeHostSelectors();
+				writeHostCpuState();
+				vmwrite(HOST_FS_BASE, common::x86::rdmsr(MSR_FS_BASE));
+				uint64_t cr3;
+				asm volatile ("mov %%cr3, %0" : "=r"(cr3));
+				vmwrite(HOST_CR3, cr3);
+				if(getGlobalCpuFeatures()->haveXsave){
+					common::x86::xsave((uint8_t*)hostFstate, ~0);
+					common::x86::xrstor((uint8_t*)guestFstate, ~0);
+				} else {
+					asm volatile ("fxsaveq %0" : : "m" (*hostFstate));
+					asm volatile ("fxrstorq %0" : : "m" (*guestFstate));
+				}
+				entryFailed = vmxVmRun(this, &state, launched_);
+				if(!entryFailed)
+					launched_ = true;
+				if(getGlobalCpuFeatures()->haveXsave){
+					common::x86::xsave((uint8_t*)guestFstate, ~0);
+					common::x86::xrstor((uint8_t*)hostFstate, ~0);
+				} else {
+					asm volatile ("fxsaveq %0" : : "m" (*guestFstate));
+					asm volatile ("fxrstorq %0" : : "m" (*hostFstate));
+				}
+
+				//Vm exits don't restore the gdt limit
+				common::x86::Gdtr gdtr;
+				asm volatile("sgdt %[gdt]": [gdt]"=m"(gdtr));
+				gdtr.limit = HOST_GDT_LIMIT;
+				asm volatile("lgdt %[gdt]": [gdt]"=m"(gdtr));
+
+				error = entryFailed ? vmread(VM_INSTRUCTION_ERROR) : 0;
+				reason = entryFailed ? ~UINT64_C(0) : vmread(VM_EXIT_REASON);
+			}
+
 			if(entryFailed) {
 				infoLogger() << "vmx: VM entry failed with error " << error << frg::endlog;
 				exitInfo.exitReason = kHelVmexitError;
@@ -387,6 +424,7 @@ namespace thor::vmx {
 				if(exitFlags & (1 << 2))
 					flags |= AddressSpace::kFaultExecute;
 
+				leaveResidency();
 				auto faultOutcome = Thread::asyncBlockCurrent(
 					space->handleFault(address, flags),
 					getCurrentThread()->pagingWorkQueue().get()
@@ -409,6 +447,10 @@ namespace thor::vmx {
 	}
 
 	void Vmcs::storeRegs(const HelX86VirtualizationRegs *regs) {
+		// See the constructor.
+		StatelessIrqLock irqLock;
+		acquire_();
+
 		vmwrite(GUEST_RSP, regs->rsp);
 		vmwrite(GUEST_RIP, regs->rip);
 
@@ -464,6 +506,7 @@ namespace thor::vmx {
 		vmwrite(GUEST_CR4, regs->cr4);
 
 		vmwrite(VMCS_FIELD_GUEST_EFER_FULL, regs->efer);
+		release_();
 	}
 
 	void Vmcs::loadRegs(HelX86VirtualizationRegs *regs) {
@@ -483,6 +526,10 @@ namespace thor::vmx {
 		regs->r14 = state.r14;
 		regs->r15 = state.r15;
 		regs->cr2 = state.cr2;
+
+		// See storeRegs().
+		StatelessIrqLock irqLock;
+		acquire_();
 
 		regs->rsp = vmread(GUEST_RSP);
 		regs->rip = vmread(GUEST_RIP);
@@ -525,16 +572,34 @@ namespace thor::vmx {
 		regs->cr4 = vmread(GUEST_CR4);
 
 		regs->efer = vmread(VMCS_FIELD_GUEST_EFER_FULL);
+		release_();
 	}
 
-	bool Vmcs::assertInterrupt(uint64_t number, bool level) {
-		// TODO: Implement using virtualized APIC.
-		(void)number;
-		(void)level;
-		return false;
+	void Vmcs::acquire_() {
+		auto &current = currentVmcs.get();
+		if(current == this)
+			return;
+		assert(!activeCpu_ || activeCpu_ == getCpuData());
+		if(vmptrld((PhysicalAddr)region))
+			infoLogger() << "vmx: VMCS load failed" << frg::endlog;
+		current = this;
+		activeCpu_ = getCpuData();
+	}
+
+	void Vmcs::release_() {
+		if(resident_ || !activeCpu_)
+			return;
+		assert(activeCpu_ == getCpuData());
+		vmclear((PhysicalAddr)region);
+		auto &current = currentVmcs.get();
+		if(current == this)
+			current = nullptr;
+		activeCpu_ = nullptr;
+		launched_ = false;
 	}
 
 	Vmcs::~Vmcs() {
+		assert(!activeCpu_);
 		physicalAllocator->free((size_t)region, kPageSize);
 	}
 }

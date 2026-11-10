@@ -221,8 +221,17 @@ namespace thor::vmx {
 
 		GuestState state;
 		uint64_t saved_host_rsp;
+
+	private:
+		void acquire_();
+		void release_();
+
+		// The CPU on which the VMCS is active (or null) and whether it was launched there.
+		CpuData *activeCpu_ = nullptr;
+		bool launched_ = false;
+		bool resident_ = false;
+
 		// The VM-entry controls (without the IA-32e mode guest control).
 		uint32_t entryControls_ = 0;
-
 	};
 }
