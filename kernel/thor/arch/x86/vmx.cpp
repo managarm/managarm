@@ -411,6 +411,9 @@ namespace thor::vmx {
 					leaveGuest();
 					return Error::illegalState;
 				}
+				// The guest changes its state while it runs.
+				regsCacheValid_ = false;
+				basicCacheValid_ = false;
 				if(getGlobalCpuFeatures()->haveXsave){
 					common::x86::xsave((uint8_t*)hostFstate, ~0);
 					common::x86::xrstor((uint8_t*)guestFstate, ~0);
@@ -437,6 +440,17 @@ namespace thor::vmx {
 
 				error = entryFailed ? vmread(VM_INSTRUCTION_ERROR) : 0;
 				reason = entryFailed ? ~UINT64_C(0) : vmread(VM_EXIT_REASON);
+
+				// We cache basic registers on halt exits because the VMM might want
+				// to inspect either the RIP or RFLAGS and that will save us an
+				// acquire_()/release_() round-trip in Vmcs::loadRegs().
+				bool cacheBasic = !entryFailed && reason == VMEXIT_HLT;
+				if(cacheBasic) {
+					cachedRip_ = vmread(GUEST_RIP);
+					cachedRsp_ = vmread(GUEST_RSP);
+					cachedRflags_ = vmread(GUEST_RFLAG);
+					basicCacheValid_ = true;
+				}
 				space->leaveGuest();
 				leaveGuest();
 			}
@@ -483,13 +497,39 @@ namespace thor::vmx {
 		}
 	}
 
+	namespace {
+		bool sameValue(uint64_t a, uint64_t b) { return a == b; }
+
+		// The register structs contain padding, so we compare them member-wise.
+		bool sameValue(const HelX86SegmentRegister &a, const HelX86SegmentRegister &b) {
+			return a.base == b.base && a.limit == b.limit && a.selector == b.selector
+					&& a.type == b.type && a.present == b.present && a.dpl == b.dpl
+					&& a.db == b.db && a.s == b.s && a.l == b.l && a.g == b.g
+					&& a.avl == b.avl && a.unusable == b.unusable;
+		}
+
+		bool sameValue(const HelX86DescriptorTable &a, const HelX86DescriptorTable &b) {
+			return a.base == b.base && a.limit == b.limit;
+		}
+	}
+
 	void Vmcs::storeRegs(const HelX86VirtualizationRegs *regs) {
+		// Only write the fields that differ from the VMCS
+		bool writeAll = !regsCacheValid_;
+		auto differs = [&] (const auto &value, const auto &cached) {
+			return writeAll || !sameValue(value, cached);
+		};
+
 		// See the constructor.
 		StatelessIrqLock irqLock;
 		acquire_();
 
-		vmwrite(GUEST_RSP, regs->rsp);
-		vmwrite(GUEST_RIP, regs->rip);
+		if(differs(regs->rsp, regsCache_.rsp))
+			vmwrite(GUEST_RSP, regs->rsp);
+		if(differs(regs->rip, regsCache_.rip))
+			vmwrite(GUEST_RIP, regs->rip);
+		if(differs(regs->rflags, regsCache_.rflags))
+			vmwrite(GUEST_RFLAG, regs->rflags);
 
 		state.rax = regs->rax;
 		state.rbx = regs->rbx;
@@ -509,10 +549,10 @@ namespace thor::vmx {
 		state.cr2 = regs->cr2;
 
 		#define SET_SEGMENT(segment, segment_capital) \
-            vmwrite(GUEST_##segment_capital##_BASE, regs->segment.base); \
-            vmwrite(GUEST_##segment_capital##_LIMIT, regs->segment.limit); \
-            vmwrite(GUEST_##segment_capital##_SELECTOR, regs->segment.selector); \
-            { \
+            if(differs(regs->segment, regsCache_.segment)) { \
+                vmwrite(GUEST_##segment_capital##_BASE, regs->segment.base); \
+                vmwrite(GUEST_##segment_capital##_LIMIT, regs->segment.limit); \
+                vmwrite(GUEST_##segment_capital##_SELECTOR, regs->segment.selector); \
                 uint32_t attrib = regs->segment.type | (regs->segment.s << 4) | \
                                   (regs->segment.dpl << 5) | (regs->segment.present << 7) | \
                                   (regs->segment.avl << 12) | (regs->segment.l << 13) | \
@@ -531,12 +571,14 @@ namespace thor::vmx {
 		SET_SEGMENT(ldt, LDTR);
 		SET_SEGMENT(tr, TR);
 
-		vmwrite(GUEST_GDTR_BASE, regs->gdt.base);
-		vmwrite(GUEST_GDTR_LIMIT, regs->gdt.base);
-
-		vmwrite(GUEST_IDTR_BASE, regs->idt.base);
-		vmwrite(GUEST_IDTR_LIMIT, regs->idt.base);
-
+		if(differs(regs->gdt, regsCache_.gdt)) {
+			vmwrite(GUEST_GDTR_BASE, regs->gdt.base);
+			vmwrite(GUEST_GDTR_LIMIT, regs->gdt.limit);
+		}
+		if(differs(regs->idt, regsCache_.idt)) {
+			vmwrite(GUEST_IDTR_BASE, regs->idt.base);
+			vmwrite(GUEST_IDTR_LIMIT, regs->idt.limit);
+		}
 
 		vmwrite(GUEST_CR0, regs->cr0);
 		vmwrite(GUEST_CR3, regs->cr3);
@@ -544,9 +586,21 @@ namespace thor::vmx {
 
 		vmwrite(VMCS_FIELD_GUEST_EFER_FULL, regs->efer);
 		release_();
+
+		regsCache_ = *regs;
+		regsCacheValid_ = true;
+		cachedRsp_ = regs->rsp;
+		cachedRip_ = regs->rip;
+		cachedRflags_ = regs->rflags;
+		basicCacheValid_ = true;
 	}
 
 	void Vmcs::loadRegs(HelX86VirtualizationRegs *regs) {
+		// Avoid VMREADs if nothing changed since the last load or store.
+		// The GPRs and CR2 are not part of the VMCS, so they are not cached.
+		if(regsCacheValid_)
+			*regs = regsCache_;
+
 		regs->rax = state.rax;
 		regs->rbx = state.rbx;
 		regs->rcx = state.rcx;
@@ -564,12 +618,17 @@ namespace thor::vmx {
 		regs->r15 = state.r15;
 		regs->cr2 = state.cr2;
 
+		if(regsCacheValid_) {
+			return;
+		}
+
 		// See storeRegs().
 		StatelessIrqLock irqLock;
 		acquire_();
 
 		regs->rsp = vmread(GUEST_RSP);
 		regs->rip = vmread(GUEST_RIP);
+		regs->rflags = vmread(GUEST_RFLAG);
 
 		#define GET_SEGMENT(segment, segment_capital) \
             regs->segment.base = vmread(GUEST_##segment_capital##_BASE); \
@@ -610,6 +669,92 @@ namespace thor::vmx {
 
 		regs->efer = vmread(VMCS_FIELD_GUEST_EFER_FULL);
 		release_();
+
+		regsCache_ = *regs;
+		regsCacheValid_ = true;
+		cachedRsp_ = regs->rsp;
+		cachedRip_ = regs->rip;
+		cachedRflags_ = regs->rflags;
+		basicCacheValid_ = true;
+	}
+
+	void Vmcs::storeBasicRegs(const HelX86VirtualizationBasicRegs *regs) {
+		state.rax = regs->rax;
+		state.rbx = regs->rbx;
+		state.rcx = regs->rcx;
+		state.rdx = regs->rdx;
+		state.rsi = regs->rsi;
+		state.rdi = regs->rdi;
+		state.rbp = regs->rbp;
+		state.r8 = regs->r8;
+		state.r9 = regs->r9;
+		state.r10 = regs->r10;
+		state.r11 = regs->r11;
+		state.r12 = regs->r12;
+		state.r13 = regs->r13;
+		state.r14 = regs->r14;
+		state.r15 = regs->r15;
+
+		bool writeRsp = !basicCacheValid_ || regs->rsp != cachedRsp_;
+		bool writeRip = !basicCacheValid_ || regs->rip != cachedRip_;
+		bool writeRflags = !basicCacheValid_ || regs->rflags != cachedRflags_;
+		if(writeRsp || writeRip || writeRflags) {
+			// See the constructor.
+			StatelessIrqLock irqLock;
+			acquire_();
+			if(writeRsp)
+				vmwrite(GUEST_RSP, regs->rsp);
+			if(writeRip)
+				vmwrite(GUEST_RIP, regs->rip);
+			if(writeRflags)
+				vmwrite(GUEST_RFLAG, regs->rflags);
+			release_();
+		}
+
+		cachedRsp_ = regs->rsp;
+		cachedRip_ = regs->rip;
+		cachedRflags_ = regs->rflags;
+		basicCacheValid_ = true;
+		if(regsCacheValid_) {
+			regsCache_.rsp = regs->rsp;
+			regsCache_.rip = regs->rip;
+			regsCache_.rflags = regs->rflags;
+		}
+	}
+
+	void Vmcs::loadBasicRegsCache() {
+		if(basicCacheValid_)
+			return;
+		// See the constructor.
+		StatelessIrqLock irqLock;
+		acquire_();
+		cachedRsp_ = vmread(GUEST_RSP);
+		cachedRip_ = vmread(GUEST_RIP);
+		cachedRflags_ = vmread(GUEST_RFLAG);
+		release_();
+		basicCacheValid_ = true;
+	}
+
+	void Vmcs::loadBasicRegs(HelX86VirtualizationBasicRegs *regs) {
+		regs->rax = state.rax;
+		regs->rbx = state.rbx;
+		regs->rcx = state.rcx;
+		regs->rdx = state.rdx;
+		regs->rsi = state.rsi;
+		regs->rdi = state.rdi;
+		regs->rbp = state.rbp;
+		regs->r8 = state.r8;
+		regs->r9 = state.r9;
+		regs->r10 = state.r10;
+		regs->r11 = state.r11;
+		regs->r12 = state.r12;
+		regs->r13 = state.r13;
+		regs->r14 = state.r14;
+		regs->r15 = state.r15;
+		loadBasicRegsCache();
+		regs->rsp = cachedRsp_;
+		regs->rip = cachedRip_;
+		regs->rflags = cachedRflags_;
 	}
 
 	void Vmcs::acquire_() {

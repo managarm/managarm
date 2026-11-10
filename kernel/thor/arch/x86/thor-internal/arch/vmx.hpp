@@ -190,18 +190,8 @@ namespace thor::vmx {
 
 		bool assertInterrupt(uint64_t number, bool level) override;
 
-		// The basic registers are a prefix of the full set.
-		void storeBasicRegs(const HelX86VirtualizationBasicRegs *basic) override {
-			HelX86VirtualizationRegs regs;
-			loadRegs(&regs);
-			memcpy(&regs, basic, sizeof(*basic));
-			storeRegs(&regs);
-		}
-		void loadBasicRegs(HelX86VirtualizationBasicRegs *basic) override {
-			HelX86VirtualizationRegs regs;
-			loadRegs(&regs);
-			memcpy(basic, &regs, sizeof(*basic));
-		}
+		void storeBasicRegs(const HelX86VirtualizationBasicRegs *regs) override;
+		void loadBasicRegs(HelX86VirtualizationBasicRegs *regs) override;
 
 		// TODO: Switch these MSRs and XCR0.
 		bool storeMsrs(const HelX86VirtualizationMsrs *msrs) override {
@@ -231,6 +221,9 @@ namespace thor::vmx {
 		bool launched_ = false;
 		bool resident_ = false;
 
+		// Makes sure that cachedRsp_, cachedRip_ and cachedRflags_ are valid.
+		void loadBasicRegsCache();
+
 		// The VM-entry controls (without the IA-32e mode guest control).
 		uint32_t entryControls_ = 0;
 
@@ -242,5 +235,13 @@ namespace thor::vmx {
 
 		// The CR3 of the address space changes when its PCID is rebound.
 		uint64_t hostCr3_ = 0;
+
+		// The guest state as in the VMCS, valid from loadRegs()/storeRegs() until the next entry.
+		bool regsCacheValid_ = false;
+		HelX86VirtualizationRegs regsCache_{};
+
+		// RSP, RIP and RFLAGS as in the VMCS.
+		bool basicCacheValid_ = false;
+		uint64_t cachedRsp_ = 0, cachedRip_ = 0, cachedRflags_ = 0;
 	};
 }
