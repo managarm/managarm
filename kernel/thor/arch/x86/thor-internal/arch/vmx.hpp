@@ -154,6 +154,7 @@ namespace thor::vmx {
 		uint64_t r13;
 		uint64_t r14;
 		uint64_t r15;
+		uint64_t cr2;
 	};
 
 	bool vmxon();

@@ -23,9 +23,13 @@ vmxVmRun: # rdi: thor::vmx::Vmcs* vm, rsi: Guest GPR State, rdx: launched
 	mov %rsp, %rsi
 	call vmxUpdateHostRsp # Cannot push from this point
 
-	cmpq $1, %rbx # Cannot modify flags from this piont
-
 	mov (%rsp), %rdi
+
+	# Moving to CR2 leaves the flags undefined; hence, we do it before the comparison.
+	movq 120(%rdi), %rax;
+	movq %rax, %cr2;
+
+	cmpq $1, %rbx # Cannot modify flags from this piont
 
 	movq 8(%rdi), %rbx;
 	movq 16(%rdi), %rcx;
@@ -68,6 +72,8 @@ vmxDoVmExit:
 	movq %r13, 96(%rdi);
 	movq %r14, 104(%rdi);
 	movq %r15, 112(%rdi);
+	movq %cr2, %rax;
+	movq %rax, 120(%rdi);
 	popq %r8;
 	popq %r9;
 	movq %r8, 40(%r9);

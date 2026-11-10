@@ -397,10 +397,25 @@ namespace thor::vmx {
 	}
 
 	void Vmcs::storeRegs(const HelX86VirtualizationRegs *regs) {
-		memcpy(&state, regs, sizeof(GuestState));
-
 		vmwrite(GUEST_RSP, regs->rsp);
 		vmwrite(GUEST_RIP, regs->rip);
+
+		state.rax = regs->rax;
+		state.rbx = regs->rbx;
+		state.rcx = regs->rcx;
+		state.rdx = regs->rdx;
+		state.rsi = regs->rsi;
+		state.rdi = regs->rdi;
+		state.rbp = regs->rbp;
+		state.r8 = regs->r8;
+		state.r9 = regs->r9;
+		state.r10 = regs->r10;
+		state.r11 = regs->r11;
+		state.r12 = regs->r12;
+		state.r13 = regs->r13;
+		state.r14 = regs->r14;
+		state.r15 = regs->r15;
+		state.cr2 = regs->cr2;
 
 		#define SET_SEGMENT(segment, segment_capital) \
             vmwrite(GUEST_##segment_capital##_BASE, regs->segment.base); \
@@ -440,7 +455,22 @@ namespace thor::vmx {
 	}
 
 	void Vmcs::loadRegs(HelX86VirtualizationRegs *regs) {
-		memcpy(regs, &state, sizeof(GuestState));
+		regs->rax = state.rax;
+		regs->rbx = state.rbx;
+		regs->rcx = state.rcx;
+		regs->rdx = state.rdx;
+		regs->rsi = state.rsi;
+		regs->rdi = state.rdi;
+		regs->rbp = state.rbp;
+		regs->r8 = state.r8;
+		regs->r9 = state.r9;
+		regs->r10 = state.r10;
+		regs->r11 = state.r11;
+		regs->r12 = state.r12;
+		regs->r13 = state.r13;
+		regs->r14 = state.r14;
+		regs->r15 = state.r15;
+		regs->cr2 = state.cr2;
 
 		regs->rsp = vmread(GUEST_RSP);
 		regs->rip = vmread(GUEST_RIP);
