@@ -1263,7 +1263,9 @@ enum {
   kHelVmexitHyperCall = 2,
   kHelVmexitInstructionTrap = 3,
   kHelVmexitKicked = 4,
+  // VM entry failed, code is the platform's entry failure reason.
   kHelVmexitError = -1,
+  // Unknown VM exit reason, code is the platform's exit reason.
   kHelVmexitUnknownPlatformSpecificExitCode = -2,
 };
 

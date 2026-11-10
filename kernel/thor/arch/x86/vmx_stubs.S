@@ -8,6 +8,7 @@
 .global vmxVmRun
 .global vmxDoVmExit
 
+# Returns true if the VM entry failed (vmlaunch/vmresume set CF or ZF).
 vmxVmRun: # rdi: thor::vmx::Vmcs* vm, rsi: Guest GPR State, rdx: launched
 	pushq %rbx
 	pushq %rbp
@@ -72,6 +73,9 @@ vmxDoVmExit:
 	movq %r13, 96(%rdi);
 	movq %r14, 104(%rdi);
 	movq %r15, 112(%rdi);
+	# VM exits clear RFLAGS and nothing above modifies the flags.
+	# Moving from CR2 leaves them undefined; RCX is free since it was saved above.
+	setbe %cl
 	movq %cr2, %rax;
 	movq %rax, 120(%rdi);
 	popq %r8;
@@ -85,6 +89,7 @@ vmxDoVmExit:
 	popq %rbp
 	popq %rbx
 
+	movzbl %cl, %eax
 	retq
 
 	.section .note.GNU-stack,"",%progbits

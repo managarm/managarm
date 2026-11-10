@@ -56,7 +56,7 @@ namespace {
 	}
 }
 
-extern "C" void vmxVmRun(thor::vmx::Vmcs* vm, void* state, bool launched);
+extern "C" bool vmxVmRun(thor::vmx::Vmcs* vm, void* state, bool launched);
 extern "C" uintptr_t vmxDoVmExit[]; // Actually a function that cannot be called in the conventional sense, just need the address
 
 extern "C" void vmxUpdateHostRsp(thor::vmx::Vmcs* vm, uintptr_t rsp) {
@@ -335,10 +335,9 @@ namespace thor::vmx {
 				asm volatile ("fxsaveq %0" : : "m" (*hostFstate));
 				asm volatile ("fxrstorq %0" : : "m" (*guestFstate));
 			}
-
-			vmxVmRun(this, &state, launched);
-			launched = true;
-
+			bool entryFailed = vmxVmRun(this, &state, launched);
+			if(!entryFailed)
+				launched = true;
 			if(getGlobalCpuFeatures()->haveXsave){
 				common::x86::xsave((uint8_t*)guestFstate, ~0);
 				common::x86::xrstor((uint8_t*)hostFstate, ~0);
@@ -354,14 +353,15 @@ namespace thor::vmx {
 			asm volatile("lgdt %[gdt]": [gdt]"=m"(gdtr));
 			asm volatile("sti");
 
-			auto error = vmread(VM_INSTRUCTION_ERROR);
-			if(error) {
-				infoLogger() << "vmx: vmx error" << error << frg::endlog;
+			uint64_t error = entryFailed ? vmread(VM_INSTRUCTION_ERROR) : 0;
+			uint64_t reason = entryFailed ? ~UINT64_C(0) : vmread(VM_EXIT_REASON);
+			if(entryFailed) {
+				infoLogger() << "vmx: VM entry failed with error " << error << frg::endlog;
 				exitInfo.exitReason = kHelVmexitError;
+				exitInfo.code = error;
 				return exitInfo;
 			}
 
-			auto reason = vmread(VM_EXIT_REASON);
 			if(reason == VMEXIT_HLT) {
 				infoLogger() << "vmx: hlt" << frg::endlog;
 				exitInfo.exitReason = kHelVmexitHlt;
