@@ -127,6 +127,12 @@ namespace thor::vmx {
 	constexpr uint64_t VM_INSTRUCTION_ERROR              = 0x00004400;
 	constexpr uint64_t EPT_VIOLATION_ADDRESS             = 0x00002400;
 	constexpr uint64_t EPT_VIOLATION_FLAGS               = 0x00006400;
+	constexpr uint64_t VM_EXIT_INSTRUCTION_LEN           = 0x0000440c;
+	constexpr uint64_t VM_ENTRY_INTR_INFO                = 0x00004016;
+	constexpr uint64_t VM_ENTRY_EXCEPTION_ERROR_CODE     = 0x00004018;
+	constexpr uint64_t VM_ENTRY_INSTRUCTION_LEN          = 0x0000401a;
+	constexpr uint64_t IDT_VECTORING_INFO                = 0x00004408;
+	constexpr uint64_t IDT_VECTORING_ERROR_CODE          = 0x0000440a;
 
 	constexpr uint64_t DATA_ACCESS_RIGHT = (0x3 | 1 << 4 | 1 << 7);
 	constexpr uint64_t CODE_ACCESS_RIGHT = (0x3 | 1 << 4 | 1 << 7 | 1 << 13);
@@ -225,6 +231,8 @@ namespace thor::vmx {
 		bool launched_ = false;
 		bool resident_ = false;
 
+		void queueException(uint8_t vector, bool hasErrorCode, uint32_t errorCode);
+
 		uint64_t guestCr0Value();
 
 		// Makes sure that cachedRsp_, cachedRip_ and cachedRflags_ are valid.
@@ -249,5 +257,18 @@ namespace thor::vmx {
 		// RSP, RIP and RFLAGS as in the VMCS.
 		bool basicCacheValid_ = false;
 		uint64_t cachedRsp_ = 0, cachedRip_ = 0, cachedRflags_ = 0;
+
+		// An event to inject on the next entry, an event whose delivery was interrupted by
+		// a VM exit or an exception that an emulated instruction raised.
+		struct Event {
+			uint8_t type;
+			uint8_t vector;
+			bool hasErrorCode;
+			uint32_t errorCode;
+			// For software interrupts and exceptions.
+			uint32_t instructionLength;
+		};
+		bool reinjectValid_ = false;
+		Event reinject_{};
 	};
 }

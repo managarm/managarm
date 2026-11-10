@@ -144,6 +144,10 @@ namespace {
 		vmwrite(thor::vmx::HOST_GDTR_BASE, (size_t)gdtr.pointer);
 		vmwrite(thor::vmx::HOST_IDTR_BASE, (size_t)idtr.pointer);
 	}
+
+	// Types of events that we inject (VM-entry interruption information).
+	constexpr uint8_t kEventHardwareException = 3;
+	constexpr uint8_t kEventSoftwareInterrupt = 4;
 }
 
 extern "C" bool vmxVmRun(thor::vmx::Vmcs* vm, void* state, bool launched);
@@ -446,6 +450,22 @@ namespace thor::vmx {
 				// The guest changes its state while it runs.
 				regsCacheValid_ = false;
 				basicCacheValid_ = false;
+
+				// Inject an event whose delivery was interrupted or that an emulated instruction raised.
+				if(reinjectValid_) {
+					uint32_t info = reinject_.vector
+							| (static_cast<uint32_t>(reinject_.type) << 8)
+							| (UINT32_C(1) << 31);
+					// Error codes are only delivered if guest's CR0.PE is set.
+					if(reinject_.hasErrorCode && (vmread(GUEST_CR0) & 1)) {
+						info |= 1 << 11;
+						vmwrite(VM_ENTRY_EXCEPTION_ERROR_CODE, reinject_.errorCode);
+					}
+					if(reinject_.type >= kEventSoftwareInterrupt)
+						vmwrite(VM_ENTRY_INSTRUCTION_LEN, reinject_.instructionLength);
+					vmwrite(VM_ENTRY_INTR_INFO, info);
+				}
+
 				if(getGlobalCpuFeatures()->haveXsave){
 					common::x86::xsave((uint8_t*)hostFstate, ~0);
 					common::x86::xrstor((uint8_t*)guestFstate, ~0);
@@ -472,6 +492,26 @@ namespace thor::vmx {
 
 				error = entryFailed ? vmread(VM_INSTRUCTION_ERROR) : 0;
 				reason = entryFailed ? ~UINT64_C(0) : vmread(VM_EXIT_REASON);
+
+				// The injected event was delivered unless its delivery caused this exit.
+				// In the latter case, and also if the guest's own event delivery was interrupted,
+				// IDT-vectoring information describes the event, so we inject it again.
+				// Exits caused by instructions do not happen during event delivery.
+				bool instructionExit = reason == VMEXIT_HLT;
+				reinjectValid_ = false;
+				if(!entryFailed && !instructionExit) {
+					auto vectoring = vmread(IDT_VECTORING_INFO);
+					if(vectoring & (UINT32_C(1) << 31)) {
+						reinjectValid_ = true;
+						reinject_.vector = vectoring & 0xFF;
+						reinject_.type = (vectoring >> 8) & 7;
+						reinject_.hasErrorCode = (vectoring >> 11) & 1;
+						reinject_.errorCode = reinject_.hasErrorCode ? vmread(IDT_VECTORING_ERROR_CODE) : 0;
+						// Software interrupts and exceptions need the instruction length.
+						reinject_.instructionLength = reinject_.type >= kEventSoftwareInterrupt
+								? vmread(VM_EXIT_INSTRUCTION_LEN) : 0;
+					}
+				}
 
 				// We cache basic registers on halt exits because the VMM might want
 				// to inspect either the RIP or RFLAGS and that will save us an
@@ -794,6 +834,16 @@ namespace thor::vmx {
 		regs->rsp = cachedRsp_;
 		regs->rip = cachedRip_;
 		regs->rflags = cachedRflags_;
+	}
+
+	void Vmcs::queueException(uint8_t vector, bool hasErrorCode, uint32_t errorCode) {
+		// Exceptions raised by emulated instructions are delivered on the next entry.
+		reinjectValid_ = true;
+		reinject_ = {};
+		reinject_.type = kEventHardwareException;
+		reinject_.vector = vector;
+		reinject_.hasErrorCode = hasErrorCode;
+		reinject_.errorCode = errorCode;
 	}
 
 	uint64_t Vmcs::guestCr0Value() {
