@@ -160,6 +160,8 @@ namespace thor::vmx {
 		cr4 |= common::x86::rdmsr(0x488);
 		asm volatile ("mov %0, %%cr4" : : "r" (cr4));
 
+		eptAccessedDirty = common::x86::rdmsr(IA32_VMX_EPT_VPID_CAP_MSR) & (1 << 21);
+
 		//Set vmx revision
 		uint32_t vmxRevision = common::x86::rdmsr(0x480);
 		*(uint32_t*)vmxonAccessor.get() = static_cast<uint32_t>(vmxRevision);

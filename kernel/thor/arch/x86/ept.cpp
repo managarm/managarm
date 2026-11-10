@@ -19,9 +19,14 @@ constexpr uint64_t eptDirty = UINT64_C(1) << 9;
 // constexpr uint64_t eptUserExecute = UINT64_C(1) << 10;
 constexpr uint64_t eptAddress = 0x000F'FFFF'FFFF'F000;
 
+bool eptAccessedDirty = false;
+
 uint64_t eptPointer(PhysicalAddr rootTable) {
-	// Write-back paging structures, 4-level walks, accessed and dirty flags.
-	return rootTable | 6 | (4 - 1) << 3 | (1 << 6);
+	// Write-back paging structures, 4-level walks.
+	uint64_t eptp = rootTable | 6 | (4 - 1) << 3;
+	if(eptAccessedDirty)
+		eptp |= 1 << 6;
+	return eptp;
 }
 
 void inveptSingleContext(PhysicalAddr rootTable) {
@@ -61,11 +66,12 @@ struct EptCursorPolicy {
 		return pte & eptAddress;
 	}
 
-	static constexpr PageStatus ptePageStatus(uint64_t pte) {
+	static PageStatus ptePageStatus(uint64_t pte) {
 		if(!ptePagePresent(pte))
 			return 0;
 		PageStatus status = page_status::present;
-		if(pte & eptDirty)
+		// Without dirty flags, we have to assume that writable pages were written.
+		if(eptAccessedDirty ? (pte & eptDirty) : (pte & eptWrite))
 			status |= page_status::dirty;
 		return status;
 	}

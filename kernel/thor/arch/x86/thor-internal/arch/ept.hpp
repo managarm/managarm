@@ -20,6 +20,9 @@ constexpr uint64_t EPT_MEMORY_TYPE = (3);
 
 namespace thor::vmx {
 
+// Whether the CPU supports accessed and dirty flags in EPT entries (IA32_VMX_EPT_VPID_CAP bit 21).
+extern bool eptAccessedDirty;
+
 // Returns the EPT pointer (as used by the VMCS and by INVEPT) for the given root table.
 uint64_t eptPointer(PhysicalAddr rootTable);
 
