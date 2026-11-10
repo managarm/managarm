@@ -109,6 +109,8 @@ namespace {
 	constexpr uint64_t XCR0_SSE = UINT64_C(1) << 1;
 	constexpr uint64_t XCR0_AVX = UINT64_C(1) << 2;
 	constexpr uint64_t XCR0_AVX512 = UINT64_C(7) << 5; // Opmask, ZMM_Hi256 and Hi16_ZMM.
+	constexpr uint32_t MSR_CSTAR = 0xC0000083;
+
 	constexpr uint8_t UD_VECTOR = 6;
 	constexpr uint8_t GP_VECTOR = 13;
 
@@ -116,6 +118,10 @@ namespace {
 	// which tells us whether XCR0 needs to be switched.
 	uint64_t cr4Mask() {
 		return cr4Forced() | CR4_OSXSAVE;
+	}
+
+	bool isCanonical(uint64_t address) {
+		return static_cast<uint64_t>(static_cast<int64_t>(address << 16) >> 16) == address;
 	}
 
 	// XSETBV raises #GP for all other values.
@@ -137,6 +143,9 @@ namespace {
 		}
 		return true;
 	}
+
+	// The host values of the MSRs that are used by SYSCALL; read once by vmxon().
+	uint64_t hostStar, hostLstar, hostCstar, hostSfmask;
 
 	// Writes the host selectors, which are the same on all CPUs.
 	void writeHostSelectors() {
@@ -245,6 +254,10 @@ namespace thor::vmx {
 		cr0Fixed1 = common::x86::rdmsr(IA32_VMX_CR0_FIXED1_MSR);
 		cr4Fixed0 = common::x86::rdmsr(IA32_VMX_CR4_FIXED0_MSR);
 		cr4Fixed1 = common::x86::rdmsr(IA32_VMX_CR4_FIXED1_MSR);
+		hostStar = common::x86::rdmsr(common::x86::kMsrStar);
+		hostLstar = common::x86::rdmsr(common::x86::kMsrLstar);
+		hostCstar = common::x86::rdmsr(MSR_CSTAR);
+		hostSfmask = common::x86::rdmsr(common::x86::kMsrFmask);
 
 		//Set vmx revision
 		uint32_t vmxRevision = common::x86::rdmsr(0x480);
@@ -279,6 +292,14 @@ namespace thor::vmx {
 		memset(regionAccessor.get(), 0, kPageSize);
 		uint32_t vmxRevision = common::x86::rdmsr(0x480);
 		*(uint32_t*)regionAccessor.get() = static_cast<uint32_t>(vmxRevision);
+
+		// Allocate before disabling interrupts (the allocator must not run with interrupts disabled).
+		msrArea_ = physicalAllocator->allocateInfallible(PhysicalKind::pinned);
+		PageAccessor msrAccessor{msrArea_};
+		memset(msrAccessor.get(), 0, kPageSize);
+		// The physical memory stays mapped after the accessor is gone.
+		guestMsrs_ = reinterpret_cast<MsrEntry *>(msrAccessor.get());
+		hostMsrs_ = guestMsrs_ + numSwitchedMsrs;
 
 		// A VMCS is only active (and thus may be cached by the CPU) while we cannot migrate
 		// to another CPU. Afterwards, we VMCLEAR it (see acquire_() and release_()).
@@ -321,6 +342,35 @@ namespace thor::vmx {
 		// Hide the bits that VMX forces to 1 from the guest.
 		vmwrite(CR0_GUEST_HOST_MASK, cr0Forced());
 		vmwrite(CR4_GUEST_HOST_MASK, cr4Mask());
+
+		// The CPU switches these MSRs through the MSR areas. Unlike WRMSR, this does not
+		// cause additional exits under nested virtualization. The guest's KERNEL_GS_BASE
+		// entry doubles as the VM-exit MSR-store area.
+		uint32_t msrIndices[numSwitchedMsrs] = {
+			common::x86::kMsrStar, common::x86::kMsrLstar, MSR_CSTAR, common::x86::kMsrFmask,
+			common::x86::kMsrIndexKernelGsBase,
+		};
+		// The host's KERNEL_GS_BASE (i.e., the user GS base) is set by run().
+		uint64_t hostValues[numSwitchedMsrs] = {hostStar, hostLstar, hostCstar, hostSfmask, 0};
+		for(unsigned i = 0; i < numSwitchedMsrs; i++) {
+			guestMsrs_[i].index = msrIndices[i];
+			hostMsrs_[i].index = msrIndices[i];
+			hostMsrs_[i].data = hostValues[i];
+		}
+		vmwrite(VM_ENTRY_MSR_LOAD_ADDR, msrArea_);
+		vmwrite(VM_EXIT_MSR_LOAD_ADDR, msrArea_ + numSwitchedMsrs * sizeof(MsrEntry));
+		vmwrite(VM_EXIT_MSR_STORE_ADDR, msrArea_ + kernelGsBaseEntry * sizeof(MsrEntry));
+		vmwrite(VM_ENTRY_MSR_LOAD_COUNT, 0);
+		vmwrite(VM_EXIT_MSR_LOAD_COUNT, 0);
+		vmwrite(VM_EXIT_MSR_STORE_COUNT, 0);
+
+		// Thor does not use SYSENTER.
+		vmwrite(HOST_IA32_SYSENTER_CS, 0);
+		vmwrite(HOST_IA32_SYSENTER_ESP, 0);
+		vmwrite(HOST_IA32_SYSENTER_EIP, 0);
+		vmwrite(GUEST_IA32_SYSENTER_CS, 0);
+		vmwrite(GUEST_IA32_SYSENTER_ESP, 0);
+		vmwrite(GUEST_IA32_SYSENTER_EIP, 0);
 
 		uint64_t cr0, cr4;
 		asm volatile ("mov %%cr0,%0" : "=r"(cr0));
@@ -431,6 +481,12 @@ namespace thor::vmx {
 			return Error::illegalState;
 
 		HelVmexitReason exitInfo{};
+
+		// While we are in the kernel, KERNEL_GS_BASE holds the user GS base of this thread
+		// (and thread switches preserve it).
+		if(msrCount_)
+			hostMsrs_[kernelGsBaseEntry].data = common::x86::rdmsr(common::x86::kMsrIndexKernelGsBase);
+
 		uint64_t hostFsBase = common::x86::rdmsr(MSR_FS_BASE);
 		uint64_t hostXcr0 = getGlobalCpuFeatures()->xcr0Mask;
 
@@ -754,6 +810,8 @@ namespace thor::vmx {
 		if(differs(regs->efer, regsCache_.efer)) {
 			// The CPU updates the IA-32e mode guest control on exits; always write it.
 			setLongModeActive(regs->efer & EFER_LMA, regs->efer);
+			guestLme_ = regs->efer & EFER_LME;
+			updateMsrSwitching();
 		}
 		release_();
 
@@ -928,6 +986,68 @@ namespace thor::vmx {
 		regs->rsp = cachedRsp_;
 		regs->rip = cachedRip_;
 		regs->rflags = cachedRflags_;
+	}
+
+	bool Vmcs::storeMsrs(const HelX86VirtualizationMsrs *msrs) {
+		// Invalid values would make VM entries fail (or fault when we switch XCR0).
+		if(!isValidXcr0(msrs->xcr0))
+			return false;
+		if(!isCanonical(msrs->kernelGsBase) || !isCanonical(msrs->lstar)
+				|| !isCanonical(msrs->cstar) || (msrs->sfmask >> 32)
+				|| !isCanonical(msrs->sysenterEsp) || !isCanonical(msrs->sysenterEip))
+			return false;
+
+		guestMsrs_[0].data = msrs->star;
+		guestMsrs_[1].data = msrs->lstar;
+		guestMsrs_[2].data = msrs->cstar;
+		guestMsrs_[3].data = msrs->sfmask;
+		guestMsrs_[kernelGsBaseEntry].data = msrs->kernelGsBase;
+		guestXcr0_ = msrs->xcr0;
+
+		// See the constructor.
+		StatelessIrqLock irqLock;
+		acquire_();
+		if(msrs->sysenterCs != sysenterCs_)
+			vmwrite(GUEST_IA32_SYSENTER_CS, msrs->sysenterCs);
+		if(msrs->sysenterEsp != sysenterEsp_)
+			vmwrite(GUEST_IA32_SYSENTER_ESP, msrs->sysenterEsp);
+		if(msrs->sysenterEip != sysenterEip_)
+			vmwrite(GUEST_IA32_SYSENTER_EIP, msrs->sysenterEip);
+		updateMsrSwitching();
+		release_();
+
+		sysenterCs_ = msrs->sysenterCs;
+		sysenterEsp_ = msrs->sysenterEsp;
+		sysenterEip_ = msrs->sysenterEip;
+		return true;
+	}
+
+	void Vmcs::loadMsrs(HelX86VirtualizationMsrs *msrs) {
+		// The guest can only change these MSRs through exits to userspace,
+		// except for KERNEL_GS_BASE, which the CPU stores on exits.
+		msrs->star = guestMsrs_[0].data;
+		msrs->lstar = guestMsrs_[1].data;
+		msrs->cstar = guestMsrs_[2].data;
+		msrs->sfmask = guestMsrs_[3].data;
+		msrs->kernelGsBase = guestMsrs_[kernelGsBaseEntry].data;
+		msrs->sysenterCs = sysenterCs_;
+		msrs->sysenterEsp = sysenterEsp_;
+		msrs->sysenterEip = sysenterEip_;
+		msrs->xcr0 = guestXcr0_;
+	}
+
+	void Vmcs::updateMsrSwitching() {
+		// The guest can only use SWAPGS (which changes KERNEL_GS_BASE) after setting EFER.LME.
+		bool used = guestLme_;
+		for(unsigned i = 0; i < numSwitchedMsrs; i++)
+			used = used || guestMsrs_[i].data;
+		unsigned count = used ? numSwitchedMsrs : 0;
+		if(count == msrCount_)
+			return;
+		vmwrite(VM_ENTRY_MSR_LOAD_COUNT, count);
+		vmwrite(VM_EXIT_MSR_LOAD_COUNT, count);
+		vmwrite(VM_EXIT_MSR_STORE_COUNT, count ? 1 : 0);
+		msrCount_ = count;
 	}
 
 	uint64_t Vmcs::readGpr(unsigned index) {
@@ -1113,5 +1233,6 @@ namespace thor::vmx {
 	Vmcs::~Vmcs() {
 		assert(!activeCpu_);
 		physicalAllocator->free((size_t)region, kPageSize);
+		physicalAllocator->free(msrArea_, kPageSize);
 	}
 }

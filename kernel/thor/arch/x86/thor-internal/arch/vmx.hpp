@@ -112,6 +112,14 @@ namespace thor::vmx {
 	constexpr uint64_t GUEST_INTERRUPTIBILITY_STATE = 0x00004824;
 	constexpr uint64_t GUEST_SMBASE                 = 0x00004828;
 	constexpr uint64_t GUEST_IA32_SYSENTER_CS       = 0x0000482A;
+	constexpr uint64_t GUEST_IA32_SYSENTER_ESP      = 0x00006824;
+	constexpr uint64_t GUEST_IA32_SYSENTER_EIP      = 0x00006826;
+	constexpr uint64_t VM_EXIT_MSR_STORE_COUNT      = 0x0000400E;
+	constexpr uint64_t VM_EXIT_MSR_LOAD_COUNT       = 0x00004010;
+	constexpr uint64_t VM_ENTRY_MSR_LOAD_COUNT      = 0x00004014;
+	constexpr uint64_t VM_EXIT_MSR_STORE_ADDR       = 0x00002006;
+	constexpr uint64_t VM_EXIT_MSR_LOAD_ADDR        = 0x00002008;
+	constexpr uint64_t VM_ENTRY_MSR_LOAD_ADDR       = 0x0000200A;
 	constexpr uint64_t GUEST_VMX_PREEMPTION_TIMER   = 0x0000482E;
 	constexpr uint64_t VMCS_FIELD_GUEST_EFER_FULL   = 0x00002806;
 	constexpr uint64_t MSR_FS_BASE                  = 0xc0000100;
@@ -206,15 +214,8 @@ namespace thor::vmx {
 		void storeBasicRegs(const HelX86VirtualizationBasicRegs *regs) override;
 		void loadBasicRegs(HelX86VirtualizationBasicRegs *regs) override;
 
-		// TODO: Switch these MSRs and XCR0.
-		bool storeMsrs(const HelX86VirtualizationMsrs *msrs) override {
-			msrs_ = *msrs;
-			return true;
-		}
-		void loadMsrs(HelX86VirtualizationMsrs *msrs) override {
-			*msrs = msrs_;
-		}
-		HelX86VirtualizationMsrs msrs_{};
+		bool storeMsrs(const HelX86VirtualizationMsrs *msrs) override;
+		void loadMsrs(HelX86VirtualizationMsrs *msrs) override;
 
 		void *region;
 		uint8_t* hostFstate;
@@ -226,6 +227,17 @@ namespace thor::vmx {
 		uint64_t saved_host_rsp;
 
 	private:
+		// An entry of the VM-entry / VM-exit MSR areas.
+		struct MsrEntry {
+			uint32_t index;
+			uint32_t reserved;
+			uint64_t data;
+		};
+
+		// Number of MSRs that we switch through the MSR areas (see the constructor).
+		static constexpr unsigned numSwitchedMsrs = 5;
+		static constexpr unsigned kernelGsBaseEntry = 4;
+
 		void acquire_();
 		void release_();
 
@@ -252,6 +264,8 @@ namespace thor::vmx {
 		bool writeCr0(uint64_t value);
 		bool writeCr4(uint64_t value);
 		bool emulateXsetbv();
+		// Enables the MSR areas if the guest uses any of the switched MSRs.
+		void updateMsrSwitching();
 
 		// Makes sure that cachedRsp_, cachedRip_ and cachedRflags_ are valid.
 		void loadBasicRegsCache();
@@ -259,6 +273,17 @@ namespace thor::vmx {
 		// The VM-entry controls (without the IA-32e mode guest control).
 		uint32_t entryControls_ = 0;
 
+		// One page for the MSR areas: guest values (loaded on entry) followed by
+		// host values (loaded on exit). The guest's KERNEL_GS_BASE is stored on exit
+		// since SWAPGS changes it without an exit.
+		PhysicalAddr msrArea_;
+		MsrEntry *guestMsrs_;
+		MsrEntry *hostMsrs_;
+		// Number of MSRs in the areas (0 or numSwitchedMsrs).
+		unsigned msrCount_ = 0;
+		uint64_t sysenterCs_ = 0, sysenterEsp_ = 0, sysenterEip_ = 0;
+		// Guest EFER.LME; while it is set, the guest may switch to long mode at any time.
+		bool guestLme_ = false;
 		// Guest CR4.OSXSAVE; CR4 writes that change it cause exits.
 		// While it is clear the guest cannot observe XCR0.
 		bool guestOsxsave_ = false;
