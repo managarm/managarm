@@ -54,6 +54,11 @@ namespace thor::vmx {
 	constexpr uint64_t IA32_VMX_VM_EXIT_CTLS_MSR         = 0x483;
 	constexpr uint64_t IA32_VMX_VM_ENTRY_CTLS_MSR        = 0x484;
 	constexpr uint64_t HOST_EFER_FULL                    = 0x00002c02;
+	// Used instead of the CTLS MSRs if bit 55 of IA32_VMX_BASIC is set.
+	constexpr uint64_t IA32_VMX_TRUE_PINBASED_CTLS_MSR   = 0x48d;
+	constexpr uint64_t IA32_VMX_TRUE_PROCBASED_CTLS_MSR  = 0x48e;
+	constexpr uint64_t IA32_VMX_TRUE_EXIT_CTLS_MSR       = 0x48f;
+	constexpr uint64_t IA32_VMX_TRUE_ENTRY_CTLS_MSR      = 0x490;
 
 	constexpr uint64_t GUEST_DR7 = 0x0000681A;
 	constexpr uint64_t GUEST_RSP = 0x0000681C;
@@ -129,10 +134,13 @@ namespace thor::vmx {
 	constexpr uint64_t VMEXIT_EPT_VIOLATION                = 48;
 
 	constexpr uint64_t VMEXIT_CONTROLS_LONG_MODE      = 1 << 9;
+	constexpr uint64_t VMEXIT_CONTROLS_SAVE_IA32_EFER = 1 << 20;
 	constexpr uint64_t VMEXIT_CONTROLS_LOAD_IA32_EFER = 1 << 21;
 	constexpr uint64_t VMEXIT_ON_HLT                  = 1 << 7;
+	constexpr uint64_t CR8_LOAD_EXITING               = 1 << 19;
+	constexpr uint64_t CR8_STORE_EXITING              = 1 << 20;
 	constexpr uint64_t VMEXIT_ON_PIO                  = 1 << 24;
-	constexpr uint64_t SECONDARY_CONTROLS_ON          = 1 << 31;
+	constexpr uint64_t SECONDARY_CONTROLS_ON          = UINT64_C(1) << 31;
 	constexpr uint64_t EPT_ENABLE                     = 1 << 1;
 	constexpr uint64_t UNRESTRICTED_GUEST             = 1 << 7;
 	constexpr uint64_t VMEXIT_ON_DESCRIPTOR           = 1 << 2;
@@ -213,5 +221,8 @@ namespace thor::vmx {
 
 		GuestState state;
 		uint64_t saved_host_rsp;
+		// The VM-entry controls (without the IA-32e mode guest control).
+		uint32_t entryControls_ = 0;
+
 	};
 }

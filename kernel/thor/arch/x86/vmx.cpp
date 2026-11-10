@@ -54,6 +54,22 @@ namespace {
 
 		return tmp;
 	}
+
+	inline uint32_t adjustControls(uint64_t msr, uint32_t desired, uint32_t required, const char *name) {
+		auto caps = common::x86::rdmsr(msr);
+		// The low half of the IA32_VMX_*_CTLS MSRs holds the controls that must be 1
+		// and the high half holds the controls that may be 1.
+		uint32_t controls = (desired | static_cast<uint32_t>(caps)) & static_cast<uint32_t>(caps >> 32);
+		if((controls & required) != required) {
+			thor::infoLogger() << "vmx: CPU lacks required " << name << " controls 0x"
+					<< frg::hex_fmt{required & ~controls} << frg::endlog;
+		}
+		return controls;
+	}
+
+	inline bool haveTrueControls() {
+		return common::x86::rdmsr(thor::vmx::IA32_VMX_BASIC_MSR) & (UINT64_C(1) << 55);
+	}
 }
 
 extern "C" bool vmxVmRun(thor::vmx::Vmcs* vm, void* state, bool launched);
@@ -130,40 +146,36 @@ namespace thor::vmx {
 		}
 
 		//Set up basic controls.
-		uint64_t allowedPinBased = common::x86::rdmsr(MSR_IA32_VMX_PINBASED_CTLS);
-		uint32_t pinbased = (uint32_t)allowedPinBased & (uint32_t)(allowedPinBased >> 32);
-		vmwrite(PIN_BASED_VM_EXEC_CONTROLS, pinbased | 1);
-		uint64_t allowedCpu = common::x86::rdmsr(MSR_IA32_VMX_PROCBASED_CTLS);
-		uint32_t cpu = (uint32_t)allowedCpu & (uint32_t)(allowedCpu >> 32);
-		vmwrite(PROC_BASED_VM_EXEC_CONTROLS,
-				cpu |
-				VMEXIT_ON_HLT |
-				VMEXIT_ON_PIO |
-				SECONDARY_CONTROLS_ON);
-		vmwrite(PROC_BASED_VM_EXEC_CONTROLS2,
-				EPT_ENABLE |
-				UNRESTRICTED_GUEST |
-				VMEXIT_ON_DESCRIPTOR);
+		auto trueControls = haveTrueControls();
+		auto pinbasedControls = 1; // External interrupt exiting.
+		vmwrite(PIN_BASED_VM_EXEC_CONTROLS, adjustControls(
+				trueControls ? IA32_VMX_TRUE_PINBASED_CTLS_MSR : MSR_IA32_VMX_PINBASED_CTLS,
+				pinbasedControls, pinbasedControls, "pin-based"));
+		// Without a TPR shadow, CR8 accesses would otherwise reach the host's TPR.
+		uint32_t procControls = VMEXIT_ON_HLT
+				| VMEXIT_ON_PIO
+				| SECONDARY_CONTROLS_ON
+				| CR8_LOAD_EXITING
+				| CR8_STORE_EXITING;
+		vmwrite(PROC_BASED_VM_EXEC_CONTROLS, adjustControls(
+				trueControls ? IA32_VMX_TRUE_PROCBASED_CTLS_MSR : MSR_IA32_VMX_PROCBASED_CTLS,
+				procControls, procControls, "processor-based"));
+		uint32_t secondaryControls = EPT_ENABLE | UNRESTRICTED_GUEST;
+		vmwrite(PROC_BASED_VM_EXEC_CONTROLS2, adjustControls(IA32_VMX_SEC_PROCBASED_CTLS_MSR,
+				secondaryControls, secondaryControls, "secondary processor-based"));
 		vmwrite(EXCEPTION_BITMAP, 0);
 
-		uint64_t vmExitCtrls = common::x86::rdmsr(0x483);
-		uint32_t vmExitCtrlsLo = (uint32_t)vmExitCtrls;
-		uint32_t vmExitCtrlsHi = (uint32_t)(vmExitCtrls >> 32);
-		uint32_t vm_exit_ctls = 0;
-		vm_exit_ctls |= VMEXIT_CONTROLS_LONG_MODE;
-		vm_exit_ctls |= VMEXIT_CONTROLS_LOAD_IA32_EFER; // Load IA32_EFER on vm-exit
-		vm_exit_ctls |= vmExitCtrlsLo;
-		vm_exit_ctls &= vmExitCtrlsHi;
-		vmwrite(VM_EXIT_CONTROLS, vm_exit_ctls);
+		uint32_t exitControls = VMEXIT_CONTROLS_LONG_MODE | VMEXIT_CONTROLS_LOAD_IA32_EFER;
+		// Saving the guest's EFER keeps EFER.LMA up to date (the CPU sets it when entering long mode).
+		vmwrite(VM_EXIT_CONTROLS, adjustControls(
+				trueControls ? IA32_VMX_TRUE_EXIT_CTLS_MSR : MSR_IA32_VMX_EXIT_CTLS,
+				exitControls | VMEXIT_CONTROLS_SAVE_IA32_EFER, exitControls, "VM-exit"));
 
-		uint64_t vmEntryCtrls = common::x86::rdmsr(0x484);
-		uint32_t vmEntryCtrlsLo = (uint32_t)vmEntryCtrls;
-		uint32_t vmEntryCtrlsHi = (uint32_t)(vmEntryCtrls >> 32);
-		uint32_t vm_entry_ctls = 0;
-		vm_entry_ctls |= 1 << 15;
-		vm_entry_ctls |= vmEntryCtrlsLo;
-		vm_entry_ctls &= vmEntryCtrlsHi;
-		vmwrite(VM_ENTRY_CONTROLS, vm_entry_ctls);
+		uint32_t entryControls = 1 << 15; // Load IA32_EFER.
+		entryControls_ = adjustControls(
+				trueControls ? IA32_VMX_TRUE_ENTRY_CTLS_MSR : MSR_IA32_VMX_ENTRY_CTLS,
+				entryControls, entryControls, "VM-entry") & ~VM_ENTRY_IA32E_MODE;
+		vmwrite(VM_ENTRY_CONTROLS, entryControls_);
 
 		uint64_t cr0, cr4;
 		asm volatile ("mov %%cr0,%0" : "=r"(cr0));
