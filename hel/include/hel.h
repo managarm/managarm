@@ -288,6 +288,8 @@ struct HelX86SegmentRegister {
 	uint32_t limit;
 	uint16_t selector;
 	uint8_t type, present, dpl, db, s, l, g, avl;
+	// The segment register does not hold a usable segment (e.g., a null selector).
+	uint8_t unusable;
 };
 
 struct HelX86DescriptorTable {

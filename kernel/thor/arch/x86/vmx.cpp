@@ -410,7 +410,8 @@ namespace thor::vmx {
                 uint32_t attrib = regs->segment.type | (regs->segment.s << 4) | \
                                   (regs->segment.dpl << 5) | (regs->segment.present << 7) | \
                                   (regs->segment.avl << 12) | (regs->segment.l << 13) | \
-                                  (regs->segment.db << 14) | (regs->segment.g << 15); \
+                                  (regs->segment.db << 14) | (regs->segment.g << 15) | \
+                                  (regs->segment.unusable << 16); \
                 vmwrite(GUEST_##segment_capital##_ACCESS_RIGHT, attrib); \
             }
 
@@ -458,7 +459,8 @@ namespace thor::vmx {
                 regs->segment.l = (seg >> 13) & 1; \
                 regs->segment.db = (seg >> 14) & 1; \
                 regs->segment.g = (seg >> 15) & 1; \
-            } 
+                regs->segment.unusable = (seg >> 16) & 1; \
+            }
 
 		GET_SEGMENT(cs, CS);
 		GET_SEGMENT(ds, DS);
