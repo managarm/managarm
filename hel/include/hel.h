@@ -1259,6 +1259,9 @@ struct HelThreadStats {
 
 enum {
   kHelVmexitHlt = 0,
+  // A guest-physical access to an unmapped address (e.g., MMIO).
+  // address is the guest-physical address and flags is a combination of kHelVmFault*.
+  // The instruction is neither decoded nor skipped; the VMM emulates it and advances RIP by itself.
   kHelVmexitTranslationFault = 1,
   // VMCALL/VMMCALL (x86) or ECALL (RISC-V).
   // On x86, it needs a completion; data[0] of the completion is written to RAX.

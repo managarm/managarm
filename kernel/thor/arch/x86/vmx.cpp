@@ -193,6 +193,18 @@ namespace {
 	constexpr uint8_t kEventHardwareException = 3;
 	constexpr uint8_t kEventSoftwareInterrupt = 4;
 
+	// Translates the qualification of an EPT violation to kHelVmFault* flags.
+	size_t translateEptFaultFlags(uint64_t qualification) {
+		size_t flags = 0;
+		if(qualification & (1 << 0))
+			flags |= kHelVmFaultRead;
+		if(qualification & (1 << 1))
+			flags |= kHelVmFaultWrite;
+		if(qualification & (1 << 2))
+			flags |= kHelVmFaultExecute;
+		return flags;
+	}
+
 	// Returns the GPR with the given encoding in instructions.
 	uint64_t *gprSlot(thor::vmx::GuestState &state, unsigned index) {
 		uint64_t *slots[16] = {
@@ -566,6 +578,7 @@ namespace thor::vmx {
 			// Exit information that we read while the VMCS is active and use afterwards.
 			uint64_t qualification = 0;
 			bool stringIo = false;
+			uint64_t eptAddress = 0;
 			bool msrExit = false;
 			bool needsCompletion = false;
 			uint64_t instructionLength = 0;
@@ -666,10 +679,13 @@ namespace thor::vmx {
 
 				error = entryFailed ? vmread(VM_INSTRUCTION_ERROR) : 0;
 				reason = entryFailed ? ~UINT64_C(0) : vmread(VM_EXIT_REASON);
-				if(reason == VMEXIT_IO_INSTRUCTION || reason == VMEXIT_CR_ACCESS) {
+				if(reason == VMEXIT_EPT_VIOLATION || reason == VMEXIT_IO_INSTRUCTION
+						|| reason == VMEXIT_CR_ACCESS) {
 					qualification = vmread(EXIT_QUALIFICATION);
 					stringIo = reason == VMEXIT_IO_INSTRUCTION && (qualification & (1 << 4));
 				}
+				if(reason == VMEXIT_EPT_VIOLATION)
+					eptAddress = vmread(EPT_VIOLATION_ADDRESS);
 				msrExit = reason == VMEXIT_RDMSR || reason == VMEXIT_WRMSR;
 				// Instructions that we emulate in the kernel (and skip unless they fault).
 				bool skipInstruction = reason == VMEXIT_HLT || reason == VMEXIT_CR_ACCESS
@@ -787,23 +803,23 @@ namespace thor::vmx {
 				exitInfo.exitReason = kHelVmexitHlt;
 				return exitInfo;
 			} else if(reason == VMEXIT_EPT_VIOLATION) {
-				size_t address = vmread(EPT_VIOLATION_ADDRESS);
-				size_t exitFlags = vmread(EPT_VIOLATION_FLAGS);
+				// Bit 0 of the qualification is set for reads, bit 1 for writes
+				// and bit 2 for instruction fetches.
 				uint32_t flags = AddressSpace::kFaultSynchronous;
-				if(exitFlags & 1)
+				if(qualification & (1 << 1))
 					flags |= AddressSpace::kFaultWrite;
-				if(exitFlags & (1 << 2))
+				if(qualification & (1 << 2))
 					flags |= AddressSpace::kFaultExecute;
 
 				leaveResidency();
 				auto faultOutcome = Thread::asyncBlockCurrent(
-					space->handleFault(address, flags),
+					space->handleFault(eptAddress, flags),
 					getCurrentThread()->pagingWorkQueue().get()
 				);
 				if(!faultOutcome) {
 					exitInfo.exitReason = kHelVmexitTranslationFault;
-					exitInfo.address = address;
-					exitInfo.flags = exitFlags;
+					exitInfo.address = eptAddress;
+					exitInfo.flags = translateEptFaultFlags(qualification);
 					return exitInfo;
 				}
 			} else if(reason == VMEXIT_EXTERNAL_INTERRUPT) {
