@@ -1509,6 +1509,10 @@ HelError helRunVirtualizedCpu(HelHandle handle, const HelVmexitCompletion *compl
 		return translateError(vcpuOutcome.error());
 	auto vcpu = std::move(*vcpuOutcome);
 
+	VirtualizedCpu::UseGuard vcpuGuard{vcpu.get()};
+	if(!vcpuGuard)
+		return kHelErrIllegalState;
+
 	HelVmexitCompletion kernelCompletion;
 	if(completion && !readUserObject(completion, kernelCompletion))
 		return kHelErrFault;
@@ -2686,6 +2690,10 @@ HelError helLoadRegisters(HelHandle handle, int set, void *image) {
 	if(activeThread)
 		thread = smarter::rc_policy_downcast<smarter::default_rc_policy>(activeThread);
 
+	VirtualizedCpu::UseGuard vcpuGuard{vcpu.get()};
+	if(vcpu && !vcpuGuard)
+		return kHelErrIllegalState;
+
 	if(set == kHelRegsProgram) {
 		if(!thread) {
 			return kHelErrIllegalArgs;
@@ -2995,6 +3003,10 @@ HelError helStoreRegisters(HelHandle handle, int set, const void *image) {
 		if(activeThread)
 			thread = smarter::rc_policy_downcast<smarter::default_rc_policy>(activeThread);
 	}
+
+	VirtualizedCpu::UseGuard vcpuGuard{vcpu.get()};
+	if(vcpu && !vcpuGuard)
+		return kHelErrIllegalState;
 
 	if(set == kHelRegsProgram) {
 		if(!thread) {

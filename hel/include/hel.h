@@ -1816,6 +1816,10 @@ HEL_C_LINKAGE HelError helGetClock(uint64_t *counter);
 HEL_C_LINKAGE HelError helCreateVirtualizedCpu(HelHandle handle, HelHandle *out_handle);
 
 //! Runs a virtualized CPU until it exits to the VMM.
+//!
+//! Only one thread can use a virtualized CPU at a time. While it runs, or while its registers
+//! are being accessed, helRunVirtualizedCpu()/helLoadRegisters()/helStoreRegisters() on it will
+//! fail with kHelErrIllegalState.
 //! @param[in] handle
 //!     Handle to the virtualized CPU.
 //! @param[in] completion
