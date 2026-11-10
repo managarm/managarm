@@ -233,5 +233,14 @@ namespace thor::vmx {
 
 		// The VM-entry controls (without the IA-32e mode guest control).
 		uint32_t entryControls_ = 0;
+
+		// The VMCS host state is written only when CPU or the FS base changes.
+		bool hostSelectorsWritten_ = false;
+		bool hostFsBaseWritten_ = false;
+		CpuData *hostStateCpu_ = nullptr;
+		uint64_t hostFsBase_ = 0;
+
+		// The CR3 of the address space changes when its PCID is rebound.
+		uint64_t hostCr3_ = 0;
 	};
 }

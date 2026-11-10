@@ -340,6 +340,7 @@ namespace thor::vmx {
 			return Error::illegalState;
 
 		HelVmexitReason exitInfo{};
+		uint64_t hostFsBase = common::x86::rdmsr(MSR_FS_BASE);
 
 		// While the VMCS is resident, it stays active on this CPU between entries.
 		std::optional<MigrationGuard> migrationGuard;
@@ -373,13 +374,30 @@ namespace thor::vmx {
 					return exitInfo;
 				}
 				acquire_();
-				// The host state differs between CPUs and threads.
-				writeHostSelectors();
-				writeHostCpuState();
-				vmwrite(HOST_FS_BASE, common::x86::rdmsr(MSR_FS_BASE));
+				// VMX instructions are expensive under nested virtualization; avoid needless ones.
+				// The host state only differs between CPUs and threads.
+				auto cpu = getCpuData();
+				if(!hostSelectorsWritten_) {
+					writeHostSelectors();
+					hostSelectorsWritten_ = true;
+				}
+				if(hostStateCpu_ != cpu) {
+					writeHostCpuState();
+					hostStateCpu_ = cpu;
+				}
+				if(!hostFsBaseWritten_ || hostFsBase_ != hostFsBase) {
+					vmwrite(HOST_FS_BASE, hostFsBase);
+					hostFsBase_ = hostFsBase;
+					hostFsBaseWritten_ = true;
+				}
+				// CR3 differs between threads.
+				// Even for the same thread, it changes when the PCID of our address space is rebound.
 				uint64_t cr3;
 				asm volatile ("mov %%cr3, %0" : "=r"(cr3));
-				vmwrite(HOST_CR3, cr3);
+				if(cr3 != hostCr3_) {
+					vmwrite(HOST_CR3, cr3);
+					hostCr3_ = cr3;
+				}
 				if(getGlobalCpuFeatures()->haveXsave){
 					common::x86::xsave((uint8_t*)hostFstate, ~0);
 					common::x86::xrstor((uint8_t*)guestFstate, ~0);
