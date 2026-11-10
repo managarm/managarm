@@ -1047,7 +1047,7 @@ public:
 		//       the refcount may be decremented in IRQ context.
 		auto ptr = allocate_rcu_shared<AddressSpace>(Allocator{}, CtorToken{});
 		ptr->selfPtr = ptr;
-		ptr->setupInitialHole(0x1000, (UINT64_C(1) << getLowerHalfBits()) - 0x1000);
+		ptr->setupInitialHole(kPageSize, (UINT64_C(1) << getLowerHalfBits()) - kPageSize);
 		spawnOnWorkQueue(*kernelAlloc, WorkQueue::memoryQueue().lock(), ptr->runAgingLoop());
 		return constructHandle(std::move(ptr));
 	}

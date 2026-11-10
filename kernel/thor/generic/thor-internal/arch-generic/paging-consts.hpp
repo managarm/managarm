@@ -1,12 +1,13 @@
 #pragma once
 
 #include <thor-internal/types.hpp>
+#include <hel.h>
 
 namespace thor {
 
 enum {
-	kPageSize = 0x1000,
-	kPageShift = 12
+	kPageSize = kHelPageSize,
+	kPageShift = kHelPageShift
 };
 
 constexpr Word kPfAccess = 1;

@@ -13,7 +13,7 @@ namespace {
 
 // Processes an exact number of notifications.
 async::result<void> handleManageRequests(helix::BorrowedDescriptor backingMemory, int count) {
-	std::byte buffer[0x1000]{};
+	std::byte buffer[kHelPageSize]{};
 
 	for(int i = 0; i < count; i++) {
 		helix::ManageMemory manage;
@@ -22,7 +22,7 @@ async::result<void> handleManageRequests(helix::BorrowedDescriptor backingMemory
 		co_await submit.async_wait();
 		HEL_CHECK(manage.error());
 		if(manage.type() == kHelManageInitialize) {
-			auto result = co_await helix_ng::writeMemory(backingMemory, manage.offset(), 0x1000, buffer);
+			auto result = co_await helix_ng::writeMemory(backingMemory, manage.offset(), kHelPageSize, buffer);
 			HEL_CHECK(result.error());
 			HEL_CHECK(helUpdateMemory(backingMemory.getHandle(), kHelManageInitialize,
 					manage.offset(), manage.length()));
@@ -53,14 +53,14 @@ async::result<void> testWritebackFence() {
 		handleManageRequests(backingMemory, 1),
 		async::lambda([&]() -> async::result<void> {
 			auto submit = helix::submitLockMemoryView(frontalMemory, &lockMemory,
-					pageOffset, 0x1000, helix::Dispatcher::global());
+					pageOffset, kHelPageSize, helix::Dispatcher::global());
 			co_await submit.async_wait();
 			HEL_CHECK(lockMemory.error());
 		})()
 	);
 	auto lock = lockMemory.descriptor();
-	helix::Mapping first{frontalMemory, pageOffset, 0x1000, kHelMapProtRead | kHelMapProtWrite};
-	helix::Mapping second{frontalMemory, pageOffset, 0x1000, kHelMapProtRead | kHelMapProtWrite};
+	helix::Mapping first{frontalMemory, pageOffset, kHelPageSize, kHelMapProtRead | kHelMapProtWrite};
+	helix::Mapping second{frontalMemory, pageOffset, kHelPageSize, kHelMapProtRead | kHelMapProtWrite};
 
 	// No writeMemory() or synchronizeSpace(): only the mapping's PTE is dirty.
 	// Repeat through another alias to check that the fence collects all mappings
@@ -77,7 +77,7 @@ async::result<void> testWritebackFence() {
 				co_await submit.async_wait();
 				HEL_CHECK(manage.error());
 				assert(manage.type() == kHelManageWriteback);
-				assert(manage.offset() == pageOffset && manage.length() == 0x1000);
+				assert(manage.offset() == pageOffset && manage.length() == kHelPageSize);
 				std::byte data;
 				auto read = co_await helix_ng::readMemory(backingMemory, pageOffset, 1, &data);
 				HEL_CHECK(read.error());
@@ -113,30 +113,30 @@ namespace {
 
 async::result<void> testInvalidateRange() {
 	HelHandle backingHandle, frontalHandle;
-	HEL_CHECK(helCreateManagedMemory(core::getProcessHierarchy(), 0x1000, 0, &backingHandle, &frontalHandle));
+	HEL_CHECK(helCreateManagedMemory(core::getProcessHierarchy(), kHelPageSize, 0, &backingHandle, &frontalHandle));
 	helix::UniqueDescriptor backingMemory{backingHandle};
 	helix::UniqueDescriptor frontalMemory{frontalHandle};
 
-	std::byte buffer[0x1000]{};
+	std::byte buffer[kHelPageSize]{};
 
 	// Trigger initialization, then writeback.
 	co_await async::when_all(
 		handleManageRequests(backingMemory, 2),
 		async::lambda([&]() -> async::result<void> {
-			auto result = co_await helix_ng::writeMemory(frontalMemory, 0, 0x1000, buffer);
+			auto result = co_await helix_ng::writeMemory(frontalMemory, 0, kHelPageSize, buffer);
 			HEL_CHECK(result.error());
 			co_return;
 		})()
 	);
 
-	auto invalidateResult = co_await helix_ng::invalidateMemory(backingMemory, 0, 0x1000);
+	auto invalidateResult = co_await helix_ng::invalidateMemory(backingMemory, 0, kHelPageSize);
 	HEL_CHECK(invalidateResult.error());
 
 	// A subsequent write to the frontal memory must trigger initialization again.
 	co_await async::when_all(
 		handleManageRequests(backingMemory, 2),
 		async::lambda([&]() -> async::result<void> {
-			auto result = co_await helix_ng::writeMemory(frontalMemory, 0, 0x1000, buffer);
+			auto result = co_await helix_ng::writeMemory(frontalMemory, 0, kHelPageSize, buffer);
 			HEL_CHECK(result.error());
 			co_return;
 		})()

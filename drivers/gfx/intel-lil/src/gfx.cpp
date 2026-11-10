@@ -227,7 +227,7 @@ std::pair<std::shared_ptr<drm_core::BufferObject>, uint32_t>
 GfxDevice::createDumb(uint32_t width, uint32_t height, uint32_t bpp) {
 	size_t pitch = frg::align_up(width * (bpp / 8), 64);
 	size_t size = height * pitch;
-	size_t mappingSize = frg::align_up(size, 0x1000);
+	size_t mappingSize = frg::align_up(size, kHelPageSize);
 
 	auto gpuVa = _vramAllocator.allocate(size);
 	auto dmaBuffer = arch::dma_buffer{&_pool, mappingSize, 0x1000};
@@ -478,7 +478,7 @@ GfxDevice::BufferObject::BufferObject(
   _size{size},
   allocationHandle_{std::move(allocationHandle)},
   apertureHandle_{std::move(apertureHandle)} {
-	_size = (_size + (4096 - 1)) & ~(4096 - 1);
+	_size = (_size + (kHelPageSize - 1)) & ~(kHelPageSize - 1);
 }
 
 GpuAddr GfxDevice::BufferObject::getAddress() { return _gpuAddr; }

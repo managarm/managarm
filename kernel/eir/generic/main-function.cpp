@@ -157,16 +157,17 @@ static initgraph::Task mapRegions{
 static initgraph::Task mapEirImage{
     &globalInitEngine, "generic.map-eir-image", initgraph::Requires{getKernelMappableStage()}, [] {
 	    const auto &bootCaps = BootCaps::get();
-	    auto floor = static_cast<address_t>(bootCaps.imageStart) & ~address_t{0xFFF};
-	    auto ceiling = (static_cast<address_t>(bootCaps.imageEnd) + 0xFFF) & ~address_t{0xFFF};
+	    auto floor = static_cast<address_t>(bootCaps.imageStart) & ~address_t{pageSize - 1};
+	    auto ceiling =
+	        (static_cast<address_t>(bootCaps.imageEnd) + pageSize - 1) & ~address_t{pageSize - 1};
 
-	    for (address_t addr = floor; addr < ceiling; addr += 0x1000) {
+	    for (address_t addr = floor; addr < ceiling; addr += pageSize) {
 		    if (kernel_physical != SIZE_MAX) {
-			    mapSingle4kPage(
+			    mapSinglePage(
 			        addr, addr - floor + kernel_physical, PageFlags::write | PageFlags::execute
 			    );
 		    } else {
-			    mapSingle4kPage(addr, addr, PageFlags::write | PageFlags::execute);
+			    mapSinglePage(addr, addr, PageFlags::write | PageFlags::execute);
 		    }
 	    }
     }
@@ -195,7 +196,7 @@ static initgraph::Task prepareFramebufferForThor{
 		    // Map the framebuffer.
 		    assert(fb->fbAddress & ~static_cast<EirPtr>(pageSize - 1));
 		    for (address_t pg = 0; pg < fb->fbPitch * fb->fbHeight; pg += pageSize)
-			    mapSingle4kPage(
+			    mapSinglePage(
 			        getKernelFrameBuffer() + pg,
 			        fb->fbAddress + pg,
 			        PageFlags::write,

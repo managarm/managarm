@@ -540,7 +540,7 @@ async::detached FileSystem::initiateInode(std::shared_ptr<Inode> inode) {
 		assert(!"unsupported inode type");
 
 	// Allocate a page cache for the file.
-	auto cache_size = (inode->fileSize() + 0xFFF) & ~size_t(0xFFF);
+	auto cache_size = (inode->fileSize() + kHelPageSize - 1) & ~size_t(kHelPageSize - 1);
 	HEL_CHECK(helCreateManagedMemory(fileDataHierarchy(),
 	    cache_size, kHelManagedReadahead, &inode->backingMemory, &inode->frontalMemory
 	));
@@ -558,7 +558,7 @@ async::detached FileSystem::manageFileData(std::shared_ptr<Inode> inode) {
 		);
 		co_await submit.async_wait();
 		HEL_CHECK(manage.error());
-		assert(manage.offset() + manage.length() <= ((inode->fileSize() + 0xFFF) & ~size_t(0xFFF)));
+		assert(manage.offset() + manage.length() <= ((inode->fileSize() + kHelPageSize - 1) & ~size_t(kHelPageSize - 1)));
 
 		if (manage.type() == kHelManageInitialize) {
 			assert(!(manage.offset() % inode->fs_.superblock_.sector_size));

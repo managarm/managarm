@@ -156,7 +156,7 @@ std::tuple<std::string, std::string, std::string> GfxDevice::driverInfo() {
 std::pair<std::shared_ptr<drm_core::BufferObject>, uint32_t>
 GfxDevice::createDumb(uint32_t width, uint32_t height, uint32_t bpp) {
 	assert(bpp == 32);
-	unsigned int page_size = 4096;
+	unsigned int page_size = kHelPageSize;
 	unsigned int bytes_pp = bpp / 8;
 
 	// Buffers need to be aligned to lcm(pitch, page size). Here we compute a pitch that
@@ -385,7 +385,7 @@ GfxDevice::BufferObject::BufferObject(GfxDevice *device, size_t alignment, size_
 		uintptr_t offset, ptrdiff_t displacement, uint32_t width, uint32_t height)
 : drm_core::BufferObject{width, height}, _device{device}, _alignment{alignment}, _size{size},
 		_offset{offset}, _displacement{displacement} {
-	assert(!((_offset + _displacement) % 0x1000));
+	assert(!((_offset + _displacement) % kHelPageSize));
 	assert(!((_offset + _displacement) % _alignment));
 
 	HelHandle handle;

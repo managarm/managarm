@@ -455,3 +455,21 @@ DEFINE_TEST(mprotect_prot_none, ([] {
 	ret = munmap(mem, pageSize);
 	assert_errno("munmap", ret != -1);
 }))
+
+// A length smaller than a page still covers one complete native page. This
+// catches accidental 4 KiB rounding on targets with a larger VM granule.
+DEFINE_TEST(mmap_native_page_rounding, ([] {
+	for (int sharing : {MAP_PRIVATE, MAP_SHARED}) {
+		auto memory = static_cast<volatile unsigned char *>(mmap(nullptr, 1,
+				PROT_READ | PROT_WRITE, MAP_ANONYMOUS | sharing, -1, 0));
+		assert_errno("mmap", memory != MAP_FAILED);
+		assert(memory[pageSize - 1] == 0);
+		memory[pageSize - 1] = 0xA5;
+		void *base = const_cast<unsigned char *>(memory);
+		assert_errno("mprotect", !mprotect(base, 1, PROT_READ));
+		assert(memory[pageSize - 1] == 0xA5);
+		assert_errno("mprotect", !mprotect(base, 1, PROT_READ | PROT_WRITE));
+		memory[pageSize - 1] = 0x5A;
+		assert_errno("munmap", !munmap(base, 1));
+	}
+}))

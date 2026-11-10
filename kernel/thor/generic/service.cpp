@@ -451,19 +451,19 @@ namespace posix {
 	struct Process {
 		Process(frg::string<KernelAlloc> name)
 		: _name{std::move(name)}, openFiles(*kernelAlloc) {
-			auto memoryOutcome = AllocatedMemory::create(rootHierarchy(), 0x1000);
+			auto memoryOutcome = AllocatedMemory::create(rootHierarchy(), kPageSize);
 			if(!memoryOutcome)
 				panicLogger() << "thor: Failed to create memory" << frg::endlog;
 			fileTableMemory = std::move(*memoryOutcome);
 		}
 
 		coroutine<void> setupAddressSpace(smarter::shared_ptr<Thread, ActiveHandle> thread) {
-			auto viewOutcome = MemorySlice::create(fileTableMemory, 0, 0x1000);
+			auto viewOutcome = MemorySlice::create(fileTableMemory, 0, kPageSize);
 			if(!viewOutcome)
 				panicLogger() << "thor: Failed to create memory slice" << frg::endlog;
 			auto view = std::move(*viewOutcome);
 			auto result = co_await thread->getAddressSpace()->map(std::move(view),
-					0, 0, 0x1000,
+					0, 0, kPageSize,
 					AddressSpace::kMapPreferTop | AddressSpace::kMapProtRead);
 			assert(result);
 			clientFileTable = result.value();

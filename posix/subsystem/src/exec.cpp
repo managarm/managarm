@@ -1,4 +1,5 @@
 #include <elf.h>
+#include <hel.h>
 #include <stddef.h>
 #include <stdint.h>
 #include <string.h>
@@ -9,7 +10,7 @@
 #include "exec.hpp"
 #include <fs.bragi.hpp>
 
-constexpr size_t kPageSize = 0x1000;
+constexpr size_t kPageSize = kHelPageSize;
 constexpr uintptr_t ldsoBaseAddress = 0x40000000;
 
 // This struct is parsed before knowing the type of executable (PIE vs. non-PIE)
@@ -355,7 +356,7 @@ execute(ViewPath root, ViewPath workdir,
 		AT_BASE,
 		ldsoBaseAddress,
 		AT_PAGESZ,
-		0x1000,
+		kPageSize,
 		AT_NULL,
 		0
 	});

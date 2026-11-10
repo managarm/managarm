@@ -192,7 +192,8 @@ impl Queue {
                 &handle,
                 None,
                 0,
-                (chunks_offset + reserved_per_chunk * total_chunks).next_multiple_of(4096),
+                (chunks_offset + reserved_per_chunk * total_chunks)
+                    .next_multiple_of(crate::PAGE_SIZE),
                 MappingFlags::READ | MappingFlags::WRITE,
             )?
         };

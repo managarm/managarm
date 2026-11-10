@@ -7,6 +7,7 @@
 #include <assert.h>
 #include <stddef.h>
 #include <stdint.h>
+#include <hel.h>
 
 #include <atomic>
 
@@ -23,8 +24,8 @@ enum class Framing : int32_t {
 };
 
 // Offset of the data area within the producer memory.
-inline constexpr size_t dataOffset = 0x1000;
-inline constexpr size_t consumerMemorySize = 0x1000;
+inline constexpr size_t dataOffset = kHelPageSize;
+inline constexpr size_t consumerMemorySize = kHelPageSize;
 
 // Header of the producer memory. Only written by the producer.
 struct ProducerHeader {

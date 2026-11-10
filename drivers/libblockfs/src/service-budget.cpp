@@ -1,14 +1,15 @@
 #include <algorithm>
 #include <cstdint>
+#include <hel.h>
 
 #include "service-budget.hpp"
 
 namespace blockfs {
 
 namespace {
-	constexpr uint32_t pageShift = 12;
-	// Pages that one thread may have pinned, i.e. 4 MiB.
-	constexpr size_t budgetPages = 1024;
+	constexpr uint32_t pageShift = kHelPageShift;
+	// Pages that one thread may have pinned, bounded to 4 MiB.
+	constexpr size_t budgetPages = (4 * 1024 * 1024) / kHelPageSize;
 	// Share of a budget that writeback may occupy.
 	constexpr size_t writebackNumerator = 3;
 	constexpr size_t writebackDenominator = 4;

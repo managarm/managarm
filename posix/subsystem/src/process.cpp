@@ -234,7 +234,7 @@ async::result<frg::expected<Error, void *>>
 VmContext::mapFile(uintptr_t hint, helix::UniqueDescriptor memory,
 		smarter::shared_ptr<File, FileHandle> file,
 		intptr_t offset, size_t size, bool copyOnWrite, uint32_t nativeFlags) {
-	size_t alignedSize = (size + 0xFFF) & ~size_t(0xFFF);
+	size_t alignedSize = (size + kHelPageSize - 1) & ~size_t(kHelPageSize - 1);
 
 	// Files of replaced areas are dropped after unlocking since that can close them.
 	std::vector<smarter::shared_ptr<File, FileHandle>> dropped;
@@ -316,8 +316,8 @@ VmContext::mapFile(uintptr_t hint, helix::UniqueDescriptor memory,
 
 async::result<void *> VmContext::remapFile(void *oldPointer,
 		size_t oldSize, size_t newSize) {
-	size_t alignedOldSize = (oldSize + 0xFFF) & ~size_t(0xFFF);
-	size_t alignedNewSize = (newSize + 0xFFF) & ~size_t(0xFFF);
+	size_t alignedOldSize = (oldSize + kHelPageSize - 1) & ~size_t(kHelPageSize - 1);
+	size_t alignedNewSize = (newSize + kHelPageSize - 1) & ~size_t(kHelPageSize - 1);
 
 	co_await _mutex.async_lock();
 	frg::unique_lock lock{frg::adopt_lock, _mutex};
@@ -371,7 +371,7 @@ async::result<void *> VmContext::remapFile(void *oldPointer,
 }
 
 async::result<void> VmContext::protectFile(void *pointer, size_t size, uint32_t protectionFlags) {
-	size_t alignedSize = (size + 0xFFF) & ~size_t(0xFFF);
+	size_t alignedSize = (size + kHelPageSize - 1) & ~size_t(kHelPageSize - 1);
 	auto address = reinterpret_cast<uintptr_t>(pointer);
 
 	co_await _mutex.async_lock();
@@ -395,7 +395,7 @@ async::result<void> VmContext::protectFile(void *pointer, size_t size, uint32_t 
 }
 
 async::result<void> VmContext::unmapFile(void *pointer, size_t size) {
-	size_t alignedSize = (size + 0xFFF) & ~size_t(0xFFF);
+	size_t alignedSize = (size + kHelPageSize - 1) & ~size_t(kHelPageSize - 1);
 	auto address = reinterpret_cast<uintptr_t>(pointer);
 
 	// Files of unmapped areas are dropped after unlocking since that can close them.
@@ -529,9 +529,9 @@ std::shared_ptr<FileContext> FileContext::create() {
 	context->_universe = helix::UniqueDescriptor(universe);
 
 	HelHandle memory;
-	HEL_CHECK(helAllocateMemory(core::getProcessHierarchy(), 0x1000, 0, nullptr, &memory));
+	HEL_CHECK(helAllocateMemory(core::getProcessHierarchy(), kHelPageSize, 0, nullptr, &memory));
 	context->_fileTableMemory = helix::UniqueDescriptor(memory);
-	context->fileTableWindow_ = helix::Mapping{context->_fileTableMemory, 0, 0x1000};
+	context->fileTableWindow_ = helix::Mapping{context->_fileTableMemory, 0, kHelPageSize};
 
 	HEL_CHECK(helTransferDescriptor(
 	    posixMbusClient,
@@ -553,9 +553,9 @@ std::shared_ptr<FileContext> FileContext::clone(std::shared_ptr<FileContext> ori
 	context->_universe = helix::UniqueDescriptor(universe);
 
 	HelHandle memory;
-	HEL_CHECK(helAllocateMemory(core::getProcessHierarchy(), 0x1000, 0, nullptr, &memory));
+	HEL_CHECK(helAllocateMemory(core::getProcessHierarchy(), kHelPageSize, 0, nullptr, &memory));
 	context->_fileTableMemory = helix::UniqueDescriptor(memory);
-	context->fileTableWindow_ = helix::Mapping{context->_fileTableMemory, 0, 0x1000};
+	context->fileTableWindow_ = helix::Mapping{context->_fileTableMemory, 0, kHelPageSize};
 
 	for(auto entry : original->snapshotFileTable()) {
 		//std::cout << "Clone FD " << entry.first << std::endl;
@@ -1576,9 +1576,9 @@ async::result<std::shared_ptr<ThreadGroup>> Process::init(std::string path) {
 	}
 
 	HelHandle thread_memory;
-	HEL_CHECK(helAllocateMemory(core::getProcessHierarchy(), 0x1000, 0, nullptr, &thread_memory));
+	HEL_CHECK(helAllocateMemory(core::getProcessHierarchy(), kHelPageSize, 0, nullptr, &thread_memory));
 	process->_threadPageMemory = helix::UniqueDescriptor{thread_memory};
-	process->_threadPageMapping = helix::Mapping{process->_threadPageMemory, 0, 0x1000};
+	process->_threadPageMapping = helix::Mapping{process->_threadPageMemory, 0, kHelPageSize};
 	new (process->_threadPageMapping.get()) posix::ThreadPage{};
 
 	// The initial signal mask allows all signals.
@@ -1606,15 +1606,15 @@ async::result<std::shared_ptr<ThreadGroup>> Process::init(std::string path) {
 
 	HEL_CHECK(helMapMemory(process->_threadPageMemory.getHandle(),
 			process->_vmContext->getSpace().getHandle(),
-			nullptr, 0, 0x1000, kHelMapProtRead | kHelMapProtWrite,
+			nullptr, 0, kHelPageSize, kHelMapProtRead | kHelMapProtWrite,
 			reinterpret_cast<void **>(&process->_clientThreadPage)));
 	HEL_CHECK(helMapMemory(process->_fileContext->fileTableMemory().getHandle(),
 			process->_vmContext->getSpace().getHandle(),
-			nullptr, 0, 0x1000, kHelMapProtRead,
+			nullptr, 0, kHelPageSize, kHelMapProtRead,
 			&process->_clientFileTable));
 	HEL_CHECK(helMapMemory(clk::trackerPageMemory().getHandle(),
 			process->_vmContext->getSpace().getHandle(),
-			nullptr, 0, 0x1000, kHelMapProtRead,
+			nullptr, 0, kHelPageSize, kHelMapProtRead,
 			&process->_clientClkTrackerPage));
 
 	process->getTidHull()->initializeThreadGroup(threadGroup.get());
@@ -1685,9 +1685,9 @@ Process::fork(std::shared_ptr<Process> original) {
 	process->threadGroup()->_signalContext = SignalContext::clone(original->threadGroup()->_signalContext);
 
 	HelHandle thread_memory;
-	HEL_CHECK(helAllocateMemory(core::getProcessHierarchy(), 0x1000, 0, nullptr, &thread_memory));
+	HEL_CHECK(helAllocateMemory(core::getProcessHierarchy(), kHelPageSize, 0, nullptr, &thread_memory));
 	process->_threadPageMemory = helix::UniqueDescriptor{thread_memory};
-	process->_threadPageMapping = helix::Mapping{process->_threadPageMemory, 0, 0x1000};
+	process->_threadPageMapping = helix::Mapping{process->_threadPageMemory, 0, kHelPageSize};
 	new (process->_threadPageMapping.get()) posix::ThreadPage{};
 
 	// Signal masks are copied on fork().
@@ -1715,15 +1715,15 @@ Process::fork(std::shared_ptr<Process> original) {
 
 	HEL_CHECK(helMapMemory(process->_threadPageMemory.getHandle(),
 			process->_vmContext->getSpace().getHandle(),
-			nullptr, 0, 0x1000, kHelMapProtRead | kHelMapProtWrite,
+			nullptr, 0, kHelPageSize, kHelMapProtRead | kHelMapProtWrite,
 			reinterpret_cast<void **>(&process->_clientThreadPage)));
 	HEL_CHECK(helMapMemory(process->_fileContext->fileTableMemory().getHandle(),
 			process->_vmContext->getSpace().getHandle(),
-			nullptr, 0, 0x1000, kHelMapProtRead,
+			nullptr, 0, kHelPageSize, kHelMapProtRead,
 			&process->_clientFileTable));
 	HEL_CHECK(helMapMemory(clk::trackerPageMemory().getHandle(),
 			process->_vmContext->getSpace().getHandle(),
-			nullptr, 0, 0x1000, kHelMapProtRead,
+			nullptr, 0, kHelPageSize, kHelMapProtRead,
 			&process->_clientClkTrackerPage));
 
 	process->_clientAuxBegin = original->_clientAuxBegin;
@@ -1831,9 +1831,9 @@ Process::clone(std::shared_ptr<Process> original, void *ip, void *sp, posix::sup
 	}
 
 	HelHandle thread_memory;
-	HEL_CHECK(helAllocateMemory(core::getProcessHierarchy(), 0x1000, 0, nullptr, &thread_memory));
+	HEL_CHECK(helAllocateMemory(core::getProcessHierarchy(), kHelPageSize, 0, nullptr, &thread_memory));
 	process->_threadPageMemory = helix::UniqueDescriptor{thread_memory};
-	process->_threadPageMapping = helix::Mapping{process->_threadPageMemory, 0, 0x1000};
+	process->_threadPageMapping = helix::Mapping{process->_threadPageMemory, 0, kHelPageSize};
 	new (process->_threadPageMapping.get()) posix::ThreadPage{};
 
 	// Signal masks are copied on clone().
@@ -1867,7 +1867,7 @@ Process::clone(std::shared_ptr<Process> original, void *ip, void *sp, posix::sup
 
 	HEL_CHECK(helMapMemory(process->_threadPageMemory.getHandle(),
 			process->_vmContext->getSpace().getHandle(),
-			nullptr, 0, 0x1000, kHelMapProtRead | kHelMapProtWrite,
+			nullptr, 0, kHelPageSize, kHelMapProtRead | kHelMapProtWrite,
 			reinterpret_cast<void **>(&process->_clientThreadPage)));
 
 	process->_clientFileTable = original->_clientFileTable;
@@ -1957,15 +1957,15 @@ async::result<Error> Process::exec(std::shared_ptr<Process> process,
 	void *exec_client_table;
 	HEL_CHECK(helMapMemory(process->_threadPageMemory.getHandle(),
 			exec_vm_context->getSpace().getHandle(),
-			nullptr, 0, 0x1000, kHelMapProtRead | kHelMapProtWrite,
+			nullptr, 0, kHelPageSize, kHelMapProtRead | kHelMapProtWrite,
 			reinterpret_cast<void **>(&exec_thread_page)));
 	HEL_CHECK(helMapMemory(clk::trackerPageMemory().getHandle(),
 			exec_vm_context->getSpace().getHandle(),
-			nullptr, 0, 0x1000, kHelMapProtRead,
+			nullptr, 0, kHelPageSize, kHelMapProtRead,
 			&exec_clk_tracker_page));
 	HEL_CHECK(helMapMemory(process->_fileContext->fileTableMemory().getHandle(),
 			exec_vm_context->getSpace().getHandle(),
-			nullptr, 0, 0x1000, kHelMapProtRead,
+			nullptr, 0, kHelPageSize, kHelMapProtRead,
 			&exec_client_table));
 
 	// Kill the old thread.

@@ -96,7 +96,7 @@ GfxDevice::createDumb(uint32_t width, uint32_t height, uint32_t bpp) {
 	auto alignedPitch =
 	    (((width * ((bpp + 7) >> 3)) + (pitchAlignment_ - 1)) / pitchAlignment_) * pitchAlignment_;
 	size_t size = height * alignedPitch;
-	size = ((size + 0xFFF) / 0x1000) * 0x1000;
+	size = ((size + kHelPageSize - 1) / kHelPageSize) * kHelPageSize;
 
 	assert(hasVideoMemory_);
 	uint8_t compressible = 0;

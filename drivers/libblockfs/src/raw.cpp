@@ -21,7 +21,7 @@ RawFs::RawFs(BlockDevice *device, RawFs *disk)
 
 async::result<void> RawFs::init() {
 	auto device_size = co_await device->getSize();
-	auto cache_size = (device_size + 0xFFF) & ~size_t(0xFFF);
+	auto cache_size = (device_size + (kHelPageSize - 1)) & ~size_t((kHelPageSize - 1));
 	HEL_CHECK(helCreateManagedMemory(fileDataHierarchy(), cache_size, 0,
 				&backingMemory, &frontalMemory));
 
@@ -38,7 +38,7 @@ async::result<void> RawFs::manageMapping() {
 		HEL_CHECK(manage.error());
 
 		auto device_size = co_await device->getSize();
-		auto cache_size = (device_size + 0xFFF) & ~size_t(0xFFF);
+		auto cache_size = (device_size + (kHelPageSize - 1)) & ~size_t((kHelPageSize - 1));
 		assert(manage.offset() + manage.length() <= cache_size);
 
 		// The manager's own writes into the backing view must not schedule a writeback.
@@ -82,7 +82,7 @@ async::result<void> RawFs::manageMapping() {
 
 async::result<std::expected<void, Error>> RawFs::synchronize() {
 	auto device_size = co_await device->getSize();
-	auto cache_size = (device_size + 0xFFF) & ~size_t(0xFFF);
+	auto cache_size = (device_size + (kHelPageSize - 1)) & ~size_t((kHelPageSize - 1));
 	auto writeback = co_await helix_ng::writebackFence(
 			helix::BorrowedDescriptor{backingMemory}, 0, cache_size);
 	HEL_CHECK(writeback.error());
@@ -92,11 +92,11 @@ async::result<std::expected<void, Error>> RawFs::synchronize() {
 
 async::result<void> RawFs::invalidate(uint64_t offset, uint64_t size) {
 	auto device_size = co_await device->getSize();
-	auto cache_size = (device_size + 0xFFF) & ~size_t(0xFFF);
+	auto cache_size = (device_size + (kHelPageSize - 1)) & ~size_t((kHelPageSize - 1));
 
 	// A corrupt partition table can place a partition beyond the end of the disk.
-	auto first = std::min(offset & ~uint64_t(0xFFF), uint64_t{cache_size});
-	auto limit = std::min((offset + size + 0xFFF) & ~uint64_t(0xFFF), uint64_t{cache_size});
+	auto first = std::min(offset & ~uint64_t((kHelPageSize - 1)), uint64_t{cache_size});
+	auto limit = std::min((offset + size + (kHelPageSize - 1)) & ~uint64_t((kHelPageSize - 1)), uint64_t{cache_size});
 
 	auto invalidate = co_await helix_ng::invalidateMemory(
 			helix::BorrowedDescriptor{backingMemory}, first, limit - first);

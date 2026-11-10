@@ -31,13 +31,13 @@ extern uint64_t kernelEntry;
 int getKernelVirtualBits();
 
 void setupPaging();
-void mapSingle4kPage(
+void mapSinglePage(
     address_t address,
     address_t physical,
     uint32_t flags,
     CachingMode caching_mode = CachingMode::null
 );
-address_t getSingle4kPage(address_t address);
+address_t getSinglePage(address_t address);
 
 void initPlatform();
 void initProcessorPaging();

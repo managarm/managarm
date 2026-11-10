@@ -3,6 +3,9 @@
 #![allow(incomplete_features)]
 #![feature(generic_const_exprs)]
 
+/// Native mapping granule, shared with the C Hel ABI.
+pub const PAGE_SIZE: usize = hel_sys::kHelPageSize as usize;
+
 extern crate alloc;
 #[cfg(feature = "std")]
 extern crate std;

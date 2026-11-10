@@ -127,7 +127,10 @@ void createInitialRegion(address_t base, address_t size) {
 
 void createInitialRegions(InitialRegion region, frg::span<InitialRegion> reserved) {
 	if (!reserved.size()) {
-		createInitialRegion((region.base + 0xFFF) & ~0xFFF, region.size & ~0xFFF);
+		auto start = (region.base + pageSize - 1) & ~address_t(pageSize - 1);
+		auto end = (region.base + region.size) & ~address_t(pageSize - 1);
+		if (end > start)
+			createInitialRegion(start, end - start);
 	} else {
 		auto rsv = reserved.data()[0];
 
@@ -200,7 +203,7 @@ void setupRegionStructs() {
 		auto numRoots = regions[i].size >> (pageShift + order);
 		assert(numRoots >= 32);
 
-		assert(regions[i].size / 4096 >= numRoots * (1 << order));
+		assert(regions[i].size / pageSize >= numRoots * (1 << order));
 
 		regions[i].order = order;
 		regions[i].numRoots = numRoots;
@@ -364,7 +367,7 @@ void setShadowRange(address_t base, size_t size, int8_t value) {
 	while (progress < size) {
 		auto shadow = kasanToShadow(base + progress);
 		auto page = shadow & ~address_t{pageSize - 1};
-		auto physical = getSingle4kPage(page);
+		auto physical = getSinglePage(page);
 		assert(physical != static_cast<address_t>(-1));
 
 		auto p = physToVirt<int8_t>(physical);
@@ -383,7 +386,7 @@ void setShadowByte(address_t address, int8_t value) {
 
 	auto shadow = kasanToShadow(address);
 	auto page = shadow & ~address_t{pageSize - 1};
-	auto physical = getSingle4kPage(page);
+	auto physical = getSinglePage(page);
 	assert(physical != static_cast<address_t>(-1));
 
 	auto p = physToVirt<int8_t>(physical);
@@ -407,12 +410,12 @@ void mapKasanShadow(address_t base, size_t size) {
 	for (address_t page = (kasanToShadow(base) & ~address_t{pageSize - 1});
 	     page < ((kasanToShadow(base + size) + pageSize - 1) & ~address_t{pageSize - 1});
 	     page += pageSize) {
-		auto physical = getSingle4kPage(page);
+		auto physical = getSinglePage(page);
 		if (physical != static_cast<address_t>(-1))
 			continue;
 		physical = allocPage();
 		memset(physToVirt<uint8_t>(physical), 0xFF, pageSize);
-		mapSingle4kPage(page, physical, PageFlags::write | PageFlags::global);
+		mapSinglePage(page, physical, PageFlags::write | PageFlags::global);
 	}
 }
 
@@ -438,8 +441,8 @@ void mapRegionsAndStructs() {
 #if defined(__i386__) || defined(__x86_64__)
 	// This region should be available RAM on every PC.
 	for (size_t page = 0x8000; page < 0x80000; page += pageSize) {
-		mapSingle4kPage(ml.directPhysical + page, page, PageFlags::write | PageFlags::global);
-		mapSingle4kPage(page, page, PageFlags::write | PageFlags::global | PageFlags::execute);
+		mapSinglePage(ml.directPhysical + page, page, PageFlags::write | PageFlags::global);
+		mapSinglePage(page, page, PageFlags::write | PageFlags::global | PageFlags::execute);
 	}
 
 	mapKasanShadow(ml.directPhysical + 0x8000, 0x80000 - 0x8000);
@@ -452,7 +455,7 @@ void mapRegionsAndStructs() {
 
 		// Map the region itself.
 		for (address_t page = 0; page < regions[i].size; page += pageSize)
-			mapSingle4kPage(
+			mapSinglePage(
 			    ml.directPhysical + regions[i].address + page,
 			    regions[i].address + page,
 			    PageFlags::write | PageFlags::global
@@ -463,7 +466,7 @@ void mapRegionsAndStructs() {
 		// Map the buddy tree (also to the direct physical map).
 		address_t buddyMapping = ml.directPhysical + regions[i].buddyTree;
 		for (address_t page = 0; page < regions[i].buddyOverhead; page += pageSize) {
-			mapSingle4kPage(
+			mapSinglePage(
 			    buddyMapping + page,
 			    regions[i].buddyTree + page,
 			    PageFlags::write | PageFlags::global
@@ -478,7 +481,7 @@ void mapRegionsAndStructs() {
 void allocLogRingBuffer() {
 	const auto &ml = getMemoryLayout();
 	for (size_t i = 0; i < ml.allocLogSize; i += pageSize)
-		mapSingle4kPage(ml.allocLog + i, allocPage(), PageFlags::write | PageFlags::global);
+		mapSinglePage(ml.allocLog + i, allocPage(), PageFlags::write | PageFlags::global);
 	mapKasanShadow(ml.allocLog, ml.allocLogSize);
 	unpoisonKasanShadow(ml.allocLog, ml.allocLogSize);
 }
@@ -511,7 +514,7 @@ void BootstrapData::writeBytes(std::span<const std::byte> bytes) {
 		// Map a new page whenever the placement crosses a page boundary.
 		if (!misalign) {
 			auto physical = allocPage();
-			mapSingle4kPage(address_ + offset_, physical, 0);
+			mapSinglePage(address_ + offset_, physical, 0);
 			mapKasanShadow(address_ + offset_, pageSize);
 			unpoisonKasanShadow(address_ + offset_, pageSize);
 			window_ = physToVirt<std::byte>(physical);
@@ -750,7 +753,7 @@ void loadKernelImage(void *imagePtr) {
 				    reinterpret_cast<void *>((uintptr_t)image + (uintptr_t)phdr.p_offset + pg),
 				    frg::min(pageSize, (uintptr_t)phdr.p_filesz - pg)
 				);
-			mapSingle4kPage(phdr.p_vaddr + pg, backing, map_flags);
+			mapSinglePage(phdr.p_vaddr + pg, backing, map_flags);
 			pg += pageSize;
 		}
 		mapKasanShadow(phdr.p_paddr, phdr.p_memsz);
@@ -764,9 +767,9 @@ void loadKernelImage(void *imagePtr) {
 		assert(perCpuRegion.start && perCpuRegion.end);
 
 		auto singleSize = perCpuRegion.end - perCpuRegion.start;
-		assert(!(perCpuRegion.start & 0xFFF));
-		assert(!(perCpuRegion.end & 0xFFF));
-		assert(!(singleSize & 0xFFF));
+		assert(!(perCpuRegion.start & (pageSize - 1)));
+		assert(!(perCpuRegion.end & (pageSize - 1)));
+		assert(!(singleSize & (pageSize - 1)));
 
 		// Allocate and map regions for CPUs > 0.
 		for (size_t cpu = 1; cpu < cpuConfig.effectiveCpus; ++cpu) {
@@ -774,7 +777,7 @@ void loadKernelImage(void *imagePtr) {
 			for (size_t pg = 0; pg < singleSize; pg += pageSize) {
 				auto physical = allocPage();
 				memset(physToVirt<uint8_t>(physical), 0, pageSize);
-				mapSingle4kPage(address + pg, physical, PageFlags::write | PageFlags::global);
+				mapSinglePage(address + pg, physical, PageFlags::write | PageFlags::global);
 			}
 
 			mapKasanShadow(address, singleSize);

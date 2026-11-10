@@ -6,8 +6,8 @@ use managarm::mbus;
 
 bragi::include_binding!(mod proto = "swap.rs");
 
-const PAGE_SHIFT: usize = 12;
-const PAGE_SIZE: usize = 1 << PAGE_SHIFT;
+const PAGE_SHIFT: usize = hel::PAGE_SIZE.trailing_zeros() as usize;
+const PAGE_SIZE: usize = hel::PAGE_SIZE;
 
 const MAX_REGION_SIZE: usize = (1 << hel_sys::kHelSwapRegionShift as usize) - PAGE_SIZE;
 const OFFSET_MASK: usize = (1 << hel_sys::kHelSwapRegionShift as usize) - 1;

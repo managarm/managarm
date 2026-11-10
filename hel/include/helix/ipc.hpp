@@ -195,7 +195,7 @@ public:
 
 		void *mapping;
 		HEL_CHECK(helMapMemory(_handle, kHelNullHandle, nullptr,
-				0, (overallSize + 0xFFF) & ~size_t(0xFFF),
+				0, (overallSize + kHelPageSize - 1) & ~size_t(kHelPageSize - 1),
 				kHelMapProtRead | kHelMapProtWrite, &mapping));
 
 		_queue = reinterpret_cast<HelQueue *>(mapping);

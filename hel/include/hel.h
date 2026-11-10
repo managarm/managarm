@@ -1381,6 +1381,12 @@ struct HelMsiInfo {
 	uint32_t data;
 };
 
+//! Page size used by the kernel and by Hel.
+enum {
+	kHelPageShift = 12,
+	kHelPageSize = 1 << kHelPageShift
+};
+
 //! @name Logging
 //! @{
 

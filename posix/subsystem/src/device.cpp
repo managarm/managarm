@@ -275,7 +275,7 @@ openExternalDevice(helix::BorrowedLane lane,
 	helix::Mapping status_mapping;
 	if(resp.caps() & managarm::fs::FileCaps::FC_STATUS_PAGE) {
 		assert(!pull_page.error());
-		status_mapping = helix::Mapping{pull_page.descriptor(), 0, 0x1000, kHelMapProtRead};
+		status_mapping = helix::Mapping{pull_page.descriptor(), 0, kHelPageSize, kHelMapProtRead};
 	}
 
 	auto file = smarter::make_shared<DeviceFile>(helix::UniqueLane{},

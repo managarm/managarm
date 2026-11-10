@@ -12,7 +12,7 @@ namespace blockfs {
 
 namespace {
 
-constexpr size_t pageSize = 0x1000;
+constexpr size_t pageSize = kHelPageSize;
 
 bool isEndOfLane(HelError error) {
 	return error == kHelErrEndOfLane || error == kHelErrLaneShutdown;

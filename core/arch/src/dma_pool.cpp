@@ -10,7 +10,7 @@ namespace arch {
 
 namespace {
 
-constexpr size_t pageSize = 0x1000;
+constexpr size_t pageSize = kHelPageSize;
 
 } // namespace
 

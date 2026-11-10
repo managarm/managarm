@@ -10,8 +10,8 @@ use hel::{Handle, Mapping, MappingFlags};
 bragi::include_binding!(mod bindings = "shm.rs");
 
 /// Offset of the data area within the producer memory.
-pub const DATA_OFFSET: usize = 0x1000;
-pub const CONSUMER_MEMORY_SIZE: usize = 0x1000;
+pub const DATA_OFFSET: usize = hel::PAGE_SIZE;
+pub const CONSUMER_MEMORY_SIZE: usize = hel::PAGE_SIZE;
 
 /// Rights that a peer needs to map a memory object that it may write to.
 pub const WRITER_RIGHTS: u32 =

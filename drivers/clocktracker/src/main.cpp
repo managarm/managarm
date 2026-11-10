@@ -112,7 +112,7 @@ async::detached initializeDriver() {
 #endif
 
 	// Allocate and map our tracker page.
-	size_t page_size = 4096;
+	size_t page_size = kHelPageSize;
 	HelHandle handle;
 	HEL_CHECK(helAllocateMemory(core::getProcessHierarchy(), page_size, 0, nullptr, &handle));
 	trackerPageMemory = helix::UniqueDescriptor{handle};

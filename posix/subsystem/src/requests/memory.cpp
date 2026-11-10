@@ -23,7 +23,7 @@ HandleRequest::operator()(managarm::posix::VmMapRequest &&req,
 		co_return {};
 	}
 
-	if(req.rel_offset() & 0xFFF) {
+	if(req.rel_offset() & (kHelPageSize - 1)) {
 		co_await sendErrorResponse<managarm::posix::VmMapResponse>(conversation, managarm::posix::Errors::ILLEGAL_ARGUMENTS);
 		co_return {};
 	}
@@ -79,8 +79,8 @@ HandleRequest::operator()(managarm::posix::VmMapRequest &&req,
 
 		// We round up to page size
 		size_t size = req.size();
-		if(size & 0xFFF) {
-			size = (req.size() + 0xFFF) & ~0xFFF;
+		if(size & (kHelPageSize - 1)) {
+			size = (req.size() + (kHelPageSize - 1)) & ~(kHelPageSize - 1);
 		}
 
 		if(copyOnWrite) {
@@ -211,7 +211,8 @@ HandleRequest::operator()(managarm::posix::VmProtectRequest &&req,
 
 	logRequest(logRequests, self, "VM_PROTECT");
 
-	if(req.mode() & ~(PROT_READ | PROT_WRITE | PROT_EXEC)) {
+	if((req.address() & (kHelPageSize - 1))
+			|| (req.mode() & ~(PROT_READ | PROT_WRITE | PROT_EXEC))) {
 		co_await sendErrorResponse<managarm::posix::VmProtectResponse>(conversation, managarm::posix::Errors::ILLEGAL_ARGUMENTS);
 		co_return {};
 	}
@@ -248,13 +249,13 @@ HandleRequest::operator()(managarm::posix::VmUnmapRequest &&req,
 
 	size_t size = req.size();
 
-	if(req.address() & 0xFFF || size == 0) {
+	if(req.address() & (kHelPageSize - 1) || size == 0) {
 		co_await sendErrorResponse<managarm::posix::VmUnmapResponse>(conversation, managarm::posix::Errors::ILLEGAL_ARGUMENTS);
 		co_return {};
 	}
 
-	if(size & 0xFFF) {
-		size = (size + 0xFFF) & ~0xFFF;
+	if(size & (kHelPageSize - 1)) {
+		size = (size + (kHelPageSize - 1)) & ~(kHelPageSize - 1);
 	}
 
 	co_await self->vmContext()->unmapFile(reinterpret_cast<void *>(req.address()), size);

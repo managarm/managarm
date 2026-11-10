@@ -70,12 +70,12 @@ struct PageCursor {
 
 private:
 	constexpr size_t levelShift(size_t level) {
-		return Policy::bitsPerLevel * (Policy::maxLevels - 1 - level) + 12;
+		return Policy::bitsPerLevel * (Policy::maxLevels - 1 - level) + kPageShift;
 	}
 
 	uint64_t *currentPtePtr_() {
 		return reinterpret_cast<uint64_t *>(accessors_[lastLevel].get())
-			+ ((va_ >> 12) & levelMask);
+			+ ((va_ >> kPageShift) & levelMask);
 	}
 
 	uint64_t readCurrentPte_() {
@@ -353,7 +353,8 @@ template<CursorPolicy Policy, size_t N, bool LowerHalfOnly = false, size_t RootT
 void freePt(PhysicalAddr tblPa) {
 	PageAccessor accessor{tblPa};
 	auto tblPtr = reinterpret_cast<uint64_t *>(accessor.get());
-	for(int i = 0; i < (LowerHalfOnly ? 256 : 512); i++) { // TODO: Use bitsPerLevel.
+	constexpr size_t entries = size_t{1} << Policy::bitsPerLevel;
+	for(size_t i = 0; i < (LowerHalfOnly ? entries / 2 : entries); i++) {
 		// Huge pages are not supported, i.e., no entry above the last level maps a page.
 		assert(!Policy::pteIsHugePage(tblPtr[i]));
 		if(!Policy::pteTablePresent(tblPtr[i]))

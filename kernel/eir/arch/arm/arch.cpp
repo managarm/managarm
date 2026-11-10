@@ -249,8 +249,7 @@ static inline constexpr uint64_t kPageWb = (0 << 2);
 static inline constexpr uint64_t kPageGRE = (1 << 2);
 static inline constexpr uint64_t kPagenGnRnE = (2 << 2);
 
-void
-mapSingle4kPage(address_t address, address_t physical, uint32_t flags, CachingMode cachingMode) {
+void mapSinglePage(address_t address, address_t physical, uint32_t flags, CachingMode cachingMode) {
 	auto ttbr = (address >> 63) & 1;
 	auto l0 = (address >> 39) & 0x1FF;
 	auto l1 = (address >> 30) & 0x1FF;
@@ -334,7 +333,7 @@ mapSingle4kPage(address_t address, address_t physical, uint32_t flags, CachingMo
 	l3Tbl[l3] = newEntry;
 }
 
-address_t getSingle4kPage(address_t address) {
+address_t getSinglePage(address_t address) {
 	auto ttbr = (address >> 63) & 1;
 	auto l0 = (address >> 39) & 0x1FF;
 	auto l1 = (address >> 30) & 0x1FF;

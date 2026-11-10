@@ -15,7 +15,7 @@
 namespace virtio_core {
 
 struct Mapping {
-	static constexpr size_t pageSize = 0x1000;
+	static constexpr size_t pageSize = kHelPageSize;
 
 	friend void swap(Mapping &x, Mapping &y) {
 		using std::swap;
@@ -550,7 +550,7 @@ async::result<Queue *> StandardPciTransport::setupQueue(unsigned int queue_index
 	auto region_size = used_offset + sizeof(spec::UsedRing)
 				+ queue_size * sizeof(spec::UsedRing::Element)
 				+ sizeof(spec::UsedExtra);
-	region_size = (region_size + 0xFFF) & ~0xFFF;
+	region_size = (region_size + kHelPageSize - 1) & ~(kHelPageSize - 1);
 
 	arch::dma_buffer virtq{&contiguousPool_, region_size};
 	arch::dma_object_view<spec::Descriptor> table{virtq.get_dma_ptr()};

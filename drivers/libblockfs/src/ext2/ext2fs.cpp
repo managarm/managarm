@@ -31,6 +31,7 @@ namespace ext2fs {
 
 namespace {
 	constexpr bool logSuperblock = true;
+	constexpr size_t pageMask = kHelPageSize - 1;
 
 	void updateInodeChecksum(FileSystem &fs, DiskInode *inode, uint32_t number) {
 		if(fs.metadataChecksum) {
@@ -145,14 +146,14 @@ async::result<std::expected<void, Error>> Inode::enableSwap() {
 		co_return std::unexpected(Error::busy);
 
 	assert(std::has_single_bit(fs.blockSize));
-	if (fs.blockSize > 0x1000)
+	if (fs.blockSize > kHelPageSize)
 		co_return std::unexpected(Error::notSupported);
 
 	co_await inodeMutex.async_lock_shared();
 	frg::shared_lock inodeLock{frg::adopt_lock, inodeMutex};
 
 	auto invalidate = co_await helix_ng::invalidateMemory(
-	    helix::BorrowedDescriptor{backingMemory}, 0, (fileSize() + 0xFFF) & ~UINT64_C(0xFFF)
+	    helix::BorrowedDescriptor{backingMemory}, 0, (fileSize() + pageMask) & ~uint64_t{pageMask}
 	);
 	HEL_CHECK(invalidate.error());
 
@@ -236,10 +237,10 @@ Inode::findEntry(std::string name) {
 	if(fileType != kTypeDirectory)
 		co_return protocols::fs::Error::notDirectory;
 
-	assert(fileMapping.size() == ((fileSize() + 0xFFF) & ~size_t(0xFFF)));
+	assert(fileMapping.size() == ((fileSize() + pageMask) & ~pageMask));
 
 	helix::LockMemoryView lock_memory;
-	auto map_size = (fileSize() + 0xFFF) & ~size_t(0xFFF);
+	auto map_size = (fileSize() + pageMask) & ~pageMask;
 	auto &&submit = helix::submitLockMemoryView(helix::BorrowedDescriptor(frontalMemory),
 			&lock_memory,
 			0, map_size, helix::Dispatcher::global());
@@ -317,7 +318,7 @@ Inode::insertEntry(std::string name, int64_t ino, blockfs::FileType type) {
 	dirSize = fileSize();
 
 	assert(fileType == kTypeDirectory);
-	assert(fileMapping.size() == ((fileSize() + 0xFFF) & ~size_t(0xFFF)));
+	assert(fileMapping.size() == ((fileSize() + pageMask) & ~pageMask));
 
 	// Lock the mapping into memory before calling this function.
 	auto appendDirEntry = [&](size_t offset, size_t length)
@@ -347,7 +348,7 @@ Inode::insertEntry(std::string name, int64_t ino, blockfs::FileType type) {
 		// TODO: It would be enough to clean only one or two pages here.
 		protocols::ostrace::Timer cleanDirTimer;
 		auto syncDir = co_await helix_ng::synchronizeSpace(
-				helix::BorrowedDescriptor{kHelNullHandle}, fileMapping.get(), fileSize());
+				helix::BorrowedDescriptor{kHelNullHandle}, fileMapping.get(), fileMapping.size());
 		HEL_CHECK(syncDir.error());
 		cleanDirTime += cleanDirTimer.elapsed();
 
@@ -369,7 +370,7 @@ Inode::insertEntry(std::string name, int64_t ino, blockfs::FileType type) {
 	};
 
 	helix::LockMemoryView lock_memory;
-	auto map_size = (fileSize() + 0xFFF) & ~size_t(0xFFF);
+	auto map_size = (fileSize() + pageMask) & ~pageMask;
 	auto &&submit = helix::submitLockMemoryView(helix::BorrowedDescriptor(frontalMemory),
 			&lock_memory,
 			0, map_size, helix::Dispatcher::global());
@@ -424,7 +425,7 @@ Inode::insertEntry(std::string name, int64_t ino, blockfs::FileType type) {
 	protocols::ostrace::Timer growTimer;
 	auto blockOffset = (offset & ~(fs.blockSize - 1)) >> fs.blockShift;
 	auto newSize = offset + fs.blockSize;
-	auto newMappingSize = (newSize + 0xFFF) & ~size_t(0xFFF);
+	auto newMappingSize = (newSize + pageMask) & ~pageMask;
 	setFileSize(newSize);
 
 	{
@@ -480,10 +481,10 @@ async::result<frg::expected<protocols::fs::Error>> Inode::removeEntry(std::strin
 
 	if(fileType != kTypeDirectory)
 		co_return protocols::fs::Error::notDirectory;
-	assert(fileMapping.size() == fileSize());
+	assert(fileMapping.size() == ((fileSize() + pageMask) & ~pageMask));
 
 	helix::LockMemoryView lock_memory;
-	auto map_size = (fileSize() + 0xFFF) & ~size_t(0xFFF);
+	auto map_size = (fileSize() + pageMask) & ~pageMask;
 	auto &&submit = helix::submitLockMemoryView(helix::BorrowedDescriptor(frontalMemory),
 			&lock_memory,
 			0, map_size, helix::Dispatcher::global());
@@ -522,7 +523,7 @@ async::result<frg::expected<protocols::fs::Error>> Inode::removeEntry(std::strin
 			// TODO: It would be enough to clean only one or two pages here.
 			protocols::ostrace::Timer cleanDirTimer;
 			auto syncDir = co_await helix_ng::synchronizeSpace(
-					helix::BorrowedDescriptor{kHelNullHandle}, fileMapping.get(), fileSize());
+					helix::BorrowedDescriptor{kHelNullHandle}, fileMapping.get(), fileMapping.size());
 			HEL_CHECK(syncDir.error());
 			cleanDirTime += cleanDirTimer.elapsed();
 
@@ -587,7 +588,7 @@ async::result<std::expected<bool, protocols::fs::Error>> Inode::isDirectoryEmpty
 	//       so it is more robust to not exploit it.
 
 	helix::LockMemoryView lock_memory;
-	auto map_size = (fileSize() + 0xFFF) & ~size_t(0xFFF);
+	auto map_size = (fileSize() + pageMask) & ~pageMask;
 	auto &&submit = helix::submitLockMemoryView(helix::BorrowedDescriptor(frontalMemory),
 			&lock_memory,
 			0, map_size, helix::Dispatcher::global());
@@ -648,7 +649,7 @@ async::result<frg::expected<protocols::fs::Error>> Inode::updateDotDot(uint32_t 
 		co_return protocols::fs::Error::notDirectory;
 
 	helix::LockMemoryView lock_memory;
-	auto map_size = (fileSize() + 0xFFF) & ~size_t(0xFFF);
+	auto map_size = (fileSize() + pageMask) & ~pageMask;
 	auto &&submit = helix::submitLockMemoryView(helix::BorrowedDescriptor(frontalMemory),
 			&lock_memory,
 			0, map_size, helix::Dispatcher::global());
@@ -672,7 +673,7 @@ async::result<frg::expected<protocols::fs::Error>> Inode::updateDotDot(uint32_t 
 
 			protocols::ostrace::Timer cleanDirTimer;
 			auto syncDir = co_await helix_ng::synchronizeSpace(
-					helix::BorrowedDescriptor{kHelNullHandle}, fileMapping.get(), fileSize());
+					helix::BorrowedDescriptor{kHelNullHandle}, fileMapping.get(), fileMapping.size());
 			HEL_CHECK(syncDir.error());
 			cleanDirTime += cleanDirTimer.elapsed();
 
@@ -756,14 +757,14 @@ async::result<std::expected<DirEntry, protocols::fs::Error>> Inode::mkdir(std::s
 	dirNode->setFileSize(fs.blockSize);
 	auto resizeResult = co_await helix_ng::resizeMemory(
 			helix::BorrowedDescriptor{dirNode->backingMemory},
-			(fs.blockSize + 0xFFF) & ~size_t(0xFFF));
+			(fs.blockSize + pageMask) & ~pageMask);
 	HEL_CHECK(resizeResult.error());
 	dirNode->fileMapping = helix::Mapping{helix::BorrowedDescriptor{dirNode->frontalMemory},
-			0, fs.blockSize,
+			0, (fs.blockSize + pageMask) & ~pageMask,
 			kHelMapProtRead | kHelMapProtWrite | kHelMapDontRequireBacking};
 
 	helix::LockMemoryView lockMemory;
-	auto mapSize = (dirNode->fileSize() + 0xFFF) & ~size_t(0xFFF);
+	auto mapSize = (dirNode->fileSize() + pageMask) & ~pageMask;
 	auto &&submit = helix::submitLockMemoryView(helix::BorrowedDescriptor(dirNode->frontalMemory),
 			&lockMemory,
 			0, mapSize, helix::Dispatcher::global());
@@ -802,7 +803,7 @@ async::result<std::expected<DirEntry, protocols::fs::Error>> Inode::mkdir(std::s
 	// Hand the modified data blocks over to writeback.
 	auto syncNewDir = co_await helix_ng::synchronizeSpace(
 			helix::BorrowedDescriptor{kHelNullHandle},
-			dirNode->fileMapping.get(), dirNode->fileSize());
+			dirNode->fileMapping.get(), dirNode->fileMapping.size());
 	HEL_CHECK(syncNewDir.error());
 
 	auto result = co_await insertEntry(name, dirNode->number, kTypeDirectory);
@@ -845,7 +846,7 @@ async::result<std::expected<DirEntry, protocols::fs::Error>> Inode::symlink(std:
 			co_await fs.assignDataBlocks(newNode.get(), 0, numBlocks);
 		}
 
-		auto newSize = (target.size() + 0xFFF) & ~size_t(0xFFF);
+		auto newSize = (target.size() + pageMask) & ~pageMask;
 		auto resizeResult = co_await helix_ng::resizeMemory(
 		    helix::BorrowedDescriptor{newNode->backingMemory}, newSize
 		);
@@ -941,7 +942,7 @@ async::result<protocols::fs::Error> Inode::updateTimes(
 async::result<frg::expected<protocols::fs::Error>>
 Inode::resizeFile(size_t newSize) {
 	auto oldSize = fileSize();
-	auto newMappingSize = (newSize + 0xFFF) & ~size_t(0xFFF);
+	auto newMappingSize = (newSize + pageMask) & ~pageMask;
 
 	protocols::ostrace::Timer timer;
 	uint64_t timeResizeMemory = 0;
@@ -973,7 +974,7 @@ Inode::resizeFile(size_t newSize) {
 		HEL_CHECK(resizeResult.error());
 
 		// Discard the truncated pages without writeback.
-		auto oldMappingSize = (oldSize + 0xFFF) & ~size_t(0xFFF);
+		auto oldMappingSize = (oldSize + pageMask) & ~pageMask;
 		if (oldMappingSize > newMappingSize) {
 			auto invalidateResult = co_await helix_ng::invalidateMemory(
 					helix::BorrowedDescriptor{backingMemory}, newMappingSize,
@@ -989,7 +990,7 @@ Inode::resizeFile(size_t newSize) {
 		//       of the block is also zerod (either through an invariant or through explicit zeroing.
 		if (newSize < newMappingSize) {
 			// TODO: A dedicated zeroMemory() operation would be more efficient here.
-			static constexpr std::array<std::byte, 0x1000> zeroes{};
+			static constexpr std::array<std::byte, kHelPageSize> zeroes{};
 			auto writeResult = co_await helix_ng::writeMemory(
 					helix::BorrowedDescriptor{frontalMemory},
 					newSize, newMappingSize - newSize, zeroes.data());
@@ -1210,7 +1211,7 @@ async::result<void> FileSystem::synchronizeFileData(Inode *inode) {
 	// to finish writing both mapped stores and prior filesystem writes.
 	auto writeback = co_await helix_ng::writebackFence(
 			helix::BorrowedDescriptor{inode->backingMemory},
-			0, (size + 0xFFF) & ~size_t{0xFFF});
+			0, (size + pageMask) & ~size_t{pageMask});
 	HEL_CHECK(writeback.error());
 }
 
@@ -1371,12 +1372,12 @@ async::result<void> FileSystem::initiateInode(std::shared_ptr<Inode> inode) {
 	}
 
 	// Allocate a page cache for the file.
-	auto cache_size = (inode->fileSize() + 0xFFF) & ~size_t(0xFFF);
+	auto cache_size = (inode->fileSize() + pageMask) & ~pageMask;
 	HEL_CHECK(helCreateManagedMemory(fileDataHierarchy(), cache_size, kHelManagedReadahead,
 			&inode->backingMemory, &inode->frontalMemory));
 
 	if (inode->fileType == kTypeDirectory) {
-		auto mapSize = (inode->fileSize() + 0xFFF) & ~size_t(0xFFF);
+		auto mapSize = (inode->fileSize() + pageMask) & ~pageMask;
 		inode->fileMapping = helix::Mapping{helix::BorrowedDescriptor{inode->frontalMemory},
 				0, mapSize,
 				kHelMapProtRead | kHelMapProtWrite | kHelMapDontRequireBacking};
@@ -1407,7 +1408,7 @@ async::result<void> FileSystem::manageFileData(std::shared_ptr<Inode> inode) {
 		HEL_CHECK(manage.error());
 
 		// This is guaranteed by our resizing logic (since shrinking of fileSize() happens after backing memory resize).
-		assert(manage.offset() + manage.length() <= ((inode->fileSize() + 0xFFF) & ~size_t(0xFFF)));
+		assert(manage.offset() + manage.length() <= ((inode->fileSize() + pageMask) & ~pageMask));
 
 		// TODO: If we ever run into memory exhaustion issues due to the metadata phase that happens
 		//       before service budget is acquired inside serviceFileData(),
@@ -2840,7 +2841,7 @@ OpenFile::readEntries() {
 		co_return std::unexpected(managarm::fs::Errors::NOT_DIRECTORY);
 	}
 
-	auto map_size = (inode->fileSize() + 0xFFF) & ~size_t(0xFFF);
+	auto map_size = (inode->fileSize() + pageMask) & ~pageMask;
 
 	helix::LockMemoryView lock_memory;
 	auto &&submit = helix::submitLockMemoryView(helix::BorrowedDescriptor(inode->frontalMemory),

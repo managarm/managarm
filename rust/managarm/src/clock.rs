@@ -24,7 +24,13 @@ pub fn tsc_hz() -> Result<u64> {
     let memory = unsafe { hel::Handle::from_raw(handle) };
     // SAFETY: The page is only read through raw pointers.
     let mapping = unsafe {
-        hel::Mapping::<hel_sys::HelClockPage>::new(&memory, None, 0, 4096, hel::MappingFlags::READ)
+        hel::Mapping::<hel_sys::HelClockPage>::new(
+            &memory,
+            None,
+            0,
+            hel::PAGE_SIZE,
+            hel::MappingFlags::READ,
+        )
     }?;
     let page = mapping.address() as *const hel_sys::HelClockPage;
     let (clock_type, shift, factor) = loop {

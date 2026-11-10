@@ -15,7 +15,7 @@ use managarm::mbus::{self, EventType, Item};
 use managarm::shm;
 use managarm::{hw, kerncfg, posix};
 
-const PAGE_SIZE: usize = 4096;
+const PAGE_SIZE: usize = hel::PAGE_SIZE;
 
 // Register layout of BAR 0.
 scalar_register!(OutRegister @ 0x0: u64);

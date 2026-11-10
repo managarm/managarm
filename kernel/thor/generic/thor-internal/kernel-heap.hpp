@@ -54,6 +54,7 @@ struct MemoryController;
 
 class HeapSlabPolicy {
 public:
+	static constexpr size_t pagesize = kPageSize;
 	void *map(size_t length) {
 		return map(length, kPageSize);
 	}
@@ -101,6 +102,7 @@ extern PerCpu<frg::sharded_slab_pool<HeapSlabPolicy>> heapSlabPool;
 extern PerCpu<std::atomic<bool>> inSlabPool;
 
 struct CoreSlabPolicy {
+	static constexpr size_t pagesize = kPageSize;
 	static constexpr size_t sb_size = kPageSize;
 	static constexpr size_t slabsize = kPageSize;
 

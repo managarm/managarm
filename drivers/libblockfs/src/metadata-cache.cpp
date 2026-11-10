@@ -15,7 +15,7 @@
 namespace blockfs {
 
 namespace {
-	constexpr uint32_t pageShift = 12;
+	constexpr uint32_t pageShift = kHelPageShift;
 	// Number of blocks that stay locked and mapped after their last BlockWindow is gone.
 	constexpr size_t lruCapacity = 128;
 }

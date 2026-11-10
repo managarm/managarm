@@ -17,9 +17,9 @@ namespace {
 
 async::result<void> testProtectProtNone() {
 	HelHandle handle;
-	HEL_CHECK(helAllocateMemory(core::getProcessHierarchy(), 0x1000, 0, nullptr, &handle));
+	HEL_CHECK(helAllocateMemory(core::getProcessHierarchy(), kHelPageSize, 0, nullptr, &handle));
 	void *window;
-	HEL_CHECK(helMapMemory(handle, kHelNullHandle, nullptr, 0, 0x1000,
+	HEL_CHECK(helMapMemory(handle, kHelNullHandle, nullptr, 0, kHelPageSize,
 			kHelMapProtRead | kHelMapProtWrite, &window));
 
 	// Touch the page so that it is actually present before we drop access.
@@ -30,16 +30,16 @@ async::result<void> testProtectProtNone() {
 	// Drop all access; the previously present page must become inaccessible.
 	helix::ProtectMemory dropProtect;
 	auto &&dropSubmit = helix::submitProtectMemory(helix::BorrowedDescriptor{kHelNullHandle},
-			&dropProtect, window, 0x1000, 0, helix::Dispatcher::global());
+			&dropProtect, window, kHelPageSize, 0, helix::Dispatcher::global());
 	co_await dropSubmit.async_wait();
 	HEL_CHECK(dropProtect.error());
 
-	assert(helLog(kHelLogSeverityInfo, static_cast<char *>(window), 0x1000) == kHelErrFault);
+	assert(helLog(kHelLogSeverityInfo, static_cast<char *>(window), kHelPageSize) == kHelErrFault);
 
 	// Restoring access faults the page back in on demand.
 	helix::ProtectMemory restoreProtect;
 	auto &&restoreSubmit = helix::submitProtectMemory(helix::BorrowedDescriptor{kHelNullHandle},
-			&restoreProtect, window, 0x1000, kHelMapProtRead | kHelMapProtWrite,
+			&restoreProtect, window, kHelPageSize, kHelMapProtRead | kHelMapProtWrite,
 			helix::Dispatcher::global());
 	co_await restoreSubmit.async_wait();
 	HEL_CHECK(restoreProtect.error());
@@ -47,21 +47,21 @@ async::result<void> testProtectProtNone() {
 	p[0] = static_cast<std::byte>(43);
 	assert(p[0] == static_cast<std::byte>(43));
 
-	HEL_CHECK(helUnmapMemory(kHelNullHandle, window, 0x1000));
+	HEL_CHECK(helUnmapMemory(kHelNullHandle, window, kHelPageSize));
 }
 
 } // anonymous namespace
 
 DEFINE_TEST(mapProtNone, ([] {
 	HelHandle handle;
-	HEL_CHECK(helAllocateMemory(core::getProcessHierarchy(), 0x1000, 0, nullptr, &handle));
+	HEL_CHECK(helAllocateMemory(core::getProcessHierarchy(), kHelPageSize, 0, nullptr, &handle));
 	void *window;
-	HEL_CHECK(helMapMemory(handle, kHelNullHandle, nullptr, 0, 0x1000, 0, &window));
+	HEL_CHECK(helMapMemory(handle, kHelNullHandle, nullptr, 0, kHelPageSize, 0, &window));
 
 	// A mapping without any access permits no access at all.
-	assert(helLog(kHelLogSeverityInfo, static_cast<char *>(window), 0x1000) == kHelErrFault);
+	assert(helLog(kHelLogSeverityInfo, static_cast<char *>(window), kHelPageSize) == kHelErrFault);
 
-	HEL_CHECK(helUnmapMemory(kHelNullHandle, window, 0x1000));
+	HEL_CHECK(helUnmapMemory(kHelNullHandle, window, kHelPageSize));
 }))
 
 DEFINE_TEST(protectProtNone, ([] {

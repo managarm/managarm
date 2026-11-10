@@ -180,21 +180,21 @@ async::result<void> Cmd::create2d(uint32_t width, uint32_t height, uint32_t reso
 
 async::result<void> Cmd::attachBacking(uint32_t resourceId, arch::dma_buffer_view view, GfxDevice *device) {
 	assert(view.size());
-	assert((reinterpret_cast<uintptr_t>(view.data()) & 0xFFF) == 0);
+	assert((reinterpret_cast<uintptr_t>(view.data()) & (kHelPageSize - 1)) == 0);
 	auto &space = device->dmaSpace();
-	size_t pages = (view.size() + 0xFFF) >> 12;
+	size_t pages = (view.size() + kHelPageSize - 1) >> kHelPageShift;
 	size_t memEntries = space.iommuActive() ? 1 : pages;
 
 	arch::dma_array<spec::MemEntry> entries{&device->dmaPool(), memEntries};
 	co_await space.ensure_mapped(view);
 	if (space.iommuActive()) {
 		entries[0].address = space.iova_of(view);
-		entries[0].length = pages << 12;
+		entries[0].length = pages << kHelPageShift;
 	} else {
 		for(size_t page = 0; page < pages; page++) {
-			uintptr_t physical = space.iova_of(view.subview(page << 12, 0x1000));
+			uintptr_t physical = space.iova_of(view.subview(page << kHelPageShift, kHelPageSize));
 			entries[page].address = physical;
-			entries[page].length = 4096;
+			entries[page].length = kHelPageSize;
 		}
 	}
 
