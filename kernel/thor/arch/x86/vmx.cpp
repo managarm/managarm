@@ -306,7 +306,14 @@ namespace thor::vmx {
 		uint32_t cr4FixedHi = (uint32_t)(cr4FixedGuest >> 32);
 		vmwrite(GUEST_CR4, cr4FixedLo | ((uint64_t)cr4FixedHi) << 32);
 
-		vmwrite(CTLS_EPTP, space->rootTable() | 6 | (4 - 1) << 3 | (1 << 6));
+		auto eptCaps = common::x86::rdmsr(IA32_VMX_EPT_VPID_CAP_MSR);
+		if(!(eptCaps & (1 << 6)) || !(eptCaps & (1 << 14)))
+			infoLogger() << "vmx: CPU lacks 4-level EPT or write-back EPT structures" << frg::endlog;
+		if(!(eptCaps & (1 << 25)))
+			infoLogger() << "vmx: CPU lacks single-context INVEPT" << frg::endlog;
+		uint64_t eptp = eptPointer(space->rootTable());
+		vmwrite(CTLS_EPTP, eptp);
+
 		release_();
 		irqLock.unlock();
 		state = {};
@@ -398,6 +405,10 @@ namespace thor::vmx {
 					vmwrite(HOST_CR3, cr3);
 					hostCr3_ = cr3;
 				}
+				if(!space->enterGuest(cpu)) {
+					leaveGuest();
+					return Error::illegalState;
+				}
 				if(getGlobalCpuFeatures()->haveXsave){
 					common::x86::xsave((uint8_t*)hostFstate, ~0);
 					common::x86::xrstor((uint8_t*)guestFstate, ~0);
@@ -424,6 +435,7 @@ namespace thor::vmx {
 
 				error = entryFailed ? vmread(VM_INSTRUCTION_ERROR) : 0;
 				reason = entryFailed ? ~UINT64_C(0) : vmread(VM_EXIT_REASON);
+				space->leaveGuest();
 				leaveGuest();
 			}
 

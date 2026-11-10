@@ -1,5 +1,9 @@
 #pragma once
 
+#include <atomic>
+
+#include <frg/dyn_array.hpp>
+
 #include <thor-internal/arch-generic/paging.hpp>
 #include <thor-internal/error.hpp>
 #include <thor-internal/physical.hpp>
@@ -16,6 +20,12 @@ constexpr uint64_t EPT_MEMORY_TYPE = (3);
 
 namespace thor::vmx {
 
+// Returns the EPT pointer (as used by the VMCS and by INVEPT) for the given root table.
+uint64_t eptPointer(PhysicalAddr rootTable);
+
+// Invalidates the cached translations of the EPT with the given root table on this CPU.
+void inveptSingleContext(PhysicalAddr rootTable);
+
 struct EptPtr {
 	uint64_t eptp;
 	uint64_t gpa;
@@ -29,6 +39,16 @@ struct EptPageSpace : PageSpace {
 	~EptPageSpace();
 
 	EptPageSpace &operator= (const EptPageSpace &) = delete;
+
+	std::atomic<uint64_t> generation{0};
+
+	// The CPU on which a vCPU of this space is in the guest (or about to enter it).
+	// Shootdowns wait in shootQueue until it leaves the guest. We only track a single CPU;
+	// hence, only one vCPU of a space can be in the guest at a time.
+	std::atomic<CpuData *> guestCpu{nullptr};
+	// Protects shootQueue; guestCpu is only cleared while this is held.
+	frg::ticket_spinlock shootMutex;
+	ShootQueue shootQueue;
 };
 
 struct EptOperations final : VirtualOperations {
@@ -95,7 +115,19 @@ public:
 		return pageSpace_.rootTable();
 	}
 
+	// Must be called with interrupts disabled before VM entries on the current CPU.
+	// Invalidates the guest-physical translations of this EPT on that CPU unless the EPT
+	// did not change since the last invalidation on it. Until leaveGuest(), shootdowns wait
+	// for the CPU. Returns false if another vCPU of this space is in the guest.
+	bool enterGuest(CpuData *cpu);
+	// Must be called with interrupts disabled after VM exits. Completes the shootdowns
+	// that waited for the CPU.
+	void leaveGuest();
+
 private:
+	// For each CPU, the generation (plus one) that it last invalidated (0 means never).
+	frg::dyn_array<std::atomic<uint64_t>, KernelAlloc> invalidatedGenerations_;
+
 	EptOperations eptOps_;
 	EptPageSpace pageSpace_;
 	frg::ticket_spinlock _mutex;
