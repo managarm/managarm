@@ -95,12 +95,47 @@ namespace {
 		return (cr4 | cr4Forced()) & cr4Fixed1;
 	}
 
+	constexpr uint64_t CR0_PE = UINT64_C(1) << 0;
+	constexpr uint64_t CR0_TS = UINT64_C(1) << 3;
+	constexpr uint64_t CR0_NW = UINT64_C(1) << 29;
+	constexpr uint64_t CR0_CD = UINT64_C(1) << 30;
+	constexpr uint64_t CR0_PG = UINT64_C(1) << 31;
+	constexpr uint64_t CR4_PAE = UINT64_C(1) << 5;
+	constexpr uint64_t CR4_VMXE = UINT64_C(1) << 13;
 	constexpr uint64_t CR4_OSXSAVE = UINT64_C(1) << 18;
+	constexpr uint64_t EFER_LME = UINT64_C(1) << 8;
+	constexpr uint64_t EFER_LMA = UINT64_C(1) << 10;
+	constexpr uint64_t XCR0_X87 = UINT64_C(1) << 0;
+	constexpr uint64_t XCR0_SSE = UINT64_C(1) << 1;
+	constexpr uint64_t XCR0_AVX = UINT64_C(1) << 2;
+	constexpr uint64_t XCR0_AVX512 = UINT64_C(7) << 5; // Opmask, ZMM_Hi256 and Hi16_ZMM.
+	constexpr uint8_t UD_VECTOR = 6;
+	constexpr uint8_t GP_VECTOR = 13;
 
 	// CR4 bits whose writes exit: the bits that VMX forces to 1 and OSXSAVE
 	// which tells us whether XCR0 needs to be switched.
 	uint64_t cr4Mask() {
 		return cr4Forced() | CR4_OSXSAVE;
+	}
+
+	// XSETBV raises #GP for all other values.
+	bool isValidXcr0(uint64_t value) {
+		auto features = thor::getGlobalCpuFeatures();
+		uint64_t supported = features->haveXsave ? features->xcr0Mask : XCR0_X87;
+		if(value & ~supported)
+			return false;
+		// x87 is always enabled.
+		if(!(value & XCR0_X87))
+			return false;
+		// AVX requires SSE.
+		if((value & XCR0_AVX) && !(value & XCR0_SSE))
+			return false;
+		// The AVX-512 components can only be enabled together and they require AVX.
+		if(value & XCR0_AVX512) {
+			if((value & XCR0_AVX512) != XCR0_AVX512 || !(value & XCR0_AVX))
+				return false;
+		}
+		return true;
 	}
 
 	// Writes the host selectors, which are the same on all CPUs.
@@ -148,6 +183,17 @@ namespace {
 	// Types of events that we inject (VM-entry interruption information).
 	constexpr uint8_t kEventHardwareException = 3;
 	constexpr uint8_t kEventSoftwareInterrupt = 4;
+
+	// Returns the GPR with the given encoding in instructions.
+	uint64_t *gprSlot(thor::vmx::GuestState &state, unsigned index) {
+		uint64_t *slots[16] = {
+			&state.rax, &state.rcx, &state.rdx, &state.rbx,
+			nullptr /* RSP is part of the VMCS. */, &state.rbp, &state.rsi, &state.rdi,
+			&state.r8, &state.r9, &state.r10, &state.r11,
+			&state.r12, &state.r13, &state.r14, &state.r15,
+		};
+		return slots[index];
+	}
 }
 
 extern "C" bool vmxVmRun(thor::vmx::Vmcs* vm, void* state, bool launched);
@@ -386,6 +432,7 @@ namespace thor::vmx {
 
 		HelVmexitReason exitInfo{};
 		uint64_t hostFsBase = common::x86::rdmsr(MSR_FS_BASE);
+		uint64_t hostXcr0 = getGlobalCpuFeatures()->xcr0Mask;
 
 		// While the VMCS is resident, it stays active on this CPU between entries.
 		std::optional<MigrationGuard> migrationGuard;
@@ -457,7 +504,7 @@ namespace thor::vmx {
 							| (static_cast<uint32_t>(reinject_.type) << 8)
 							| (UINT32_C(1) << 31);
 					// Error codes are only delivered if guest's CR0.PE is set.
-					if(reinject_.hasErrorCode && (vmread(GUEST_CR0) & 1)) {
+					if(reinject_.hasErrorCode && (vmread(GUEST_CR0) & CR0_PE)) {
 						info |= 1 << 11;
 						vmwrite(VM_ENTRY_EXCEPTION_ERROR_CODE, reinject_.errorCode);
 					}
@@ -473,9 +520,19 @@ namespace thor::vmx {
 					asm volatile ("fxsaveq %0" : : "m" (*hostFstate));
 					asm volatile ("fxrstorq %0" : : "m" (*guestFstate));
 				}
+				// XCR0 is only observable by the guest if it set CR4.OSXSAVE.
+				// The FPU state is saved and restored using the (larger) host XCR0.
+				bool switchXcr0 = getGlobalCpuFeatures()->haveXsave
+						&& guestOsxsave_ && guestXcr0_ != hostXcr0;
+				if(switchXcr0)
+					common::x86::wrxcr(0, guestXcr0_);
+
 				entryFailed = vmxVmRun(this, &state, launched_);
 				if(!entryFailed)
 					launched_ = true;
+
+				if(switchXcr0)
+					common::x86::wrxcr(0, hostXcr0);
 				if(getGlobalCpuFeatures()->haveXsave){
 					common::x86::xsave((uint8_t*)guestFstate, ~0);
 					common::x86::xrstor((uint8_t*)hostFstate, ~0);
@@ -492,12 +549,25 @@ namespace thor::vmx {
 
 				error = entryFailed ? vmread(VM_INSTRUCTION_ERROR) : 0;
 				reason = entryFailed ? ~UINT64_C(0) : vmread(VM_EXIT_REASON);
+				uint64_t qualification = 0;
+				if(reason == VMEXIT_CR_ACCESS)
+					qualification = vmread(EXIT_QUALIFICATION);
+				// Instructions that we emulate in the kernel (and skip unless they fault).
+				bool skipInstruction = reason == VMEXIT_CR_ACCESS || reason == VMEXIT_XSETBV;
+				uint64_t instructionLength = 0;
+				if(skipInstruction)
+					instructionLength = vmread(VM_EXIT_INSTRUCTION_LEN);
+				// The RIP is needed to skip instructions.
+				uint64_t rip = 0;
+				if(skipInstruction)
+					rip = vmread(GUEST_RIP);
 
 				// The injected event was delivered unless its delivery caused this exit.
 				// In the latter case, and also if the guest's own event delivery was interrupted,
 				// IDT-vectoring information describes the event, so we inject it again.
 				// Exits caused by instructions do not happen during event delivery.
-				bool instructionExit = reason == VMEXIT_HLT;
+				bool instructionExit = reason == VMEXIT_HLT || reason == VMEXIT_XSETBV
+						|| reason == VMEXIT_CR_ACCESS;
 				reinjectValid_ = false;
 				if(!entryFailed && !instructionExit) {
 					auto vectoring = vmread(IDT_VECTORING_INFO);
@@ -513,12 +583,26 @@ namespace thor::vmx {
 					}
 				}
 
+				// Emulate instructions that we handle in the kernel.
+				// If they raise an exception, the guest RIP is not advanced.
+				if(reason == VMEXIT_CR_ACCESS)
+					skipInstruction = emulateCrAccess(qualification);
+				else if(reason == VMEXIT_XSETBV)
+					skipInstruction = emulateXsetbv();
+
+				if(skipInstruction) {
+					vmwrite(GUEST_RIP, rip + instructionLength);
+					clearInterruptShadow();
+				}
+
 				// We cache basic registers on halt exits because the VMM might want
 				// to inspect either the RIP or RFLAGS and that will save us an
 				// acquire_()/release_() round-trip in Vmcs::loadRegs().
 				bool cacheBasic = !entryFailed && reason == VMEXIT_HLT;
 				if(cacheBasic) {
-					cachedRip_ = vmread(GUEST_RIP);
+					if(!skipInstruction)
+						rip = vmread(GUEST_RIP);
+					cachedRip_ = skipInstruction ? rip + instructionLength : rip;
 					cachedRsp_ = vmread(GUEST_RSP);
 					cachedRflags_ = vmread(GUEST_RFLAG);
 					basicCacheValid_ = true;
@@ -560,6 +644,8 @@ namespace thor::vmx {
 				}
 			} else if(reason == VMEXIT_EXTERNAL_INTERRUPT) {
 				infoLogger() << "vmx: external-interrupt exit" << frg::endlog;
+			} else if(reason == VMEXIT_CR_ACCESS || reason == VMEXIT_XSETBV) {
+				// Emulated above.
 			} else {
 				infoLogger() << "vmx: Unknown VMExit code: " << reason << frg::endlog;
 				exitInfo.exitReason = kHelVmexitUnknownPlatformSpecificExitCode;
@@ -660,9 +746,14 @@ namespace thor::vmx {
 		if(differs(regs->cr4, regsCache_.cr4)) {
 			vmwrite(GUEST_CR4, guestCr4(regs->cr4));
 			vmwrite(CR4_READ_SHADOW, regs->cr4);
+			guestOsxsave_ = regs->cr4 & CR4_OSXSAVE;
 		}
+		cr8_ = regs->cr8 & 0xF;
 
-		vmwrite(VMCS_FIELD_GUEST_EFER_FULL, regs->efer);
+		if(differs(regs->efer, regsCache_.efer)) {
+			// The CPU updates the IA-32e mode guest control on exits; always write it.
+			setLongModeActive(regs->efer & EFER_LMA, regs->efer);
+		}
 		release_();
 
 		regsCache_ = *regs;
@@ -697,6 +788,7 @@ namespace thor::vmx {
 		regs->cr2 = state.cr2;
 
 		if(regsCacheValid_) {
+			regs->cr8 = cr8_;
 			return;
 		}
 
@@ -745,6 +837,7 @@ namespace thor::vmx {
 		regs->cr0 = guestCr0Value();
 		regs->cr3 = vmread(GUEST_CR3);
 		regs->cr4 = (vmread(GUEST_CR4) & ~cr4Mask()) | (vmread(CR4_READ_SHADOW) & cr4Mask());
+		regs->cr8 = cr8_;
 
 		regs->efer = vmread(VMCS_FIELD_GUEST_EFER_FULL);
 		release_();
@@ -836,6 +929,20 @@ namespace thor::vmx {
 		regs->rflags = cachedRflags_;
 	}
 
+	uint64_t Vmcs::readGpr(unsigned index) {
+		if(index == 4)
+			return vmread(GUEST_RSP);
+		return *gprSlot(state, index);
+	}
+
+	void Vmcs::writeGpr(unsigned index, uint64_t value) {
+		if(index == 4) {
+			vmwrite(GUEST_RSP, value);
+			return;
+		}
+		*gprSlot(state, index) = value;
+	}
+
 	void Vmcs::queueException(uint8_t vector, bool hasErrorCode, uint32_t errorCode) {
 		// Exceptions raised by emulated instructions are delivered on the next entry.
 		reinjectValid_ = true;
@@ -846,9 +953,137 @@ namespace thor::vmx {
 		reinject_.errorCode = errorCode;
 	}
 
+	void Vmcs::clearInterruptShadow() {
+		auto interruptibility = vmread(GUEST_INTERRUPTIBILITY_STATE);
+		if(interruptibility & 3)
+			vmwrite(GUEST_INTERRUPTIBILITY_STATE, interruptibility & ~UINT64_C(3));
+	}
+
 	uint64_t Vmcs::guestCr0Value() {
 		// The guest sees the read shadow for the bits that VMX forces to 1.
 		return (vmread(GUEST_CR0) & ~cr0Forced()) | (vmread(CR0_READ_SHADOW) & cr0Forced());
+	}
+
+	uint64_t Vmcs::guestEfer() {
+		return vmread(VMCS_FIELD_GUEST_EFER_FULL);
+	}
+
+	void Vmcs::setLongModeActive(bool active, uint64_t efer) {
+		efer = active ? (efer | EFER_LMA) : (efer & ~EFER_LMA);
+		vmwrite(VMCS_FIELD_GUEST_EFER_FULL, efer);
+		vmwrite(VM_ENTRY_CONTROLS, entryControls_ | (active ? VM_ENTRY_IA32E_MODE : 0));
+	}
+
+	bool Vmcs::emulateCrAccess(uint64_t qualification) {
+		auto cr = qualification & 0xF;
+		auto accessType = (qualification >> 4) & 3;
+		auto reg = (qualification >> 8) & 0xF;
+
+		// Outside of long mode, only the low 32 bits of GPRs are used.
+		auto longMode = guestEfer() & EFER_LMA;
+		auto truncate = [&] (uint64_t value) {
+			return longMode ? value : (value & 0xFFFF'FFFF);
+		};
+
+		if(accessType == 0) { // MOV to CR.
+			auto value = truncate(readGpr(reg));
+			if(cr == 0)
+				return writeCr0(value);
+			if(cr == 3) {
+				// Bit 63 only suppresses TLB flushes (with PCIDs).
+				vmwrite(GUEST_CR3, value & ~(UINT64_C(1) << 63));
+				return true;
+			}
+			if(cr == 4)
+				return writeCr4(value);
+			if(cr == 8) {
+				if(value & ~UINT64_C(0xF)) {
+					queueException(GP_VECTOR, true, 0);
+					return false;
+				}
+				cr8_ = value;
+				return true;
+			}
+		} else if(accessType == 1) { // MOV from CR.
+			if(cr == 3) {
+				writeGpr(reg, truncate(vmread(GUEST_CR3)));
+				return true;
+			}
+			if(cr == 8) {
+				writeGpr(reg, cr8_);
+				return true;
+			}
+		} else if(accessType == 2) { // CLTS.
+			return writeCr0(guestCr0Value() & ~CR0_TS);
+		} else { // LMSW: sets the low 4 bits of CR0 but cannot clear PE.
+			auto data = (qualification >> 16) & 0xF;
+			return writeCr0((guestCr0Value() & ~UINT64_C(0xE)) | data);
+		}
+
+		infoLogger() << "vmx: Unexpected CR access, qualification 0x"
+				<< frg::hex_fmt{qualification} << frg::endlog;
+		queueException(UD_VECTOR, false, 0);
+		return false;
+	}
+
+	bool Vmcs::writeCr0(uint64_t value) {
+		if((value >> 32) || ((value & CR0_PG) && !(value & CR0_PE))
+				|| ((value & CR0_NW) && !(value & CR0_CD))) {
+			queueException(GP_VECTOR, true, 0);
+			return false;
+		}
+
+		// The instruction did not execute, so we need to (de)activate long mode
+		// like the CPU would.
+		auto old = guestCr0Value();
+		auto efer = guestEfer();
+		if((value & CR0_PG) && !(old & CR0_PG) && (efer & EFER_LME)) {
+			if(!(vmread(GUEST_CR4) & CR4_PAE)) {
+				queueException(GP_VECTOR, true, 0);
+				return false;
+			}
+			setLongModeActive(true, efer);
+		} else if(!(value & CR0_PG) && (old & CR0_PG) && (efer & EFER_LMA)) {
+			setLongModeActive(false, efer);
+		} else if((value & CR0_PG) && !(old & CR0_PG) && (vmread(GUEST_CR4) & CR4_PAE)) {
+			// TODO: Load the PDPTEs into the VMCS (the CPU does not do that on VM entry).
+			infoLogger() << "vmx: PAE paging without long mode is not supported" << frg::endlog;
+		}
+
+		vmwrite(GUEST_CR0, guestCr0(value));
+		vmwrite(CR0_READ_SHADOW, value);
+		return true;
+	}
+
+	bool Vmcs::writeCr4(uint64_t value) {
+		// We do not support nested virtualization.
+		if((value >> 32) || (value & CR4_VMXE)
+				|| ((guestEfer() & EFER_LMA) && !(value & CR4_PAE))) {
+			queueException(GP_VECTOR, true, 0);
+			return false;
+		}
+		// Without VPIDs, VM entries flush the TLB; hence, we do not need to flush it here.
+		vmwrite(GUEST_CR4, guestCr4(value));
+		vmwrite(CR4_READ_SHADOW, value);
+		guestOsxsave_ = value & CR4_OSXSAVE;
+		return true;
+	}
+
+	bool Vmcs::emulateXsetbv() {
+		if(!guestOsxsave_) {
+			queueException(UD_VECTOR, false, 0);
+			return false;
+		}
+		// XSETBV requires CPL 0 (i.e., SS.DPL 0).
+		bool cpl0 = !((vmread(GUEST_SS_ACCESS_RIGHT) >> 5) & 3);
+		uint32_t index = state.rcx;
+		uint64_t value = (state.rdx << 32) | static_cast<uint32_t>(state.rax);
+		if(!cpl0 || index != 0 || !isValidXcr0(value)) {
+			queueException(GP_VECTOR, true, 0);
+			return false;
+		}
+		guestXcr0_ = value;
+		return true;
 	}
 
 	void Vmcs::acquire_() {

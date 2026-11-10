@@ -127,6 +127,7 @@ namespace thor::vmx {
 	constexpr uint64_t VM_INSTRUCTION_ERROR              = 0x00004400;
 	constexpr uint64_t EPT_VIOLATION_ADDRESS             = 0x00002400;
 	constexpr uint64_t EPT_VIOLATION_FLAGS               = 0x00006400;
+	constexpr uint64_t EXIT_QUALIFICATION                = 0x00006400;
 	constexpr uint64_t VM_EXIT_INSTRUCTION_LEN           = 0x0000440c;
 	constexpr uint64_t VM_ENTRY_INTR_INFO                = 0x00004016;
 	constexpr uint64_t VM_ENTRY_EXCEPTION_ERROR_CODE     = 0x00004018;
@@ -141,7 +142,9 @@ namespace thor::vmx {
 
 	constexpr uint64_t VMEXIT_EXTERNAL_INTERRUPT           = 1;
 	constexpr uint64_t VMEXIT_HLT                          = 12;
+	constexpr uint64_t VMEXIT_CR_ACCESS                    = 28;
 	constexpr uint64_t VMEXIT_EPT_VIOLATION                = 48;
+	constexpr uint64_t VMEXIT_XSETBV                       = 55;
 
 	constexpr uint64_t VMEXIT_CONTROLS_LONG_MODE      = 1 << 9;
 	constexpr uint64_t VMEXIT_CONTROLS_SAVE_IA32_EFER = 1 << 20;
@@ -231,15 +234,38 @@ namespace thor::vmx {
 		bool launched_ = false;
 		bool resident_ = false;
 
+		// Access GPRs by their encoding in instructions.
+		// The following functions must be called with interrupts disabled while the VMCS is active.
+		uint64_t readGpr(unsigned index);
+		void writeGpr(unsigned index, uint64_t value);
 		void queueException(uint8_t vector, bool hasErrorCode, uint32_t errorCode);
+		// Blocking by STI / MOV SS ends with the instruction that it covers;
+		// this needs to be called whenever we skip an instruction.
+		void clearInterruptShadow();
 
 		uint64_t guestCr0Value();
+		uint64_t guestEfer();
+		void setLongModeActive(bool active, uint64_t efer);
+
+		// These return false if an exception is injected.
+		bool emulateCrAccess(uint64_t qualification);
+		bool writeCr0(uint64_t value);
+		bool writeCr4(uint64_t value);
+		bool emulateXsetbv();
 
 		// Makes sure that cachedRsp_, cachedRip_ and cachedRflags_ are valid.
 		void loadBasicRegsCache();
 
 		// The VM-entry controls (without the IA-32e mode guest control).
 		uint32_t entryControls_ = 0;
+
+		// Guest CR4.OSXSAVE; CR4 writes that change it cause exits.
+		// While it is clear the guest cannot observe XCR0.
+		bool guestOsxsave_ = false;
+		uint64_t guestXcr0_ = 1;
+
+		// CR8 accesses cause exits since we do not use a TPR shadow.
+		uint64_t cr8_ = 0;
 
 		// The VMCS host state is written only when CPU or the FS base changes.
 		bool hostSelectorsWritten_ = false;
