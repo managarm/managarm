@@ -56,7 +56,7 @@ int main() {
 	HEL_CHECK(helStoreRegisters(vcpu, kHelRegsVirtualization, &regs));
 
 	HelVmexitReason reason;
-	HEL_CHECK(helRunVirtualizedCpu(vcpu, &reason));
+	HEL_CHECK(helRunVirtualizedCpu(vcpu, nullptr, &reason));
 
 	int32_t exitReason = static_cast<int32_t>(reason.exitReason);
 	if(exitReason == kHelVmexitHlt)

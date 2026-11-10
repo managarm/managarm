@@ -174,7 +174,7 @@ namespace thor::vmx {
 		Vmcs(const Vmcs& vmcs) = delete;
 		Vmcs& operator=(const Vmcs& vmcs) = delete;
 
-		frg::expected<Error, HelVmexitReason> run() override;
+		frg::expected<Error, HelVmexitReason> run(const HelVmexitCompletion *completion) override;
 		void storeRegs(const HelX86VirtualizationRegs *regs) override;
 		void loadRegs(HelX86VirtualizationRegs *res) override;
 

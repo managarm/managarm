@@ -111,7 +111,9 @@ Vcpu::Vcpu(CtorToken, smarter::shared_ptr<HypervisorSpace> space) : space_{std::
 
 Vcpu::~Vcpu() {}
 
-frg::expected<Error, HelVmexitReason> Vcpu::run() {
+frg::expected<Error, HelVmexitReason> Vcpu::run(const HelVmexitCompletion *completion) {
+	if (completion)
+		return Error::illegalState;
 	while (true) {
 		if (getCurrentThread()->checkCancelConditions())
 			return Error::cancelled;

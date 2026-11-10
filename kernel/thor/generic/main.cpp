@@ -761,7 +761,8 @@ void handleSyscall(SyscallImageAccessor image) {
 		break;
 	}
 	case kHelCallRunVirtualizedCpu: {
-		*image.error() = helRunVirtualizedCpu((HelHandle)arg0, (HelVmexitReason*)arg1);
+		*image.error() = helRunVirtualizedCpu((HelHandle)arg0,
+				(const HelVmexitCompletion *)arg1, (HelVmexitReason *)arg2);
 		break;
 	}
 	case kHelCallAssertVirtualizedIrq: {

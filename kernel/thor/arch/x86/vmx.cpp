@@ -275,7 +275,11 @@ namespace thor::vmx {
 		}
 	}
 
-	frg::expected<Error, HelVmexitReason> Vmcs::run() {
+	frg::expected<Error, HelVmexitReason> Vmcs::run(const HelVmexitCompletion *completion) {
+		// No exit needs a completion yet.
+		if(completion)
+			return Error::illegalState;
+
 		vmptrld((PhysicalAddr)region);
 
 		uint16_t es;

@@ -31,7 +31,7 @@ public:
 	Vcpu(const Vcpu &) = delete;
 	Vcpu &operator=(const Vcpu &) = delete;
 
-	frg::expected<Error, HelVmexitReason> run() override;
+	frg::expected<Error, HelVmexitReason> run(const HelVmexitCompletion *completion) override;
 
 	void storeRegs(const HelVirtualizationRegs *regs) override;
 	void loadRegs(HelVirtualizationRegs *res) override;

@@ -1229,6 +1229,17 @@ enum {
 };
 
 enum {
+  kHelVmexitCompletionDone = 0,
+  kHelVmexitCompletionFault = 1,
+};
+
+struct HelVmexitCompletion {
+	uint32_t status;
+	uint32_t reserved;
+	uint64_t data[4];
+};
+
+enum {
   kHelVmFaultRead = 1 << 0,
   kHelVmFaultWrite = 1 << 1,
   kHelVmFaultExecute = 1 << 2,
@@ -1765,7 +1776,15 @@ HEL_C_LINKAGE HelError helGetClock(uint64_t *counter);
 
 HEL_C_LINKAGE HelError helCreateVirtualizedCpu(HelHandle handle, HelHandle *out_handle);
 
-HEL_C_LINKAGE HelError helRunVirtualizedCpu(HelHandle handle, struct HelVmexitReason *reason);
+//! Runs a virtualized CPU until it exits to the VMM.
+//! @param[in] handle
+//!     Handle to the virtualized CPU.
+//! @param[in] completion
+//!     Completion for the previous exit, must be null if there isn't an exit needing completion.
+//! @param[out] reason
+//!     Receives information about why the vCPU exited.
+HEL_C_LINKAGE HelError helRunVirtualizedCpu(HelHandle handle,
+		const struct HelVmexitCompletion *completion, struct HelVmexitReason *reason);
 
 HEL_C_LINKAGE HelError helAssertVirtualizedIrq(HelHandle handle, uint64_t irq, uint8_t level);
 

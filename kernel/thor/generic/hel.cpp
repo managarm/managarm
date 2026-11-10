@@ -1495,7 +1495,8 @@ HelError helCreateVirtualizedCpu(HelHandle handle, HelHandle *out) {
 #endif
 }
 
-HelError helRunVirtualizedCpu(HelHandle handle, HelVmexitReason *exitInfo) {
+HelError helRunVirtualizedCpu(HelHandle handle, const HelVmexitCompletion *completion,
+		HelVmexitReason *exitInfo) {
 	if(!getCpuData()->haveVirtualization) {
 		return kHelErrNoHardwareSupport;
 	}
@@ -1507,7 +1508,11 @@ HelError helRunVirtualizedCpu(HelHandle handle, HelVmexitReason *exitInfo) {
 		return translateError(vcpuOutcome.error());
 	auto vcpu = std::move(*vcpuOutcome);
 
-	auto runOutcome = vcpu->run();
+	HelVmexitCompletion kernelCompletion;
+	if(completion && !readUserObject(completion, kernelCompletion))
+		return kHelErrFault;
+
+	auto runOutcome = vcpu->run(completion ? &kernelCompletion : nullptr);
 	if(!runOutcome)
 		return translateError(runOutcome.error());
 

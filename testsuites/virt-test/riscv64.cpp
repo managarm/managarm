@@ -54,7 +54,7 @@ int main() {
 	HelVmexitReason reason;
 
 	auto runStep = [&] {
-		HEL_CHECK(helRunVirtualizedCpu(vcpu, &reason));
+		HEL_CHECK(helRunVirtualizedCpu(vcpu, nullptr, &reason));
 
 		HEL_CHECK(helLoadRegisters(vcpu, kHelRegsVirtualization, (void *)&regs));
 		regs.pc += 4;
@@ -105,7 +105,7 @@ int main() {
 	pthread_t thread;
 	pthread_create(&thread, nullptr, threadFunc, reinterpret_cast<void *>(mainThread));
 
-	auto runResult = helRunVirtualizedCpu(vcpu, &reason);
+	auto runResult = helRunVirtualizedCpu(vcpu, nullptr, &reason);
 	assert(runResult == kHelErrCancelled);
 
 	pthread_join(thread, nullptr);

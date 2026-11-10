@@ -11,7 +11,7 @@
 
 namespace thor {
 	struct VirtualizedCpu : RcuProtected {
-		virtual frg::expected<Error, HelVmexitReason> run() = 0;
+		virtual frg::expected<Error, HelVmexitReason> run(const HelVmexitCompletion *completion) = 0;
 
 		virtual void storeRegs(const HelVirtualizationRegs *regs) = 0;
 		virtual void loadRegs(HelVirtualizationRegs *res) = 0;
