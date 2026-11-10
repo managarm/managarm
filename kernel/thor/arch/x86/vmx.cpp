@@ -799,7 +799,6 @@ namespace thor::vmx {
 			}
 
 			if(reason == VMEXIT_HLT) {
-				infoLogger() << "vmx: hlt" << frg::endlog;
 				exitInfo.exitReason = kHelVmexitHlt;
 				return exitInfo;
 			} else if(reason == VMEXIT_EPT_VIOLATION) {
@@ -823,7 +822,7 @@ namespace thor::vmx {
 					return exitInfo;
 				}
 			} else if(reason == VMEXIT_EXTERNAL_INTERRUPT) {
-				infoLogger() << "vmx: external-interrupt exit" << frg::endlog;
+				// The interrupt was handled when we re-enabled interrupts.
 			} else if(reason == VMEXIT_TRIPLE_FAULT) {
 				exitInfo.exitReason = kHelVmexitShutdown;
 				return exitInfo;
