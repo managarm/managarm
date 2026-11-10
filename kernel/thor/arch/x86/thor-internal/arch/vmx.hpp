@@ -149,6 +149,7 @@ namespace thor::vmx {
 	constexpr uint64_t TR_ACCESS_RIGHT   = (0x3 | 1 << 7);
 
 	constexpr uint64_t VMEXIT_EXTERNAL_INTERRUPT           = 1;
+	constexpr uint64_t VMEXIT_TRIPLE_FAULT                 = 2;
 	constexpr uint64_t VMEXIT_CPUID                        = 10;
 	constexpr uint64_t VMEXIT_HLT                          = 12;
 	constexpr uint64_t VMEXIT_VMCALL                       = 18;

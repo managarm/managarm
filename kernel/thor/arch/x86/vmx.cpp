@@ -808,6 +808,9 @@ namespace thor::vmx {
 				}
 			} else if(reason == VMEXIT_EXTERNAL_INTERRUPT) {
 				infoLogger() << "vmx: external-interrupt exit" << frg::endlog;
+			} else if(reason == VMEXIT_TRIPLE_FAULT) {
+				exitInfo.exitReason = kHelVmexitShutdown;
+				return exitInfo;
 			} else if(reason == VMEXIT_CR_ACCESS || reason == VMEXIT_XSETBV) {
 				// Emulated above.
 			} else {

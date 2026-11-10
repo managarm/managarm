@@ -1280,6 +1280,8 @@ enum {
   kHelVmexitRdmsr = 7,
   // x86 WRMSR, it needs a completion; address is the MSR index, data is the value.
   kHelVmexitWrmsr = 8,
+  // The guest caused a triple fault.
+  kHelVmexitShutdown = 9,
   // VM entry failed, code is the platform's entry failure reason.
   kHelVmexitError = -1,
   // Unknown VM exit reason, code is the platform's exit reason.
