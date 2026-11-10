@@ -368,6 +368,10 @@ namespace thor::vmx {
 
 			{
 				StatelessIrqLock irqLock;
+				if(enterGuest(getCpuData())) {
+					exitInfo.exitReason = kHelVmexitKicked;
+					return exitInfo;
+				}
 				acquire_();
 				// The host state differs between CPUs and threads.
 				writeHostSelectors();
@@ -402,6 +406,7 @@ namespace thor::vmx {
 
 				error = entryFailed ? vmread(VM_INSTRUCTION_ERROR) : 0;
 				reason = entryFailed ? ~UINT64_C(0) : vmread(VM_EXIT_REASON);
+				leaveGuest();
 			}
 
 			if(entryFailed) {
