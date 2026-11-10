@@ -476,11 +476,60 @@ namespace thor::vmx {
 	}
 
 	frg::expected<Error, HelVmexitReason> Vmcs::run(const HelVmexitCompletion *completion) {
-		// No exit needs a completion yet.
-		if(completion)
-			return Error::illegalState;
-
 		HelVmexitReason exitInfo{};
+
+		// Exits that need a completion must get one, and no other exit may get one.
+		if(completionPending_ != (completion != nullptr))
+			return Error::illegalState;
+		if(completion && completion->status != kHelVmexitCompletionDone
+				&& completion->status != kHelVmexitCompletionFault)
+			return Error::illegalArgs;
+
+		// Apply the completion. The GPRs are not part of the VMCS. Skipping the instruction
+		// advances the cached RIP; the VMCS is updated before the next entry (even if run()
+		// returns before entering the guest).
+		if(completion) {
+			completionPending_ = false;
+			auto &pending = pendingCompletion_;
+			if(completion->status == kHelVmexitCompletionFault) {
+				queueException(GP_VECTOR, true, 0);
+			}else{
+				const uint64_t *data = completion->data;
+				switch(pending.exitReason) {
+				case kHelVmexitIo:
+					if(pending.ioIn && !pending.ioString) {
+						if(pending.ioSize == 4) {
+							// Like other 32-bit operations, IN EAX zero-extends RAX.
+							state.rax = data[0] & 0xFFFF'FFFF;
+						}else{
+							uint64_t mask = (UINT64_C(1) << (pending.ioSize * 8)) - 1;
+							state.rax = (state.rax & ~mask) | (data[0] & mask);
+						}
+					}
+					break;
+				case kHelVmexitCpuid:
+					state.rax = data[0] & 0xFFFF'FFFF;
+					state.rbx = data[1] & 0xFFFF'FFFF;
+					state.rcx = data[2] & 0xFFFF'FFFF;
+					state.rdx = data[3] & 0xFFFF'FFFF;
+					break;
+				case kHelVmexitRdmsr:
+					state.rax = data[0] & 0xFFFF'FFFF;
+					state.rdx = data[0] >> 32;
+					break;
+				case kHelVmexitHyperCall:
+					state.rax = data[0];
+					break;
+				default:
+					break;
+				}
+				loadBasicRegsCache();
+				cachedRip_ += pendingCompletion_.instructionLength;
+				if(regsCacheValid_)
+					regsCache_.rip = cachedRip_;
+				ripDirty_ = true;
+			}
+		}
 
 		// While we are in the kernel, KERNEL_GS_BASE holds the user GS base of this thread
 		// (and thread switches preserve it).
@@ -514,6 +563,12 @@ namespace thor::vmx {
 
 			bool entryFailed;
 			uint64_t error, reason;
+			// Exit information that we read while the VMCS is active and use afterwards.
+			uint64_t qualification = 0;
+			bool stringIo = false;
+			bool msrExit = false;
+			bool needsCompletion = false;
+			uint64_t instructionLength = 0;
 
 			{
 				StatelessIrqLock irqLock;
@@ -549,6 +604,12 @@ namespace thor::vmx {
 				if(!space->enterGuest(cpu)) {
 					leaveGuest();
 					return Error::illegalState;
+				}
+				// Write the RIP of the instruction that userspace completed.
+				if(ripDirty_) {
+					vmwrite(GUEST_RIP, cachedRip_);
+					clearInterruptShadow();
+					ripDirty_ = false;
 				}
 				// The guest changes its state while it runs.
 				regsCacheValid_ = false;
@@ -605,15 +666,20 @@ namespace thor::vmx {
 
 				error = entryFailed ? vmread(VM_INSTRUCTION_ERROR) : 0;
 				reason = entryFailed ? ~UINT64_C(0) : vmread(VM_EXIT_REASON);
-				uint64_t qualification = 0;
-				if(reason == VMEXIT_CR_ACCESS)
+				if(reason == VMEXIT_IO_INSTRUCTION || reason == VMEXIT_CR_ACCESS) {
 					qualification = vmread(EXIT_QUALIFICATION);
+					stringIo = reason == VMEXIT_IO_INSTRUCTION && (qualification & (1 << 4));
+				}
+				msrExit = reason == VMEXIT_RDMSR || reason == VMEXIT_WRMSR;
 				// Instructions that we emulate in the kernel (and skip unless they fault).
 				bool skipInstruction = reason == VMEXIT_HLT || reason == VMEXIT_CR_ACCESS
 						|| reason == VMEXIT_XSETBV;
-				uint64_t instructionLength = 0;
-				if(skipInstruction)
+				// Instructions that userspace completes.
+				needsCompletion = msrExit || reason == VMEXIT_CPUID
+						|| reason == VMEXIT_IO_INSTRUCTION || reason == VMEXIT_VMCALL;
+				if(skipInstruction || needsCompletion)
 					instructionLength = vmread(VM_EXIT_INSTRUCTION_LEN);
+
 				// The RIP is needed to skip instructions.
 				uint64_t rip = 0;
 				if(skipInstruction)
@@ -623,7 +689,9 @@ namespace thor::vmx {
 				// In the latter case, and also if the guest's own event delivery was interrupted,
 				// IDT-vectoring information describes the event, so we inject it again.
 				// Exits caused by instructions do not happen during event delivery.
-				bool instructionExit = reason == VMEXIT_HLT || reason == VMEXIT_XSETBV
+				bool instructionExit = msrExit || reason == VMEXIT_CPUID
+						|| reason == VMEXIT_IO_INSTRUCTION || reason == VMEXIT_HLT
+						|| reason == VMEXIT_VMCALL || reason == VMEXIT_XSETBV
 						|| reason == VMEXIT_CR_ACCESS;
 				reinjectValid_ = false;
 				if(!entryFailed && !instructionExit) {
@@ -655,7 +723,7 @@ namespace thor::vmx {
 				// We cache basic registers on halt exits because the VMM might want
 				// to inspect either the RIP or RFLAGS and that will save us an
 				// acquire_()/release_() round-trip in Vmcs::loadRegs().
-				bool cacheBasic = !entryFailed && reason == VMEXIT_HLT;
+				bool cacheBasic = !entryFailed && (needsCompletion || reason == VMEXIT_HLT);
 				if(cacheBasic) {
 					if(!skipInstruction)
 						rip = vmread(GUEST_RIP);
@@ -672,6 +740,45 @@ namespace thor::vmx {
 				infoLogger() << "vmx: VM entry failed with error " << error << frg::endlog;
 				exitInfo.exitReason = kHelVmexitError;
 				exitInfo.code = error;
+				return exitInfo;
+			}
+
+			if(needsCompletion) {
+				completionPending_ = true;
+				pendingCompletion_ = {};
+				pendingCompletion_.instructionLength = instructionLength;
+				if(msrExit) {
+					bool write = reason == VMEXIT_WRMSR;
+					pendingCompletion_.exitReason = write ? kHelVmexitWrmsr : kHelVmexitRdmsr;
+					exitInfo.address = state.rcx & 0xFFFF'FFFF;
+					if(write)
+						exitInfo.data = (state.rdx << 32) | (state.rax & 0xFFFF'FFFF);
+				}else if(reason == VMEXIT_CPUID) {
+					pendingCompletion_.exitReason = kHelVmexitCpuid;
+					exitInfo.address = state.rax & 0xFFFF'FFFF;
+					exitInfo.data = state.rcx & 0xFFFF'FFFF;
+				}else if(reason == VMEXIT_VMCALL) {
+					pendingCompletion_.exitReason = kHelVmexitHyperCall;
+				}else{
+					pendingCompletion_.exitReason = kHelVmexitIo;
+					auto size = (qualification & 7) + 1;
+					auto in = qualification & (1 << 3);
+					pendingCompletion_.ioSize = size;
+					pendingCompletion_.ioIn = in;
+					pendingCompletion_.ioString = stringIo;
+					exitInfo.address = qualification >> 16;
+					exitInfo.code = size;
+					exitInfo.flags = 0;
+					if(in)
+						exitInfo.flags |= kHelVmexitIoIn;
+					if(stringIo) {
+						exitInfo.flags |= kHelVmexitIoString;
+					}else if(!in) {
+						exitInfo.data = size == 4 ? (state.rax & 0xFFFF'FFFF)
+								: (state.rax & ((UINT64_C(1) << (size * 8)) - 1));
+					}
+				}
+				exitInfo.exitReason = pendingCompletion_.exitReason;
 				return exitInfo;
 			}
 
@@ -856,7 +963,7 @@ namespace thor::vmx {
 		acquire_();
 
 		regs->rsp = vmread(GUEST_RSP);
-		regs->rip = vmread(GUEST_RIP);
+		regs->rip = ripDirty_ ? cachedRip_ : vmread(GUEST_RIP);
 		regs->rflags = vmread(GUEST_RFLAG);
 
 		#define GET_SEGMENT(segment, segment_capital) \

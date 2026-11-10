@@ -1260,13 +1260,35 @@ struct HelThreadStats {
 enum {
   kHelVmexitHlt = 0,
   kHelVmexitTranslationFault = 1,
+  // VMCALL/VMMCALL (x86) or ECALL (RISC-V).
+  // On x86, it needs a completion; data[0] of the completion is written to RAX.
   kHelVmexitHyperCall = 2,
   kHelVmexitInstructionTrap = 3,
   kHelVmexitKicked = 4,
+  // x86 port I/O, it needs a completion.
+  // Address is the port, code is the access size in bytes, flags is a combination of kHelVmexitIo*.
+  // String I/O is emulated by the VMM (which decodes the instruction); the completion skips it.
+  // For non-string IN, data[0] of the completion is the value read.
+  // For non-string OUT, data is the value.
+  kHelVmexitIo = 5,
+  // x86 CPUID, it needs a completion.
+  // address is EAX (the leaf) and data is ECX (the subleaf).
+  // data[0..3] of the completion are written to EAX, EBX, ECX and EDX.
+  kHelVmexitCpuid = 6,
+  // x86 RDMSR, it needs a completion;
+  // address is the MSR index, data[0] of the completion is written to EDX:EAX.
+  kHelVmexitRdmsr = 7,
+  // x86 WRMSR, it needs a completion; address is the MSR index, data is the value.
+  kHelVmexitWrmsr = 8,
   // VM entry failed, code is the platform's entry failure reason.
   kHelVmexitError = -1,
   // Unknown VM exit reason, code is the platform's exit reason.
   kHelVmexitUnknownPlatformSpecificExitCode = -2,
+};
+
+enum {
+  kHelVmexitIoIn = 1 << 0,
+  kHelVmexitIoString = 1 << 1,
 };
 
 enum {
@@ -1304,6 +1326,7 @@ struct HelVmexitReason {
 	uint32_t code;
 	size_t address;
 	size_t flags;
+	uint64_t data;
 };
 
 #endif

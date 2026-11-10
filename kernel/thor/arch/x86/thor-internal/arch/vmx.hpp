@@ -149,8 +149,13 @@ namespace thor::vmx {
 	constexpr uint64_t TR_ACCESS_RIGHT   = (0x3 | 1 << 7);
 
 	constexpr uint64_t VMEXIT_EXTERNAL_INTERRUPT           = 1;
+	constexpr uint64_t VMEXIT_CPUID                        = 10;
 	constexpr uint64_t VMEXIT_HLT                          = 12;
+	constexpr uint64_t VMEXIT_VMCALL                       = 18;
 	constexpr uint64_t VMEXIT_CR_ACCESS                    = 28;
+	constexpr uint64_t VMEXIT_IO_INSTRUCTION               = 30;
+	constexpr uint64_t VMEXIT_RDMSR                        = 31;
+	constexpr uint64_t VMEXIT_WRMSR                        = 32;
 	constexpr uint64_t VMEXIT_EPT_VIOLATION                = 48;
 	constexpr uint64_t VMEXIT_XSETBV                       = 55;
 
@@ -309,6 +314,10 @@ namespace thor::vmx {
 		bool basicCacheValid_ = false;
 		uint64_t cachedRsp_ = 0, cachedRip_ = 0, cachedRflags_ = 0;
 
+		// cachedRip_ is newer than the VMCS (after a completion skipped an instruction);
+		// run() writes it before the next entry.
+		bool ripDirty_ = false;
+
 		// An event to inject on the next entry, an event whose delivery was interrupted by
 		// a VM exit or an exception that an emulated instruction raised.
 		struct Event {
@@ -321,5 +330,18 @@ namespace thor::vmx {
 		};
 		bool reinjectValid_ = false;
 		Event reinject_{};
+
+		// The exit that userspace needs to complete (see HelVmexitCompletion).
+		struct PendingCompletion {
+			uint32_t exitReason;
+			// Length of the instruction that the completion skips.
+			uint32_t instructionLength;
+			// For port I/O.
+			uint8_t ioSize;
+			bool ioIn;
+			bool ioString;
+		};
+		bool completionPending_ = false;
+		PendingCompletion pendingCompletion_{};
 	};
 }
