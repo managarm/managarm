@@ -142,7 +142,8 @@ struct CpuData : public PlatformCpuData {
 // Set once getCpuData() is usable on the BSP.
 extern bool cpuDataAvailable;
 
-inline CpuData *getCpuData() {
+// Always inline as this might be called from code that disables coverage
+[[gnu::always_inline]] inline CpuData *getCpuData() {
 	return static_cast<CpuData *>(getPlatformCpuData());
 }
 

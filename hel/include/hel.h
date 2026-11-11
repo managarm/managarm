@@ -40,6 +40,9 @@ enum {
 	kHelCallAllocateMemory = 51,
 	kHelCallResizeMemory = 83,
 	kHelCallCreateManagedMemory = 64,
+	kHelCallCreateKcovBuffer = 114,
+	kHelCallEnableCoverage = 115,
+	kHelCallDisableCoverage = 116,
 	kHelCallCopyOnWrite = 39,
 	kHelCallAccessPhysical = 30,
 	kHelCallCreateSliceView = 88,
@@ -1440,6 +1443,50 @@ HEL_C_LINKAGE HelError helAllocateMemory(HelHandle hierarchy, size_t size, uint3
 //! @param[in] newSize
 //!    	New size in bytes.
 HEL_C_LINKAGE HelError helResizeMemory(HelHandle handle, size_t newSize);
+
+//! Creates a buffer for kernel code coverage (kcov).
+//!
+//!    The buffer is a memory object that can be mapped like any other memory object.
+//! It cannot be resized. To change the size, allocate a new buffer.
+//! Fails with ::kHelErrUnsupportedOperation if the kernel was built without kcov support.
+//! @param[in] size
+//!    	Size of the buffer in bytes.
+//!    	Must be non-zero, a multiple of 8 and at most 64 MiB.
+//! @param[out] handle
+//!    	Handle to the new memory object.
+HEL_C_LINKAGE HelError helCreateKcovBuffer(size_t size, HelHandle *handle);
+
+//! Modes for helEnableCoverage().
+enum {
+	//! Record PCs.
+	kHelKcovModePc = 1,
+	//! Record comparisons.
+	kHelKcovModeCmp = 2
+};
+
+//! Attaches a kcov buffer to a thread, which then records coverage to it.
+//!
+//!    A thread can have at most one buffer attached and a buffer can be
+//! attached to at most one thread at a time.
+//! Fails with ::kHelErrIllegalState if either is already attached and with
+//! ::kHelErrUnsupportedOperation if @p buffer is not a kcov buffer.
+//! @param[in] thread
+//!    	Handle to the thread.
+//! @param[in] buffer
+//!    	Handle to a buffer created by helCreateKcovBuffer().
+//! @param[in] mode
+//!    	::kHelKcovModePc or ::kHelKcovModeCmp.
+HEL_C_LINKAGE HelError helEnableCoverage(HelHandle thread, HelHandle buffer, uint32_t mode);
+
+//! Detaches a kcov buffer from a thread.
+//!
+//!    Fails with ::kHelErrIllegalState if @p buffer is not attached to @p thread and with
+//! ::kHelErrUnsupportedOperation if @p buffer is not a kcov buffer.
+//! @param[in] thread
+//!    	Handle to the thread.
+//! @param[in] buffer
+//!    	Handle to the buffer.
+HEL_C_LINKAGE HelError helDisableCoverage(HelHandle thread, HelHandle buffer);
 
 //! Creates a memory object that is managed by userspace.
 //!

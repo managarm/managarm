@@ -649,6 +649,17 @@ void handleSyscall(SyscallImageAccessor image) {
 				(const HelAllocRestrictions *)arg3, &handle);
 		*image.out0() = handle;
 	} break;
+	case kHelCallCreateKcovBuffer: {
+		HelHandle handle;
+		*image.error() = helCreateKcovBuffer((size_t)arg0, &handle);
+		*image.out0() = handle;
+	} break;
+	case kHelCallEnableCoverage: {
+		*image.error() = helEnableCoverage((HelHandle)arg0, (HelHandle)arg1, (uint32_t)arg2);
+	} break;
+	case kHelCallDisableCoverage: {
+		*image.error() = helDisableCoverage((HelHandle)arg0, (HelHandle)arg1);
+	} break;
 	case kHelCallCreateManagedMemory: {
 		HelHandle backing_handle, frontal_handle;
 		*image.error() = helCreateManagedMemory((HelHandle)arg0, (size_t)arg1, (uint32_t)arg2,

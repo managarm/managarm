@@ -380,6 +380,10 @@ enum class DiscardMode : uint8_t {
 	keepDirty,
 };
 
+#ifdef THOR_HAS_KCOV
+struct KcovMemory;
+#endif
+
 // View on some pages of memory. This is the "frontend" part of a memory object.
 struct MemoryView : RcuProtected {
 protected:
@@ -408,6 +412,10 @@ public:
 	// At time of mapping, a new mapping must contained within the memory object's size.
 	// However, the memory object's size may change at any time (even when mappings exist).
 	virtual size_t getLength() = 0;
+
+#ifdef THOR_HAS_KCOV
+	virtual KcovMemory *asKcovMemory() { return nullptr; }
+#endif
 
 	virtual coroutine<frg::expected<Error>> resize(size_t newLength);
 
