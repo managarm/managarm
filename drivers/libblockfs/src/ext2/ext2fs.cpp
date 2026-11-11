@@ -41,7 +41,8 @@ namespace {
 				inode->checksumHigh = 0;
 
 			checksums::Crc32c crc32{fs.metadataChecksumSeed};
-			crc32.addData(&number, sizeof(number));
+			DiskU32 diskNumber = number;
+			crc32.addData(&diskNumber, sizeof(diskNumber));
 			crc32.addData(&inode->generation, sizeof(inode->generation));
 			crc32.addData(inode, fs.inodeSize);
 
@@ -59,12 +60,13 @@ namespace {
 			uint32_t number = inode->number;
 
 			checksums::Crc32c crc32{fs.metadataChecksumSeed};
-			crc32.addData(&number, sizeof(number));
+			DiskU32 diskNumber = number;
+			crc32.addData(&diskNumber, sizeof(diskNumber));
 			crc32.addData(&diskInode->generation, sizeof(diskInode->generation));
 			crc32.addData(hdr, contentSize);
 
 			uint32_t value = crc32.finalize();
-			*reinterpret_cast<uint32_t *>(reinterpret_cast<uintptr_t>(hdr) + contentSize) = value;
+			*reinterpret_cast<DiskU32 *>(reinterpret_cast<uintptr_t>(hdr) + contentSize) = value;
 		}
 	}
 
@@ -73,7 +75,8 @@ namespace {
 			desc->checksum = 0;
 
 			checksums::Crc32c crc32{fs.metadataChecksumSeed};
-			crc32.addData(&groupNumber, sizeof(groupNumber));
+			DiskU32 diskGroupNumber = groupNumber;
+			crc32.addData(&diskGroupNumber, sizeof(diskGroupNumber));
 			crc32.addData(desc, fs.bgdt.descriptorSize());
 
 			uint32_t value = crc32.finalize();
@@ -83,7 +86,8 @@ namespace {
 
 			checksums::Crc16 crc16{0xffff};
 			crc16.addData(fs.uuid, sizeof(fs.uuid));
-			crc16.addData(&groupNumber, sizeof(groupNumber));
+			DiskU32 diskGroupNumber = groupNumber;
+			crc16.addData(&diskGroupNumber, sizeof(diskGroupNumber));
 			crc16.addData(desc, fs.bgdt.descriptorSize());
 
 			uint16_t value = crc16.finalize();
@@ -1087,7 +1091,7 @@ async::result<std::expected<void, protocols::fs::Error>> FileSystem::init() {
 	is64Bit = sb.featureIncompat & EXT4_INCOMPAT_64BIT;
 	usesExtents = sb.featureIncompat & EXT4_INCOMPAT_EXTENTS;
 	metadataChecksum = sb.featureRoCompat & EXT4_RO_COMPAT_METADATA_CSUM;
-	uint16_t blockGroupDescriptorSize = is64Bit ? sb.groupDescSize : 32;
+	uint16_t blockGroupDescriptorSize = is64Bit ? uint16_t(sb.groupDescSize) : uint16_t{32};
 
 	if(logSuperblock) {
 		std::cout << "ext2fs: Revision is: " << sb.revLevel << std::endl;
@@ -1589,7 +1593,7 @@ async::result<std::vector<uint32_t>> FileSystem::allocateBlocks(size_t num, std:
 		if(bgdt[preferred_bg].freeBlocksCount) {
 			assert(bgdt[preferred_bg].blockBitmap);
 			auto bitmapWindow = co_await accessBitmap(bgdt[preferred_bg].blockBitmap);
-			auto words = reinterpret_cast<uint32_t *>(bitmapWindow.get());
+			auto words = reinterpret_cast<DiskU32 *>(bitmapWindow.get());
 
 			for(unsigned int i = 0; i < (blocksPerGroup + 31) / 32
 					&& bgdt[preferred_bg].freeBlocksCount; i++) {
@@ -1646,7 +1650,7 @@ async::result<std::vector<uint32_t>> FileSystem::allocateBlocks(size_t num, std:
 
 		assert(bgdt[bg_idx].blockBitmap);
 		auto bitmapWindow = co_await accessBitmap(bgdt[bg_idx].blockBitmap);
-		auto words = reinterpret_cast<uint32_t *>(bitmapWindow.get());
+		auto words = reinterpret_cast<DiskU32 *>(bitmapWindow.get());
 		for(unsigned int i = 0; i < (blocksPerGroup + 31) / 32
 				&& bgdt[bg_idx].freeBlocksCount; i++) {
 			if(words[i] == 0xFFFFFFFF)
@@ -1719,7 +1723,7 @@ async::result<void> FileSystem::freeBlocks(std::vector<uint32_t> blocks) {
 		auto bitmapWindow = co_await accessMetadata(bgdt[bg].blockBitmap, true);
 		accessTime += accessTimer.elapsed();
 		++numGroups;
-		auto words = reinterpret_cast<uint32_t *>(bitmapWindow.get());
+		auto words = reinterpret_cast<DiskU32 *>(bitmapWindow.get());
 
 		for(; i < blocks.size() && blocks[i] / blocksPerGroup == bg; i++) {
 			auto block = blocks[i];
@@ -1764,7 +1768,7 @@ async::result<uint32_t> FileSystem::allocateInode(uint32_t parentIno, bool direc
 		auto bitmapWindow = co_await accessMetadata(bgdt[bg].inodeBitmap, true);
 		accessTime += accessTimer.elapsed();
 		++numGroups;
-		auto words = reinterpret_cast<uint32_t *>(bitmapWindow.get());
+		auto words = reinterpret_cast<DiskU32 *>(bitmapWindow.get());
 		for(unsigned int i = 0; i < (inodesPerGroup + 31) / 32; i++) {
 			if(words[i] == 0xFFFFFFFF)
 				continue;
@@ -1867,7 +1871,7 @@ async::result<std::vector<BlockRange>> FileSystem::lookupBlocksUsingExtent(Inode
 
 			assert(index >= extent.block);
 			if(!(index < extent.block + extent.len)) {
-				std::println(std::cout, "INDEX {}, EXTENT BLOCK {}, EXTENT LEN {}", index, extent.block, extent.len);
+				std::println(std::cout, "INDEX {}, EXTENT BLOCK {}, EXTENT LEN {}", index, uint32_t(extent.block), uint16_t(extent.len));
 			}
 			assert(index < extent.block + extent.len);
 
@@ -2257,7 +2261,7 @@ async::result<std::vector<BlockRange>> FileSystem::lookupBlocksOnDisk(Inode *ino
 	// Short lookups read the block pointers through readMemory() instead of pinning the
 	// indirect block into the metadata cache (pinning is more expensive than readMemory()).
 	constexpr size_t indirectBufferSize = 8;
-	std::array<uint32_t, indirectBufferSize> indirectBuffer;
+	std::array<DiskU32, indirectBufferSize> indirectBuffer;
 
 	size_t progress = 0;
 	while(progress < num_blocks) {
@@ -2267,7 +2271,7 @@ async::result<std::vector<BlockRange>> FileSystem::lookupBlocksOnDisk(Inode *ino
 		// Block pointers backing [index, index + count), or null if the range is a hole
 		// because no indirect block is allocated. The window keeps list alive.
 		MetadataCache::BlockWindow indirectWindow;
-		const uint32_t *list = nullptr;
+		const DiskU32 *list = nullptr;
 		size_t count;
 
 		assert(index < d_range);
@@ -2279,7 +2283,7 @@ async::result<std::vector<BlockRange>> FileSystem::lookupBlocksOnDisk(Inode *ino
 			count = std::min<size_t>(remaining, per_indirect - indirect_index);
 
 			auto disk_inode = inode->diskInode();
-			uint32_t indirect_block = 0;
+			DiskU32 indirect_block = 0;
 			if(disk_inode->data.blocks.doubleIndirect)
 				co_await readMetadata(disk_inode->data.blocks.doubleIndirect,
 						indirect_frame * 4, 4, &indirect_block);
@@ -2289,7 +2293,7 @@ async::result<std::vector<BlockRange>> FileSystem::lookupBlocksOnDisk(Inode *ino
 			} else if (remaining > indirectBufferSize) {
 				indirectWindow = co_await accessMetadata(indirect_block, false);
 
-				list = reinterpret_cast<const uint32_t *>(indirectWindow.get())
+				list = reinterpret_cast<const DiskU32 *>(indirectWindow.get())
 						+ indirect_index;
 			} else {
 				co_await readMetadata(indirect_block,
@@ -2309,7 +2313,7 @@ async::result<std::vector<BlockRange>> FileSystem::lookupBlocksOnDisk(Inode *ino
 			} else if (remaining > indirectBufferSize) {
 				indirectWindow = co_await accessMetadata(indirect_block, false);
 
-				list = reinterpret_cast<const uint32_t *>(indirectWindow.get())
+				list = reinterpret_cast<const DiskU32 *>(indirectWindow.get())
 						+ indirect_index;
 			} else {
 				co_await readMetadata(indirect_block,
@@ -2401,7 +2405,7 @@ async::result<void> FileSystem::assignDataBlocks(Inode *inode,
 
 			auto indirectWindow = co_await accessMetadata(
 					disk_inode->data.blocks.singleIndirect, true);
-			auto window = reinterpret_cast<uint32_t *>(indirectWindow.get());
+			auto window = reinterpret_cast<DiskU32 *>(indirectWindow.get());
 
 			if(needsReset)
 				memset(window, 0, blockSize);
@@ -2446,7 +2450,7 @@ async::result<void> FileSystem::assignDataBlocks(Inode *inode,
 
 			auto doubleIndirectWindow = co_await accessMetadata(
 					disk_inode->data.blocks.doubleIndirect, true);
-			auto double_window = reinterpret_cast<uint32_t *>(doubleIndirectWindow.get());
+			auto double_window = reinterpret_cast<DiskU32 *>(doubleIndirectWindow.get());
 
 			if(doubleNeedsReset)
 				memset(double_window, 0, blockSize);
@@ -2468,7 +2472,7 @@ async::result<void> FileSystem::assignDataBlocks(Inode *inode,
 
 				auto indirectWindow = co_await accessMetadata(
 						double_window[indirect_frame], true);
-				auto window = reinterpret_cast<uint32_t *>(indirectWindow.get());
+				auto window = reinterpret_cast<DiskU32 *>(indirectWindow.get());
 
 				if(needsReset)
 					memset(window, 0, blockSize);
@@ -2650,7 +2654,7 @@ async::result<void> FileSystem::freeDataBlocks(Inode *inode, uint64_t firstBlock
 		uint32_t partial = 0;
 		{
 			auto indirectWindow = co_await accessMetadata(indirectBlock, !drop);
-			auto window = reinterpret_cast<uint32_t *>(indirectWindow.get());
+			auto window = reinterpret_cast<DiskU32 *>(indirectWindow.get());
 
 			auto i = from >> shift;
 			// The entry that from points into keeps its block and only loses its tail.

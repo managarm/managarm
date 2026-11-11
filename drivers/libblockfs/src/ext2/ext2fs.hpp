@@ -1,6 +1,7 @@
 #pragma once
 
 #include <assert.h>
+#include <arch/endian.hpp>
 #include <expected>
 #include <functional>
 #include <string.h>
@@ -37,15 +38,19 @@ namespace ext2fs {
 using FlockManager = protocols::fs::FlockManager;
 using Flock = protocols::fs::Flock;
 
+using DiskU16 = arch::endian_scalar<uint16_t, arch::endian::little>;
+using DiskU32 = arch::endian_scalar<uint32_t, arch::endian::little>;
+using DiskU64 = arch::endian_scalar<uint64_t, arch::endian::little>;
+
 struct ExtentIndex;
 struct Extent;
 
 struct ExtentHeader {
-	uint16_t magic;
-	uint16_t entries;
-	uint16_t max;
-	uint16_t depth;
-	uint32_t generation;
+	DiskU16 magic;
+	DiskU16 entries;
+	DiskU16 max;
+	DiskU16 depth;
+	DiskU32 generation;
 
 	// The entries follow the header; a node holds indices unless its depth is zero.
 	Extent *extents();
@@ -58,10 +63,10 @@ enum {
 };
 
 struct ExtentIndex {
-	uint32_t block;
-	uint32_t leafLow;
-	uint16_t leafHigh;
-	uint16_t unused;
+	DiskU32 block;
+	DiskU32 leafLow;
+	DiskU16 leafHigh;
+	DiskU16 unused;
 
 	uint64_t leaf() const {
 		return static_cast<uint64_t>(leafLow) | (static_cast<uint64_t>(leafHigh) << 32);
@@ -70,10 +75,10 @@ struct ExtentIndex {
 static_assert(sizeof(ExtentIndex) == 12, "Bad ExtentIndex struct size");
 
 struct Extent {
-	uint32_t block;
-	uint16_t len;
-	uint16_t startHigh;
-	uint32_t startLow;
+	DiskU32 block;
+	DiskU16 len;
+	DiskU16 startHigh;
+	DiskU32 startLow;
 
 	uint64_t start() const {
 		return static_cast<uint64_t>(startLow) | (static_cast<uint64_t>(startHigh) << 32);
@@ -91,10 +96,10 @@ inline ExtentIndex *ExtentHeader::indices() {
 
 union FileData {
 	struct Blocks {
-		uint32_t direct[12];
-		uint32_t singleIndirect;
-		uint32_t doubleIndirect;
-		uint32_t tripleIndirect;
+		DiskU32 direct[12];
+		DiskU32 singleIndirect;
+		DiskU32 doubleIndirect;
+		DiskU32 tripleIndirect;
 	};
 
 	struct Extents {
@@ -109,108 +114,108 @@ union FileData {
 static_assert(sizeof(FileData) == 60, "Bad FileData struct size");
 
 struct DiskSuperblock {
-	uint32_t inodesCount;
-	uint32_t blocksCount;
-	uint32_t rBlocksCount;
-	uint32_t freeBlocksCount;
-	uint32_t freeInodesCount;
-	uint32_t firstDataBlock;
-	uint32_t logBlockSize;
-	uint32_t logFragSize;
-	uint32_t blocksPerGroup;
-	uint32_t fragsPerGroup;
-	uint32_t inodesPerGroup;
-	uint32_t mtime;
-	uint32_t wtime;
-	uint16_t mntCount;
-	uint16_t maxMntCount;
-	uint16_t magic;
-	uint16_t state;
-	uint16_t errors;
-	uint16_t minorRevLevel;
-	uint32_t lastcheck;
-	uint32_t checkinterval;
-	uint32_t creatorOs;
-	uint32_t revLevel;
-	uint16_t defResuid;
-	uint16_t defResgid;
+	DiskU32 inodesCount;
+	DiskU32 blocksCount;
+	DiskU32 rBlocksCount;
+	DiskU32 freeBlocksCount;
+	DiskU32 freeInodesCount;
+	DiskU32 firstDataBlock;
+	DiskU32 logBlockSize;
+	DiskU32 logFragSize;
+	DiskU32 blocksPerGroup;
+	DiskU32 fragsPerGroup;
+	DiskU32 inodesPerGroup;
+	DiskU32 mtime;
+	DiskU32 wtime;
+	DiskU16 mntCount;
+	DiskU16 maxMntCount;
+	DiskU16 magic;
+	DiskU16 state;
+	DiskU16 errors;
+	DiskU16 minorRevLevel;
+	DiskU32 lastcheck;
+	DiskU32 checkinterval;
+	DiskU32 creatorOs;
+	DiskU32 revLevel;
+	DiskU16 defResuid;
+	DiskU16 defResgid;
 	//-- EXT2_DYNAMIC_REV Specific --
-	uint32_t firstIno;
-	uint16_t inodeSize;
-	uint16_t blockGroupNr;
-	uint32_t featureCompat;
-	uint32_t featureIncompat;
-	uint32_t featureRoCompat;
+	DiskU32 firstIno;
+	DiskU16 inodeSize;
+	DiskU16 blockGroupNr;
+	DiskU32 featureCompat;
+	DiskU32 featureIncompat;
+	DiskU32 featureRoCompat;
 	uint8_t uuid[16];
 	uint8_t volumeName[16];
 	uint8_t lastMounted[64];
-	uint32_t algoBitmap;
+	DiskU32 algoBitmap;
 	//-- Performance Hints --
 	uint8_t preallocBlocks;
 	uint8_t preallocDirBlocks;
 	union {
-		uint16_t alignment;
-		uint16_t reservedGdtBlocks;
+		DiskU16 alignment;
+		DiskU16 reservedGdtBlocks;
 	};
 	//-- Journaling Support --
 	uint8_t journalUuid[16];
-	uint32_t journalInum;
-	uint32_t journalDev;
-	uint32_t lastOrphan;
+	DiskU32 journalInum;
+	DiskU32 journalDev;
+	DiskU32 lastOrphan;
 	//-- Directory Indexing Support --
-	uint32_t hashSeed[4];
+	DiskU32 hashSeed[4];
 	uint8_t defHashVersion;
 	uint8_t jnlBackupType;
 	// Valid only with EXT4_INCOMPAT_64BIT
-	uint16_t groupDescSize;
+	DiskU16 groupDescSize;
 	//-- Other options --
-	uint32_t defaultMountOptions;
-	uint32_t firstMetaBg;
+	DiskU32 defaultMountOptions;
+	DiskU32 firstMetaBg;
 
-	uint32_t mkfsTime;
-	uint32_t jnlBlocks[17];
+	DiskU32 mkfsTime;
+	DiskU32 jnlBlocks[17];
 	//-- Valid only with EXT4_INCOMPAT_64BIT --
-	uint32_t blocksCountHigh;
-	uint32_t rBlocksCountHigh;
-	uint32_t freeBlocksCountHigh;
-	uint16_t minExtraIsize;
-	uint16_t wantExtraIsize;
-	uint32_t flags;
-	uint16_t s_raid_stride;
-	uint16_t mmpInterval;
-	uint64_t mmpBlock;
-	uint32_t raidStripeWidth;
+	DiskU32 blocksCountHigh;
+	DiskU32 rBlocksCountHigh;
+	DiskU32 freeBlocksCountHigh;
+	DiskU16 minExtraIsize;
+	DiskU16 wantExtraIsize;
+	DiskU32 flags;
+	DiskU16 s_raid_stride;
+	DiskU16 mmpInterval;
+	DiskU64 mmpBlock;
+	DiskU32 raidStripeWidth;
 	uint8_t logGroupsPerFlex;
 	uint8_t checksumType;
 	uint8_t encryptionLevel;
 	uint8_t alignment1;
-	uint64_t kbytesWritten;
-	uint32_t snapshotInum;
-	uint32_t snapshotId;
-	uint64_t snapshotRBlocksCount;
-	uint32_t snapshotList;
-	uint32_t errorCount;
-	uint32_t firstErrorTime;
-	uint32_t firstErrorIno;
-	uint64_t firstErrorBlock;
+	DiskU64 kbytesWritten;
+	DiskU32 snapshotInum;
+	DiskU32 snapshotId;
+	DiskU64 snapshotRBlocksCount;
+	DiskU32 snapshotList;
+	DiskU32 errorCount;
+	DiskU32 firstErrorTime;
+	DiskU32 firstErrorIno;
+	DiskU64 firstErrorBlock;
 	uint8_t firstErrorFunc[32];
-	uint32_t firstErrorLine;
-	uint32_t lastErrorTime;
-	uint32_t lastErrorIno;
-	uint32_t lastErrorLine;
-	uint64_t lastErrorBlock;
+	DiskU32 firstErrorLine;
+	DiskU32 lastErrorTime;
+	DiskU32 lastErrorIno;
+	DiskU32 lastErrorLine;
+	DiskU64 lastErrorBlock;
 	uint8_t lastErrorFunc[32];
 	uint8_t mountOpts[64];
-	uint32_t usrQuotaInum;
-	uint32_t grpQuotaInum;
-	uint32_t overheadBlocks;
+	DiskU32 usrQuotaInum;
+	DiskU32 grpQuotaInum;
+	DiskU32 overheadBlocks;
 	// Valid only with EXT4_COMPAT_SPARSE_SUPER2
-	uint32_t backupBgs[2];
+	DiskU32 backupBgs[2];
 	uint8_t encryptAlgos[4];
 	uint8_t encryptPwSalt[16];
-	uint32_t lpfIno;
-	uint32_t prjQuotaInum;
-	uint32_t checksumSeed;
+	DiskU32 lpfIno;
+	DiskU32 prjQuotaInum;
+	DiskU32 checksumSeed;
 	uint8_t wtimeHigh;
 	uint8_t mtimeHigh;
 	uint8_t mkfsTimeHigh;
@@ -219,11 +224,11 @@ struct DiskSuperblock {
 	uint8_t lastErrorTimeHigh;
 	uint8_t firstErrorErrcode;
 	uint8_t lastErrorErrcode;
-	uint16_t encoding;
-	uint16_t encodingFlags;
-	uint32_t orphanFileInum;
-	uint32_t unused[94];
-	uint32_t checksum;
+	DiskU16 encoding;
+	DiskU16 encodingFlags;
+	DiskU32 orphanFileInum;
+	DiskU32 unused[94];
+	DiskU32 checksum;
 };
 static_assert(sizeof(DiskSuperblock) == 1024, "Bad DiskSuperblock struct size");
 
@@ -244,72 +249,72 @@ enum {
 };
 
 struct DiskGroupDesc {
-	uint32_t blockBitmap;
-	uint32_t inodeBitmap;
-	uint32_t inodeTable;
-	uint16_t freeBlocksCount;
-	uint16_t freeInodesCount;
-	uint16_t usedDirsCount;
-	uint16_t flags;
-	uint32_t excludeBitmapLow;
-	uint16_t blockBitmapCsumLow;
-	uint16_t inodeBitmapCsumLow;
-	uint16_t itableUnusedLow;
-	uint16_t checksum;
+	DiskU32 blockBitmap;
+	DiskU32 inodeBitmap;
+	DiskU32 inodeTable;
+	DiskU16 freeBlocksCount;
+	DiskU16 freeInodesCount;
+	DiskU16 usedDirsCount;
+	DiskU16 flags;
+	DiskU32 excludeBitmapLow;
+	DiskU16 blockBitmapCsumLow;
+	DiskU16 inodeBitmapCsumLow;
+	DiskU16 itableUnusedLow;
+	DiskU16 checksum;
 	//-- Valid only with EXT4_INCOMPAT_64BIT and desc size > 32 --
-	uint32_t blockBitmapHigh;
-	uint32_t inodeBitmapHigh;
-	uint32_t inodeTableHigh;
-	uint16_t freeBlocksCountHigh;
-	uint16_t freeInodesCountHigh;
-	uint16_t usedDirsCountHigh;
-	uint16_t itableUnusedHigh;
-	uint32_t excludeBitmapHigh;
-	uint16_t blockBitmapCsumHigh;
-	uint16_t inodeBitmapCsumHigh;
-	uint32_t unused;
+	DiskU32 blockBitmapHigh;
+	DiskU32 inodeBitmapHigh;
+	DiskU32 inodeTableHigh;
+	DiskU16 freeBlocksCountHigh;
+	DiskU16 freeInodesCountHigh;
+	DiskU16 usedDirsCountHigh;
+	DiskU16 itableUnusedHigh;
+	DiskU32 excludeBitmapHigh;
+	DiskU16 blockBitmapCsumHigh;
+	DiskU16 inodeBitmapCsumHigh;
+	DiskU32 unused;
 };
 static_assert(sizeof(DiskGroupDesc) == 64, "Bad DiskGroupDesc struct size");
 
 struct DiskInode {
-	uint16_t mode;
-	uint16_t uid;
-	uint32_t size;
-	uint32_t atime;
-	uint32_t ctime;
-	uint32_t mtime;
-	uint32_t dtime;
-	uint16_t gid;
-	uint16_t linksCount;
-	uint32_t blocks;
-	uint32_t flags;
-	uint32_t osdl;
+	DiskU16 mode;
+	DiskU16 uid;
+	DiskU32 size;
+	DiskU32 atime;
+	DiskU32 ctime;
+	DiskU32 mtime;
+	DiskU32 dtime;
+	DiskU16 gid;
+	DiskU16 linksCount;
+	DiskU32 blocks;
+	DiskU32 flags;
+	DiskU32 osdl;
 	FileData data;
-	uint32_t generation;
-	uint32_t fileAcl;
-	uint32_t dirAcl;
-	uint32_t faddr;
+	DiskU32 generation;
+	DiskU32 fileAcl;
+	DiskU32 dirAcl;
+	DiskU32 faddr;
 	union {
 		uint8_t data[12];
 
 		struct {
-			uint16_t blocksHigh;
-			uint16_t fileAclHigh;
-			uint16_t uidHigh;
-			uint16_t gidHigh;
-			uint16_t checksumLow;
-			uint16_t reserved;
+			DiskU16 blocksHigh;
+			DiskU16 fileAclHigh;
+			DiskU16 uidHigh;
+			DiskU16 gidHigh;
+			DiskU16 checksumLow;
+			DiskU16 reserved;
 		};
 	} osd2;
-	uint16_t extraSize;
-	uint16_t checksumHigh;
-	uint32_t ctimeExtra;
-	uint32_t mtimeExtra;
-	uint32_t atimeExtra;
-	uint32_t crtime;
-	uint32_t crtimeExtra;
-	uint32_t versionHigh;
-	uint32_t projid;
+	DiskU16 extraSize;
+	DiskU16 checksumHigh;
+	DiskU32 ctimeExtra;
+	DiskU32 mtimeExtra;
+	DiskU32 atimeExtra;
+	DiskU32 crtime;
+	DiskU32 crtimeExtra;
+	DiskU32 versionHigh;
+	DiskU32 projid;
 };
 static_assert(sizeof(DiskInode) == 160, "Bad DiskInode struct size");
 
@@ -331,8 +336,8 @@ enum {
 };
 
 struct DiskDirEntry {
-	uint32_t inode;
-	uint16_t recordLength;
+	DiskU32 inode;
+	DiskU16 recordLength;
 	uint8_t nameLength;
 	uint8_t fileType;
 	char name[];
