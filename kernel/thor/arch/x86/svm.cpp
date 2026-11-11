@@ -295,7 +295,7 @@ namespace thor::svm {
 
 		#define GET_SEGMENT(segment) \
 			regs->segment.base = vmcb->segment.base; \
-			regs->egment.limit = vmcb->segment.limit; \
+			regs->segment.limit = vmcb->segment.limit; \
 			regs->segment.selector = vmcb->segment.selector; \
 			regs->segment.type = vmcb->segment.attrib & 0xF; \
 			regs->segment.s = (vmcb->segment.attrib >> 4) & 1; \
@@ -306,15 +306,15 @@ namespace thor::svm {
 			regs->segment.db = (vmcb->segment.attrib >> 10) & 1; \
 			regs->segment.g = (vmcb->segment.attrib >> 11) & 1
 
-		SET_SEGMENT(cs);
-		SET_SEGMENT(ds);
-		SET_SEGMENT(ss);
-		SET_SEGMENT(es);
-		SET_SEGMENT(fs);
-		SET_SEGMENT(gs);
+		GET_SEGMENT(cs);
+		GET_SEGMENT(ds);
+		GET_SEGMENT(ss);
+		GET_SEGMENT(es);
+		GET_SEGMENT(fs);
+		GET_SEGMENT(gs);
 
-		SET_SEGMENT(ldt);
-		SET_SEGMENT(tr);
+		GET_SEGMENT(ldt);
+		GET_SEGMENT(tr);
 	}
 
 	bool Vcpu::assertInterrupt(uint64_t number, bool level) {
