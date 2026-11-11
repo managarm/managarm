@@ -188,7 +188,7 @@ namespace thor::svm {
 				break;
 			}
 
-			case static_cast<uint32_t>(~0): // Invalid VMCB
+			case ~UINT64_C(0): // Invalid VMCB
 				reason.exitReason = kHelVmexitError;
 				return reason;
 			}
