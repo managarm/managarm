@@ -8,6 +8,12 @@
 
 extern "C" void svmVmRun(thor::svm::GprState *gprs, PhysicalAddr vmcb);
 
+namespace {
+
+constexpr uint64_t EFER_SVME = 1 << 12;
+
+} // namespace
+
 namespace thor::svm {
 	bool init() {
 		if(!getGlobalCpuFeatures()->haveSvm)
@@ -15,7 +21,8 @@ namespace thor::svm {
 
 		infoLogger() << "svm: Enabling SVM" << frg::endlog;
 
-		common::x86::wrmsr(0xC0000080, common::x86::rdmsr(0xC0000080) | (1 << 12)); // Enable IA32_EFER.SVME
+		auto efer = common::x86::rdmsr(common::x86::kMsrEfer);
+		common::x86::wrmsr(common::x86::kMsrEfer, efer | EFER_SVME);
 
 		auto hsaveRegion = physicalAllocator->allocateInfallible(PhysicalKind::pinned);
 		common::x86::wrmsr(0xC0010117, hsaveRegion);
@@ -90,12 +97,11 @@ namespace thor::svm {
 		vmcb->iceptMsr = 1;
 		vmcb->msrpmBasePa = msrpm_bitmap;
 
-
-		vmcb->efer = (1 << 12); // SVM bit is required to be set in SVM guest mode
+		// VMRUN requires the guest's EFER.SVME to be set, see storeRegs() and loadRegs().
+		vmcb->efer = EFER_SVME;
 		vmcb->cr0 = (1 << 4) | (1 << 29) | (1 << 30); // cr0 state at CPU reset
 		vmcb->dr6 = 0xFFFF0FF0; // State at reset
 		vmcb->dr7 = 0x400; // State at reset
-
 
 		auto simd_state_size = Executor::determineSimdSize(); 
 
@@ -222,7 +228,8 @@ namespace thor::svm {
 		vmcb->cr3 = regs->cr3;
 		vmcb->cr4 = regs->cr4;
 
-		vmcb->efer = regs->efer;
+		// VMRUN fails if EFER.SVME is clear.
+		vmcb->efer = regs->efer | EFER_SVME;
 
 		vmcb->gdt.base = regs->gdt.base;
 		vmcb->gdt.limit = regs->gdt.limit;
@@ -277,7 +284,8 @@ namespace thor::svm {
 		regs->cr3 = vmcb->cr3;
 		regs->cr4 = vmcb->cr4;
 
-		regs->efer = vmcb->efer;
+		// Hide EFER.SVME from the guest since it was not set by it.
+		regs->efer = vmcb->efer & ~EFER_SVME;
 
 		regs->gdt.base = vmcb->gdt.base;
 		regs->gdt.limit = vmcb->gdt.limit;
