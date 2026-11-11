@@ -681,6 +681,12 @@ HandleRequest::operator()(managarm::posix::RenameAtRequest &&req,
 		}
 	}
 
+	// Mount points and the root resolve to root links, which have no parent to rename them in.
+	if(!resolver.currentLink()->getParent()) {
+		co_await sendErrorResponse<managarm::posix::RenameAtResponse>(conversation, managarm::posix::Errors::RESOURCE_IN_USE);
+		co_return {};
+	}
+
 	if (req.newfd() == AT_FDCWD) {
 		relative_to = self->fsContext()->getWorkingDirectory();
 	} else {
