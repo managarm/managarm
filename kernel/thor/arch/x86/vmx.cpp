@@ -11,6 +11,8 @@
 #include <thor-internal/arch/pic.hpp>
 #include <x86/machine.hpp>
 
+using namespace thor::x86_virt;
+
 namespace {
 	inline int vmptrld(PhysicalAddr vmcs) {
 		uint8_t ret;
@@ -107,43 +109,12 @@ namespace {
 	constexpr uint64_t CR4_OSXSAVE = UINT64_C(1) << 18;
 	constexpr uint64_t EFER_LME = UINT64_C(1) << 8;
 	constexpr uint64_t EFER_LMA = UINT64_C(1) << 10;
-	constexpr uint64_t XCR0_X87 = UINT64_C(1) << 0;
-	constexpr uint64_t XCR0_SSE = UINT64_C(1) << 1;
-	constexpr uint64_t XCR0_AVX = UINT64_C(1) << 2;
-	constexpr uint64_t XCR0_AVX512 = UINT64_C(7) << 5; // Opmask, ZMM_Hi256 and Hi16_ZMM.
 	constexpr uint32_t MSR_CSTAR = 0xC0000083;
-
-	constexpr uint8_t UD_VECTOR = 6;
-	constexpr uint8_t GP_VECTOR = 13;
 
 	// CR4 bits whose writes exit: the bits that VMX forces to 1 and OSXSAVE
 	// which tells us whether XCR0 needs to be switched.
 	uint64_t cr4Mask() {
 		return cr4Forced() | CR4_OSXSAVE;
-	}
-
-	bool isCanonical(uint64_t address) {
-		return static_cast<uint64_t>(static_cast<int64_t>(address << 16) >> 16) == address;
-	}
-
-	// XSETBV raises #GP for all other values.
-	bool isValidXcr0(uint64_t value) {
-		auto features = thor::getGlobalCpuFeatures();
-		uint64_t supported = features->haveXsave ? features->xcr0Mask : XCR0_X87;
-		if(value & ~supported)
-			return false;
-		// x87 is always enabled.
-		if(!(value & XCR0_X87))
-			return false;
-		// AVX requires SSE.
-		if((value & XCR0_AVX) && !(value & XCR0_SSE))
-			return false;
-		// The AVX-512 components can only be enabled together and they require AVX.
-		if(value & XCR0_AVX512) {
-			if((value & XCR0_AVX512) != XCR0_AVX512 || !(value & XCR0_AVX))
-				return false;
-		}
-		return true;
 	}
 
 	// The host values of the MSRs that are used by SYSCALL; read once by vmxon().
@@ -190,11 +161,6 @@ namespace {
 		vmwrite(thor::vmx::HOST_GDTR_BASE, (size_t)gdtr.pointer);
 		vmwrite(thor::vmx::HOST_IDTR_BASE, (size_t)idtr.pointer);
 	}
-
-	// Types of events that we inject (VM-entry interruption information).
-	constexpr uint8_t kEventExternalInterrupt = 0;
-	constexpr uint8_t kEventHardwareException = 3;
-	constexpr uint8_t kEventSoftwareInterrupt = 4;
 
 	// Translates the qualification of an EPT violation to kHelVmFault* flags.
 	size_t translateEptFaultFlags(uint64_t qualification) {
@@ -494,125 +460,22 @@ namespace thor::vmx {
 		}
 	}
 
-	void Vmcs::waitForGuestInterrupt(frg::optional<uint64_t> deadline, bool interruptsEnabled) {
-		// notify() raises wakeEvent_ after changing the state that cond checks;
-		// the condition is checked under the event's lock, so we cannot miss a wakeup.
-		auto cond = [&] {
-			if(kickPending())
-				return false;
-			if(deadline && getClockNanos() >= *deadline)
-				return false;
-			return !(interruptsEnabled && lapic_.deliverableVector() >= 0);
-		};
-		auto wq = getCurrentThread()->mainWorkQueue().get();
-		// The loop in run() reevaluates the state after waking up; the outcome does not matter.
-		if(!deadline) {
-			(void)Thread::asyncBlockCurrentInterruptible(
-				[&](async::cancellation_token ct) {
-					return wakeEvent_.async_wait_if(cond, ct);
-				},
-				wq
-			);
-			return;
-		}
-
-		Thread::asyncBlockCurrentInterruptible([&](async::cancellation_token ct) {
-			return async::race_and_cancel(
-				[&](async::cancellation_token cancellation) {
-					return async::transform(wakeEvent_.async_wait_if(cond, cancellation),
-							[](auto) {});
-				},
-				[&](async::cancellation_token cancellation) {
-					return async::transform(generalTimerEngine()->sleep(*deadline, cancellation),
-							[](bool) {});
-				},
-				[ct](async::cancellation_token cancellation) {
-					return async::suspend_indefinitely(ct, cancellation);
-				}
-			);
-		}, wq);
-	}
-
-	bool Vmcs::assertInterrupt(uint64_t number, bool level) {
-		if(number > 0xFF || !lapic_.post(number, level))
-			return false;
-		notify();
-		return true;
-	}
-
-	bool Vmcs::emulateLapicMsr(uint32_t index, bool write, uint64_t now,
-			VirtualLapic::WriteEffects &effects) {
-		bool ok;
-		if(write) {
-			uint64_t value = (state.rdx << 32) | (state.rax & 0xFFFF'FFFF);
-			ok = lapic_.writeMsr(index, value, now, effects);
-		}else{
-			uint64_t value;
-			ok = lapic_.readMsr(index, now, value);
-			if(ok) {
-				state.rax = value & 0xFFFF'FFFF;
-				state.rdx = value >> 32;
-			}
-		}
-		if(!ok)
-			queueException(GP_VECTOR, true, 0);
-		return ok;
-	}
-
 	frg::expected<Error, HelVmexitReason> Vmcs::run(const HelVmexitCompletion *completion) {
 		HelVmexitReason exitInfo{};
-
-		// Exits that need a completion must get one, and no other exit may get one.
-		if(completionPending_ != (completion != nullptr))
-			return Error::illegalState;
-		if(completion && completion->status != kHelVmexitCompletionDone
-				&& completion->status != kHelVmexitCompletionFault)
-			return Error::illegalArgs;
 
 		// Apply the completion. The GPRs are not part of the VMCS. Skipping the instruction
 		// advances the cached RIP; the VMCS is updated before the next entry (even if run()
 		// returns before entering the guest).
-		if(completion) {
-			completionPending_ = false;
-			auto &pending = pendingCompletion_;
-			if(completion->status == kHelVmexitCompletionFault) {
-				queueException(GP_VECTOR, true, 0);
-			}else{
-				const uint64_t *data = completion->data;
-				switch(pending.exitReason) {
-				case kHelVmexitIo:
-					if(pending.ioIn && !pending.ioString) {
-						if(pending.ioSize == 4) {
-							// Like other 32-bit operations, IN EAX zero-extends RAX.
-							state.rax = data[0] & 0xFFFF'FFFF;
-						}else{
-							uint64_t mask = (UINT64_C(1) << (pending.ioSize * 8)) - 1;
-							state.rax = (state.rax & ~mask) | (data[0] & mask);
-						}
-					}
-					break;
-				case kHelVmexitCpuid:
-					state.rax = data[0] & 0xFFFF'FFFF;
-					state.rbx = data[1] & 0xFFFF'FFFF;
-					state.rcx = data[2] & 0xFFFF'FFFF;
-					state.rdx = data[3] & 0xFFFF'FFFF;
-					break;
-				case kHelVmexitRdmsr:
-					state.rax = data[0] & 0xFFFF'FFFF;
-					state.rdx = data[0] >> 32;
-					break;
-				case kHelVmexitHyperCall:
-					state.rax = data[0];
-					break;
-				default:
-					break;
-				}
-				loadBasicRegsCache();
-				cachedRip_ += pendingCompletion_.instructionLength;
-				if(regsCacheValid_)
-					regsCache_.rip = cachedRip_;
-				ripDirty_ = true;
-			}
+		bool skipCompleted;
+		if(auto error = applyCompletion(completion, state.rax, state.rbx, state.rcx, state.rdx,
+				skipCompleted); error)
+			return *error;
+		if(skipCompleted) {
+			loadBasicRegsCache();
+			cachedRip_ += pendingCompletion_.instructionLength;
+			if(regsCacheValid_)
+				regsCache_.rip = cachedRip_;
+			ripDirty_ = true;
 		}
 
 		// While we are in the kernel, KERNEL_GS_BASE holds the user GS base of this thread
@@ -880,7 +743,7 @@ namespace thor::vmx {
 					skipInstruction = emulateXsetbv();
 				else if(lapicMsr)
 					skipInstruction = emulateLapicMsr(state.rcx & 0xFFFF'FFFF, reason == VMEXIT_WRMSR,
-							getClockNanos(), lapicEffects);
+							getClockNanos(), lapicEffects, state.rax, state.rdx);
 
 				if(skipInstruction) {
 					vmwrite(GUEST_RIP, rip + instructionLength);
@@ -911,42 +774,17 @@ namespace thor::vmx {
 			}
 
 			if(needsCompletion) {
-				completionPending_ = true;
-				pendingCompletion_ = {};
-				pendingCompletion_.instructionLength = instructionLength;
 				if(msrExit) {
-					bool write = reason == VMEXIT_WRMSR;
-					pendingCompletion_.exitReason = write ? kHelVmexitWrmsr : kHelVmexitRdmsr;
-					exitInfo.address = state.rcx & 0xFFFF'FFFF;
-					if(write)
-						exitInfo.data = (state.rdx << 32) | (state.rax & 0xFFFF'FFFF);
-				}else if(reason == VMEXIT_CPUID) {
-					pendingCompletion_.exitReason = kHelVmexitCpuid;
-					exitInfo.address = state.rax & 0xFFFF'FFFF;
-					exitInfo.data = state.rcx & 0xFFFF'FFFF;
-				}else if(reason == VMEXIT_VMCALL) {
-					pendingCompletion_.exitReason = kHelVmexitHyperCall;
-				}else{
-					pendingCompletion_.exitReason = kHelVmexitIo;
-					auto size = (qualification & 7) + 1;
-					auto in = qualification & (1 << 3);
-					pendingCompletion_.ioSize = size;
-					pendingCompletion_.ioIn = in;
-					pendingCompletion_.ioString = stringIo;
-					exitInfo.address = qualification >> 16;
-					exitInfo.code = size;
-					exitInfo.flags = 0;
-					if(in)
-						exitInfo.flags |= kHelVmexitIoIn;
-					if(stringIo) {
-						exitInfo.flags |= kHelVmexitIoString;
-					}else if(!in) {
-						exitInfo.data = size == 4 ? (state.rax & 0xFFFF'FFFF)
-								: (state.rax & ((UINT64_C(1) << (size * 8)) - 1));
-					}
+					return requestMsrCompletion(reason == VMEXIT_WRMSR, state.rax, state.rcx,
+							state.rdx, instructionLength);
+				} else if(reason == VMEXIT_CPUID) {
+					return requestCpuidCompletion(state.rax, state.rcx, instructionLength);
+				} else if(reason == VMEXIT_VMCALL) {
+					return requestHyperCallCompletion(instructionLength);
+				} else {
+					return requestIoCompletion(qualification >> 16, (qualification & 7) + 1,
+							qualification & (1 << 3), stringIo, state.rax, instructionLength);
 				}
-				exitInfo.exitReason = pendingCompletion_.exitReason;
-				return exitInfo;
 			}
 
 			if(reason == VMEXIT_HLT) {
@@ -1350,16 +1188,6 @@ namespace thor::vmx {
 			return;
 		}
 		*gprSlot(state, index) = value;
-	}
-
-	void Vmcs::queueException(uint8_t vector, bool hasErrorCode, uint32_t errorCode) {
-		// Exceptions raised by emulated instructions are delivered on the next entry.
-		reinjectValid_ = true;
-		reinject_ = {};
-		reinject_.type = kEventHardwareException;
-		reinject_.vector = vector;
-		reinject_.hasErrorCode = hasErrorCode;
-		reinject_.errorCode = errorCode;
 	}
 
 	void Vmcs::clearInterruptShadow() {
