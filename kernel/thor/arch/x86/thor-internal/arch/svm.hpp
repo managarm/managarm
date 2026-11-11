@@ -196,6 +196,9 @@ namespace thor::svm {
 	};
 
 	enum {
+		kSvmExitIntr = 0x60,
+		kSvmExitNmi = 0x61,
+		kSvmExitSmi = 0x62,
 		kSvmExitHlt = 0x78,
 		kSvmExitNPTFault = 0x400,
 	};

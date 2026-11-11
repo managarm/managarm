@@ -167,6 +167,12 @@ namespace thor::svm {
 				reason.code = code;
 				return reason;
 
+			case kSvmExitIntr:
+			case kSvmExitNmi:
+			case kSvmExitSmi:
+				// The host handled the interrupt (or NMI, SMI) when we executed STGI.
+				break;
+
 			case kSvmExitHlt:
 				reason.exitReason = kHelVmexitHlt;
 				return reason;
