@@ -139,6 +139,9 @@ struct CpuData : public PlatformCpuData {
 	SingleContextRecordRing *localProfileRing = nullptr;
 };
 
+// Set once getCpuData() is usable on the BSP.
+extern bool cpuDataAvailable;
+
 inline CpuData *getCpuData() {
 	return static_cast<CpuData *>(getPlatformCpuData());
 }

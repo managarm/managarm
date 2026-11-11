@@ -237,6 +237,7 @@ void setupBootCpuContext() {
 
 	auto context = getCpuData(0);
 	writeToTp(context);
+	cpuDataAvailable = true;
 
 	context->hartId = riscvConfigNote->bspHartId;
 }

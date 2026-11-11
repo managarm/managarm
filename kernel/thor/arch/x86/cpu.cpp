@@ -601,7 +601,7 @@ void setupBootCpuContext() {
 
 	auto context = getCpuData(0);
 	setupCpuContext(context);
-
+	cpuDataAvailable = true;
 }
 
 static initgraph::Task initBootProcessorTask{&globalInitEngine, "x86.init-boot-processor",

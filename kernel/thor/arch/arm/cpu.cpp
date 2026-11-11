@@ -210,7 +210,7 @@ void setupBootCpuContext() {
 
 	auto context = getCpuData(0);
 	setupCpuContext(context);
-
+	cpuDataAvailable = true;
 }
 
 static initgraph::Task initBootProcessorTask{&globalInitEngine, "arm.init-boot-processor",

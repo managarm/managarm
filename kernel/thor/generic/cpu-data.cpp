@@ -9,6 +9,8 @@ namespace thor {
 
 THOR_DEFINE_ELF_NOTE(cpuConfigNote){elf_note_type::cpuConfig, {0}};
 
+bool cpuDataAvailable = false;
+
 ExecutorContext::ExecutorContext() { }
 
 CpuData::CpuData()
