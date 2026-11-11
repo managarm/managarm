@@ -33,10 +33,15 @@ bitflags::bitflags! {
 }
 
 /// A Hel memory mapping.
+///
+/// The mapping is unmapped when it is dropped; hence, the address space
+/// must outlive the mapping. Mappings into other spaces (e.g., virtualized
+/// spaces) can be located at address zero.
 pub struct Mapping<T> {
     space_handle: hel_sys::HelHandle,
-    mapping: Option<NonNull<T>>,
+    address: usize,
     length: usize,
+    _marker: core::marker::PhantomData<*mut T>,
 }
 
 unsafe impl<T> Send for Mapping<T> {}
@@ -68,12 +73,11 @@ impl<T> Mapping<T> {
             )
         })?;
 
-        assert!(!mapping.is_null());
-
         Ok(Self {
             space_handle: space.handle(),
-            mapping: Some(NonNull::new(mapping.cast()).unwrap()),
+            address: mapping as usize,
             length,
+            _marker: core::marker::PhantomData,
         })
     }
 
@@ -94,42 +98,40 @@ impl<T> Mapping<T> {
     /// Returns a reference to the mapped memory.
     /// This reference is valid until the mapping is dropped.
     pub fn as_ref(&self) -> Option<&T> {
-        self.mapping.map(|mapping| unsafe { mapping.as_ref() })
+        unsafe { self.as_ptr() }.map(|mapping| unsafe { mapping.as_ref() })
     }
 
     /// Returns a mutable reference to the mapped memory.
     /// This reference is valid until the mapping is dropped.
     pub fn as_mut(&mut self) -> Option<&mut T> {
-        self.mapping.map(|mut mapping| unsafe { mapping.as_mut() })
+        unsafe { self.as_ptr() }.map(|mut mapping| unsafe { mapping.as_mut() })
     }
 
     /// Returns a raw ointer to the mapped memory.
     /// This function is unsafe because the returned pointer
     /// is not subject to Rust's memory safety guarantees.
     /// The pointer is valid until the mapping is dropped.
+    /// Returns None if the mapping is located at address zero.
     pub unsafe fn as_ptr(&self) -> Option<NonNull<T>> {
-        self.mapping
+        NonNull::new(self.address as *mut T)
+    }
+
+    /// Returns the address of the mapping in its address space.
+    pub fn address(&self) -> usize {
+        self.address
     }
 
     /// Returns the length of the mapping.
     pub fn len(&self) -> usize {
         self.length
     }
-
-    /// Unmaps the memory mapping.
-    /// This will invalidate the pointer returned by `as_ptr()`.
-    pub fn unmap(&mut self) {
-        if let Some(mapping) = self.mapping.take() {
-            hel_check(unsafe {
-                hel_sys::helUnmapMemory(self.space_handle, mapping.as_ptr().cast(), self.length)
-            })
-            .expect("Failed to unmap memory");
-        }
-    }
 }
 
 impl<T> Drop for Mapping<T> {
     fn drop(&mut self) {
-        self.unmap();
+        hel_check(unsafe {
+            hel_sys::helUnmapMemory(self.space_handle, self.address as *mut c_void, self.length)
+        })
+        .expect("Failed to unmap memory");
     }
 }

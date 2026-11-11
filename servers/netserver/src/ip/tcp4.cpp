@@ -595,6 +595,9 @@ struct Tcp4Socket {
 
 	static async::result<void> setFileFlags(void *object, int flags) {
 		auto self = static_cast<Tcp4Socket *>(object);
+		// Like on Linux, F_SETFL ignores the access mode (F_GETFL reports it), such that
+		// fcntl(F_SETFL, fcntl(F_GETFL) | O_NONBLOCK) works.
+		flags &= ~O_ACCMODE;
 		std::cout << "posix: setFileFlags on tcp socket only supports O_NONBLOCK" << std::endl;
 		if(flags & ~O_NONBLOCK) {
 			std::cout << "posix: setFileFlags on tcp socket called with unknown flags" << std::endl;
