@@ -7,6 +7,8 @@
 #include <thor-internal/physical.hpp>
 #include <thor-internal/cpu-data.hpp>
 #include <thor-internal/thread.hpp>
+#include <thor-internal/timer.hpp>
+#include <thor-internal/arch/pic.hpp>
 #include <x86/machine.hpp>
 
 namespace {
@@ -190,6 +192,7 @@ namespace {
 	}
 
 	// Types of events that we inject (VM-entry interruption information).
+	constexpr uint8_t kEventExternalInterrupt = 0;
 	constexpr uint8_t kEventHardwareException = 3;
 	constexpr uint8_t kEventSoftwareInterrupt = 4;
 
@@ -321,19 +324,30 @@ namespace thor::vmx {
 
 		//Set up basic controls.
 		auto trueControls = haveTrueControls();
-		auto pinbasedControls = 1; // External interrupt exiting.
-		vmwrite(PIN_BASED_VM_EXEC_CONTROLS, adjustControls(
+		// External interrupt exiting and (if available) the VMX-preemption timer.
+		uint32_t pinControls = adjustControls(
 				trueControls ? IA32_VMX_TRUE_PINBASED_CTLS_MSR : MSR_IA32_VMX_PINBASED_CTLS,
-				pinbasedControls, pinbasedControls, "pin-based"));
+				1 | PIN_BASED_PREEMPTION_TIMER, 1, "pin-based");
+		vmwrite(PIN_BASED_VM_EXEC_CONTROLS, pinControls);
+		havePreemptionTimer_ = pinControls & PIN_BASED_PREEMPTION_TIMER;
+		if(havePreemptionTimer_) {
+			preemptionTimerShift_ = common::x86::rdmsr(IA32_VMX_MISC_MSR) & 0x1F;
+			vmwrite(GUEST_VMX_PREEMPTION_TIMER, UINT32_MAX);
+		}
 		// Without a TPR shadow, CR8 accesses would otherwise reach the host's TPR.
 		uint32_t procControls = VMEXIT_ON_HLT
 				| VMEXIT_ON_PIO
 				| SECONDARY_CONTROLS_ON
 				| CR8_LOAD_EXITING
 				| CR8_STORE_EXITING;
-		vmwrite(PROC_BASED_VM_EXEC_CONTROLS, adjustControls(
+		// Fail early if interrupt-window exiting is unsupported; it is only enabled on demand.
+		procControls_ = adjustControls(
 				trueControls ? IA32_VMX_TRUE_PROCBASED_CTLS_MSR : MSR_IA32_VMX_PROCBASED_CTLS,
-				procControls, procControls, "processor-based"));
+				procControls | INTERRUPT_WINDOW_EXITING,
+				procControls | INTERRUPT_WINDOW_EXITING, "processor-based")
+				& ~INTERRUPT_WINDOW_EXITING;
+		vmwrite(PROC_BASED_VM_EXEC_CONTROLS, procControls_);
+		currentProcControls_ = procControls_;
 		uint32_t secondaryControls = EPT_ENABLE | UNRESTRICTED_GUEST;
 		vmwrite(PROC_BASED_VM_EXEC_CONTROLS2, adjustControls(IA32_VMX_SEC_PROCBASED_CTLS_MSR,
 				secondaryControls, secondaryControls, "secondary processor-based"));
@@ -480,11 +494,69 @@ namespace thor::vmx {
 		}
 	}
 
+	void Vmcs::waitForGuestInterrupt(frg::optional<uint64_t> deadline, bool interruptsEnabled) {
+		// notify() raises wakeEvent_ after changing the state that cond checks;
+		// the condition is checked under the event's lock, so we cannot miss a wakeup.
+		auto cond = [&] {
+			if(kickPending())
+				return false;
+			if(deadline && getClockNanos() >= *deadline)
+				return false;
+			return !(interruptsEnabled && lapic_.deliverableVector() >= 0);
+		};
+		auto wq = getCurrentThread()->mainWorkQueue().get();
+		// The loop in run() reevaluates the state after waking up; the outcome does not matter.
+		if(!deadline) {
+			(void)Thread::asyncBlockCurrentInterruptible(
+				[&](async::cancellation_token ct) {
+					return wakeEvent_.async_wait_if(cond, ct);
+				},
+				wq
+			);
+			return;
+		}
+
+		Thread::asyncBlockCurrentInterruptible([&](async::cancellation_token ct) {
+			return async::race_and_cancel(
+				[&](async::cancellation_token cancellation) {
+					return async::transform(wakeEvent_.async_wait_if(cond, cancellation),
+							[](auto) {});
+				},
+				[&](async::cancellation_token cancellation) {
+					return async::transform(generalTimerEngine()->sleep(*deadline, cancellation),
+							[](bool) {});
+				},
+				[ct](async::cancellation_token cancellation) {
+					return async::suspend_indefinitely(ct, cancellation);
+				}
+			);
+		}, wq);
+	}
+
 	bool Vmcs::assertInterrupt(uint64_t number, bool level) {
-		// TODO: Implement using virtualized APIC.
-		(void)number;
-		(void)level;
-		return false;
+		if(number > 0xFF || !lapic_.post(number, level))
+			return false;
+		notify();
+		return true;
+	}
+
+	bool Vmcs::emulateLapicMsr(uint32_t index, bool write, uint64_t now,
+			VirtualLapic::WriteEffects &effects) {
+		bool ok;
+		if(write) {
+			uint64_t value = (state.rdx << 32) | (state.rax & 0xFFFF'FFFF);
+			ok = lapic_.writeMsr(index, value, now, effects);
+		}else{
+			uint64_t value;
+			ok = lapic_.readMsr(index, now, value);
+			if(ok) {
+				state.rax = value & 0xFFFF'FFFF;
+				state.rdx = value >> 32;
+			}
+		}
+		if(!ok)
+			queueException(GP_VECTOR, true, 0);
+		return ok;
 	}
 
 	frg::expected<Error, HelVmexitReason> Vmcs::run(const HelVmexitCompletion *completion) {
@@ -568,6 +640,27 @@ namespace thor::vmx {
 		while(1) {
 			if(getCurrentThread()->checkCancelConditions())
 				return Error::cancelled;
+
+			lapic_.checkTimer(getClockNanos());
+
+			// HLT ends once an interrupt can be delivered.
+			if(halted_) {
+				// HLT exits cache RFLAGS and helStoreRegisters() updates the cache.
+				bool interruptsEnabled = cachedRflags_ & (1 << 9);
+				if(interruptsEnabled && lapic_.deliverableVector() >= 0) {
+					halted_ = false;
+				}else{
+					if(consumeKick()) {
+						exitInfo.exitReason = kHelVmexitKicked;
+						return exitInfo;
+					}
+					auto deadline = lapic_.timerDeadline();
+					leaveResidency();
+					waitForGuestInterrupt(deadline, interruptsEnabled);
+					continue;
+				}
+			}
+
 			if(!resident_) {
 				migrationGuard.emplace();
 				resident_ = true;
@@ -580,7 +673,9 @@ namespace thor::vmx {
 			bool stringIo = false;
 			uint64_t eptAddress = 0;
 			bool msrExit = false;
+			bool lapicMsr = false;
 			bool needsCompletion = false;
+			VirtualLapic::WriteEffects lapicEffects;
 			uint64_t instructionLength = 0;
 
 			{
@@ -628,19 +723,68 @@ namespace thor::vmx {
 				regsCacheValid_ = false;
 				basicCacheValid_ = false;
 
-				// Inject an event whose delivery was interrupted or that an emulated instruction raised.
+				// Inject an event: an interrupted or queued event takes precedence over
+				// interrupts from the local APIC. External interrupts need to wait until the guest
+				// can accept them; we exit once an interrupt window opens.
+				bool wantWindow = false;
+				Event interrupt;
+				const Event *injected = nullptr;
+				int vector = lapic_.deliverableVector();
 				if(reinjectValid_) {
-					uint32_t info = reinject_.vector
-							| (static_cast<uint32_t>(reinject_.type) << 8)
+					injected = &reinject_;
+					wantWindow = vector >= 0;
+				}else if(vector >= 0) {
+					bool shadow = vmread(GUEST_INTERRUPTIBILITY_STATE) & 3;
+					bool interruptsEnabled = vmread(GUEST_RFLAG) & (1 << 9);
+					if(!interruptsEnabled || shadow) {
+						wantWindow = true;
+					}else{
+						lapic_.acknowledge(vector);
+						interrupt = {kEventExternalInterrupt, static_cast<uint8_t>(vector), false, 0, 0};
+						injected = &interrupt;
+					}
+				}
+				// Without an event, VM_ENTRY_INTR_INFO needs no write: VM exits clear its valid bit.
+				if(injected) {
+					uint32_t info = injected->vector
+							| (static_cast<uint32_t>(injected->type) << 8)
 							| (UINT32_C(1) << 31);
 					// Error codes are only delivered if guest's CR0.PE is set.
-					if(reinject_.hasErrorCode && (vmread(GUEST_CR0) & CR0_PE)) {
+					if(injected->hasErrorCode && (vmread(GUEST_CR0) & CR0_PE)) {
 						info |= 1 << 11;
-						vmwrite(VM_ENTRY_EXCEPTION_ERROR_CODE, reinject_.errorCode);
+						vmwrite(VM_ENTRY_EXCEPTION_ERROR_CODE, injected->errorCode);
 					}
-					if(reinject_.type >= kEventSoftwareInterrupt)
-						vmwrite(VM_ENTRY_INSTRUCTION_LEN, reinject_.instructionLength);
+					if(injected->type >= kEventSoftwareInterrupt)
+						vmwrite(VM_ENTRY_INSTRUCTION_LEN, injected->instructionLength);
 					vmwrite(VM_ENTRY_INTR_INFO, info);
+				}
+				uint32_t controls = procControls_ | (wantWindow ? INTERRUPT_WINDOW_EXITING : 0);
+				if(controls != currentProcControls_) {
+					vmwrite(PROC_BASED_VM_EXEC_CONTROLS, controls);
+					currentProcControls_ = controls;
+				}
+
+				// Exit when the local APIC timer expires: through the VMX-preemption timer or
+				// (if the CPU lacks it) through a timer interrupt of the host.
+				auto timerDeadline = lapic_.timerDeadline();
+				if(havePreemptionTimer_) {
+					// The CPU does not save the remaining time on exits; hence, we write it
+					// before each entry while the timer is armed.
+					uint32_t value = UINT32_MAX;
+					if(timerDeadline) {
+						uint64_t now = getClockNanos();
+						uint64_t ticks = nanosToTscTicks(*timerDeadline > now ? *timerDeadline - now : 0);
+						// Round up to avoid needless exits before the deadline.
+						uint64_t mask = (UINT64_C(1) << preemptionTimerShift_) - 1;
+						uint64_t units = (ticks >> preemptionTimerShift_) + ((ticks & mask) ? 1 : 0);
+						value = units > UINT32_MAX ? UINT32_MAX : units;
+					}
+					if(timerDeadline || value != preemptionTimerValue_) {
+						vmwrite(GUEST_VMX_PREEMPTION_TIMER, value);
+						preemptionTimerValue_ = value;
+					}
+				}else if(timerDeadline) {
+					setGuestDeadline(timerDeadline);
 				}
 
 				if(getGlobalCpuFeatures()->haveXsave){
@@ -677,6 +821,9 @@ namespace thor::vmx {
 				gdtr.limit = HOST_GDT_LIMIT;
 				asm volatile("lgdt %[gdt]": [gdt]"=m"(gdtr));
 
+				if(!havePreemptionTimer_ && timerDeadline)
+					setGuestDeadline(frg::null_opt);
+
 				error = entryFailed ? vmread(VM_INSTRUCTION_ERROR) : 0;
 				reason = entryFailed ? ~UINT64_C(0) : vmread(VM_EXIT_REASON);
 				if(reason == VMEXIT_EPT_VIOLATION || reason == VMEXIT_IO_INSTRUCTION
@@ -687,11 +834,12 @@ namespace thor::vmx {
 				if(reason == VMEXIT_EPT_VIOLATION)
 					eptAddress = vmread(EPT_VIOLATION_ADDRESS);
 				msrExit = reason == VMEXIT_RDMSR || reason == VMEXIT_WRMSR;
+				lapicMsr = msrExit && isVirtualLapicMsr(state.rcx & 0xFFFF'FFFF);
 				// Instructions that we emulate in the kernel (and skip unless they fault).
 				bool skipInstruction = reason == VMEXIT_HLT || reason == VMEXIT_CR_ACCESS
-						|| reason == VMEXIT_XSETBV;
+						|| reason == VMEXIT_XSETBV || lapicMsr;
 				// Instructions that userspace completes.
-				needsCompletion = msrExit || reason == VMEXIT_CPUID
+				needsCompletion = (msrExit && !lapicMsr) || reason == VMEXIT_CPUID
 						|| reason == VMEXIT_IO_INSTRUCTION || reason == VMEXIT_VMCALL;
 				if(skipInstruction || needsCompletion)
 					instructionLength = vmread(VM_EXIT_INSTRUCTION_LEN);
@@ -730,16 +878,19 @@ namespace thor::vmx {
 					skipInstruction = emulateCrAccess(qualification);
 				else if(reason == VMEXIT_XSETBV)
 					skipInstruction = emulateXsetbv();
+				else if(lapicMsr)
+					skipInstruction = emulateLapicMsr(state.rcx & 0xFFFF'FFFF, reason == VMEXIT_WRMSR,
+							getClockNanos(), lapicEffects);
 
 				if(skipInstruction) {
 					vmwrite(GUEST_RIP, rip + instructionLength);
 					clearInterruptShadow();
 				}
 
-				// We cache basic registers on halt exits because the VMM might want
-				// to inspect either the RIP or RFLAGS and that will save us an
-				// acquire_()/release_() round-trip in Vmcs::loadRegs().
-				bool cacheBasic = !entryFailed && (needsCompletion || reason == VMEXIT_HLT);
+				// Completions and EOI exits hand the basic registers to userspace, and run() needs
+				// RFLAGS after HLT; caching saves an acquire_()/release_() round-trip in loadRegs().
+				bool cacheBasic = !entryFailed && (needsCompletion || reason == VMEXIT_HLT
+						|| (lapicMsr && lapicEffects.levelEoi >= 0));
 				if(cacheBasic) {
 					if(!skipInstruction)
 						rip = vmread(GUEST_RIP);
@@ -799,8 +950,7 @@ namespace thor::vmx {
 			}
 
 			if(reason == VMEXIT_HLT) {
-				exitInfo.exitReason = kHelVmexitHlt;
-				return exitInfo;
+				halted_ = true;
 			} else if(reason == VMEXIT_EPT_VIOLATION) {
 				// Bit 0 of the qualification is set for reads, bit 1 for writes
 				// and bit 2 for instruction fetches.
@@ -821,13 +971,23 @@ namespace thor::vmx {
 					exitInfo.flags = translateEptFaultFlags(qualification);
 					return exitInfo;
 				}
-			} else if(reason == VMEXIT_EXTERNAL_INTERRUPT) {
-				// The interrupt was handled when we re-enabled interrupts.
+			} else if(reason == VMEXIT_EXTERNAL_INTERRUPT || reason == VMEXIT_INTERRUPT_WINDOW
+					|| reason == VMEXIT_PREEMPTION_TIMER) {
+				// The interrupt was handled when we re-enabled interrupts. Interrupt windows
+				// and the local APIC timer are handled before the next entry.
 			} else if(reason == VMEXIT_TRIPLE_FAULT) {
 				exitInfo.exitReason = kHelVmexitShutdown;
 				return exitInfo;
 			} else if(reason == VMEXIT_CR_ACCESS || reason == VMEXIT_XSETBV) {
 				// Emulated above.
+			} else if(lapicMsr) {
+				// Emulated above. The I/O APIC (in userspace) needs to know about EOIs of
+				// level-triggered interrupts.
+				if(lapicEffects.levelEoi >= 0) {
+					exitInfo.exitReason = kHelVmexitEoi;
+					exitInfo.code = lapicEffects.levelEoi;
+					return exitInfo;
+				}
 			} else {
 				infoLogger() << "vmx: Unknown VMExit code: " << reason << frg::endlog;
 				exitInfo.exitReason = kHelVmexitUnknownPlatformSpecificExitCode;
@@ -930,7 +1090,8 @@ namespace thor::vmx {
 			vmwrite(CR4_READ_SHADOW, regs->cr4);
 			guestOsxsave_ = regs->cr4 & CR4_OSXSAVE;
 		}
-		cr8_ = regs->cr8 & 0xF;
+		lapic_.setCr8(regs->cr8);
+		// regs->apic_base is ignored: the APIC base is fixed.
 
 		if(differs(regs->efer, regsCache_.efer)) {
 			// The CPU updates the IA-32e mode guest control on exits; always write it.
@@ -972,7 +1133,8 @@ namespace thor::vmx {
 		regs->cr2 = state.cr2;
 
 		if(regsCacheValid_) {
-			regs->cr8 = cr8_;
+			regs->cr8 = lapic_.cr8();
+			regs->apic_base = VirtualLapic::apicBase();
 			return;
 		}
 
@@ -1021,7 +1183,8 @@ namespace thor::vmx {
 		regs->cr0 = guestCr0Value();
 		regs->cr3 = vmread(GUEST_CR3);
 		regs->cr4 = (vmread(GUEST_CR4) & ~cr4Mask()) | (vmread(CR4_READ_SHADOW) & cr4Mask());
-		regs->cr8 = cr8_;
+		regs->cr8 = lapic_.cr8();
+		regs->apic_base = VirtualLapic::apicBase();
 
 		regs->efer = vmread(VMCS_FIELD_GUEST_EFER_FULL);
 		release_();
@@ -1247,7 +1410,7 @@ namespace thor::vmx {
 					queueException(GP_VECTOR, true, 0);
 					return false;
 				}
-				cr8_ = value;
+				lapic_.setCr8(value);
 				return true;
 			}
 		} else if(accessType == 1) { // MOV from CR.
@@ -1256,7 +1419,7 @@ namespace thor::vmx {
 				return true;
 			}
 			if(cr == 8) {
-				writeGpr(reg, cr8_);
+				writeGpr(reg, lapic_.cr8());
 				return true;
 			}
 		} else if(accessType == 2) { // CLTS.

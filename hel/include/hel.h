@@ -1258,6 +1258,7 @@ struct HelThreadStats {
 };
 
 enum {
+  // The guest executed HLT (x86 with SVM only; with VMX, the kernel handles HLT).
   kHelVmexitHlt = 0,
   // A guest-physical access to an unmapped address (e.g., MMIO).
   // address is the guest-physical address and flags is a combination of kHelVmFault*.
@@ -1285,6 +1286,9 @@ enum {
   kHelVmexitWrmsr = 8,
   // The guest caused a triple fault.
   kHelVmexitShutdown = 9,
+  // x86 with VMX: the guest EOI'd a level-triggered interrupt (e.g., for the remote IRR of an
+  // emulated I/O APIC); code is the vector.
+  kHelVmexitEoi = 10,
   // VM entry failed, code is the platform's entry failure reason.
   kHelVmexitError = -1,
   // Unknown VM exit reason, code is the platform's exit reason.
@@ -1843,6 +1847,20 @@ HEL_C_LINKAGE HelError helGetCurrentCpu(int *cpu);
 //!     Current value of the system-wide clock in nanoseconds since boot.
 HEL_C_LINKAGE HelError helGetClock(uint64_t *counter);
 
+// x86 vCPUs with VMX have an in-kernel x2APIC:
+// * ID 0,
+// * starts software-disabled,
+// * timer at 1 GHz before the divider,
+// * and the guest's TSC equals the host's.
+// The kernel handles its MSRs (0x800 - 0x8FF, IA32_APIC_BASE, IA32_TSC_DEADLINE),
+// CR8 and HLT without exiting.
+// SVM has no local APIC yet.
+
+//! Creates a virtualized CPU in a virtualized space.
+//! @param[in] handle
+//!     Handle to the virtualized space.
+//! @param[out] out_handle
+//!     Handle to the new vCPU.
 HEL_C_LINKAGE HelError helCreateVirtualizedCpu(HelHandle handle, HelHandle *out_handle);
 
 //! Runs a virtualized CPU until it exits to the VMM.
@@ -1850,6 +1868,7 @@ HEL_C_LINKAGE HelError helCreateVirtualizedCpu(HelHandle handle, HelHandle *out_
 //! Only one thread can use a virtualized CPU at a time. While it runs, or while its registers
 //! are being accessed, helRunVirtualizedCpu()/helLoadRegisters()/helStoreRegisters() on it will
 //! fail with kHelErrIllegalState.
+//! With VMX, a guest that halts with interrupts disabled only returns on a kick or cancellation.
 //! @param[in] handle
 //!     Handle to the virtualized CPU.
 //! @param[in] completion
@@ -1859,6 +1878,18 @@ HEL_C_LINKAGE HelError helCreateVirtualizedCpu(HelHandle handle, HelHandle *out_
 HEL_C_LINKAGE HelError helRunVirtualizedCpu(HelHandle handle,
 		const struct HelVmexitCompletion *completion, struct HelVmexitReason *reason);
 
+//! Raises an interrupt in a virtualized CPU.
+//!
+//! On x86, @p irq is a vector (16 - 255) delivered like a fixed-mode MSI and @p level selects
+//! level-triggered mode, whose EOI exits with kHelVmexitEoi. A software-disabled local APIC
+//! drops the interrupt. Not supported with SVM yet (kHelErrIllegalArgs).
+//! On RISC-V, @p irq is an interrupt number and @p level is the level of its line.
+//! @param[in] handle
+//!     Handle to the virtualized CPU.
+//! @param[in] irq
+//!     Interrupt to raise.
+//! @param[in] level
+//!     Trigger mode (x86) or line level (RISC-V).
 HEL_C_LINKAGE HelError helAssertVirtualizedIrq(HelHandle handle, uint64_t irq, uint8_t level);
 
 //! Makes helRunVirtualizedCpu() return with kHelVmexitKicked as soon as possible.

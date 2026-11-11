@@ -4,6 +4,7 @@
 
 #include <thor-internal/arch/ept.hpp>
 #include <thor-internal/arch/virtualization.hpp>
+#include <thor-internal/arch/vlapic.hpp>
 
 namespace thor::vmx {
 	constexpr uint64_t MSR_IA32_VMX_PINBASED_CTLS        = 0x00000481;
@@ -150,6 +151,7 @@ namespace thor::vmx {
 
 	constexpr uint64_t VMEXIT_EXTERNAL_INTERRUPT           = 1;
 	constexpr uint64_t VMEXIT_TRIPLE_FAULT                 = 2;
+	constexpr uint64_t VMEXIT_INTERRUPT_WINDOW             = 7;
 	constexpr uint64_t VMEXIT_CPUID                        = 10;
 	constexpr uint64_t VMEXIT_HLT                          = 12;
 	constexpr uint64_t VMEXIT_VMCALL                       = 18;
@@ -158,11 +160,16 @@ namespace thor::vmx {
 	constexpr uint64_t VMEXIT_RDMSR                        = 31;
 	constexpr uint64_t VMEXIT_WRMSR                        = 32;
 	constexpr uint64_t VMEXIT_EPT_VIOLATION                = 48;
+	constexpr uint64_t VMEXIT_PREEMPTION_TIMER             = 52;
 	constexpr uint64_t VMEXIT_XSETBV                       = 55;
+
+	constexpr uint64_t IA32_VMX_MISC_MSR              = 0x485;
+	constexpr uint64_t PIN_BASED_PREEMPTION_TIMER     = 1 << 6;
 
 	constexpr uint64_t VMEXIT_CONTROLS_LONG_MODE      = 1 << 9;
 	constexpr uint64_t VMEXIT_CONTROLS_SAVE_IA32_EFER = 1 << 20;
 	constexpr uint64_t VMEXIT_CONTROLS_LOAD_IA32_EFER = 1 << 21;
+	constexpr uint64_t INTERRUPT_WINDOW_EXITING       = 1 << 2;
 	constexpr uint64_t VMEXIT_ON_HLT                  = 1 << 7;
 	constexpr uint64_t CR8_LOAD_EXITING               = 1 << 19;
 	constexpr uint64_t CR8_STORE_EXITING              = 1 << 20;
@@ -270,6 +277,9 @@ namespace thor::vmx {
 		bool writeCr0(uint64_t value);
 		bool writeCr4(uint64_t value);
 		bool emulateXsetbv();
+		// Returns false if the access raises #GP.
+		bool emulateLapicMsr(uint32_t index, bool write, uint64_t now,
+				VirtualLapic::WriteEffects &effects);
 		// Enables the MSR areas if the guest uses any of the switched MSRs.
 		void updateMsrSwitching();
 
@@ -295,8 +305,10 @@ namespace thor::vmx {
 		bool guestOsxsave_ = false;
 		uint64_t guestXcr0_ = 1;
 
-		// CR8 accesses cause exits since we do not use a TPR shadow.
-		uint64_t cr8_ = 0;
+		// The processor-based controls (without interrupt-window exiting).
+		uint32_t procControls_ = 0;
+		// The value in the VMCS (to avoid needless VMWRITEs, which are slow when nested).
+		uint32_t currentProcControls_ = 0;
 
 		// The VMCS host state is written only when CPU or the FS base changes.
 		bool hostSelectorsWritten_ = false;
@@ -332,6 +344,16 @@ namespace thor::vmx {
 		bool reinjectValid_ = false;
 		Event reinject_{};
 
+		// Blocks until an interrupt can be delivered, the deadline passes, a kick is
+		// pending or the thread is cancelled. Spurious wakeups are possible.
+		void waitForGuestInterrupt(frg::optional<uint64_t> deadline, bool interruptsEnabled);
+
+		VirtualLapic lapic_;
+
+		// The guest executed HLT and waits for an interrupt.
+		// TODO: The VMM can neither read nor reset this state (e.g., to reset a halted vCPU).
+		bool halted_ = false;
+
 		// The exit that userspace needs to complete (see HelVmexitCompletion).
 		struct PendingCompletion {
 			uint32_t exitReason;
@@ -344,5 +366,10 @@ namespace thor::vmx {
 		};
 		bool completionPending_ = false;
 		PendingCompletion pendingCompletion_{};
+
+		bool havePreemptionTimer_ = false;
+		unsigned preemptionTimerShift_ = 0;
+		// The value in the VMCS (UINT32_MAX: effectively disarmed).
+		uint32_t preemptionTimerValue_ = UINT32_MAX;
 	};
 }
