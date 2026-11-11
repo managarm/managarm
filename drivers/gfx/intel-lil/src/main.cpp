@@ -66,7 +66,7 @@ std::set<std::string> supported_pci_devices{
 	"0166",
 	"3184",
 	"3185",
-	"3E9B",
+	"3e9b",
 	"5916",
 	"5917",
 };
