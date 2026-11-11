@@ -340,6 +340,11 @@ HandleRequest::operator()(managarm::posix::MkfifoAtRequest &&req,
 		co_return {};
 	}
 
+	if(!resolver.hasComponent()) {
+		co_await sendErrorResponse<managarm::posix::MkfifoAtResponse>(conversation, managarm::posix::Errors::ALREADY_EXISTS);
+		co_return {};
+	}
+
 	auto parentLink = resolver.currentLink();
 	auto parent = parentLink->getTarget();
 	// Report existing entries before calling into the file system, which may
@@ -448,6 +453,11 @@ HandleRequest::operator()(managarm::posix::LinkAtRequest &&req,
 		co_return {};
 	}
 
+	if(!new_resolver.hasComponent()) {
+		co_await sendErrorResponse<managarm::posix::LinkAtResponse>(conversation, managarm::posix::Errors::ALREADY_EXISTS);
+		co_return {};
+	}
+
 	auto target = resolver.currentLink()->getTarget();
 	auto directoryLink = new_resolver.currentLink();
 	auto directory = directoryLink->getTarget();
@@ -509,6 +519,11 @@ HandleRequest::operator()(managarm::posix::SymlinkAtRequest &&req,
 	if(!resolveResult) {
 		co_await sendErrorResponse<managarm::posix::SymlinkAtResponse>(conversation,
 				resolveResult.error() | toPosixError | toPosixProtoError);
+		co_return {};
+	}
+
+	if(!resolver.hasComponent()) {
+		co_await sendErrorResponse<managarm::posix::SymlinkAtResponse>(conversation, managarm::posix::Errors::ALREADY_EXISTS);
 		co_return {};
 	}
 
@@ -719,6 +734,12 @@ HandleRequest::operator()(managarm::posix::RenameAtRequest &&req,
 			std::cout << "posix: Unexpected failure from resolve()" << std::endl;
 			co_return {};
 		}
+	}
+
+	// A path that ends in "." leaves no name to rename to.
+	if(!new_resolver.hasComponent()) {
+		co_await sendErrorResponse<managarm::posix::RenameAtResponse>(conversation, managarm::posix::Errors::RESOURCE_IN_USE);
+		co_return {};
 	}
 
 	logRequest(logRequests || logPaths, self, "RENAMEAT", "'{}' -> '{}{}'",
@@ -1714,6 +1735,11 @@ HandleRequest::operator()(managarm::posix::MknodAtRequest &&req,
 	if(!resolveResult) {
 		co_await sendErrorResponse<managarm::posix::MknodAtResponse>(conversation,
 				resolveResult.error() | toPosixError | toPosixProtoError);
+		co_return {};
+	}
+
+	if(!resolver.hasComponent()) {
+		co_await sendErrorResponse<managarm::posix::MknodAtResponse>(conversation, managarm::posix::Errors::ALREADY_EXISTS);
 		co_return {};
 	}
 
