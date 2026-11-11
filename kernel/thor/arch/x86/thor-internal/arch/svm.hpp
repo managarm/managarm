@@ -196,10 +196,14 @@ namespace thor::svm {
 	};
 
 	enum {
+		// Exception intercepts are 0x40 plus the vector.
+		kSvmExitExceptionDb = 0x41,
+		kSvmExitExceptionAc = 0x51,
 		kSvmExitIntr = 0x60,
 		kSvmExitNmi = 0x61,
 		kSvmExitSmi = 0x62,
 		kSvmExitHlt = 0x78,
+		kSvmExitShutdown = 0x7F,
 		kSvmExitNPTFault = 0x400,
 	};
 

@@ -11,6 +11,11 @@ extern "C" void svmVmRun(thor::svm::GprState *gprs, PhysicalAddr vmcb);
 namespace {
 
 constexpr uint64_t EFER_SVME = 1 << 12;
+constexpr uint64_t CR0_PE = 1 << 0;
+
+constexpr uint8_t DB_VECTOR = 1;
+constexpr uint8_t AC_VECTOR = 17;
+constexpr uint8_t MC_VECTOR = 18;
 
 } // namespace
 
@@ -38,10 +43,10 @@ namespace thor::svm {
 
 		memset((void *)vmcb, 0, kPageSize);
 
-		// Bitmap of exceptions that should be intercepted
-		vmcb->iceptExceptions = (1 << 1) | (1 << 6) | (1 << 14) | (1 << 17) | (1 << 18);
-		
-		vmcb->iceptCrWrites = (1 << 8);
+		// The guest can make a CPU deliver #DB/#AC in an endless loop that blocks host interrupts,
+		// intercepting them breaks that loop (CVE-2015-8104, CVE-2015-5307).
+		// TODO: Handle machine checks in the host.
+		vmcb->iceptExceptions = (1 << DB_VECTOR) | (1 << AC_VECTOR) | (1 << MC_VECTOR);
 
 		vmcb->iceptVmrun = 1;
 		vmcb->iceptVmmcall = 1;
@@ -62,7 +67,8 @@ namespace thor::svm {
 		vmcb->iceptXsetbv = 1;
 		vmcb->iceptRdpru = 1;
 		vmcb->iceptRsm = 1;
-		vmcb->iceptRdtsc = 1;
+		// Catch triple faults of the guest so they don't shut down the physical CPU.
+		vmcb->iceptShutdown = 1;
 
 		vmcb->iceptEferWrite = 1;
 		vmcb->vIntMasking = 1;
@@ -131,6 +137,17 @@ namespace thor::svm {
 			if(getCurrentThread()->checkCancelConditions())
 				return Error::cancelled;
 
+			if(reinjectValid_) {
+				uint64_t inject = reinject_.vector
+						| (static_cast<uint64_t>(reinject_.type) << 8)
+						| (UINT64_C(1) << 31);
+				// Error codes are only delivered if guest's CR0.PE is set.
+				if(reinject_.hasErrorCode && (vmcb->cr0 & CR0_PE))
+					inject |= (UINT64_C(1) << 11) | (static_cast<uint64_t>(reinject_.errorCode) << 32);
+				vmcb->eventInject = inject;
+				reinjectValid_ = false;
+			}
+
 			asm("clgi");
 
 			auto pat = common::x86::rdmsr(common::x86::kMsrPAT);
@@ -175,6 +192,20 @@ namespace thor::svm {
 
 			case kSvmExitHlt:
 				reason.exitReason = kHelVmexitHlt;
+				return reason;
+
+			case kSvmExitExceptionDb:
+				// The CPU already updated DR6 in the VMCB.
+				queueException(DB_VECTOR, false, 0);
+				break;
+
+			case kSvmExitExceptionAc:
+				queueException(AC_VECTOR, true, vmcb->exitinfo1);
+				break;
+
+			case kSvmExitShutdown:
+				// The VMCB is undefined after a shutdown, the VMM needs to reset the vCPU.
+				reason.exitReason = kHelVmexitShutdown;
 				return reason;
 
 			case kSvmExitNPTFault: {
