@@ -863,6 +863,11 @@ HandleRequest::operator()(managarm::posix::RmdirRequest &&req,
 	target_link = resolver.currentLink();
 
 	auto [parent, name] = target_link->getParentAndName();
+	// Mount points resolve to the root link of the mounted file system, which has no parent.
+	if(!parent) {
+		co_await sendErrorResponse<managarm::posix::RmdirResponse>(conversation, managarm::posix::Errors::RESOURCE_IN_USE);
+		co_return {};
+	}
 	auto result = co_await parent->getTarget()->rmdir(std::move(name));
 	if(!result) {
 		co_await sendErrorResponse<managarm::posix::RmdirResponse>(conversation, result.error() | toPosixProtoError);
