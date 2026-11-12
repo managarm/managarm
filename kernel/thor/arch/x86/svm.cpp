@@ -252,7 +252,6 @@ namespace thor::svm {
 					setGuestDeadline(timerDeadline);
 
 				svmVmRun(&gprState, vmcb_region, host_additional_save_region);
-				space->leaveGuest();
 				leaveGuest();
 
 				if(timerDeadline)
@@ -270,6 +269,7 @@ namespace thor::svm {
 				}
 
 				asm volatile("stgi" : : : "memory");
+				space->leaveGuest();
 			}
 
 			// Guest writes to CR8 change V_TPR without exiting.
