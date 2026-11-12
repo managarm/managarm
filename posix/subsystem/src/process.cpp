@@ -772,6 +772,16 @@ void CompileSignalInfo::operator() (const SegfaultSignal &info) const {
 	}
 }
 
+void CompileSignalInfo::operator()(const SynchronousFaultSignal &info) const {
+	si->si_addr = reinterpret_cast<void *>(info.offendingAddress);
+	si->si_code = info.code;
+}
+
+void CompileSignalFdInfo::operator()(const SynchronousFaultSignal &info) const {
+	si->ssi_addr = info.offendingAddress;
+	si->ssi_code = info.code;
+}
+
 void CompileSignalFdInfo::operator() (const SegfaultSignal &info) const {
 	si->ssi_addr = info.offendingAddress;
 	if (info.accessError)

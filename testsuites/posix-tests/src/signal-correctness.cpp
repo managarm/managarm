@@ -3,6 +3,7 @@
 #include <cerrno>
 #include <cstdint>
 #include <initializer_list>
+#include <setjmp.h>
 #include <signal.h>
 #include <sys/mman.h>
 #include <sys/wait.h>
@@ -103,3 +104,63 @@ DEFINE_TEST(
 	    });
     })
 )
+
+DEFINE_TEST(illegal_instruction_signal_information, ([] {
+	            checkSignalInChild([] {
+		            static sigjmp_buf env;
+		            static volatile sig_atomic_t code = 0;
+		            static volatile uintptr_t address = 0;
+		            struct sigaction action{};
+		            action.sa_flags = SA_SIGINFO;
+		            action.sa_sigaction = [](int signo, siginfo_t *info, void *) {
+			            assert(signo == SIGILL);
+			            code = info->si_code;
+			            address = reinterpret_cast<uintptr_t>(info->si_addr);
+			            siglongjmp(env, 1);
+		            };
+		            assert(!sigemptyset(&action.sa_mask));
+		            assert(!sigaction(SIGILL, &action, nullptr));
+		            if (!sigsetjmp(env, 1)) {
+#if defined(__x86_64__)
+			            asm volatile("ud2");
+#elif defined(__aarch64__)
+			            asm volatile(".inst 0");
+#else
+			            asm volatile(".word 0");
+#endif
+			            assert(!"illegal instruction returned");
+		            }
+		            assert(address != 0);
+		            assert(code == ILL_ILLOPC || code == ILL_ILLOPN);
+	            });
+            }))
+
+DEFINE_TEST(integer_divide_signal_information, ([] {
+#if defined(__x86_64__)
+	            checkSignalInChild([] {
+		            static sigjmp_buf env;
+		            static volatile sig_atomic_t code = 0;
+		            static volatile uintptr_t address = 0;
+		            struct sigaction action{};
+		            action.sa_flags = SA_SIGINFO;
+		            action.sa_sigaction = [](int signo, siginfo_t *info, void *) {
+			            assert(signo == SIGFPE);
+			            code = info->si_code;
+			            address = reinterpret_cast<uintptr_t>(info->si_addr);
+			            siglongjmp(env, 1);
+		            };
+		            assert(!sigemptyset(&action.sa_mask));
+		            assert(!sigaction(SIGFPE, &action, nullptr));
+		            if (!sigsetjmp(env, 1)) {
+			            asm volatile("xor %%edx, %%edx; divl %%ecx"
+			                         :
+			                         : "a"(1), "c"(0)
+			                         : "edx", "cc");
+			            assert(!"divide by zero returned");
+		            }
+		            assert(address != 0 && code == FPE_INTDIV);
+	            });
+#else
+	            skip_test("test needs an x86 integer divide fault");
+#endif
+            }))
