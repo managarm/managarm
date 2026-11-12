@@ -242,14 +242,24 @@ namespace thor::svm {
 				if(switchXcr0)
 					common::x86::wrxcr(0, guestXcr0_);
 
+				// SVM has no preemption timer: a timer interrupt of the host makes the guest exit
+				// when its local APIC timer expires.
+				auto timerDeadline = lapic_.timerDeadline();
+				if(timerDeadline)
+					setGuestDeadline(timerDeadline);
+
 				svmVmRun(&gprState, vmcb_region);
 				leaveGuest();
 
+				// GS holds the guest's base until this VMLOAD; nothing above may access per-CPU data.
+				asm volatile("vmload %%rax" : : "a"(host_additional_save_region) : "memory");
+				common::x86::wrmsr(common::x86::kMsrPAT, pat);
+
+				if(timerDeadline)
+					setGuestDeadline(frg::null_opt);
+
 				if(switchXcr0)
 					common::x86::wrxcr(0, hostXcr0);
-
-				common::x86::wrmsr(common::x86::kMsrPAT, pat);
-				asm volatile("vmload %%rax" : : "a"(host_additional_save_region) : "memory");
 
 				if(getGlobalCpuFeatures()->haveXsave){
 					common::x86::xsave((uint8_t *)guest_fpu_state, ~0);
