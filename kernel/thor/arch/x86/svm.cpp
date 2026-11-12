@@ -157,6 +157,23 @@ namespace thor::svm {
 			if(getCurrentThread()->checkCancelConditions())
 				return Error::cancelled;
 
+			lapic_.checkTimer(getClockNanos());
+
+			// HLT ends once an interrupt can be delivered.
+			if(halted_) {
+				bool interruptsEnabled = vmcb->rflags & (1 << 9);
+				if(interruptsEnabled && lapic_.deliverableVector() >= 0) {
+					halted_ = false;
+				}else{
+					if(consumeKick()) {
+						reason.exitReason = kHelVmexitKicked;
+						return reason;
+					}
+					waitForGuestInterrupt(lapic_.timerDeadline(), interruptsEnabled);
+					continue;
+				}
+			}
+
 			vmcb->vTpr = lapic_.cr8();
 
 			asm volatile("clgi" : : : "memory");
@@ -267,8 +284,10 @@ namespace thor::svm {
 				break;
 
 			case kSvmExitHlt:
-				reason.exitReason = kHelVmexitHlt;
-				return reason;
+				vmcb->rip = vmcb->nextRip;
+				vmcb->irqShadow = 0;
+				halted_ = true;
+				break;
 
 			case kSvmExitCpuid:
 				return requestCpuidCompletion(vmcb->rax, gprState.rcx, vmcb->nextRip - vmcb->rip);
