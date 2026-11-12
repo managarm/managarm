@@ -3,7 +3,7 @@ use core::marker::PhantomData;
 use crate::bits::BitConvertible;
 use crate::domain::{Domain, IoMemDomain, MainMemDomain};
 use crate::register::Register;
-use crate::sealed;
+use crate::{Scalar, sealed};
 
 /// A type that a single memory transaction can carry.
 ///
@@ -11,7 +11,7 @@ use crate::sealed;
 /// them with the barriers of its domain, mirroring how libarch builds its `*_mem_ops` on top of
 /// `relaxed_mem_ops`. They are inline assembly and not volatile pointer accesses to guarantee
 /// that the compiler emits neither an unexpected instruction nor a torn access.
-pub trait MemAccess: sealed::Sealed {
+pub trait MemAccess: Scalar {
     /// # Safety
     ///
     /// `p` has to point to a naturally aligned `Self` that stays mapped for the access.
@@ -356,28 +356,66 @@ mod internal {
     }
 }
 
+/// Byte order of a device register, independent of the CPU's byte order.
+pub trait ByteOrder: sealed::Sealed + Copy {
+    fn convert<T: Scalar>(value: T) -> T;
+}
+
+#[derive(Clone, Copy)]
+pub enum NativeEndian {}
+#[derive(Clone, Copy)]
+pub enum LittleEndian {}
+#[derive(Clone, Copy)]
+pub enum BigEndian {}
+impl sealed::Sealed for NativeEndian {}
+impl sealed::Sealed for LittleEndian {}
+impl sealed::Sealed for BigEndian {}
+impl ByteOrder for NativeEndian {
+    fn convert<T: Scalar>(value: T) -> T {
+        value
+    }
+}
+impl ByteOrder for LittleEndian {
+    fn convert<T: Scalar>(value: T) -> T {
+        if cfg!(target_endian = "big") {
+            value.swap_bytes()
+        } else {
+            value
+        }
+    }
+}
+impl ByteOrder for BigEndian {
+    fn convert<T: Scalar>(value: T) -> T {
+        if cfg!(target_endian = "little") {
+            value.swap_bytes()
+        } else {
+            value
+        }
+    }
+}
+
 /// A window of memory-mapped registers, mirroring libarch's `arch::base_mem_space`.
 ///
 /// Accesses are ordered within the space's domain; `load_relaxed` and `store_relaxed` opt out of
 /// that ordering. Since the effect of an access depends on the register that is addressed, all
 /// accessors are unsafe; safe accessors for individual registers are built on top of them.
 #[derive(Clone, Copy)]
-pub struct BaseMemSpace<D: Domain> {
+pub struct BaseMemSpace<D: Domain, O: ByteOrder = NativeEndian> {
     base: *mut u8,
     len: usize,
-    _domain: PhantomData<fn() -> D>,
+    _domain: PhantomData<fn() -> (D, O)>,
 }
 
 // SAFETY: BaseMemSpace only stores a pointer to MMIO. Accesses are unsafe and it is up to the
 // caller to synchronize them.
-unsafe impl<D: Domain> Send for BaseMemSpace<D> {}
-unsafe impl<D: Domain> Sync for BaseMemSpace<D> {}
+unsafe impl<D: Domain, O: ByteOrder> Send for BaseMemSpace<D, O> {}
+unsafe impl<D: Domain, O: ByteOrder> Sync for BaseMemSpace<D, O> {}
 
-impl<D: Domain> BaseMemSpace<D> {
+impl<D: Domain, O: ByteOrder> BaseMemSpace<D, O> {
     /// # Safety
     ///
     /// `base` has to point to `len` bytes of memory that outlive this space.
-    pub unsafe fn new(base: *mut u8, len: usize) -> BaseMemSpace<D> {
+    pub unsafe fn new(base: *mut u8, len: usize) -> BaseMemSpace<D, O> {
         BaseMemSpace {
             base,
             len,
@@ -386,7 +424,7 @@ impl<D: Domain> BaseMemSpace<D> {
     }
 
     /// Returns the window that starts at `offset` bytes into this window.
-    pub fn subspace(&self, offset: usize) -> BaseMemSpace<D> {
+    pub fn subspace(&self, offset: usize) -> BaseMemSpace<D, O> {
         assert!(offset <= self.len);
 
         BaseMemSpace {
@@ -466,7 +504,7 @@ impl<D: Domain> BaseMemSpace<D> {
     pub unsafe fn scalar_load_relaxed<T: MemAccess>(&self, offset: usize) -> T {
         let p = self.pointer_to::<T>(offset);
 
-        unsafe { T::load_relaxed(p) }
+        O::convert(unsafe { T::load_relaxed(p) })
     }
 
     /// # Safety
@@ -475,7 +513,7 @@ impl<D: Domain> BaseMemSpace<D> {
     pub unsafe fn scalar_store_relaxed<T: MemAccess>(&self, offset: usize, value: T) {
         let p = self.pointer_to::<T>(offset);
 
-        unsafe { T::store_relaxed(p, value) };
+        unsafe { T::store_relaxed(p, O::convert(value)) };
     }
 
     /// Whether an access of `T` at `offset` is naturally aligned and stays within the window.
@@ -511,5 +549,116 @@ impl<D: Domain> BaseMemSpace<D> {
 /// A window of memory-mapped registers of a device.
 pub type IoMemSpace = BaseMemSpace<IoMemDomain>;
 
+/// A window of little-endian device registers, such as PCI configuration space.
+pub type LittleEndianIoMemSpace = BaseMemSpace<IoMemDomain, LittleEndian>;
+
+/// A window of big-endian device registers, such as sun4u host bridge registers.
+pub type BigEndianIoMemSpace = BaseMemSpace<IoMemDomain, BigEndian>;
+
 /// A window of main memory that is shared with a device.
 pub type MainMemSpace = BaseMemSpace<MainMemDomain>;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn device_byte_orders() {
+        let mut backing = [0u64; 2];
+        let base = backing.as_mut_ptr().cast::<u8>();
+        let native = unsafe { IoMemSpace::new(base, 16) };
+        let little = unsafe { LittleEndianIoMemSpace::new(base, 16) };
+        let big = unsafe { BigEndianIoMemSpace::new(base, 16) };
+        unsafe {
+            little.scalar_store::<u32>(0, 0x12345678);
+            assert_eq!(
+                core::slice::from_raw_parts(base, 4),
+                &[0x78, 0x56, 0x34, 0x12]
+            );
+            assert_eq!(little.scalar_load::<u32>(0), 0x12345678);
+            assert_eq!(big.scalar_load::<u32>(0), 0x78563412);
+            big.scalar_store::<u64>(8, 0x123456789abcdef0);
+            assert_eq!(
+                core::slice::from_raw_parts(base.add(8), 8),
+                &[0x12, 0x34, 0x56, 0x78, 0x9a, 0xbc, 0xde, 0xf0]
+            );
+            assert_eq!(big.subspace(8).scalar_load::<u64>(0), 0x123456789abcdef0);
+            native.scalar_store::<u16>(0, 0x1234);
+            assert_eq!(
+                core::slice::from_raw_parts(base, 2),
+                &0x1234u16.to_ne_bytes()
+            );
+            assert_eq!(little.access_ok::<u32>(1), false);
+        }
+    }
+
+    crate::scalar_register!(Data @ 0x00: u32);
+    crate::bit_register! {
+        Control @ 0x08: u32 {
+            ENABLE @ 0, 1: bool;
+            MODE @ 16, 8: u8;
+        }
+    }
+
+    #[test]
+    fn relaxed_access_widths() {
+        let mut backing = [0u64; 1];
+        let base = backing.as_mut_ptr().cast::<u8>();
+        let little = unsafe { LittleEndianIoMemSpace::new(base, 8) };
+        let big = unsafe { BigEndianIoMemSpace::new(base, 8) };
+        macro_rules! check {
+            ($ty:ty, $value:expr) => {
+                let value: $ty = $value;
+                unsafe {
+                    little.scalar_store_relaxed::<$ty>(0, value);
+                    assert_eq!(
+                        core::slice::from_raw_parts(base, size_of::<$ty>()),
+                        &value.to_le_bytes()
+                    );
+                    assert_eq!(little.scalar_load_relaxed::<$ty>(0), value);
+                    big.scalar_store_relaxed::<$ty>(0, value);
+                    assert_eq!(
+                        core::slice::from_raw_parts(base, size_of::<$ty>()),
+                        &value.to_be_bytes()
+                    );
+                    assert_eq!(big.scalar_load_relaxed::<$ty>(0), value);
+                }
+            };
+        }
+        check!(u8, 0x12);
+        check!(u16, 0x1234);
+        check!(u32, 0x12345678);
+        check!(u64, 0x123456789abcdef0);
+    }
+
+    #[test]
+    fn typed_registers() {
+        let mut backing = [0u64; 2];
+        let base = backing.as_mut_ptr().cast::<u8>();
+        let little = unsafe { LittleEndianIoMemSpace::new(base, 16) };
+        let big = unsafe { BigEndianIoMemSpace::new(base, 16) };
+        let control = crate::BitValue::<Control>::zero()
+            .with(Control::ENABLE, true)
+            .with(Control::MODE, 0x42);
+        unsafe {
+            little.store(Data, 0x12345678);
+            assert_eq!(little.load(Data), 0x12345678);
+            assert_eq!(big.load(Data), 0x78563412);
+            little.store(Control, control);
+            assert_eq!(
+                core::slice::from_raw_parts(base.add(8), 4),
+                &[1, 0, 0x42, 0]
+            );
+            assert!(little.load(Control).get(Control::ENABLE));
+            assert_eq!(little.load(Control).get(Control::MODE), 0x42);
+            big.store_relaxed(Control, control);
+            assert_eq!(
+                core::slice::from_raw_parts(base.add(8), 4),
+                &[0, 0x42, 0, 1]
+            );
+            assert!(big.load_relaxed(Control).get(Control::ENABLE));
+            assert_eq!(big.load_relaxed(Control).get(Control::MODE), 0x42);
+            assert_eq!(big.subspace(8).load(Data), control.raw());
+        }
+    }
+}
