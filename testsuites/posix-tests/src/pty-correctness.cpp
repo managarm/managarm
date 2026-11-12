@@ -111,4 +111,34 @@ DEFINE_TEST(pty_leave_canonical_mode, ([] {
 	            assert(write(pty.master, "\bC\n", 3) == 3);
 	            expectInput(pty.slave, "aC\n", 3);
             }))
+
+DEFINE_TEST(pty_signal_queue_flush, ([] {
+	            for (bool keep : {false, true}) {
+		            Pty pty;
+		            auto attrs = canonicalSettings(pty.slave);
+		            attrs.c_cc[VINTR] = 3;
+		            if (keep)
+			            attrs.c_lflag |= NOFLSH;
+		            assert(!tcsetattr(pty.slave, TCSANOW, &attrs));
+		            assert(write(pty.slave, "output", 6) == 6);
+		            assert(readable(pty.master));
+		            assert(write(pty.master, "queued\npartial", 14) == 14);
+		            assert(readable(pty.slave, 2000));
+		            assert(write(pty.master, "\3", 1) == 1);
+		            if (keep) {
+			            expectInput(pty.slave, "queued\n", 7);
+		            } else {
+			            assert(!readable(pty.slave));
+		            }
+		            if (keep)
+			            expectInput(pty.master, "output", 6);
+		            else
+			            assert(!readable(pty.master));
+		            assert(write(pty.master, "\n", 1) == 1);
+		            if (keep)
+			            expectInput(pty.slave, "partial\n", 8);
+		            else
+			            expectInput(pty.slave, "\n", 1);
+	            }
+            }))
 #endif
