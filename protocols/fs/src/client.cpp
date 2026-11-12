@@ -2,6 +2,7 @@
 #include <atomic>
 #include <bragi/helpers-std.hpp>
 #include <iostream>
+#include <initializer_list>
 
 #include "fs.bragi.hpp"
 #include "protocols/fs/client.hpp"
@@ -19,6 +20,15 @@ std::expected<void, Error> checkServerIpc(HelError error) {
 	if(error == kHelErrEndOfLane)
 		return std::unexpected{Error::ioError};
 	HEL_CHECK(error);
+	return {};
+}
+
+std::expected<void, Error> checkHelErrors(std::initializer_list<HelError> errors) {
+	for (auto error : errors) {
+		if (error == kHelErrDismissed)
+			return std::unexpected{Error::ioError};
+		FRG_TRY(checkServerIpc(error));
+	}
 	return {};
 }
 
@@ -145,9 +155,8 @@ File::readSome(void *data, size_t max_length, async::cancellation_token ct) {
 	uint8_t buffer[128];
 	managarm::fs::SvrResponse resp;
 	size_t actualLength = 0;
+	std::expected<void, Error> readStatus;
 
-	// Set if the server closed the lane (e.g., because the file was closed meanwhile).
-	bool lost = false;
 
 	co_await async::race_and_cancel(
 		async::lambda([&](auto) -> async::result<void> {
@@ -162,15 +171,18 @@ File::readSome(void *data, size_t max_length, async::cancellation_token ct) {
 					)
 				);
 
-			if(!checkServerIpc(offer.error()) || !checkServerIpc(send_req.error())
-					|| !checkServerIpc(imbue_creds.error()) || !checkServerIpc(recv_resp.error())
-					|| !checkServerIpc(recv_data.error())) {
-				lost = true;
+			readStatus = checkHelErrors({
+				offer.error(), send_req.error(), imbue_creds.error(),
+				recv_resp.error(), recv_data.error()
+			});
+			if (!readStatus)
 				co_return;
-			}
 
-			resp.ParseFromArray(buffer, recv_resp.actualLength());
-			actualLength = recv_data.actualLength();
+		    if (!resp.ParseFromArray(buffer, recv_resp.actualLength())) {
+			    resp.set_error(managarm::fs::Errors::INTERNAL_ERROR);
+			    co_return;
+		    }
+		    actualLength = recv_data.actualLength();
 		}),
 		async::lambda([&, ct, this](auto c) -> async::result<void> {
 			co_await async::suspend_indefinitely(c, ct);
@@ -190,22 +202,19 @@ File::readSome(void *data, size_t max_length, async::cancellation_token ct) {
 				)
 			);
 
-			// A server that closed the lane has no operation left to cancel.
-			if(!checkServerIpc(offer.error()) || !checkServerIpc(send_req.error()))
+			if (!checkHelErrors({offer.error(), send_req.error(), imbue_creds.error()}))
 				co_return;
 		})
 	);
 
-	if(lost)
-		co_return std::unexpected{Error::ioError};
+	FRG_CO_TRY(readStatus);
 
-	if (resp.error() == managarm::fs::Errors::INTERRUPTED)
-		co_return std::unexpected{Error::interrupted};
+	if (resp.error() != managarm::fs::Errors::SUCCESS)
+		co_return std::unexpected{resp.error() | toFsProtoError};
 
-	if (resp.error() == managarm::fs::Errors::END_OF_FILE || (max_length && actualLength == 0))
+	if (max_length && actualLength == 0)
 		co_return std::unexpected{Error::endOfFile};
 
-	assert(resp.error() == managarm::fs::Errors::SUCCESS);
 	co_return actualLength;
 }
 
