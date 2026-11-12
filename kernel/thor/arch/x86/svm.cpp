@@ -15,6 +15,7 @@ namespace {
 
 constexpr uint64_t EFER_SVME = 1 << 12;
 constexpr uint64_t CR0_PE = 1 << 0;
+constexpr uint64_t CR4_OSXSAVE = 1 << 18;
 
 constexpr uint8_t DB_VECTOR = 1;
 constexpr uint8_t AC_VECTOR = 17;
@@ -230,9 +231,19 @@ namespace thor::svm {
 				asm volatile ("fxsaveq %0" : : "m" (*host_fpu_state));
 				asm volatile ("fxrstorq %0" : : "m" (*guest_fpu_state));
 			}
+			// XCR0 is only observable by the guest if it set CR4.OSXSAVE.
+			// The FPU state is saved and restored using the (larger) host XCR0.
+			auto hostXcr0 = getGlobalCpuFeatures()->xcr0Mask;
+			auto switchXcr0 = getGlobalCpuFeatures()->haveXsave
+					&& (vmcb->cr4 & CR4_OSXSAVE) && guestXcr0_ != hostXcr0;
+			if(switchXcr0)
+				common::x86::wrxcr(0, guestXcr0_);
 
 			svmVmRun(&gprState, vmcb_region);
 			leaveGuest();
+
+			if(switchXcr0)
+				common::x86::wrxcr(0, hostXcr0);
 
 			common::x86::wrmsr(common::x86::kMsrPAT, pat);
 			asm volatile("vmload %%rax" : : "a"(host_additional_save_region) : "memory");
@@ -299,6 +310,23 @@ namespace thor::svm {
 				uint64_t info = vmcb->exitinfo1;
 				return requestIoCompletion(info >> 16, (info >> 4) & 7, info & (1 << 0),
 						info & (1 << 2), vmcb->rax, vmcb->nextRip - vmcb->rip);
+			}
+
+			case kSvmExitXsetbv: {
+				uint32_t index = gprState.rcx;
+				uint64_t value = (gprState.rdx << 32) | static_cast<uint32_t>(vmcb->rax);
+				if(!(vmcb->cr4 & CR4_OSXSAVE)) {
+					queueException(x86_virt::UD_VECTOR, false, 0);
+					break;
+				}
+				if(vmcb->cpl || index != 0 || !x86_virt::isValidXcr0(value)) {
+					queueException(x86_virt::GP_VECTOR, true, 0);
+					break;
+				}
+				guestXcr0_ = value;
+				vmcb->rip = vmcb->nextRip;
+				vmcb->irqShadow = 0;
+				break;
 			}
 
 			case kSvmExitMsr: {
