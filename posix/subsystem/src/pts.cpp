@@ -517,6 +517,12 @@ public:
 		co_return flags;
 	}
 
+	async::result<void> setFileFlags(int flags) override {
+		// Access mode bits returned by F_GETFL do not change through F_SETFL.
+		nonBlock_ = flags & O_NONBLOCK;
+		co_return;
+	}
+
 	helix::BorrowedDescriptor getPassthroughLane() override {
 		return _passthrough;
 	}

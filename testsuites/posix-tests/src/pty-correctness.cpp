@@ -79,3 +79,20 @@ DEFINE_TEST(pty_disabled_control_characters, ([] {
 	            assert(write(pty.master, input, sizeof(input)) == sizeof(input));
 	            expectInput(pty.slave, "x\n", 2);
             }))
+
+DEFINE_TEST(pty_slave_set_nonblocking, ([] {
+	            Pty pty;
+	            auto flags = fcntl(pty.slave, F_GETFL);
+	            assert(flags >= 0);
+	            assert(!fcntl(pty.slave, F_SETFL, flags | O_NONBLOCK));
+	            auto current = fcntl(pty.slave, F_GETFL);
+	            assert(current >= 0 && (current & O_NONBLOCK));
+	            assert((current & O_ACCMODE) == (flags & O_ACCMODE));
+	            char byte;
+	            errno = 0;
+	            assert(read(pty.slave, &byte, 1) == -1 && errno == EAGAIN);
+	            assert(!fcntl(pty.slave, F_SETFL, flags & ~O_NONBLOCK));
+	            assert(!(fcntl(pty.slave, F_GETFL) & O_NONBLOCK));
+	            assert(write(pty.master, "line\n", 5) == 5);
+	            expectInput(pty.slave, "line\n", 5);
+            }))
