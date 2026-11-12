@@ -383,8 +383,7 @@ async::result<frg::expected<ProtocolError>> GdbServer::handleRequest_() {
 			for(int j = 0; j < 4; ++j)
 				resp.appendString("xx");
 #else
-		std::cout << "posix, gdbserver: Register access is not implemented for this architecture"
-				<< std::endl;
+		resp.appendString("E01");
 #endif
 	}else if(req.matchString("m")) { // Read memory.
 		uint64_t address;
