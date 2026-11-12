@@ -1,4 +1,4 @@
-use arch::IoMemSpace;
+use arch::LittleEndianIoMemSpace;
 use managarm::svrctl::hardware_access_handle;
 use std::collections::BTreeMap;
 use std::sync::Mutex;
@@ -45,12 +45,14 @@ impl EcamPcieConfigIo {
     }
 
     // Mappings are never removed, hence the returned space stays valid after we drop the lock.
-    fn space_for_bus(&self, bus: u8) -> Result<IoMemSpace> {
+    fn space_for_bus(&self, bus: u8) -> Result<LittleEndianIoMemSpace> {
         const SIZE: usize = 1 << 20;
 
         let mut mappings = self.bus_mappings.lock().expect(EXPECT_LOCK);
         if let Some(mapping) = mappings.get(&bus) {
-            return Ok(unsafe { IoMemSpace::new(mapping.as_ptr().unwrap().as_ptr(), SIZE) });
+            return Ok(unsafe {
+                LittleEndianIoMemSpace::new(mapping.as_ptr().unwrap().as_ptr(), SIZE)
+            });
         }
 
         let offset = ((bus - self.bus_start) as u64) << 20;
@@ -81,7 +83,8 @@ impl EcamPcieConfigIo {
             source,
         })?;
 
-        let space = unsafe { IoMemSpace::new(mapping.as_ptr().unwrap().as_ptr(), SIZE) };
+        let space =
+            unsafe { LittleEndianIoMemSpace::new(mapping.as_ptr().unwrap().as_ptr(), SIZE) };
         mappings.insert(bus, mapping);
         Ok(space)
     }
