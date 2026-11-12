@@ -5,6 +5,7 @@
 #include <async/result.hpp>
 #include <arch/bit.hpp>
 #include <arch/variable.hpp>
+#include <helix/timer.hpp>
 #include <protocols/fs/server.hpp>
 #include <algorithm>
 #include <cstring>
@@ -21,6 +22,7 @@
 
 #include <bragi/helpers-std.hpp>
 #include <core/dispatch.hpp>
+#include <core/time.hpp>
 
 #include "checksum.hpp"
 #include "ip4.hpp"
@@ -50,6 +52,20 @@ struct PseudoHeader {
 };
 
 static_assert(sizeof(PseudoHeader) == 12);
+
+// SO_RCVTIMEO/SO_SNDTIMEO: like on Linux, a zero timeval means no timeout and a negative one
+// makes the calls time out at once.
+std::expected<std::optional<uint64_t>, protocols::fs::Error> parseTimeout(const std::vector<char> &optbuf) {
+	timeval tv;
+	if(optbuf.size() < sizeof(tv))
+		return std::unexpected{protocols::fs::Error::illegalArguments};
+	memcpy(&tv, optbuf.data(), sizeof(tv));
+	if(tv.tv_usec < 0 || tv.tv_usec >= 1'000'000)
+		return std::unexpected{protocols::fs::Error::illegalArguments};
+	if(!tv.tv_sec && !tv.tv_usec)
+		return std::nullopt;
+	return core::timevalToNanos(tv);
+}
 
 struct RingBuffer {
 	RingBuffer(int shift)
@@ -434,8 +450,13 @@ struct Tcp4Socket {
 			if(self->nonBlock_)
 				co_return protocols::fs::Error::wouldBlock;
 
+			auto deadline = helix::deadlineAfter(self->recvTimeoutNs_);
 			while(self->pendingConnections_.empty()) {
-				co_await self->pollEvent_.async_wait();
+				auto raised = co_await helix::withTimeout([&](async::cancellation_token ct) {
+					return self->pollEvent_.async_wait(ct);
+				}, deadline);
+				if(!raised)
+					co_return protocols::fs::Error::wouldBlock;
 			}
 		}
 
@@ -479,6 +500,7 @@ struct Tcp4Socket {
 			std::cout << "\e[31m" "netserver/tcp: Encountered unexpected recvMsg() flags: "
 					<< flags << "\e[39m" << std::endl;
 
+		auto deadline = helix::deadlineAfter(self->recvTimeoutNs_);
 		size_t progress = 0;
 		while(progress < size) {
 			size_t available = self->recvRing_.availableToDequeue();
@@ -487,7 +509,11 @@ struct Tcp4Socket {
 					break;
 				if(self->nonBlock_ || flags & MSG_DONTWAIT)
 					co_return protocols::fs::Error::wouldBlock;
-				co_await self->inEvent_.async_wait();
+				auto raised = co_await helix::withTimeout([&](async::cancellation_token ct) {
+					return self->inEvent_.async_wait(ct);
+				}, deadline);
+				if(!raised)
+					co_return protocols::fs::Error::wouldBlock;
 				continue;
 			}
 			size_t chunk = std::min(available, size - progress);
@@ -525,16 +551,21 @@ struct Tcp4Socket {
 		if(self->localClosed_)
 			co_return protocols::fs::Error::brokenPipe;
 
+		auto deadline = helix::deadlineAfter(self->sendTimeoutNs_);
 		size_t progress = 0;
 		while(progress < size) {
 			size_t space = self->sendRing_.spaceForEnqueue();
 			if(!space) {
-				if(self->nonBlock_) {
+				bool settled = false;
+				if(!self->nonBlock_)
+					settled = co_await helix::withTimeout([&](async::cancellation_token ct) {
+						return self->settleEvent_.async_wait(ct);
+					}, deadline);
+				if(!settled) {
 					if(progress)
 						break;
 					co_return protocols::fs::Error::wouldBlock;
 				}
-				co_await self->settleEvent_.async_wait();
 				continue;
 			}
 			size_t chunk = std::min(space, size - progress);
@@ -635,6 +666,15 @@ struct Tcp4Socket {
 				self->boundInterface_ = nic;
 				co_return {};
 			}
+		} else if(layer == SOL_SOCKET && (number == SO_RCVTIMEO || number == SO_SNDTIMEO)) {
+			auto timeout = parseTimeout(optbuf);
+			if(!timeout)
+				co_return timeout.error();
+			if(number == SO_RCVTIMEO)
+				self->recvTimeoutNs_ = *timeout;
+			else
+				self->sendTimeoutNs_ = *timeout;
+			co_return {};
 		}
 
 		std::cout << std::format("netserver: unhandled TCP socket setsockopt layer {} number {}\n",
@@ -795,6 +835,9 @@ private:
 	async::recurring_event pollEvent_;
 
 	std::shared_ptr<nic::Link> boundInterface_ = {};
+
+	std::optional<uint64_t> recvTimeoutNs_;
+	std::optional<uint64_t> sendTimeoutNs_;
 };
 
 std::optional<std::vector<char>> Tcp4Socket::buildSegment_() {

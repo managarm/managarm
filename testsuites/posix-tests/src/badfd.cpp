@@ -1,4 +1,5 @@
 #include <cassert>
+#include <fcntl.h>
 #include <sys/stat.h>
 #include <unistd.h>
 #include <errno.h>
@@ -39,6 +40,16 @@ DEFINE_TEST(stat_badfd, ([] {
 	struct stat st;
 
 	int ret = fstat(BOGUS_FD, &st);
+	assert(ret == -1);
+	assert(errno == EBADF);
+}))
+
+DEFINE_TEST(utimens_badfd, ([] {
+	int ret = futimens(BOGUS_FD, nullptr);
+	assert(ret == -1);
+	assert(errno == EBADF);
+
+	ret = utimensat(BOGUS_FD, "", nullptr, AT_EMPTY_PATH);
 	assert(ret == -1);
 	assert(errno == EBADF);
 }))

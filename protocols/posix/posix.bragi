@@ -610,8 +610,9 @@ head(128):
 	Errors error;
 	int64 pid;
 	int64 uid;
-	uint64 sig_status;
-	uint64 sig_code;
+	int32 signo;
+	int32 code;
+	int32 status;
 }
 
 message ReadlinkAtRequest 45 {

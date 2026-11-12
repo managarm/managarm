@@ -6,6 +6,7 @@
 #include <stdio.h>
 #include <string.h>
 #include <netinet/in.h>
+#include <arpa/inet.h>
 #include <sys/ioctl.h>
 #include <sys/socket.h>
 #include <sys/stat.h>
@@ -13,6 +14,7 @@
 #include <sys/wait.h>
 #include <sys/poll.h>
 #include <sys/un.h>
+#include <time.h>
 #include <unistd.h>
 
 #include "testsuite.hpp"
@@ -461,4 +463,101 @@ DEFINE_TEST(socket_stream_eof, ([] {
 
 	close(fds[0]);
 	close(fds[1]);
+}));
+
+namespace {
+
+double elapsedSince(const struct timespec &before) {
+	struct timespec now;
+	clock_gettime(CLOCK_MONOTONIC, &now);
+	return (now.tv_sec - before.tv_sec) + (now.tv_nsec - before.tv_nsec) / 1e9;
+}
+
+} // namespace
+
+DEFINE_TEST(socket_tcp_timeouts, ([] {
+	int listener = socket(AF_INET, SOCK_STREAM, 0);
+	assert(listener >= 0);
+
+	struct sockaddr_in addr;
+	memset(&addr, 0, sizeof(addr));
+	addr.sin_family = AF_INET;
+	addr.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+	int ret = bind(listener, (struct sockaddr *) &addr, sizeof(addr));
+	assert(!ret);
+	ret = listen(listener, 1);
+	assert(!ret);
+	socklen_t addrLen = sizeof(addr);
+	ret = getsockname(listener, (struct sockaddr *) &addr, &addrLen);
+	assert(!ret);
+
+	struct timeval timeout = {0, 500'000};
+	struct timespec before;
+
+	// SO_RCVTIMEO bounds accept().
+	ret = setsockopt(listener, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout));
+	assert(!ret);
+	clock_gettime(CLOCK_MONOTONIC, &before);
+	ret = accept(listener, nullptr, nullptr);
+	assert(ret == -1);
+	assert(errno == EAGAIN || errno == EWOULDBLOCK);
+	assert(elapsedSince(before) >= 0.5);
+
+	int client = socket(AF_INET, SOCK_STREAM, 0);
+	assert(client >= 0);
+	ret = connect(client, (struct sockaddr *) &addr, sizeof(addr));
+	assert(!ret);
+	int server = accept(listener, nullptr, nullptr);
+	assert(server >= 0);
+
+	// SO_RCVTIMEO bounds recv() without data.
+	ret = setsockopt(client, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout));
+	assert(!ret);
+	char buf[4096];
+	clock_gettime(CLOCK_MONOTONIC, &before);
+	ssize_t n = recv(client, buf, sizeof(buf), 0);
+	assert(n == -1);
+	assert(errno == EAGAIN || errno == EWOULDBLOCK);
+	assert(elapsedSince(before) >= 0.5);
+
+	// The socket still works after a timeout.
+	n = write(server, "a", 1);
+	assert(n == 1);
+	n = recv(client, buf, sizeof(buf), 0);
+	assert(n == 1);
+	assert(buf[0] == 'a');
+
+	// SO_SNDTIMEO bounds send() once the peer stops reading and all buffers are full.
+	ret = setsockopt(client, SOL_SOCKET, SO_SNDTIMEO, &timeout, sizeof(timeout));
+	assert(!ret);
+	memset(buf, 'b', sizeof(buf));
+	size_t total = 0;
+	while(true) {
+		n = send(client, buf, sizeof(buf), 0);
+		if(n < 0)
+			break;
+		total += n;
+		assert(total < (size_t(256) << 20));
+	}
+	assert(errno == EAGAIN || errno == EWOULDBLOCK);
+	assert(total > 0);
+
+	// Like on Linux, a negative timeout makes recv() time out at once.
+	timeout = {-1, 0};
+	ret = setsockopt(client, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout));
+	assert(!ret);
+	clock_gettime(CLOCK_MONOTONIC, &before);
+	n = recv(client, buf, sizeof(buf), 0);
+	assert(n == -1);
+	assert(errno == EAGAIN || errno == EWOULDBLOCK);
+	assert(elapsedSince(before) < 0.5);
+
+	// A zero timeout disables it again.
+	timeout = {0, 0};
+	ret = setsockopt(client, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout));
+	assert(!ret);
+
+	close(server);
+	close(client);
+	close(listener);
 }));
