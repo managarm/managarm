@@ -145,6 +145,7 @@ private:
 	Process *_process;
 
 	std::deque<std::string> _components;
+	bool _relative;
 	bool _trailingSlash;
 	ViewPath _currentPath;
 };

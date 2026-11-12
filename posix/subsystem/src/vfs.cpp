@@ -248,6 +248,7 @@ void PathResolver::setup(ViewPath root, ViewPath workdir, std::string string, Pr
 
 	auto path = Path::decompose(std::move(string));
 	_components = std::deque<std::string>(path.begin(), path.end());
+	_relative = path.isRelative();
 	_trailingSlash = path.trailingSlash();
 	if(path.isRelative()) {
 		_currentPath = std::move(workdir);
@@ -270,6 +271,15 @@ async::result<frg::expected<protocols::fs::Error, void>> PathResolver::resolve(R
 			std::cout << *it;
 		}
 		std::cout << "'" << std::endl;
+	}
+
+	// Relative paths may start at the file of a dirfd, which need not be a directory
+	// (or even have a mount and a link, like anonymous files do).
+	if(_relative && (!_currentPath.first || !_currentPath.second
+			|| _currentPath.second->getTarget()->getType() != VfsType::directory)) {
+		if(_components.empty())
+			co_return protocols::fs::Error::fileNotFound;
+		co_return protocols::fs::Error::notDirectory;
 	}
 
 	while(true) {

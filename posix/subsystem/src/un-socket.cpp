@@ -804,6 +804,8 @@ public:
 			assert(resolveResult);
 			if(!resolver.currentLink())
 				co_return protocols::fs::Error::fileNotFound;
+			if(!resolver.hasComponent())
+				co_return protocols::fs::Error::addressInUse;
 
 			auto parentLink = resolver.currentLink();
 			auto nodeResult = co_await parentLink->getTarget()->mksocket(parentLink.get(),
