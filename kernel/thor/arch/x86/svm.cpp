@@ -356,6 +356,29 @@ namespace thor::svm {
 				break;
 			}
 
+			case kSvmExitVmrun:
+			case kSvmExitVmload:
+			case kSvmExitVmsave:
+			case kSvmExitStgi:
+			case kSvmExitClgi:
+			case kSvmExitSkinit:
+				// For the guest, EFER.SVME is clear.
+			case kSvmExitRsm:
+			case kSvmExitRdpru:
+				queueException(x86_virt::UD_VECTOR, false, 0);
+				break;
+
+			case kSvmExitRdpmc:
+				// We do not virtualize performance counters.
+				queueException(x86_virt::GP_VECTOR, true, 0);
+				break;
+
+			case kSvmExitInvd:
+				// INVD would discard dirty cache lines of the host.
+				vmcb->rip = vmcb->nextRip;
+				vmcb->irqShadow = 0;
+				break;
+
 			case kSvmExitExceptionDb:
 				// The CPU already updated DR6 in the VMCB.
 				queueException(DB_VECTOR, false, 0);
