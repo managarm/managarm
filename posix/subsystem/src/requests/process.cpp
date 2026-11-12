@@ -76,7 +76,7 @@ HandleRequest::operator()(managarm::posix::WaitIdRequest &&req,
 			resp.set_sig_code(CLD_EXITED);
 		}else if(auto bySignal = std::get_if<TerminationBySignal>(&proc_state.state); bySignal) {
 			resp.set_sig_status(W_EXITCODE(0, bySignal->signo));
-			resp.set_sig_code(self->threadGroup()->getDumpable() ? CLD_DUMPED : CLD_KILLED);
+			resp.set_sig_code(CLD_KILLED);
 		}else{
 			resp.set_sig_status(0);
 			resp.set_sig_code(0);
