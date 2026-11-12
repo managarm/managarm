@@ -525,21 +525,29 @@ static initgraph::Task enumerateCpuFeaturesTask{&globalInitEngine, "x86.enumerat
 		bool svmSupported = [] () -> bool {
 			auto leaf = common::x86::cpuid(common::x86::kCpuIndexExtendedFeatures);
 			if(!(leaf[2] & (1 << 2)))
-				return false; // Unsupported
-			auto vm_cr = common::x86::rdmsr(common::x86::kMsrIndexVmCr);
+				return false; // SVM not supported
 
-			if(vm_cr & (1 << 4)) {
-				if(leaf[3] & (1 << 2)) {
-					debugLogger() << "thor: SVM Locked with Key" << frg::endlog;
-					return false;
-				} else {
-					debugLogger() << "thor: SVM Disabled in BIOS" << frg::endlog;
-					return false;
-				}
+			auto svmFeatures = common::x86::cpuid(common::x86::kCpuIndexSvmFeatures)[3];
+			auto vmCr = common::x86::rdmsr(common::x86::kMsrIndexVmCr);
+			if(vmCr & (1 << 4)) { // VM_CR.SVMDIS
+				if(svmFeatures & (1 << 2)) // CPUID.8000_000A.EDX[SVML]
+					debugLogger() << "thor: SVM disabled by firmware (SVM Lock)" << frg::endlog;
+				else
+					debugLogger() << "thor: SVM disabled by firmware" << frg::endlog;
+				return false;
 			}
 
-			if(!(leaf[3] & (1 << 0)))
-				return false; // Required feature NPT unsupported
+			if(!(svmFeatures & (1 << 0))) { // CPUID.8000_000A.EDX[NP]
+				debugLogger() << "thor: NPT support is required for SVM" << frg::endlog;
+				return false;
+			}
+			// SVM does not report the length of instructions that cause exits.
+			// With NRIPS, the CPU saves the RIP of the next instruction instead.
+			if(!(svmFeatures & (1 << 3))) { // CPUID.8000_000A.EDX[NRIPS]
+				debugLogger() << "thor: NRIPS support is required for SVM" << frg::endlog;
+				return false;
+			}
+
 			return true;
 		}();
 

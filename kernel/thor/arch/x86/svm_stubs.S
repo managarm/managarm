@@ -1,3 +1,5 @@
+#include <thor-internal/arch/asm.h>
+
 .section .text
 
 .global svmVmRun
@@ -19,88 +21,94 @@ svmVmRun:
 	movq %dr3, %rax
 	pushq %rax
 
+	# Save the host state.
+	movq %rdx, %rax
+	vmsave %rax
+	pushq %rdx
+
 	pushq %rsi
 
-	movq 0x78(%rdi), %rax
+	movq THOR_SVM_GPR_STATE_DR0(%rdi), %rax
 	movq %rax, %dr0
-	movq 0x80(%rdi), %rax
+	movq THOR_SVM_GPR_STATE_DR1(%rdi), %rax
 	movq %rax, %dr1
-	movq 0x88(%rdi), %rax
+	movq THOR_SVM_GPR_STATE_DR2(%rdi), %rax
 	movq %rax, %dr2
-	movq 0x90(%rdi), %rax
+	movq THOR_SVM_GPR_STATE_DR3(%rdi), %rax
 	movq %rax, %dr3
-	movq 0x70(%rdi), %rax
-	movq %rax, %cr2
 
-	movq 0x0(%rdi), %rbx
-	movq 0x8(%rdi), %rcx
-	movq 0x10(%rdi), %rdx
-	movq 0x18(%rdi), %rsi
-	movq 0x28(%rdi), %rbp
-	movq 0x30(%rdi), %r8
-	movq 0x38(%rdi), %r9
-	movq 0x40(%rdi), %r10
-	movq 0x48(%rdi), %r11
-	movq 0x50(%rdi), %r12
-	movq 0x58(%rdi), %r13
-	movq 0x60(%rdi), %r14
-	movq 0x68(%rdi), %r15
+	movq THOR_SVM_GPR_STATE_RBX(%rdi), %rbx
+	movq THOR_SVM_GPR_STATE_RCX(%rdi), %rcx
+	movq THOR_SVM_GPR_STATE_RDX(%rdi), %rdx
+	movq THOR_SVM_GPR_STATE_RSI(%rdi), %rsi
+	movq THOR_SVM_GPR_STATE_RBP(%rdi), %rbp
+	movq THOR_SVM_GPR_STATE_R8(%rdi), %r8
+	movq THOR_SVM_GPR_STATE_R9(%rdi), %r9
+	movq THOR_SVM_GPR_STATE_R10(%rdi), %r10
+	movq THOR_SVM_GPR_STATE_R11(%rdi), %r11
+	movq THOR_SVM_GPR_STATE_R12(%rdi), %r12
+	movq THOR_SVM_GPR_STATE_R13(%rdi), %r13
+	movq THOR_SVM_GPR_STATE_R14(%rdi), %r14
+	movq THOR_SVM_GPR_STATE_R15(%rdi), %r15
 	
 	pushq %rdi
-	movq 0x20(%rdi), %rdi
+	movq THOR_SVM_GPR_STATE_RDI(%rdi), %rdi
 	
 	# Get VMCB
 	movq 0x8(%rsp), %rax
 
 	vmload %rax
+	# With V_INTR_MASKING, host interrupts cause exits only if IF is set at VMRUN.
+	sti
 	vmrun %rax
+	cli
 	vmsave %rax
+	movq 0x10(%rsp), %rax
+	vmload %rax
 
 	pushq %rdi # Save Guest RDI
 	movq 0x8(%rsp), %rdi # Restore RDI from stack
 
 	# Save Guest State
-	movq %rbx, 0x0(%rdi)
-	movq %rcx, 0x8(%rdi)
-	movq %rdx, 0x10(%rdi)
-	movq %rsi, 0x18(%rdi)
-	movq %rbp, 0x28(%rdi)
-	movq %r8, 0x30(%rdi)
-	movq %r9, 0x38(%rdi)
-	movq %r10, 0x40(%rdi)
-	movq %r11, 0x48(%rdi)
-	movq %r12, 0x50(%rdi)
-	movq %r13, 0x58(%rdi)
-	movq %r14, 0x60(%rdi)
-	movq %r15, 0x68(%rdi)
+	movq %rbx, THOR_SVM_GPR_STATE_RBX(%rdi)
+	movq %rcx, THOR_SVM_GPR_STATE_RCX(%rdi)
+	movq %rdx, THOR_SVM_GPR_STATE_RDX(%rdi)
+	movq %rsi, THOR_SVM_GPR_STATE_RSI(%rdi)
+	movq %rbp, THOR_SVM_GPR_STATE_RBP(%rdi)
+	movq %r8, THOR_SVM_GPR_STATE_R8(%rdi)
+	movq %r9, THOR_SVM_GPR_STATE_R9(%rdi)
+	movq %r10, THOR_SVM_GPR_STATE_R10(%rdi)
+	movq %r11, THOR_SVM_GPR_STATE_R11(%rdi)
+	movq %r12, THOR_SVM_GPR_STATE_R12(%rdi)
+	movq %r13, THOR_SVM_GPR_STATE_R13(%rdi)
+	movq %r14, THOR_SVM_GPR_STATE_R14(%rdi)
+	movq %r15, THOR_SVM_GPR_STATE_R15(%rdi)
 
 	movq %dr0, %rax
-	movq %rax, 0x78(%rdi)
+	movq %rax, THOR_SVM_GPR_STATE_DR0(%rdi)
 	movq %dr1, %rax
-	movq %rax, 0x80(%rdi)
-	movq %dr2, %rax    
-	movq %rax, 0x88(%rdi)
+	movq %rax, THOR_SVM_GPR_STATE_DR1(%rdi)
+	movq %dr2, %rax
+	movq %rax, THOR_SVM_GPR_STATE_DR2(%rdi)
 	movq %dr3, %rax
-	movq %rax, 0x90(%rdi)
-	movq %cr2, %rax
-	movq %rax, 0x70(%rdi)
-
+	movq %rax, THOR_SVM_GPR_STATE_DR3(%rdi)
 
 	# Restore host state
 	popq %r8
 	popq %r9
-	mov %r8, 0x20(%r9)
+	mov %r8, THOR_SVM_GPR_STATE_RDI(%r9)
 
 	popq %rsi
+	popq %rdx
 
 	popq %rax
-	movq %rax, %dr0
-	popq %rax
-	movq %rax, %dr1
+	movq %rax, %dr3
 	popq %rax
 	movq %rax, %dr2
 	popq %rax
-	movq %rax, %dr3
+	movq %rax, %dr1
+	popq %rax
+	movq %rax, %dr0
 
 	popq %r15
 	popq %r14

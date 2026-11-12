@@ -46,6 +46,11 @@ struct VirtualLapic {
 	// Returns false for vectors below 16.
 	bool post(uint8_t vector, bool level);
 
+	// Accepts posted interrupts, then returns the priority class that the TPR must drop
+	// below for the highest pending vector to become deliverable, or -1 if there is no pending
+	// vector or an in-service vector blocks it.
+	int tprThreshold();
+
 	// Accepts posted interrupts, then returns the highest pending vector whose priority is
 	// above the PPR, or -1.
 	int deliverableVector();

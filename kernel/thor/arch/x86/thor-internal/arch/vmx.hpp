@@ -222,8 +222,6 @@ namespace thor::vmx {
 		void storeRegs(const HelX86VirtualizationRegs *regs) override;
 		void loadRegs(HelX86VirtualizationRegs *res) override;
 
-		bool assertInterrupt(uint64_t number, bool level) override;
-
 		void storeBasicRegs(const HelX86VirtualizationBasicRegs *regs) override;
 		void loadBasicRegs(HelX86VirtualizationBasicRegs *regs) override;
 
@@ -263,7 +261,6 @@ namespace thor::vmx {
 		// The following functions must be called with interrupts disabled while the VMCS is active.
 		uint64_t readGpr(unsigned index);
 		void writeGpr(unsigned index, uint64_t value);
-		void queueException(uint8_t vector, bool hasErrorCode, uint32_t errorCode);
 		// Blocking by STI / MOV SS ends with the instruction that it covers;
 		// this needs to be called whenever we skip an instruction.
 		void clearInterruptShadow();
@@ -277,9 +274,6 @@ namespace thor::vmx {
 		bool writeCr0(uint64_t value);
 		bool writeCr4(uint64_t value);
 		bool emulateXsetbv();
-		// Returns false if the access raises #GP.
-		bool emulateLapicMsr(uint32_t index, bool write, uint64_t now,
-				VirtualLapic::WriteEffects &effects);
 		// Enables the MSR areas if the guest uses any of the switched MSRs.
 		void updateMsrSwitching();
 
@@ -330,42 +324,6 @@ namespace thor::vmx {
 		// cachedRip_ is newer than the VMCS (after a completion skipped an instruction);
 		// run() writes it before the next entry.
 		bool ripDirty_ = false;
-
-		// An event to inject on the next entry, an event whose delivery was interrupted by
-		// a VM exit or an exception that an emulated instruction raised.
-		struct Event {
-			uint8_t type;
-			uint8_t vector;
-			bool hasErrorCode;
-			uint32_t errorCode;
-			// For software interrupts and exceptions.
-			uint32_t instructionLength;
-		};
-		bool reinjectValid_ = false;
-		Event reinject_{};
-
-		// Blocks until an interrupt can be delivered, the deadline passes, a kick is
-		// pending or the thread is cancelled. Spurious wakeups are possible.
-		void waitForGuestInterrupt(frg::optional<uint64_t> deadline, bool interruptsEnabled);
-
-		VirtualLapic lapic_;
-
-		// The guest executed HLT and waits for an interrupt.
-		// TODO: The VMM can neither read nor reset this state (e.g., to reset a halted vCPU).
-		bool halted_ = false;
-
-		// The exit that userspace needs to complete (see HelVmexitCompletion).
-		struct PendingCompletion {
-			uint32_t exitReason;
-			// Length of the instruction that the completion skips.
-			uint32_t instructionLength;
-			// For port I/O.
-			uint8_t ioSize;
-			bool ioIn;
-			bool ioString;
-		};
-		bool completionPending_ = false;
-		PendingCompletion pendingCompletion_{};
 
 		bool havePreemptionTimer_ = false;
 		unsigned preemptionTimerShift_ = 0;

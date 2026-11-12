@@ -2,6 +2,7 @@
 
 #include <hel.h>
 
+#include <thor-internal/arch/asm.h>
 #include <thor-internal/arch/npt.hpp>
 #include <thor-internal/arch/virtualization.hpp>
 
@@ -174,8 +175,8 @@ namespace thor::svm {
 	constexpr size_t IOPM_BITMAP_SIZE = 4 * kPageSize;
 	constexpr size_t MSRPM_BITMAP_SIZE = 2 * kPageSize;
 
-	// ACCESSED FROM ASSEMBLY, DO NOT CHANGE
-	struct [[gnu::packed]] GprState {
+	// Accessed from svm_stubs.S, the offsets are checked against asm.h.
+	struct GprState {
 		uint64_t rbx;
 		uint64_t rcx;
 		uint64_t rdx;
@@ -190,13 +191,52 @@ namespace thor::svm {
 		uint64_t r13;
 		uint64_t r14;
 		uint64_t r15;
-		uint64_t cr2;
-
 		uint64_t dr0, dr1, dr2, dr3;
 	};
+	static_assert(offsetof(GprState, rbx) == THOR_SVM_GPR_STATE_RBX);
+	static_assert(offsetof(GprState, rcx) == THOR_SVM_GPR_STATE_RCX);
+	static_assert(offsetof(GprState, rdx) == THOR_SVM_GPR_STATE_RDX);
+	static_assert(offsetof(GprState, rsi) == THOR_SVM_GPR_STATE_RSI);
+	static_assert(offsetof(GprState, rdi) == THOR_SVM_GPR_STATE_RDI);
+	static_assert(offsetof(GprState, rbp) == THOR_SVM_GPR_STATE_RBP);
+	static_assert(offsetof(GprState, r8) == THOR_SVM_GPR_STATE_R8);
+	static_assert(offsetof(GprState, r9) == THOR_SVM_GPR_STATE_R9);
+	static_assert(offsetof(GprState, r10) == THOR_SVM_GPR_STATE_R10);
+	static_assert(offsetof(GprState, r11) == THOR_SVM_GPR_STATE_R11);
+	static_assert(offsetof(GprState, r12) == THOR_SVM_GPR_STATE_R12);
+	static_assert(offsetof(GprState, r13) == THOR_SVM_GPR_STATE_R13);
+	static_assert(offsetof(GprState, r14) == THOR_SVM_GPR_STATE_R14);
+	static_assert(offsetof(GprState, r15) == THOR_SVM_GPR_STATE_R15);
+	static_assert(offsetof(GprState, dr0) == THOR_SVM_GPR_STATE_DR0);
+	static_assert(offsetof(GprState, dr1) == THOR_SVM_GPR_STATE_DR1);
+	static_assert(offsetof(GprState, dr2) == THOR_SVM_GPR_STATE_DR2);
+	static_assert(offsetof(GprState, dr3) == THOR_SVM_GPR_STATE_DR3);
 
 	enum {
+		// Exception intercepts are 0x40 plus the vector.
+		kSvmExitExceptionDb = 0x41,
+		kSvmExitExceptionAc = 0x51,
+		kSvmExitIntr = 0x60,
+		kSvmExitNmi = 0x61,
+		kSvmExitSmi = 0x62,
+		kSvmExitVintr = 0x64,
+		kSvmExitRdpmc = 0x6F,
+		kSvmExitCpuid = 0x72,
+		kSvmExitRsm = 0x73,
+		kSvmExitInvd = 0x76,
 		kSvmExitHlt = 0x78,
+		kSvmExitIoio = 0x7B,
+		kSvmExitMsr = 0x7C,
+		kSvmExitShutdown = 0x7F,
+		kSvmExitVmrun = 0x80,
+		kSvmExitVmmcall = 0x81,
+		kSvmExitVmload = 0x82,
+		kSvmExitVmsave = 0x83,
+		kSvmExitStgi = 0x84,
+		kSvmExitClgi = 0x85,
+		kSvmExitSkinit = 0x86,
+		kSvmExitXsetbv = 0x8D,
+		kSvmExitRdpru = 0x8E,
 		kSvmExitNPTFault = 0x400,
 	};
 
@@ -221,8 +261,6 @@ namespace thor::svm {
 		void storeRegs(const HelX86VirtualizationRegs *regs) override;
 		void loadRegs(HelX86VirtualizationRegs *res) override;
 
-		bool assertInterrupt(uint64_t number, bool level) override;
-
 		// The basic registers are a prefix of the full set.
 		void storeBasicRegs(const HelX86VirtualizationBasicRegs *basic) override {
 			HelX86VirtualizationRegs regs;
@@ -236,14 +274,8 @@ namespace thor::svm {
 			memcpy(basic, &regs, sizeof(*basic));
 		}
 
-		// TODO: Switch these MSRs (VMLOAD/VMSAVE and the save area) and XCR0.
-		bool storeMsrs(const HelX86VirtualizationMsrs *msrs) override {
-			msrs_ = *msrs;
-			return true;
-		}
-		void loadMsrs(HelX86VirtualizationMsrs *msrs) override {
-			*msrs = msrs_;
-		}
+		bool storeMsrs(const HelX86VirtualizationMsrs *msrs) override;
+		void loadMsrs(HelX86VirtualizationMsrs *msrs) override;
 
 		PhysicalAddr vmcb_region, host_additional_save_region, iopm_bitmap, msrpm_bitmap;
 		volatile Vmcb *vmcb;
@@ -253,6 +285,6 @@ namespace thor::svm {
 
 		smarter::shared_ptr<NptSpace> space;
 
-		HelX86VirtualizationMsrs msrs_{};
+		uint64_t guestXcr0_{x86_virt::XCR0_X87};
 	};
 }

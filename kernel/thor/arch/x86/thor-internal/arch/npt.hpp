@@ -1,5 +1,7 @@
 #pragma once
 
+#include <atomic>
+
 #include <thor-internal/arch-generic/paging.hpp>
 #include <thor-internal/error.hpp>
 #include <thor-internal/physical.hpp>
@@ -16,6 +18,14 @@ struct NptPageSpace : PageSpace {
 	~NptPageSpace();
 
 	NptPageSpace &operator= (const NptPageSpace &) = delete;
+
+	// The CPU on which a vCPU of this space is in the guest (or about to enter it).
+	// Shootdowns wait in shootQueue until it leaves the guest. We only track a single CPU;
+	// hence, only one vCPU of a space can be in the guest at a time.
+	std::atomic<CpuData *> guestCpu{nullptr};
+	// Protects shootQueue; guestCpu is only cleared while this is held.
+	frg::ticket_spinlock shootMutex;
+	ShootQueue shootQueue;
 };
 
 struct NptOperations final : VirtualOperations {
@@ -84,6 +94,14 @@ namespace thor::svm {
 		PhysicalAddr rootTable() {
 			return pageSpace_.rootTable();
 		}
+
+		// Must be called with interrupts disabled before VMRUN on the current CPU.
+		// Until leaveGuest(), shootdowns wait for the CPU.
+		// Returns false if another vCPU of this space is in the guest.
+		bool enterGuest(CpuData *cpu);
+		// Must be called with interrupts disabled after VM exits. Completes the shootdowns
+		// that waited for the CPU.
+		void leaveGuest();
 
 	private:
 		NptOperations nptOps_;
