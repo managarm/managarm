@@ -1,5 +1,6 @@
 #include "common.hpp"
 #include "../requests.hpp"
+#include <signal.h>
 #include <sys/wait.h>
 #include <sys/resource.h>
 #include <iostream>
@@ -70,19 +71,21 @@ HandleRequest::operator()(managarm::posix::WaitIdRequest &&req,
 		resp.set_error(managarm::posix::Errors::SUCCESS);
 		resp.set_pid(proc_state.pid);
 		resp.set_uid(proc_state.uid);
+		resp.set_signo(SIGCHLD);
 
 		if(auto byExit = std::get_if<TerminationByExit>(&proc_state.state); byExit) {
-			resp.set_sig_status(W_EXITCODE(byExit->code, 0));
-			resp.set_sig_code(CLD_EXITED);
+			resp.set_status(byExit->code);
+			resp.set_code(CLD_EXITED);
 		}else if(auto bySignal = std::get_if<TerminationBySignal>(&proc_state.state); bySignal) {
-			resp.set_sig_status(W_EXITCODE(0, bySignal->signo));
-			resp.set_sig_code(CLD_KILLED);
+			resp.set_status(bySignal->signo);
+			resp.set_code(CLD_KILLED);
 		}else{
-			resp.set_sig_status(0);
-			resp.set_sig_code(0);
+			resp.set_status(0);
+			resp.set_code(0);
 			assert(std::holds_alternative<std::monostate>(proc_state.state));
 		}
 	} else if (wait_result.error() == Error::wouldBlock) {
+		// No child changed state; like Linux, report an all-zero siginfo.
 		resp.set_error(managarm::posix::Errors::SUCCESS);
 		resp.set_pid(0);
 	} else {
