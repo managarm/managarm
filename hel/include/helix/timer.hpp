@@ -2,11 +2,14 @@
 
 #include <helix/clock.hpp>
 #include <helix/ipc.hpp>
+#include <async/algorithm.hpp>
 #include <async/cancellation.hpp>
 #include <async/result.hpp>
 #include <async/oneshot-event.hpp>
 
 #include <functional>
+#include <optional>
+#include <type_traits>
 
 namespace helix {
 
@@ -78,6 +81,51 @@ inline async::result<bool> sleepUntil(uint64_t tick, async::cancellation_token c
 		co_return false;
 	HEL_CHECK(error);
 	co_return true;
+}
+
+// The getClock() value after durationNs (none for no duration, or if it does not fit into the clock).
+inline std::optional<uint64_t> deadlineAfter(std::optional<uint64_t> durationNs) {
+	if(!durationNs)
+		return std::nullopt;
+	uint64_t deadline;
+	if(__builtin_add_overflow(getClock(), *durationNs, &deadline))
+		return std::nullopt;
+	return deadline;
+}
+
+// Runs the sender that f(ct) returns and cancels ct at the deadline (a getClock() value), if any.
+// The sender reports the cancellation in its value (e.g., recurring_event::async_wait() yields false).
+template<typename F>
+requires std::invocable<F, async::cancellation_token>
+		&& async::Sender<std::invoke_result_t<F, async::cancellation_token>>
+auto withTimeout(F f, std::optional<uint64_t> deadline)
+		-> async::result<typename std::invoke_result_t<F, async::cancellation_token>::value_type> {
+	using T = typename std::invoke_result_t<F, async::cancellation_token>::value_type;
+
+	if(!deadline)
+		co_return co_await f(async::cancellation_token{});
+
+	// race_and_cancel() only takes senders without values.
+	auto timer = async::lambda([&](async::cancellation_token ct) -> async::result<void> {
+		co_await sleepUntil(*deadline, ct);
+	});
+	if constexpr (std::is_void_v<T>) {
+		co_await async::race_and_cancel(
+			async::lambda([&](async::cancellation_token ct) -> async::result<void> {
+				co_await f(ct);
+			}),
+			std::move(timer)
+		);
+	} else {
+		std::optional<T> value;
+		co_await async::race_and_cancel(
+			async::lambda([&](async::cancellation_token ct) -> async::result<void> {
+				value.emplace(co_await f(ct));
+			}),
+			std::move(timer)
+		);
+		co_return std::move(*value);
+	}
 }
 
 // Returns true if the operation succeeded, or false if it timed out
