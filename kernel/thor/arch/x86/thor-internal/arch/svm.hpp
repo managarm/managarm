@@ -202,6 +202,7 @@ namespace thor::svm {
 		kSvmExitIntr = 0x60,
 		kSvmExitNmi = 0x61,
 		kSvmExitSmi = 0x62,
+		kSvmExitVintr = 0x64,
 		kSvmExitCpuid = 0x72,
 		kSvmExitHlt = 0x78,
 		kSvmExitIoio = 0x7B,
@@ -231,8 +232,6 @@ namespace thor::svm {
 		frg::expected<Error, HelVmexitReason> run(const HelVmexitCompletion *completion) override;
 		void storeRegs(const HelX86VirtualizationRegs *regs) override;
 		void loadRegs(HelX86VirtualizationRegs *res) override;
-
-		bool assertInterrupt(uint64_t number, bool level) override;
 
 		// The basic registers are a prefix of the full set.
 		void storeBasicRegs(const HelX86VirtualizationBasicRegs *basic) override {

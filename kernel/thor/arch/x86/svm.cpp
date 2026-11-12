@@ -1,3 +1,5 @@
+#include <optional>
+
 #include <thor-internal/arch/svm.hpp>
 #include <thor-internal/address-space.hpp>
 #include <thor-internal/arch-generic/cpu.hpp>
@@ -155,17 +157,6 @@ namespace thor::svm {
 			if(getCurrentThread()->checkCancelConditions())
 				return Error::cancelled;
 
-			if(reinjectValid_) {
-				uint64_t inject = reinject_.vector
-						| (static_cast<uint64_t>(reinject_.type) << 8)
-						| (UINT64_C(1) << 31);
-				// Error codes are only delivered if guest's CR0.PE is set.
-				if(reinject_.hasErrorCode && (vmcb->cr0 & CR0_PE))
-					inject |= (UINT64_C(1) << 11) | (static_cast<uint64_t>(reinject_.errorCode) << 32);
-				vmcb->eventInject = inject;
-				reinjectValid_ = false;
-			}
-
 			vmcb->vTpr = lapic_.cr8();
 
 			asm volatile("clgi" : : : "memory");
@@ -175,6 +166,42 @@ namespace thor::svm {
 				reason.exitReason = kHelVmexitKicked;
 				return reason;
 			}
+
+			// An interrupted or queued event takes precedence over interrupts from the local APIC.
+			// If the guest cannot accept an interrupt, V_IRQ makes it exit (VINTR) once it can.
+			auto wantWindow = false;
+			auto vector = lapic_.deliverableVector();
+			std::optional<Event> injected;
+			if(reinjectValid_) {
+				wantWindow = vector >= 0;
+				injected = reinject_;
+				reinjectValid_ = false;
+			}else if(vector >= 0) {
+				if(!(vmcb->rflags & (1 << 9)) || vmcb->irqShadow) {
+					wantWindow = true;
+				}else{
+					lapic_.acknowledge(vector);
+					injected = Event{
+						.type = x86_virt::kEventExternalInterrupt,
+						.vector = static_cast<uint8_t>(vector),
+						.hasErrorCode = false,
+						.errorCode = 0,
+						.instructionLength = 0,
+					};
+				}
+			}
+			if(injected) {
+				uint64_t inject = injected->vector
+						| (static_cast<uint64_t>(injected->type) << 8)
+						| (UINT64_C(1) << 31);
+				// Error codes are only delivered if guest's CR0.PE is set.
+				if(injected->hasErrorCode && (vmcb->cr0 & CR0_PE))
+					inject |= (UINT64_C(1) << 11) | (static_cast<uint64_t>(injected->errorCode) << 32);
+				vmcb->eventInject = inject;
+			}
+			vmcb->vIrq = wantWindow;
+			vmcb->vIgnoreTpr = wantWindow;
+			vmcb->iceptVintr = wantWindow;
 
 			auto pat = common::x86::rdmsr(common::x86::kMsrPAT);
 			asm volatile("vmsave %%rax" : : "a"(host_additional_save_region) : "memory"); // Use vmsave / vmload to save additional state that would otherwise have to be wrmsr'ed
@@ -206,6 +233,21 @@ namespace thor::svm {
 			// Guest writes to CR8 change V_TPR without exiting.
 			lapic_.setCr8(vmcb->vTpr);
 
+			// The exit interrupted the delivery of an event.
+			// Software interrupts and exceptions are not reinjected.
+			auto info = vmcb->exitintinfo;
+			if(info & (UINT64_C(1) << 31)) {
+				uint8_t type = (info >> 8) & 7;
+				uint8_t vector = info & 0xFF;
+				bool software = type == x86_virt::kEventSoftwareInterrupt
+						|| (type == x86_virt::kEventHardwareException && (vector == 3 || vector == 4));
+				if(!software) {
+					reinjectValid_ = true;
+					reinject_ = {type, vector, static_cast<bool>(info & (1 << 11)),
+							static_cast<uint32_t>(info >> 32), 0};
+				}
+			}
+
 			auto code = vmcb->exitcode;
 			switch(code) {
 			default:
@@ -218,6 +260,10 @@ namespace thor::svm {
 			case kSvmExitNmi:
 			case kSvmExitSmi:
 				// The host handled the interrupt (or NMI, SMI) when we executed STGI.
+				break;
+
+			case kSvmExitVintr:
+				// The interrupt window is handled before the next entry.
 				break;
 
 			case kSvmExitHlt:
@@ -427,12 +473,5 @@ namespace thor::svm {
 
 		GET_SEGMENT(ldt);
 		GET_SEGMENT(tr);
-	}
-
-	bool Vcpu::assertInterrupt(uint64_t number, bool level) {
-		// TODO: Implement using virtualized LAPIC/interrupts.
-		(void)number;
-		(void)level;
-		return false;
 	}
 }
