@@ -423,7 +423,7 @@ namespace thor::svm {
 		vmcb->rflags = regs->rflags;
 
 		vmcb->cr0 = regs->cr0;
-		gprState.cr2 = regs->cr2;
+		vmcb->cr2 = regs->cr2;
 		vmcb->cr3 = regs->cr3;
 		vmcb->cr4 = regs->cr4;
 
@@ -487,7 +487,7 @@ namespace thor::svm {
 		regs->rflags = vmcb->rflags;
 
 		regs->cr0 = vmcb->cr0;
-		regs->cr2 = gprState.cr2;
+		regs->cr2 = vmcb->cr2;
 		regs->cr3 = vmcb->cr3;
 		regs->cr4 = vmcb->cr4;
 

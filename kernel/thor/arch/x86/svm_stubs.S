@@ -21,16 +21,14 @@ svmVmRun:
 
 	pushq %rsi
 
-	movq 0x78(%rdi), %rax
-	movq %rax, %dr0
-	movq 0x80(%rdi), %rax
-	movq %rax, %dr1
-	movq 0x88(%rdi), %rax
-	movq %rax, %dr2
-	movq 0x90(%rdi), %rax
-	movq %rax, %dr3
 	movq 0x70(%rdi), %rax
-	movq %rax, %cr2
+	movq %rax, %dr0
+	movq 0x78(%rdi), %rax
+	movq %rax, %dr1
+	movq 0x80(%rdi), %rax
+	movq %rax, %dr2
+	movq 0x88(%rdi), %rax
+	movq %rax, %dr3
 
 	movq 0x0(%rdi), %rbx
 	movq 0x8(%rdi), %rcx
@@ -75,15 +73,13 @@ svmVmRun:
 	movq %r15, 0x68(%rdi)
 
 	movq %dr0, %rax
-	movq %rax, 0x78(%rdi)
-	movq %dr1, %rax
-	movq %rax, 0x80(%rdi)
-	movq %dr2, %rax    
-	movq %rax, 0x88(%rdi)
-	movq %dr3, %rax
-	movq %rax, 0x90(%rdi)
-	movq %cr2, %rax
 	movq %rax, 0x70(%rdi)
+	movq %dr1, %rax
+	movq %rax, 0x78(%rdi)
+	movq %dr2, %rax
+	movq %rax, 0x80(%rdi)
+	movq %dr3, %rax
+	movq %rax, 0x88(%rdi)
 
 
 	# Restore host state

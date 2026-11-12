@@ -190,7 +190,6 @@ namespace thor::svm {
 		uint64_t r13;
 		uint64_t r14;
 		uint64_t r15;
-		uint64_t cr2;
 
 		uint64_t dr0, dr1, dr2, dr3;
 	};
