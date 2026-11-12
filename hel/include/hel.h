@@ -742,6 +742,9 @@ enum HelSyscallArgs {
 
 #endif
 
+// Number of words transferred by kHelRegsProgram.
+enum { kHelNumProgramRegs = 2 };
+
 struct HelQueueParameters {
 	uint32_t flags;
 	unsigned int numChunks;

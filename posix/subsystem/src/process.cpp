@@ -1217,7 +1217,7 @@ async::result<void> SignalContext::acceptSignalAndRaiseContext(SignalItem *item,
 }
 
 async::result<void> SignalContext::restoreContext(helix::BorrowedDescriptor thread, Process *process) {
-	uintptr_t pcrs[2];
+	uintptr_t pcrs[kHelNumProgramRegs];
 	HEL_CHECK(helLoadRegisters(thread.getHandle(), kHelRegsProgram, &pcrs));
 	auto frame = pcrs[kHelRegSp] - stackCallMisalign;
 
@@ -1451,7 +1451,7 @@ void Process::dumpRegisters() {
 	printf("\e[35m");
 	auto thread = threadDescriptor();
 
-	uintptr_t pcrs[2];
+	uintptr_t pcrs[kHelNumProgramRegs];
 	HEL_CHECK(helLoadRegisters(thread.getHandle(), kHelRegsProgram, pcrs));
 
 	uintptr_t gprs[kHelNumGprs];
