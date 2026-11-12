@@ -246,14 +246,8 @@ namespace thor::svm {
 			memcpy(basic, &regs, sizeof(*basic));
 		}
 
-		// TODO: Switch these MSRs (VMLOAD/VMSAVE and the save area) and XCR0.
-		bool storeMsrs(const HelX86VirtualizationMsrs *msrs) override {
-			msrs_ = *msrs;
-			return true;
-		}
-		void loadMsrs(HelX86VirtualizationMsrs *msrs) override {
-			*msrs = msrs_;
-		}
+		bool storeMsrs(const HelX86VirtualizationMsrs *msrs) override;
+		void loadMsrs(HelX86VirtualizationMsrs *msrs) override;
 
 		PhysicalAddr vmcb_region, host_additional_save_region, iopm_bitmap, msrpm_bitmap;
 		volatile Vmcb *vmcb;
@@ -263,6 +257,6 @@ namespace thor::svm {
 
 		smarter::shared_ptr<NptSpace> space;
 
-		HelX86VirtualizationMsrs msrs_{};
+		uint64_t guestXcr0_{x86_virt::XCR0_X87};
 	};
 }

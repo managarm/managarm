@@ -493,4 +493,37 @@ namespace thor::svm {
 		GET_SEGMENT(ldt);
 		GET_SEGMENT(tr);
 	}
+
+	bool Vcpu::storeMsrs(const HelX86VirtualizationMsrs *msrs) {
+		if(!x86_virt::isValidXcr0(msrs->xcr0))
+			return false;
+		if(!x86_virt::isCanonical(msrs->kernelGsBase) || !x86_virt::isCanonical(msrs->lstar)
+				|| !x86_virt::isCanonical(msrs->cstar) || (msrs->sfmask >> 32)
+				|| !x86_virt::isCanonical(msrs->sysenterEsp)
+				|| !x86_virt::isCanonical(msrs->sysenterEip))
+			return false;
+
+		vmcb->kernel_gs_base = msrs->kernelGsBase;
+		vmcb->star = msrs->star;
+		vmcb->lstar = msrs->lstar;
+		vmcb->cstar = msrs->cstar;
+		vmcb->sfmask = msrs->sfmask;
+		vmcb->sysenter_cs = msrs->sysenterCs;
+		vmcb->sysenter_esp = msrs->sysenterEsp;
+		vmcb->sysenter_eip = msrs->sysenterEip;
+		guestXcr0_ = msrs->xcr0;
+		return true;
+	}
+
+	void Vcpu::loadMsrs(HelX86VirtualizationMsrs *msrs) {
+		msrs->kernelGsBase = vmcb->kernel_gs_base;
+		msrs->star = vmcb->star;
+		msrs->lstar = vmcb->lstar;
+		msrs->cstar = vmcb->cstar;
+		msrs->sfmask = vmcb->sfmask;
+		msrs->sysenterCs = vmcb->sysenter_cs;
+		msrs->sysenterEsp = vmcb->sysenter_esp;
+		msrs->sysenterEip = vmcb->sysenter_eip;
+		msrs->xcr0 = guestXcr0_;
+	}
 }
