@@ -224,6 +224,12 @@ namespace thor::svm {
 			case kSvmExitVmmcall:
 				return requestHyperCallCompletion(vmcb->nextRip - vmcb->rip);
 
+			case kSvmExitIoio: {
+				uint64_t info = vmcb->exitinfo1;
+				return requestIoCompletion(info >> 16, (info >> 4) & 7, info & (1 << 0),
+						info & (1 << 2), vmcb->rax, vmcb->nextRip - vmcb->rip);
+			}
+
 			case kSvmExitExceptionDb:
 				// The CPU already updated DR6 in the VMCB.
 				queueException(DB_VECTOR, false, 0);
