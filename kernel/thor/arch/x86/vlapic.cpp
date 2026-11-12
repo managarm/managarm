@@ -231,6 +231,17 @@ bool VirtualLapic::post(uint8_t vector, bool level) {
 	return true;
 }
 
+int VirtualLapic::tprThreshold() {
+	acceptPosted_();
+	int vector = highestBit_(regIrr);
+	if(vector < 0)
+		return -1;
+	int isrv = highestBit_(regIsr);
+	if(isrv >= 0 && (vector & 0xF0) <= (isrv & 0xF0))
+		return -1;
+	return vector >> 4;
+}
+
 int VirtualLapic::deliverableVector() {
 	acceptPosted_();
 	int vector = highestBit_(regIrr);

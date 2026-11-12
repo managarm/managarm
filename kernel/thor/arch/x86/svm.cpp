@@ -226,9 +226,11 @@ namespace thor::svm {
 						inject |= (UINT64_C(1) << 11) | (static_cast<uint64_t>(injected->errorCode) << 32);
 					vmcb->eventInject = inject;
 				}
-				vmcb->vIrq = wantWindow;
+				auto threshold = vector >= 0 ? -1 : lapic_.tprThreshold();
+				vmcb->vIrq = wantWindow || threshold >= 0;
 				vmcb->vIgnoreTpr = wantWindow;
-				vmcb->iceptVintr = wantWindow;
+				vmcb->vIntrPriority = threshold >= 0 ? threshold : 0;
+				vmcb->iceptVintr = wantWindow || threshold >= 0;
 
 				if(getGlobalCpuFeatures()->haveXsave){
 					common::x86::xsave((uint8_t *)host_fpu_state, ~0);
