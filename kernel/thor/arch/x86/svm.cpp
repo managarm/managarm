@@ -4,6 +4,7 @@
 #include <thor-internal/physical.hpp>
 #include <thor-internal/cpu-data.hpp>
 #include <thor-internal/thread.hpp>
+#include <thor-internal/timer.hpp>
 #include <x86/machine.hpp>
 
 extern "C" void svmVmRun(thor::svm::GprState *gprs, PhysicalAddr vmcb);
@@ -165,6 +166,8 @@ namespace thor::svm {
 				reinjectValid_ = false;
 			}
 
+			vmcb->vTpr = lapic_.cr8();
+
 			asm volatile("clgi" : : : "memory");
 
 			if(enterGuest(getCpuData())) {
@@ -200,6 +203,9 @@ namespace thor::svm {
 
 			asm volatile("stgi" : : : "memory");
 
+			// Guest writes to CR8 change V_TPR without exiting.
+			lapic_.setCr8(vmcb->vTpr);
+
 			auto code = vmcb->exitcode;
 			switch(code) {
 			default:
@@ -230,9 +236,32 @@ namespace thor::svm {
 						info & (1 << 2), vmcb->rax, vmcb->nextRip - vmcb->rip);
 			}
 
-			case kSvmExitMsr:
-				return requestMsrCompletion(vmcb->exitinfo1 & 1, vmcb->rax, gprState.rcx,
-						gprState.rdx, vmcb->nextRip - vmcb->rip);
+			case kSvmExitMsr: {
+				uint32_t index = gprState.rcx;
+				if(!isVirtualLapicMsr(index)) {
+					return requestMsrCompletion(vmcb->exitinfo1 & 1, vmcb->rax, gprState.rcx,
+							gprState.rdx, vmcb->nextRip - vmcb->rip);
+				}
+
+				auto rax = vmcb->rax;
+				auto rdx = gprState.rdx;
+				VirtualLapic::WriteEffects effects;
+				if(emulateLapicMsr(index, vmcb->exitinfo1 & 1, getClockNanos(), effects, rax, rdx)) {
+					vmcb->rax = rax;
+					gprState.rdx = rdx;
+					vmcb->rip = vmcb->nextRip;
+					vmcb->irqShadow = 0;
+				}
+
+				// The VMM (which models the I/O APIC) needs to know about EOIs of
+				// level-triggered interrupts.
+				if(effects.levelEoi >= 0) {
+					reason.exitReason = kHelVmexitEoi;
+					reason.code = effects.levelEoi;
+					return reason;
+				}
+				break;
+			}
 
 			case kSvmExitExceptionDb:
 				// The CPU already updated DR6 in the VMCB.
@@ -308,6 +337,9 @@ namespace thor::svm {
 		// VMRUN fails if EFER.SVME is clear.
 		vmcb->efer = regs->efer | EFER_SVME;
 
+		lapic_.setCr8(regs->cr8);
+		// regs->apic_base is ignored: the APIC base is fixed.
+
 		vmcb->gdt.base = regs->gdt.base;
 		vmcb->gdt.limit = regs->gdt.limit;
 
@@ -363,6 +395,9 @@ namespace thor::svm {
 
 		// Hide EFER.SVME from the guest since it was not set by it.
 		regs->efer = vmcb->efer & ~EFER_SVME;
+
+		regs->cr8 = lapic_.cr8();
+		regs->apic_base = VirtualLapic::apicBase();
 
 		regs->gdt.base = vmcb->gdt.base;
 		regs->gdt.limit = vmcb->gdt.limit;
