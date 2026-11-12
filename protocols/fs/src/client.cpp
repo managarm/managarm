@@ -218,7 +218,7 @@ File::readSome(void *data, size_t max_length, async::cancellation_token ct) {
 	co_return actualLength;
 }
 
-async::result<size_t> File::writeSome(const void *data, size_t maxLength) {
+async::result<std::expected<size_t, Error>> File::writeSome(const void *data, size_t maxLength) {
 	managarm::fs::WriteRequest req;
 	req.set_size(maxLength);
 
@@ -233,18 +233,18 @@ async::result<size_t> File::writeSome(const void *data, size_t maxLength) {
 			)
 		);
 
-	HEL_CHECK(offer.error());
-	HEL_CHECK(sendReq.error());
-	HEL_CHECK(imbueCreds.error());
-	HEL_CHECK(sendData.error());
-	HEL_CHECK(recvResp.error());
+	FRG_CO_TRY(checkHelErrors({
+		offer.error(), sendReq.error(), imbueCreds.error(), sendData.error(), recvResp.error()
+	}));
 
 	managarm::fs::SvrResponse resp;
-	resp.ParseFromArray(recvResp.data(), recvResp.length());
+	if (!resp.ParseFromArray(recvResp.data(), recvResp.length()))
+		co_return std::unexpected{Error::internalError};
 	recvResp.reset();
-	if(resp.error() == managarm::fs::Errors::END_OF_FILE)
-		co_return 0;
-	assert(resp.error() == managarm::fs::Errors::SUCCESS);
+	if (resp.error() != managarm::fs::Errors::SUCCESS)
+		co_return std::unexpected{resp.error() | toFsProtoError};
+	if (resp.size() < 0 || static_cast<uint64_t>(resp.size()) > maxLength)
+		co_return std::unexpected{Error::internalError};
 	co_return resp.size();
 }
 

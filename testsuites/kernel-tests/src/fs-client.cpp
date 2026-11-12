@@ -1,4 +1,5 @@
 #include <cassert>
+#include <cstdint>
 #include <cstring>
 #include <string_view>
 
@@ -15,7 +16,7 @@ async::result<void> serveIo(
     helix::UniqueLane lane,
     bool write,
     managarm::fs::Errors error,
-    size_t count,
+    int64_t count,
     bool close,
     std::string_view payload = {},
     bool malformed = false
@@ -57,6 +58,28 @@ async::result<void> serveIo(
 	}
 }
 
+async::result<void> testWrite(
+    managarm::fs::Errors error,
+    int64_t count,
+    protocols::fs::Error expected,
+    bool close = false,
+    bool malformed = false
+) {
+	auto [local, remote] = helix::createStream();
+	protocols::fs::File file{std::move(remote)};
+	co_await async::when_all(
+	    serveIo(std::move(local), true, error, count, close, {}, malformed),
+	    async::lambda([&]() -> async::result<void> {
+		    auto result = co_await file.writeSome("payload", 7);
+		    if (expected == protocols::fs::Error::none) {
+			    assert(result && *result == static_cast<size_t>(count));
+		    } else {
+			    assert(!result && result.error() == expected);
+		    }
+	    })()
+	);
+}
+
 async::result<void> testRead(
     managarm::fs::Errors error,
     protocols::fs::Error expected,
@@ -82,6 +105,38 @@ async::result<void> testRead(
 }
 
 } // namespace
+
+DEFINE_TEST(fsClientWrite, ([] {
+	            using namespace protocols::fs;
+	            async::run(
+	                testWrite(managarm::fs::Errors::SUCCESS, 0, Error::internalError, false, true),
+	                helix::currentDispatcher
+	            );
+	            async::run(
+	                testWrite(managarm::fs::Errors::SUCCESS, 3, Error::none),
+	                helix::currentDispatcher
+	            );
+	            async::run(
+	                testWrite(managarm::fs::Errors::SUCCESS, 0, Error::none),
+	                helix::currentDispatcher
+	            );
+	            async::run(
+	                testWrite(managarm::fs::Errors::SUCCESS, -1, Error::internalError),
+	                helix::currentDispatcher
+	            );
+	            async::run(
+	                testWrite(managarm::fs::Errors::SUCCESS, 8, Error::internalError),
+	                helix::currentDispatcher
+	            );
+	            async::run(
+	                testWrite(managarm::fs::Errors::BROKEN_PIPE, 0, Error::brokenPipe),
+	                helix::currentDispatcher
+	            );
+	            async::run(
+	                testWrite(managarm::fs::Errors::SUCCESS, 0, Error::ioError, true),
+	                helix::currentDispatcher
+	            );
+            }))
 
 DEFINE_TEST(
     fsClientRead, ([] {
