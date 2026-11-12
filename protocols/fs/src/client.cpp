@@ -151,14 +151,28 @@ File::readSome(void *data, size_t max_length, async::cancellation_token ct) {
 					)
 				);
 
-			HEL_CHECK(offer.error());
+		    for (auto error :
+		         {offer.error(),
+		          send_req.error(),
+		          imbue_creds.error(),
+		          recv_resp.error(),
+		          recv_data.error()}) {
+			    if (error == kHelErrEndOfLane || error == kHelErrDismissed) {
+				    resp.set_error(managarm::fs::Errors::IO_ERROR);
+				    co_return;
+			    }
+		    }
+		    HEL_CHECK(offer.error());
 			HEL_CHECK(send_req.error());
 			HEL_CHECK(imbue_creds.error());
 			HEL_CHECK(recv_resp.error());
 			HEL_CHECK(recv_data.error());
 
-			resp.ParseFromArray(buffer, recv_resp.actualLength());
-			actualLength = recv_data.actualLength();
+		    if (!resp.ParseFromArray(buffer, recv_resp.actualLength())) {
+			    resp.set_error(managarm::fs::Errors::INTERNAL_ERROR);
+			    co_return;
+		    }
+		    actualLength = recv_data.actualLength();
 		}),
 		async::lambda([&, ct, this](auto c) -> async::result<void> {
 			co_await async::suspend_indefinitely(c, ct);
@@ -178,18 +192,19 @@ File::readSome(void *data, size_t max_length, async::cancellation_token ct) {
 				)
 			);
 
-			HEL_CHECK(offer.error());
+		    if (offer.error() == kHelErrEndOfLane || send_req.error() == kHelErrEndOfLane)
+			    co_return;
+		    HEL_CHECK(offer.error());
 			HEL_CHECK(send_req.error());
 		})
 	);
 
-	if (resp.error() == managarm::fs::Errors::INTERRUPTED)
-		co_return std::unexpected{Error::interrupted};
+	if (resp.error() != managarm::fs::Errors::SUCCESS)
+		co_return std::unexpected{resp.error() | toFsProtoError};
 
-	if (resp.error() == managarm::fs::Errors::END_OF_FILE || (max_length && actualLength == 0))
+	if (max_length && actualLength == 0)
 		co_return std::unexpected{Error::endOfFile};
 
-	assert(resp.error() == managarm::fs::Errors::SUCCESS);
 	co_return actualLength;
 }
 

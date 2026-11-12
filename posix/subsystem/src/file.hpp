@@ -265,6 +265,8 @@ inline Error operator|(protocols::fs::Error e, ToPosixError) {
 		case protocols::fs::Error::noSuchProcess: return Error::noSuchProcess;
 		case protocols::fs::Error::notSupported: return Error::notSupported;
 		case protocols::fs::Error::ioError: return Error::ioError;
+		case protocols::fs::Error::interrupted:
+			return Error::interrupted;
 		default:
 			std::cout << std::format("posix: unmapped protocols::fs::Error {}", static_cast<int>(e)) << std::endl;
 			return Error::ioError;
