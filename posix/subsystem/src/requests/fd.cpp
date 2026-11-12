@@ -377,7 +377,9 @@ HandleRequest::operator()(managarm::posix::EpollCallRequest &&req,
 
 	// Assigned the returned events to each FD.
 	for(size_t j = 0; j < k; ++j) {
-		auto it = fdsToEvents.find(events[j].data.fd);
+		// addItem() stores the numeric FD as a 64-bit cookie. Reading the
+		// union's 32-bit fd member would select its high half on big-endian CPUs.
+		auto it = fdsToEvents.find(static_cast<int>(events[j].data.u64));
 		assert(it != fdsToEvents.end());
 
 		// Translate EPOLL events back to POLL events.
