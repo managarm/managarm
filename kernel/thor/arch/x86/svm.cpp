@@ -230,6 +230,10 @@ namespace thor::svm {
 						info & (1 << 2), vmcb->rax, vmcb->nextRip - vmcb->rip);
 			}
 
+			case kSvmExitMsr:
+				return requestMsrCompletion(vmcb->exitinfo1 & 1, vmcb->rax, gprState.rcx,
+						gprState.rdx, vmcb->nextRip - vmcb->rip);
+
 			case kSvmExitExceptionDb:
 				// The CPU already updated DR6 in the VMCB.
 				queueException(DB_VECTOR, false, 0);
