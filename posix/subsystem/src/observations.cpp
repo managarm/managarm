@@ -554,32 +554,35 @@ async::result<void> observeThread(std::shared_ptr<Process> self,
 
 			auto ss = gprs[kHelRegArg0];
 			auto oss = gprs[kHelRegArg1];
+			bool onAltStack = self->isAltStackEnabled() && self->isOnAltStack(pcrs[kHelRegSp]);
+			int error = 0;
 
 			if (oss) {
 				stack_t st{};
 				st.ss_sp = reinterpret_cast<void *>(self->altStackSp());
 				st.ss_size = self->altStackSize();
-				st.ss_flags = (self->isOnAltStack(pcrs[kHelRegSp]) ? SS_ONSTACK : 0)
-						| (self->isAltStackEnabled() ? 0 : SS_DISABLE);
+				st.ss_flags =
+				    (onAltStack ? SS_ONSTACK : 0) | (self->isAltStackEnabled() ? 0 : SS_DISABLE);
 
 				auto store = co_await helix_ng::writeMemory(self->vmContext()->getSpace(),
 						oss, sizeof(stack_t), &st);
-				HEL_CHECK(store.error());
+				if (store.error() != kHelErrNone)
+					error = store.error() == kHelErrNoMemory ? ENOMEM : EFAULT;
 			}
 
-			int error = 0;
-
-			if (ss) {
+			if (ss && !error) {
 				stack_t st{};
 
 				auto load = co_await helix_ng::readMemory(self->vmContext()->getSpace(),
 						ss, sizeof(stack_t), &st);
-				HEL_CHECK(load.error());
-
-				if (st.ss_flags & ~SS_DISABLE) {
+				if (load.error() != kHelErrNone) {
+					error = load.error() == kHelErrNoMemory ? ENOMEM : EFAULT;
+				} else if (st.ss_flags & ~SS_DISABLE) {
 					error = EINVAL;
-				} else if (self->isOnAltStack(pcrs[kHelRegSp])) {
+				} else if (onAltStack) {
 					error = EPERM;
+				} else if (!(st.ss_flags & SS_DISABLE) && st.ss_size < MINSIGSTKSZ) {
+					error = ENOMEM;
 				} else {
 					self->setAltStackSp(reinterpret_cast<uint64_t>(st.ss_sp), st.ss_size);
 					self->setAltStackEnabled(!(st.ss_flags & SS_DISABLE));

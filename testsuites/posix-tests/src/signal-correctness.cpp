@@ -1,8 +1,10 @@
 #include "testsuite.hpp"
 #include <cassert>
 #include <cerrno>
+#include <cstdint>
 #include <initializer_list>
 #include <signal.h>
+#include <sys/mman.h>
 #include <sys/wait.h>
 #include <unistd.h>
 
@@ -48,3 +50,51 @@ DEFINE_TEST(signal_high_number_mask, ([] {
 		            }
 	            });
             }))
+
+// Managarm leaves the configuration unchanged when copying the old stack fails.
+#if defined(__managarm__)
+DEFINE_TEST(
+    sigaltstack_request_errors, ([] {
+	    checkSignalInChild([] {
+		    auto pageSize = static_cast<size_t>(sysconf(_SC_PAGESIZE));
+		    auto inaccessible =
+		        mmap(nullptr, pageSize, PROT_NONE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+		    assert(inaccessible != MAP_FAILED);
+		    auto bad = static_cast<stack_t *>(inaccessible);
+		    stack_t original{};
+		    assert(!sigaltstack(nullptr, &original));
+		    auto buffer =
+		        mmap(nullptr, SIGSTKSZ, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+		    assert(buffer != MAP_FAILED);
+		    assert(!munmap(inaccessible, pageSize));
+		    stack_t stack{};
+		    stack.ss_sp = buffer;
+		    stack.ss_size = SIGSTKSZ;
+
+		    assert(sigaltstack(&stack, bad) == -1 && errno == EFAULT);
+		    stack_t current{};
+		    assert(!sigaltstack(nullptr, &current));
+		    assert(current.ss_sp == original.ss_sp);
+		    assert(current.ss_size == original.ss_size);
+		    assert(current.ss_flags == original.ss_flags);
+
+		    // Disabled stacks must not report SS_ONSTACK or prevent replacement,
+		    // even when their supplied bounds surround the current stack pointer.
+		    stack.ss_flags = SS_DISABLE;
+		    auto page = static_cast<uintptr_t>(sysconf(_SC_PAGESIZE));
+		    auto base = reinterpret_cast<uintptr_t>(&stack) & ~(page - 1);
+		    stack.ss_sp = reinterpret_cast<void *>(base - 8 * page);
+		    stack.ss_size = 16 * page;
+		    assert(!sigaltstack(&stack, nullptr));
+		    assert(!sigaltstack(nullptr, &current));
+		    assert(current.ss_flags == SS_DISABLE);
+		    stack.ss_flags = 0;
+		    stack.ss_sp = buffer;
+		    stack.ss_size = SIGSTKSZ;
+		    assert(!sigaltstack(&stack, nullptr));
+		    assert(!sigaltstack(&original, nullptr));
+		    assert(!munmap(buffer, SIGSTKSZ));
+	    });
+    })
+)
+#endif
