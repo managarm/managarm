@@ -10,7 +10,8 @@
 #include <thor-internal/timer.hpp>
 #include <x86/machine.hpp>
 
-extern "C" void svmVmRun(thor::svm::GprState *gprs, PhysicalAddr vmcb);
+// Saves the host's VMSAVE state to hostSave and restores it before returning.
+extern "C" void svmVmRun(thor::svm::GprState *gprs, PhysicalAddr vmcb, PhysicalAddr hostSave);
 
 namespace {
 
@@ -225,7 +226,6 @@ namespace thor::svm {
 				vmcb->iceptVintr = wantWindow;
 
 				auto pat = common::x86::rdmsr(common::x86::kMsrPAT);
-				asm volatile("vmsave %%rax" : : "a"(host_additional_save_region) : "memory"); // Use vmsave / vmload to save additional state that would otherwise have to be wrmsr'ed
 
 				if(getGlobalCpuFeatures()->haveXsave){
 					common::x86::xsave((uint8_t *)host_fpu_state, ~0);
@@ -248,11 +248,9 @@ namespace thor::svm {
 				if(timerDeadline)
 					setGuestDeadline(timerDeadline);
 
-				svmVmRun(&gprState, vmcb_region);
+				svmVmRun(&gprState, vmcb_region, host_additional_save_region);
 				leaveGuest();
 
-				// GS holds the guest's base until this VMLOAD; nothing above may access per-CPU data.
-				asm volatile("vmload %%rax" : : "a"(host_additional_save_region) : "memory");
 				common::x86::wrmsr(common::x86::kMsrPAT, pat);
 
 				if(timerDeadline)

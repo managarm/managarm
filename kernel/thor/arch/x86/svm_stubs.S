@@ -21,6 +21,11 @@ svmVmRun:
 	movq %dr3, %rax
 	pushq %rax
 
+	# Save the host state.
+	movq %rdx, %rax
+	vmsave %rax
+	pushq %rdx
+
 	pushq %rsi
 
 	movq THOR_SVM_GPR_STATE_DR0(%rdi), %rax
@@ -58,6 +63,8 @@ svmVmRun:
 	vmrun %rax
 	cli
 	vmsave %rax
+	movq 0x10(%rsp), %rax
+	vmload %rax
 
 	pushq %rdi # Save Guest RDI
 	movq 0x8(%rsp), %rdi # Restore RDI from stack
@@ -92,6 +99,7 @@ svmVmRun:
 	mov %r8, THOR_SVM_GPR_STATE_RDI(%r9)
 
 	popq %rsi
+	popq %rdx
 
 	popq %rax
 	movq %rax, %dr0
