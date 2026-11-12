@@ -439,12 +439,14 @@ namespace thor::svm {
 		vmcb->idt.base = regs->idt.base;
 		vmcb->idt.limit = regs->idt.limit;
 
+		// The VMCB has no unusable bit; unusable segments are simply marked not present.
 		#define SET_SEGMENT(segment) \
 			vmcb->segment.base = regs->segment.base; \
 			vmcb->segment.limit = regs->segment.limit; \
 			vmcb->segment.selector = regs->segment.selector; \
 			vmcb->segment.attrib = regs->segment.type | (regs->segment.s << 4) | \
-								   (regs->segment.dpl << 5) | (regs->segment.present << 7) | \
+								   (regs->segment.dpl << 5) | \
+								   ((regs->segment.present && !regs->segment.unusable) << 7) | \
 								   (regs->segment.avl << 8) | (regs->segment.l << 9) | \
 								   (regs->segment.db << 10) | (regs->segment.g << 11)
 
@@ -457,6 +459,9 @@ namespace thor::svm {
 
 		SET_SEGMENT(ldt);
 		SET_SEGMENT(tr);
+
+		// The CPU tracks the CPL in the VMCB.
+		vmcb->cpl = regs->ss.dpl;
 	}
 
 	void Vcpu::loadRegs(HelX86VirtualizationRegs *regs) {
@@ -509,7 +514,8 @@ namespace thor::svm {
 			regs->segment.avl = (vmcb->segment.attrib >> 8) & 1; \
 			regs->segment.l = (vmcb->segment.attrib >> 9) & 1; \
 			regs->segment.db = (vmcb->segment.attrib >> 10) & 1; \
-			regs->segment.g = (vmcb->segment.attrib >> 11) & 1
+			regs->segment.g = (vmcb->segment.attrib >> 11) & 1; \
+			regs->segment.unusable = !regs->segment.present
 
 		GET_SEGMENT(cs);
 		GET_SEGMENT(ds);
@@ -520,6 +526,9 @@ namespace thor::svm {
 
 		GET_SEGMENT(ldt);
 		GET_SEGMENT(tr);
+
+		// SS.DPL in the VMCB can be stale.
+		regs->ss.dpl = vmcb->cpl;
 	}
 
 	bool Vcpu::storeMsrs(const HelX86VirtualizationMsrs *msrs) {
