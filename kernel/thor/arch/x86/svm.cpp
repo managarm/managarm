@@ -386,7 +386,12 @@ namespace thor::svm {
 				if(!faultOutcome) {
 					reason.exitReason = kHelVmexitTranslationFault;
 					reason.address = address;
-					reason.flags = exitFlags;
+					if(exitFlags & (1 << 1))
+						reason.flags = kHelVmFaultWrite;
+					else if(exitFlags & (1 << 4))
+						reason.flags = kHelVmFaultExecute;
+					else
+						reason.flags = kHelVmFaultRead;
 					return reason;
 				}
 				
