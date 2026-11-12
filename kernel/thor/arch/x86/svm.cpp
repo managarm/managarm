@@ -225,8 +225,6 @@ namespace thor::svm {
 				vmcb->vIgnoreTpr = wantWindow;
 				vmcb->iceptVintr = wantWindow;
 
-				auto pat = common::x86::rdmsr(common::x86::kMsrPAT);
-
 				if(getGlobalCpuFeatures()->haveXsave){
 					common::x86::xsave((uint8_t *)host_fpu_state, ~0);
 					common::x86::xrstor((uint8_t *)guest_fpu_state, ~0);
@@ -250,8 +248,6 @@ namespace thor::svm {
 
 				svmVmRun(&gprState, vmcb_region, host_additional_save_region);
 				leaveGuest();
-
-				common::x86::wrmsr(common::x86::kMsrPAT, pat);
 
 				if(timerDeadline)
 					setGuestDeadline(frg::null_opt);
