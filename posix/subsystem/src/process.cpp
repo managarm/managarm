@@ -1110,7 +1110,7 @@ async::result<void> SignalContext::raiseContext(SignalItem *item, Process *proce
 	memcpy(&sf.ucontext.uc_sigmask, &rawProcessMask, sizeof(rawProcessMask));
 
 	if (!(handling.handler.flags & signalReentrant))
-		rawHandlerMask |= (1 << (item->signalNumber - 1));
+		rawHandlerMask |= (uint64_t{1} << (item->signalNumber - 1));
 
 	process->setSignalMask(rawHandlerMask);
 
