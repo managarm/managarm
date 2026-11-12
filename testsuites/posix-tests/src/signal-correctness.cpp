@@ -3,10 +3,45 @@
 #include <cerrno>
 #include <cstdint>
 #include <initializer_list>
+#include <setjmp.h>
 #include <signal.h>
 #include <sys/mman.h>
 #include <sys/wait.h>
 #include <unistd.h>
+
+#if defined(__managarm__)
+extern "C" void posixTestIllegalInstruction();
+
+asm(".pushsection .text\n"
+    ".balign 4\n"
+    ".global posixTestIllegalInstruction\n"
+    "posixTestIllegalInstruction:\n"
+#if defined(__x86_64__)
+    "ud2\n"
+#elif defined(__aarch64__)
+    ".inst 0\n"
+#else
+    ".word 0\n"
+#endif
+    ".popsection\n");
+#endif
+
+#if defined(__x86_64__)
+extern "C" void posixTestIntegerDivide();
+extern "C" char posixTestIntegerDivideFault[];
+
+asm(".pushsection .text\n"
+    ".global posixTestIntegerDivide\n"
+    "posixTestIntegerDivide:\n"
+    "movl $1, %eax\n"
+    "xorl %edx, %edx\n"
+    "xorl %ecx, %ecx\n"
+    ".global posixTestIntegerDivideFault\n"
+    "posixTestIntegerDivideFault:\n"
+    "divl %ecx\n"
+    ".popsection\n");
+#endif
+
 
 namespace {
 
@@ -97,4 +132,56 @@ DEFINE_TEST(
 	    });
     })
 )
+#endif
+
+#if defined(__managarm__)
+DEFINE_TEST(illegal_instruction_signal_information, ([] {
+	            checkSignalInChild([] {
+		            static sigjmp_buf env;
+		            static volatile sig_atomic_t code = 0;
+		            static volatile uintptr_t address = 0;
+		            struct sigaction action{};
+		            action.sa_flags = SA_SIGINFO;
+		            action.sa_sigaction = [](int signo, siginfo_t *info, void *) {
+			            assert(signo == SIGILL);
+			            code = info->si_code;
+			            address = reinterpret_cast<uintptr_t>(info->si_addr);
+			            siglongjmp(env, 1);
+		            };
+		            assert(!sigemptyset(&action.sa_mask));
+		            assert(!sigaction(SIGILL, &action, nullptr));
+		            if (!sigsetjmp(env, 1)) {
+			            posixTestIllegalInstruction();
+			            assert(!"illegal instruction returned");
+		            }
+		            assert(address == reinterpret_cast<uintptr_t>(&posixTestIllegalInstruction));
+		            assert(code == ILL_ILLOPC);
+	            });
+            }))
+#endif
+
+#if defined(__x86_64__)
+DEFINE_TEST(integer_divide_signal_information, ([] {
+	            checkSignalInChild([] {
+		            static sigjmp_buf env;
+		            static volatile sig_atomic_t code = 0;
+		            static volatile uintptr_t address = 0;
+		            struct sigaction action{};
+		            action.sa_flags = SA_SIGINFO;
+		            action.sa_sigaction = [](int signo, siginfo_t *info, void *) {
+			            assert(signo == SIGFPE);
+			            code = info->si_code;
+			            address = reinterpret_cast<uintptr_t>(info->si_addr);
+			            siglongjmp(env, 1);
+		            };
+		            assert(!sigemptyset(&action.sa_mask));
+		            assert(!sigaction(SIGFPE, &action, nullptr));
+		            if (!sigsetjmp(env, 1)) {
+			            posixTestIntegerDivide();
+			            assert(!"divide by zero returned");
+		            }
+		            assert(address == reinterpret_cast<uintptr_t>(posixTestIntegerDivideFault));
+		            assert(code == FPE_INTDIV);
+	            });
+            }))
 #endif

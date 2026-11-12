@@ -802,6 +802,9 @@ async::result<void> observeThread(std::shared_ptr<Process> self,
 
 			auto item = new SignalItem;
 			item->signalNumber = SIGILL;
+			uintptr_t program[kHelNumProgramRegs];
+			HEL_CHECK(helLoadRegisters(thread.getHandle(), kHelRegsProgram, program));
+			item->info = SynchronousFaultSignal{program[kHelRegIp], ILL_ILLOPC};
 			if(!self->checkSignalRaise())
 				std::cout << "\e[33m" "posix: Ignoring global signal flag "
 						"during synchronous SIGILL" "\e[39m" << std::endl;
@@ -821,6 +824,9 @@ async::result<void> observeThread(std::shared_ptr<Process> self,
 
 			auto item = new SignalItem;
 			item->signalNumber = SIGFPE;
+			uintptr_t program[kHelNumProgramRegs];
+			HEL_CHECK(helLoadRegisters(thread.getHandle(), kHelRegsProgram, program));
+			item->info = SynchronousFaultSignal{program[kHelRegIp], FPE_INTDIV};
 			if(!self->checkSignalRaise())
 				std::cout << "\e[33m" "posix: Ignoring global signal flag "
 						"during synchronous SIGFPE" "\e[39m" << std::endl;
