@@ -148,7 +148,13 @@ namespace thor::svm {
 				reinjectValid_ = false;
 			}
 
-			asm("clgi");
+			asm volatile("clgi" : : : "memory");
+
+			if(enterGuest(getCpuData())) {
+				asm volatile("stgi" : : : "memory");
+				reason.exitReason = kHelVmexitKicked;
+				return reason;
+			}
 
 			auto pat = common::x86::rdmsr(common::x86::kMsrPAT);
 			asm volatile("vmsave %%rax" : : "a"(host_additional_save_region) : "memory"); // Use vmsave / vmload to save additional state that would otherwise have to be wrmsr'ed
@@ -162,6 +168,7 @@ namespace thor::svm {
 			}
 
 			svmVmRun(&gprState, vmcb_region);
+			leaveGuest();
 
 			common::x86::wrmsr(common::x86::kMsrPAT, pat);
 			asm volatile("vmload %%rax" : : "a"(host_additional_save_region) : "memory");
@@ -174,7 +181,7 @@ namespace thor::svm {
 				asm volatile ("fxrstorq %0" : : "m" (*host_fpu_state));
 			}
 
-			asm("stgi");
+			asm volatile("stgi" : : : "memory");
 
 			auto code = vmcb->exitcode;
 			switch(code) {
