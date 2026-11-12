@@ -277,8 +277,9 @@ namespace thor::svm {
 
 			// The exit interrupted the delivery of an event.
 			// Software interrupts and exceptions are not reinjected.
+			auto code = vmcb->exitcode;
 			auto info = vmcb->exitintinfo;
-			if(info & (UINT64_C(1) << 31)) {
+			if(code != kSvmExitShutdown && (info & (UINT64_C(1) << 31))) {
 				uint8_t type = (info >> 8) & 7;
 				uint8_t vector = info & 0xFF;
 				bool software = type == x86_virt::kEventSoftwareInterrupt
@@ -290,7 +291,6 @@ namespace thor::svm {
 				}
 			}
 
-			auto code = vmcb->exitcode;
 			switch(code) {
 			default:
 				infoLogger() << "svm: Unknown exitcode: " << code << frg::endlog;
