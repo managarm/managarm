@@ -227,6 +227,13 @@ void processIn(const char character, Packet &packet, Channel *channel, DeferredE
 		}
 
 		if(signal.has_value()) {
+			if (!(channel->activeSettings.c_lflag & NOFLSH)) {
+				packet = Packet{};
+				channel->slaveQueue.clear();
+				channel->masterQueue.clear();
+				++channel->currentSeq;
+				deferred.raise = true;
+			}
 			deferred.signals.push_back(*signal);
 			return;
 		}
