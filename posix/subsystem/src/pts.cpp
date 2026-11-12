@@ -1,14 +1,15 @@
 #include <asm/ioctls.h>
 #include <async/cancellation.hpp>
-#include <linux/magic.h>
 #include <limits.h>
+#include <linux/magic.h>
 #include <mutex>
 #include <numeric>
 #include <optional>
-#include <termios.h>
-#include <sys/epoll.h>
-#include <signal.h>
 #include <print>
+#include <signal.h>
+#include <sys/epoll.h>
+#include <termios.h>
+#include <unistd.h>
 
 #include <async/recurring-event.hpp>
 #include <bragi/helpers-std.hpp>
@@ -145,6 +146,10 @@ void processOut(const char c, Packet &packet, Channel *channel) {
 
 // Must be called with the channel's mutex held.
 void processIn(const char character, Packet &packet, Channel *channel, DeferredEvents &deferred) {
+	auto isControl = [&](size_t index, char c) {
+		auto control = channel->activeSettings.c_cc[index];
+		return control != _POSIX_VDISABLE && static_cast<unsigned char>(c) == control;
+	};
 	auto enqueuePacket = [&](Packet packet) {
 		channel->slaveQueue.push_back(std::move(packet));
 		channel->slaveInSeq = ++channel->currentSeq;
@@ -210,11 +215,11 @@ void processIn(const char character, Packet &packet, Channel *channel, DeferredE
 	if(channel->activeSettings.c_lflag & ISIG) {
 		std::optional<int> signal = {};
 
-		if(c == static_cast<char>(channel->activeSettings.c_cc[VINTR])) {
+		if (isControl(VINTR, c)) {
 			signal = SIGINT;
-		} else if(c == static_cast<char>(channel->activeSettings.c_cc[VQUIT])) {
+		} else if (isControl(VQUIT, c)) {
 			signal = SIGQUIT;
-		} else if(c == static_cast<char>(channel->activeSettings.c_cc[VSUSP])) {
+		} else if (isControl(VSUSP, c)) {
 			signal = SIGTSTP;
 		}
 
@@ -225,7 +230,7 @@ void processIn(const char character, Packet &packet, Channel *channel, DeferredE
 	}
 
 	if(channel->activeSettings.c_lflag & ICANON) {
-		if(c == static_cast<char>(channel->activeSettings.c_cc[VKILL])) {
+		if (isControl(VKILL, c)) {
 			while(!packet.buffer.empty()) {
 				erase_char(channel->activeSettings.c_lflag & ECHOK);
 			}
@@ -233,13 +238,12 @@ void processIn(const char character, Packet &packet, Channel *channel, DeferredE
 			return;
 		}
 
-		if(c == static_cast<char>(channel->activeSettings.c_cc[VERASE])) {
+		if (isControl(VERASE, c)) {
 			erase_char(channel->activeSettings.c_lflag & ECHOE);
 			return;
 		}
 
-		if((channel->activeSettings.c_lflag & IEXTEN) &&
-		c == static_cast<char>(channel->activeSettings.c_cc[VWERASE])) {
+		if ((channel->activeSettings.c_lflag & IEXTEN) && isControl(VWERASE, c)) {
 			// remove trailing whitespace
 			while(!packet.buffer.empty() && packet.buffer.back() == ' ') {
 				erase_char(channel->activeSettings.c_lflag & ECHOE);
@@ -253,7 +257,7 @@ void processIn(const char character, Packet &packet, Channel *channel, DeferredE
 			return;
 		}
 
-		if(c == static_cast<char>(channel->activeSettings.c_cc[VEOF])) {
+		if (isControl(VEOF, c)) {
 			enqueuePacket(std::move(packet));
 			packet = Packet{};
 
@@ -286,9 +290,7 @@ void processIn(const char character, Packet &packet, Channel *channel, DeferredE
 			enqueueOut(std::move(echopacket));
 		}
 
-		if(c == '\n'
-		|| c == static_cast<char>(channel->activeSettings.c_cc[VEOL])
-		|| c == static_cast<char>(channel->activeSettings.c_cc[VEOL2])) {
+		if (c == '\n' || isControl(VEOL, c) || isControl(VEOL2, c)) {
 			if(!(channel->activeSettings.c_lflag & ECHO) && (channel->activeSettings.c_lflag & ECHONL)) {
 				Packet echopacket;
 				echopacket.buffer.push_back(c);
