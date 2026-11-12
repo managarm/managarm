@@ -517,6 +517,15 @@ public:
 		co_return flags;
 	}
 
+	async::result<void> setFileFlags(int flags) override {
+		auto unknown = flags & ~(O_ACCMODE | O_NONBLOCK);
+		if (unknown)
+			std::println("posix: setFileFlags on pty \e[1;34m{}\e[0m called with unknown flags {:#x}",
+				structName(), unknown);
+		nonBlock_ = flags & O_NONBLOCK;
+		co_return;
+	}
+
 	helix::BorrowedDescriptor getPassthroughLane() override {
 		return _passthrough;
 	}
