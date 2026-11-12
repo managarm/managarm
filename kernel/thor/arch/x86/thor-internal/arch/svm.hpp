@@ -2,6 +2,7 @@
 
 #include <hel.h>
 
+#include <thor-internal/arch/asm.h>
 #include <thor-internal/arch/npt.hpp>
 #include <thor-internal/arch/virtualization.hpp>
 
@@ -174,8 +175,8 @@ namespace thor::svm {
 	constexpr size_t IOPM_BITMAP_SIZE = 4 * kPageSize;
 	constexpr size_t MSRPM_BITMAP_SIZE = 2 * kPageSize;
 
-	// ACCESSED FROM ASSEMBLY, DO NOT CHANGE
-	struct [[gnu::packed]] GprState {
+	// Accessed from svm_stubs.S, the offsets are checked against asm.h.
+	struct GprState {
 		uint64_t rbx;
 		uint64_t rcx;
 		uint64_t rdx;
@@ -190,9 +191,26 @@ namespace thor::svm {
 		uint64_t r13;
 		uint64_t r14;
 		uint64_t r15;
-
 		uint64_t dr0, dr1, dr2, dr3;
 	};
+	static_assert(offsetof(GprState, rbx) == THOR_SVM_GPR_STATE_RBX);
+	static_assert(offsetof(GprState, rcx) == THOR_SVM_GPR_STATE_RCX);
+	static_assert(offsetof(GprState, rdx) == THOR_SVM_GPR_STATE_RDX);
+	static_assert(offsetof(GprState, rsi) == THOR_SVM_GPR_STATE_RSI);
+	static_assert(offsetof(GprState, rdi) == THOR_SVM_GPR_STATE_RDI);
+	static_assert(offsetof(GprState, rbp) == THOR_SVM_GPR_STATE_RBP);
+	static_assert(offsetof(GprState, r8) == THOR_SVM_GPR_STATE_R8);
+	static_assert(offsetof(GprState, r9) == THOR_SVM_GPR_STATE_R9);
+	static_assert(offsetof(GprState, r10) == THOR_SVM_GPR_STATE_R10);
+	static_assert(offsetof(GprState, r11) == THOR_SVM_GPR_STATE_R11);
+	static_assert(offsetof(GprState, r12) == THOR_SVM_GPR_STATE_R12);
+	static_assert(offsetof(GprState, r13) == THOR_SVM_GPR_STATE_R13);
+	static_assert(offsetof(GprState, r14) == THOR_SVM_GPR_STATE_R14);
+	static_assert(offsetof(GprState, r15) == THOR_SVM_GPR_STATE_R15);
+	static_assert(offsetof(GprState, dr0) == THOR_SVM_GPR_STATE_DR0);
+	static_assert(offsetof(GprState, dr1) == THOR_SVM_GPR_STATE_DR1);
+	static_assert(offsetof(GprState, dr2) == THOR_SVM_GPR_STATE_DR2);
+	static_assert(offsetof(GprState, dr3) == THOR_SVM_GPR_STATE_DR3);
 
 	enum {
 		// Exception intercepts are 0x40 plus the vector.
