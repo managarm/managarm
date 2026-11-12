@@ -2797,9 +2797,8 @@ bool ProcessGroup::isOrphanedLocked() {
 		// a) is in the same session as the ProcessGroup, and
 		// b) is not a member of the process group,
 		// then the ProcessGroup is NOT orphaned
-		if (processRef->parent_
-		    && processRef->parent_->pgPointer_->getSession() == getSession()
-		    && processRef->pgPointer_ != getHull()->getProcessGroup())
+		if (processRef->parent_ && processRef->parent_->pgPointer_->getSession() == getSession()
+		    && processRef->parent_->pgPointer_ != getHull()->getProcessGroup())
 			return false;
 	}
 

@@ -1,11 +1,12 @@
 #include <cassert>
 #include <errno.h>
-#include <unistd.h>
-#include <termios.h>
 #include <fcntl.h>
+#include <signal.h>
+#include <stdlib.h>
 #include <sys/ioctl.h>
 #include <sys/wait.h>
-#include <stdlib.h>
+#include <termios.h>
+#include <unistd.h>
 
 #include "testsuite.hpp"
 
@@ -119,3 +120,39 @@ DEFINE_TEST(tcsetpgrp, ([] {
 		waitpid(pid, NULL, 0);
 	}
 }))
+
+DEFINE_TEST(nonorphaned_background_process_group, ([] {
+	            require_ptmx();
+	            pid_t session = fork();
+	            assert(session >= 0);
+	            if (!session) {
+		            alarm(5);
+		            assert(setsid() >= 0);
+		            int terminal = open("/dev/ptmx", O_RDWR | O_NOCTTY);
+		            assert(terminal >= 0);
+		            assert(!ioctl(terminal, TIOCSCTTY, 0));
+		            pid_t child = fork();
+		            assert(child >= 0);
+		            if (!child) {
+			            assert(!setpgid(0, 0));
+			            struct sigaction action{};
+			            action.sa_handler = [](int) {};
+			            assert(!sigemptyset(&action.sa_mask));
+			            assert(!sigaction(SIGTTOU, &action, nullptr));
+			            // Our parent is in another group in the same session. A caught
+			            // SIGTTOU can interrupt this call, but an orphan-group EIO is wrong.
+			            auto result = tcsetpgrp(terminal, getpgrp());
+			            assert(result == 0 || (result == -1 && errno == EINTR));
+			            _exit(0);
+		            }
+		            int status;
+		            assert(waitpid(child, &status, 0) == child);
+		            assert(WIFEXITED(status) && !WEXITSTATUS(status));
+		            assert(signal(SIGHUP, SIG_IGN) != SIG_ERR);
+		            close(terminal);
+		            _exit(0);
+	            }
+	            int status;
+	            assert(waitpid(session, &status, 0) == session);
+	            assert(WIFEXITED(status) && !WEXITSTATUS(status));
+            }))
