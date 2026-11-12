@@ -16,6 +16,7 @@ headers = [
 	'include/core/process-data.hpp',
 	'include/core/queue.hpp',
 	'include/core/smbios.hpp',
+	'include/core/time.hpp',
 	'include/core/tty.hpp',
 	'include/core/mount.hpp',
 ]
