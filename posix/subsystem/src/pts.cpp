@@ -77,6 +77,7 @@ struct Channel {
 	}
 
 	async::result<void> commonIoctl(managarm::fs::GenericIoctlRequest req, helix::BorrowedDescriptor conversation);
+	void commitAttributes(const struct termios &attrs);
 
 	int ptsIndex;
 	ControllingTerminalState cts;
@@ -110,6 +111,8 @@ struct Channel {
 	std::deque<Packet> masterQueue;
 	// Protected by mutex.
 	std::deque<Packet> slaveQueue;
+	// Incomplete canonical input, protected by mutex.
+	Packet pendingInput;
 
 	// Protected by mutex.
 	size_t masterCount = 0;
@@ -455,8 +458,6 @@ private:
 	async::cancellation_event cancelServe_;
 
 	std::shared_ptr<Channel> _channel;
-	// Protected by the channel's mutex.
-	Packet _packet{};
 
 	std::atomic<bool> _nonBlocking;
 };
@@ -697,6 +698,17 @@ private:
 	// Protected by _mutex.
 	std::set<smarter::shared_ptr<Link, LinkRc>, LinkCompare> _entries;
 };
+
+void Channel::commitAttributes(const struct termios &attrs) {
+	// Caller holds mutex. Leaving canonical mode releases the partial line.
+	bool release = (activeSettings.c_lflag & ICANON) && !(attrs.c_lflag & ICANON);
+	ttyCopyTermios(attrs, activeSettings);
+	if (release && !pendingInput.buffer.empty()) {
+		slaveQueue.push_back(std::move(pendingInput));
+		pendingInput = Packet{};
+		slaveInSeq = ++currentSeq;
+	}
+}
 
 async::result<void>
 Channel::commonIoctl(managarm::fs::GenericIoctlRequest req, helix::BorrowedDescriptor conversation) {
@@ -966,15 +978,16 @@ MasterFile::writeAll(Process *, const void *data, size_t length) {
 
 		auto s = reinterpret_cast<const char *>(data);
 		for(size_t i = 0; i < length; i++) {
-			processIn(s[i], _packet, _channel.get(), deferred);
+			processIn(s[i], _channel->pendingInput, _channel.get(), deferred);
 		}
 
 		// Check whether all data was discarded above. An empty packet would read as EOF.
-		if(!(_channel->activeSettings.c_lflag & ICANON) && !_packet.buffer.empty()) {
-			_channel->slaveQueue.push_back(std::move(_packet));
+		if (!(_channel->activeSettings.c_lflag & ICANON)
+		    && !_channel->pendingInput.buffer.empty()) {
+			_channel->slaveQueue.push_back(std::move(_channel->pendingInput));
 			_channel->slaveInSeq = ++_channel->currentSeq;
 			deferred.raise = true;
-			_packet = Packet{};
+			_channel->pendingInput = Packet{};
 		}
 	}
 
@@ -1146,8 +1159,9 @@ struct MasterFile::HandleIoctl {
 			HEL_CHECK(recv_attrs.error());
 			{
 				std::lock_guard lock{self->_channel->mutex};
-				ttyCopyTermios(attrs, self->_channel->activeSettings);
+				self->_channel->commitAttributes(attrs);
 			}
+			self->_channel->statusBell.raise();
 
 			resp.set_error(managarm::fs::Errors::SUCCESS);
 
@@ -1467,8 +1481,9 @@ struct SlaveFile::HandleIoctl {
 
 			{
 				std::lock_guard lock{self->_channel->mutex};
-				ttyCopyTermios(attrs, self->_channel->activeSettings);
+				self->_channel->commitAttributes(attrs);
 			}
+			self->_channel->statusBell.raise();
 
 			resp.set_error(managarm::fs::Errors::SUCCESS);
 

@@ -131,3 +131,23 @@ DEFINE_TEST(pty_blocked_read_hangup, ([] {
 	            char byte;
 	            assert(read(pty.slave, &byte, 1) == 0);
             }))
+
+DEFINE_TEST(pty_leave_canonical_mode, ([] {
+	            Pty pty;
+	            for (int control : {pty.slave, pty.master}) {
+		            auto attrs = canonicalSettings(control);
+		            assert(!tcsetattr(control, TCSANOW, &attrs));
+		            assert(write(pty.master, "partial", 7) == 7);
+		            assert(!readable(pty.slave));
+		            attrs.c_lflag &= ~ICANON;
+		            assert(!tcsetattr(control, TCSANOW, &attrs));
+		            expectInput(pty.slave, "partial", 7);
+	            }
+	            // Moving input state into the channel must retain editing across writes.
+	            auto attrs = canonicalSettings(pty.slave);
+	            attrs.c_cc[VERASE] = '\b';
+	            assert(!tcsetattr(pty.slave, TCSANOW, &attrs));
+	            assert(write(pty.master, "ab", 2) == 2);
+	            assert(write(pty.master, "\bC\n", 3) == 3);
+	            expectInput(pty.slave, "aC\n", 3);
+            }))
