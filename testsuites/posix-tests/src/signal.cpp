@@ -2,6 +2,7 @@
 #include <atomic>
 #include <errno.h>
 #include <signal.h>
+#include <string.h>
 #include <sys/wait.h>
 #include <unistd.h>
 
@@ -257,4 +258,53 @@ DEFINE_TEST(alarm_cancellation, ([] {
 	alarm(10);
 	int remaining = alarm(0);
 	assert(remaining > 0 && remaining <= 10);
+}))
+
+DEFINE_TEST(waitid_killed_siginfo, ([] {
+	pid_t pid = fork();
+	assert(pid >= 0);
+
+	if(!pid) {
+		raise(SIGTERM);
+		_exit(0);
+	}
+
+	siginfo_t info = {};
+	int ret = waitid(P_PID, (id_t)pid, &info, WEXITED);
+	assert(!ret);
+	assert(info.si_signo == SIGCHLD);
+	assert(info.si_pid == pid);
+	assert(info.si_code == CLD_KILLED);
+	assert(info.si_status == SIGTERM);
+}))
+
+DEFINE_TEST(waitid_nohang_no_state_change, ([] {
+	int fds[2];
+	int ret = pipe(fds);
+	assert(!ret);
+
+	pid_t pid = fork();
+	assert(pid >= 0);
+
+	if(!pid) {
+		char c;
+		close(fds[1]);
+		read(fds[0], &c, 1);
+		_exit(0);
+	}
+	close(fds[0]);
+
+	siginfo_t info;
+	memset(&info, 0xFF, sizeof(info));
+	ret = waitid(P_PID, (id_t)pid, &info, WEXITED | WNOHANG);
+	assert(!ret);
+	assert(info.si_signo == 0);
+	assert(info.si_pid == 0);
+
+	close(fds[1]);
+	ret = waitid(P_PID, (id_t)pid, &info, WEXITED);
+	assert(!ret);
+	assert(info.si_signo == SIGCHLD);
+	assert(info.si_code == CLD_EXITED);
+	assert(info.si_status == 0);
 }))
