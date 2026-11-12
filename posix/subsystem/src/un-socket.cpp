@@ -15,6 +15,7 @@
 #include <async/recurring-event.hpp>
 #include <core/clock.hpp>
 #include <core/dispatch.hpp>
+#include <core/time.hpp>
 #include <bragi/helpers-std.hpp>
 #include <protocols/fs/common.hpp>
 #include <helix/dispatcher-pool.hpp>
@@ -92,9 +93,8 @@ struct OpenFile : FileWithDefaults {
 	// Waits for the timeout; sets timedOut unless c is cancelled first.
 	static async::result<void> raceTimeout(std::optional<timeval> timeout, bool &timedOut,
 			async::cancellation_token c) {
-		if(timeout) {
-			uint64_t ns = (timeout->tv_usec * 1'000) + (timeout->tv_sec * 1'000'000'000);
-			co_await helix::sleepFor(ns, c);
+		if(auto deadline = helix::deadlineAfter(timeout.transform(core::timevalToNanos)); deadline) {
+			co_await helix::sleepUntil(*deadline, c);
 		} else {
 			co_await async::suspend_indefinitely(c);
 		}
