@@ -1384,29 +1384,29 @@ HandleRequest::operator()(managarm::posix::UtimensAtRequest &&req,
 	smarter::shared_ptr<File, FileHandle> file;
 	smarter::shared_ptr<FsNode> target = nullptr;
 
-	if(!req.path().size() && (req.flags() & AT_EMPTY_PATH)) {
-		target = self->fileContext()->getFile(req.fd())->associatedLink()->getTarget();
+	if(req.flags() & ~(AT_SYMLINK_NOFOLLOW | AT_EMPTY_PATH)) {
+		co_await sendErrorResponse<managarm::posix::UtimensAtResponse>(conversation, managarm::posix::Errors::ILLEGAL_ARGUMENTS);
+		co_return {};
+	}
+
+	if(req.fd() == AT_FDCWD) {
+		relativeTo = self->fsContext()->getWorkingDirectory();
 	} else {
-		if(req.flags() & ~(AT_SYMLINK_NOFOLLOW | AT_EMPTY_PATH)) {
-			co_await sendErrorResponse<managarm::posix::UtimensAtResponse>(conversation, managarm::posix::Errors::ILLEGAL_ARGUMENTS);
+		file = self->fileContext()->getFile(req.fd());
+		if (!file) {
+			co_await sendErrorResponse<managarm::posix::UtimensAtResponse>(conversation, managarm::posix::Errors::NO_SUCH_FD);
 			co_return {};
 		}
 
+		relativeTo = {file->associatedMount(), file->associatedLink()};
+	}
+
+	if(!req.path().size() && (req.flags() & AT_EMPTY_PATH)) {
+		target = relativeTo.second->getTarget();
+	} else {
 		ResolveFlags resolveFlags = 0;
 		if(req.flags() & AT_SYMLINK_NOFOLLOW) {
 			resolveFlags |= resolveDontFollow;
-		}
-
-		if(req.fd() == AT_FDCWD) {
-			relativeTo = self->fsContext()->getWorkingDirectory();
-		} else {
-			file = self->fileContext()->getFile(req.fd());
-			if (!file) {
-				co_await sendErrorResponse<managarm::posix::UtimensAtResponse>(conversation, managarm::posix::Errors::NO_SUCH_FD);
-				co_return {};
-			}
-
-			relativeTo = {file->associatedMount(), file->associatedLink()};
 		}
 
 		PathResolver resolver;
