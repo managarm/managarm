@@ -96,3 +96,38 @@ DEFINE_TEST(pty_slave_set_nonblocking, ([] {
 	            assert(write(pty.master, "line\n", 5) == 5);
 	            expectInput(pty.slave, "line\n", 5);
             }))
+
+DEFINE_TEST(pty_blocked_read_hangup, ([] {
+	            Pty pty;
+	            int ready[2];
+	            assert(!pipe(ready));
+	            pid_t child = fork();
+	            assert(child >= 0);
+	            if (!child) {
+		            alarm(5);
+		            close(ready[0]);
+		            close(pty.master);
+		            pty.master = -1;
+		            assert(write(ready[1], "r", 1) == 1);
+		            char byte;
+		            auto result = read(pty.slave, &byte, 1);
+#if defined(__linux__)
+		            // Linux can return EIO to a read already pending at hangup.
+		            assert(result == 0 || (result == -1 && errno == EIO));
+#else
+		            assert(result == 0);
+#endif
+		            _exit(0);
+	            }
+	            close(ready[1]);
+	            expectInput(ready[0], "r", 1);
+	            close(ready[0]);
+	            usleep(20000);
+	            close(pty.master);
+	            pty.master = -1;
+	            int status;
+	            assert(waitpid(child, &status, 0) == child);
+	            assert(WIFEXITED(status) && !WEXITSTATUS(status));
+	            char byte;
+	            assert(read(pty.slave, &byte, 1) == 0);
+            }))

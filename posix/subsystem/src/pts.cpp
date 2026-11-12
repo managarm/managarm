@@ -1261,6 +1261,9 @@ SlaveFile::readSome(Process *, void *data, size_t maxLength, async::cancellation
 				co_return chunk;
 			}
 
+			if (!_channel->masterCount)
+				co_return std::unexpected{Error::eof};
+
 			if(nonBlock_){
 				if(logReadWrite)
 					std::cout << "posix: tty would block" << std::endl;
@@ -1270,7 +1273,7 @@ SlaveFile::readSome(Process *, void *data, size_t maxLength, async::cancellation
 
 		auto waitResult = co_await _channel->statusBell.async_wait_if([&] {
 			std::lock_guard lock{_channel->mutex};
-			return _channel->slaveQueue.empty();
+			return _channel->slaveQueue.empty() && _channel->masterCount;
 		}, ce);
 		if (!waitResult) {
 			if (logReadWrite)
