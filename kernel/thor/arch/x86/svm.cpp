@@ -130,8 +130,25 @@ namespace thor::svm {
 	}
 
 	frg::expected<Error, HelVmexitReason> Vcpu::run(const HelVmexitCompletion *completion) {
-		if(completion)
-			return Error::illegalState;
+		auto rax = vmcb->rax;
+		auto rbx = gprState.rbx;
+		auto rcx = gprState.rcx;
+		auto rdx = gprState.rdx;
+
+		bool skipCompleted;
+		if(auto error = applyCompletion(completion, rax, rbx, rcx, rdx, skipCompleted); error)
+			return *error;
+
+		vmcb->rax = rax;
+		gprState.rbx = rbx;
+		gprState.rcx = rcx;
+		gprState.rdx = rdx;
+
+		if(skipCompleted) {
+			vmcb->rip = vmcb->rip + pendingCompletion_.instructionLength;
+			vmcb->irqShadow = 0;
+		}
+
 		HelVmexitReason reason{};
 		while(true) {
 			if(getCurrentThread()->checkCancelConditions())
