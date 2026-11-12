@@ -10,7 +10,8 @@ namespace common::x86 {
 enum {
 	kCpuIndexFeatures = 1,
 	kCpuIndexStructuredExtendedFeaturesEnum = 7,
-	kCpuIndexExtendedFeatures = 0x80000001
+	kCpuIndexExtendedFeatures = 0x80000001,
+	kCpuIndexSvmFeatures = 0x8000000A
 };
 
 enum {
