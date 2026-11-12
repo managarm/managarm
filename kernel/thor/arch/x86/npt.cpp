@@ -1,5 +1,8 @@
 #include <thor-internal/arch/npt.hpp>
 #include <thor-internal/address-space.hpp>
+#include <thor-internal/arch-generic/ints.hpp>
+#include <thor-internal/cpu-data.hpp>
+#include <thor-internal/ipl.hpp>
 #include <thor-internal/physical.hpp>
 
 namespace thor::svm {
@@ -108,15 +111,31 @@ NptPageSpace::~NptPageSpace() {
 NptOperations::NptOperations(NptPageSpace *pageSpace)
 : pageSpace_{pageSpace} { }
 
+// VMRUN flushes the TLB (see the TLB control of the VMCB).
+// Only a CPU that is currently in the guest can have stale translations.
+// TODO: With ASIDs, we need to invalidate like EptOperations does.
 void NptOperations::retire(RetireNode *node) {
-	// TODO: Shootdown needs to be implemented for NPT.
 	node->complete();
 }
 
 bool NptOperations::submitShootdown(ShootNode *node) {
-	// TODO: Shootdown needs to be implemented for NPT.
-	(void)node;
-	return true;
+	// If the guest is currently running, we interrupt it and let the CPU running it
+	// complete the shootdown.
+	CpuData *cpu;
+	{
+		auto irqLock = frg::guard(&irqMutex());
+		auto lock = frg::guard(&pageSpace_->shootMutex);
+
+		cpu = pageSpace_->guestCpu.load(std::memory_order_seq_cst);
+		if(cpu)
+			pageSpace_->shootQueue.push_back(node);
+	}
+	if(cpu) {
+		sendPingIpi(cpu);
+	}else{
+		node->complete();
+	}
+	return false;
 }
 
 frg::expected<Error, PagesAffected> NptOperations::mapPresentPages(VirtualAddr va, MemoryView *view,
@@ -155,6 +174,28 @@ frg::expected<Error, PagesAffected> NptOperations::agePages(VirtualAddr, size_t,
 
 NptSpace::NptSpace(CtorToken, PhysicalAddr root)
 : VirtualizedPageSpace{&nptOps_}, nptOps_{&pageSpace_}, pageSpace_{root} { }
+
+bool NptSpace::enterGuest(CpuData *cpu) {
+	CpuData *expected = nullptr;
+	return pageSpace_.guestCpu.compare_exchange_strong(expected, cpu, std::memory_order_seq_cst);
+}
+
+void NptSpace::leaveGuest() {
+	while(true) {
+		ShootNode *node;
+		{
+			auto lock = frg::guard(&pageSpace_.shootMutex);
+
+			pageSpace_.guestCpu.store(nullptr, std::memory_order_seq_cst);
+			node = pageSpace_.shootQueue.front();
+			if(node)
+				pageSpace_.shootQueue.erase(node);
+		}
+		if(!node)
+			break;
+		node->complete();
+	}
+}
 
 NptSpace::~NptSpace() { }
 

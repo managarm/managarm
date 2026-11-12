@@ -188,6 +188,11 @@ namespace thor::svm {
 					reason.exitReason = kHelVmexitKicked;
 					return reason;
 				}
+				if(!space->enterGuest(getCpuData())) {
+					leaveGuest();
+					asm volatile("stgi" : : : "memory");
+					return Error::illegalState;
+				}
 
 				// An interrupted or queued event takes precedence over interrupts from the local APIC.
 				// If the guest cannot accept an interrupt, V_IRQ makes it exit (VINTR) once it can.
@@ -247,6 +252,7 @@ namespace thor::svm {
 					setGuestDeadline(timerDeadline);
 
 				svmVmRun(&gprState, vmcb_region, host_additional_save_region);
+				space->leaveGuest();
 				leaveGuest();
 
 				if(timerDeadline)
