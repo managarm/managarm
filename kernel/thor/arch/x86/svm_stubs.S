@@ -102,13 +102,13 @@ svmVmRun:
 	popq %rdx
 
 	popq %rax
-	movq %rax, %dr0
-	popq %rax
-	movq %rax, %dr1
+	movq %rax, %dr3
 	popq %rax
 	movq %rax, %dr2
 	popq %rax
-	movq %rax, %dr3
+	movq %rax, %dr1
+	popq %rax
+	movq %rax, %dr0
 
 	popq %r15
 	popq %r14
