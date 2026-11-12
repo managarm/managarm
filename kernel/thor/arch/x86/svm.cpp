@@ -5,6 +5,7 @@
 #include <thor-internal/arch-generic/cpu.hpp>
 #include <thor-internal/physical.hpp>
 #include <thor-internal/cpu-data.hpp>
+#include <thor-internal/ipl.hpp>
 #include <thor-internal/thread.hpp>
 #include <thor-internal/timer.hpp>
 #include <x86/machine.hpp>
@@ -177,86 +178,89 @@ namespace thor::svm {
 
 			vmcb->vTpr = lapic_.cr8();
 
-			asm volatile("clgi" : : : "memory");
+			{
+				StatelessIrqLock irqLock;
+				asm volatile("clgi" : : : "memory");
 
-			if(enterGuest(getCpuData())) {
-				asm volatile("stgi" : : : "memory");
-				reason.exitReason = kHelVmexitKicked;
-				return reason;
-			}
-
-			// An interrupted or queued event takes precedence over interrupts from the local APIC.
-			// If the guest cannot accept an interrupt, V_IRQ makes it exit (VINTR) once it can.
-			auto wantWindow = false;
-			auto vector = lapic_.deliverableVector();
-			std::optional<Event> injected;
-			if(reinjectValid_) {
-				wantWindow = vector >= 0;
-				injected = reinject_;
-				reinjectValid_ = false;
-			}else if(vector >= 0) {
-				if(!(vmcb->rflags & (1 << 9)) || vmcb->irqShadow) {
-					wantWindow = true;
-				}else{
-					lapic_.acknowledge(vector);
-					injected = Event{
-						.type = x86_virt::kEventExternalInterrupt,
-						.vector = static_cast<uint8_t>(vector),
-						.hasErrorCode = false,
-						.errorCode = 0,
-						.instructionLength = 0,
-					};
+				if(enterGuest(getCpuData())) {
+					asm volatile("stgi" : : : "memory");
+					reason.exitReason = kHelVmexitKicked;
+					return reason;
 				}
+
+				// An interrupted or queued event takes precedence over interrupts from the local APIC.
+				// If the guest cannot accept an interrupt, V_IRQ makes it exit (VINTR) once it can.
+				auto wantWindow = false;
+				auto vector = lapic_.deliverableVector();
+				std::optional<Event> injected;
+				if(reinjectValid_) {
+					wantWindow = vector >= 0;
+					injected = reinject_;
+					reinjectValid_ = false;
+				}else if(vector >= 0) {
+					if(!(vmcb->rflags & (1 << 9)) || vmcb->irqShadow) {
+						wantWindow = true;
+					}else{
+						lapic_.acknowledge(vector);
+						injected = Event{
+							.type = x86_virt::kEventExternalInterrupt,
+							.vector = static_cast<uint8_t>(vector),
+							.hasErrorCode = false,
+							.errorCode = 0,
+							.instructionLength = 0,
+						};
+					}
+				}
+				if(injected) {
+					uint64_t inject = injected->vector
+							| (static_cast<uint64_t>(injected->type) << 8)
+							| (UINT64_C(1) << 31);
+					// Error codes are only delivered if guest's CR0.PE is set.
+					if(injected->hasErrorCode && (vmcb->cr0 & CR0_PE))
+						inject |= (UINT64_C(1) << 11) | (static_cast<uint64_t>(injected->errorCode) << 32);
+					vmcb->eventInject = inject;
+				}
+				vmcb->vIrq = wantWindow;
+				vmcb->vIgnoreTpr = wantWindow;
+				vmcb->iceptVintr = wantWindow;
+
+				auto pat = common::x86::rdmsr(common::x86::kMsrPAT);
+				asm volatile("vmsave %%rax" : : "a"(host_additional_save_region) : "memory"); // Use vmsave / vmload to save additional state that would otherwise have to be wrmsr'ed
+
+				if(getGlobalCpuFeatures()->haveXsave){
+					common::x86::xsave((uint8_t *)host_fpu_state, ~0);
+					common::x86::xrstor((uint8_t *)guest_fpu_state, ~0);
+				} else {
+					asm volatile ("fxsaveq %0" : : "m" (*host_fpu_state));
+					asm volatile ("fxrstorq %0" : : "m" (*guest_fpu_state));
+				}
+				// XCR0 is only observable by the guest if it set CR4.OSXSAVE.
+				// The FPU state is saved and restored using the (larger) host XCR0.
+				auto hostXcr0 = getGlobalCpuFeatures()->xcr0Mask;
+				auto switchXcr0 = getGlobalCpuFeatures()->haveXsave
+						&& (vmcb->cr4 & CR4_OSXSAVE) && guestXcr0_ != hostXcr0;
+				if(switchXcr0)
+					common::x86::wrxcr(0, guestXcr0_);
+
+				svmVmRun(&gprState, vmcb_region);
+				leaveGuest();
+
+				if(switchXcr0)
+					common::x86::wrxcr(0, hostXcr0);
+
+				common::x86::wrmsr(common::x86::kMsrPAT, pat);
+				asm volatile("vmload %%rax" : : "a"(host_additional_save_region) : "memory");
+
+				if(getGlobalCpuFeatures()->haveXsave){
+					common::x86::xsave((uint8_t *)guest_fpu_state, ~0);
+					common::x86::xrstor((uint8_t *)host_fpu_state, ~0);
+				} else {
+					asm volatile ("fxsaveq %0" : : "m" (*guest_fpu_state));
+					asm volatile ("fxrstorq %0" : : "m" (*host_fpu_state));
+				}
+
+				asm volatile("stgi" : : : "memory");
 			}
-			if(injected) {
-				uint64_t inject = injected->vector
-						| (static_cast<uint64_t>(injected->type) << 8)
-						| (UINT64_C(1) << 31);
-				// Error codes are only delivered if guest's CR0.PE is set.
-				if(injected->hasErrorCode && (vmcb->cr0 & CR0_PE))
-					inject |= (UINT64_C(1) << 11) | (static_cast<uint64_t>(injected->errorCode) << 32);
-				vmcb->eventInject = inject;
-			}
-			vmcb->vIrq = wantWindow;
-			vmcb->vIgnoreTpr = wantWindow;
-			vmcb->iceptVintr = wantWindow;
-
-			auto pat = common::x86::rdmsr(common::x86::kMsrPAT);
-			asm volatile("vmsave %%rax" : : "a"(host_additional_save_region) : "memory"); // Use vmsave / vmload to save additional state that would otherwise have to be wrmsr'ed
-
-			if(getGlobalCpuFeatures()->haveXsave){
-				common::x86::xsave((uint8_t *)host_fpu_state, ~0);
-				common::x86::xrstor((uint8_t *)guest_fpu_state, ~0);
-			} else {
-				asm volatile ("fxsaveq %0" : : "m" (*host_fpu_state));
-				asm volatile ("fxrstorq %0" : : "m" (*guest_fpu_state));
-			}
-			// XCR0 is only observable by the guest if it set CR4.OSXSAVE.
-			// The FPU state is saved and restored using the (larger) host XCR0.
-			auto hostXcr0 = getGlobalCpuFeatures()->xcr0Mask;
-			auto switchXcr0 = getGlobalCpuFeatures()->haveXsave
-					&& (vmcb->cr4 & CR4_OSXSAVE) && guestXcr0_ != hostXcr0;
-			if(switchXcr0)
-				common::x86::wrxcr(0, guestXcr0_);
-
-			svmVmRun(&gprState, vmcb_region);
-			leaveGuest();
-
-			if(switchXcr0)
-				common::x86::wrxcr(0, hostXcr0);
-
-			common::x86::wrmsr(common::x86::kMsrPAT, pat);
-			asm volatile("vmload %%rax" : : "a"(host_additional_save_region) : "memory");
-
-			if(getGlobalCpuFeatures()->haveXsave){
-				common::x86::xsave((uint8_t *)guest_fpu_state, ~0);
-				common::x86::xrstor((uint8_t *)host_fpu_state, ~0);
-			} else {
-				asm volatile ("fxsaveq %0" : : "m" (*guest_fpu_state));
-				asm volatile ("fxrstorq %0" : : "m" (*host_fpu_state));
-			}
-
-			asm volatile("stgi" : : : "memory");
 
 			// Guest writes to CR8 change V_TPR without exiting.
 			lapic_.setCr8(vmcb->vTpr);
@@ -287,7 +291,7 @@ namespace thor::svm {
 			case kSvmExitIntr:
 			case kSvmExitNmi:
 			case kSvmExitSmi:
-				// The host handled the interrupt (or NMI, SMI) when we executed STGI.
+				// The host handled the interrupt (or NMI, SMI) once GIF and IF were set again.
 				break;
 
 			case kSvmExitVintr:

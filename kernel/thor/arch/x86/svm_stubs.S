@@ -53,7 +53,10 @@ svmVmRun:
 	movq 0x8(%rsp), %rax
 
 	vmload %rax
+	# With V_INTR_MASKING, host interrupts cause exits only if IF is set at VMRUN.
+	sti
 	vmrun %rax
+	cli
 	vmsave %rax
 
 	pushq %rdi # Save Guest RDI
