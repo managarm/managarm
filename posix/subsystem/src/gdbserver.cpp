@@ -338,7 +338,7 @@ async::result<frg::expected<ProtocolError>> GdbServer::handleRequest_() {
 		if(!req.fullyConsumed())
 			co_return ProtocolError::malformedPacket;
 
-		uintptr_t pcrs[2];
+		uintptr_t pcrs[kHelNumProgramRegs];
 		uintptr_t gprs[kHelNumGprs];
 
 		HEL_CHECK(helLoadRegisters(process_->threadDescriptor().getHandle(),

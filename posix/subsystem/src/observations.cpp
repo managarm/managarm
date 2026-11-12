@@ -187,7 +187,7 @@ async::result<void> observeThread(std::shared_ptr<Process> self,
 
 			// Copy registers from the current thread to the new one.
 			auto new_thread = child->threadDescriptor().getHandle();
-			uintptr_t pcrs[2], gprs[kHelNumGprs], thrs[2];
+			uintptr_t pcrs[kHelNumProgramRegs], gprs[kHelNumGprs], thrs[2];
 			HEL_CHECK(helLoadRegisters(thread.getHandle(), kHelRegsProgram, &pcrs));
 			HEL_CHECK(helLoadRegisters(thread.getHandle(), kHelRegsGeneral, &gprs));
 			HEL_CHECK(helLoadRegisters(thread.getHandle(), kHelRegsThread, &thrs));
@@ -548,7 +548,7 @@ async::result<void> observeThread(std::shared_ptr<Process> self,
 				std::cout << "posix: SIGALTSTACK supercall" << std::endl;
 
 			uintptr_t gprs[kHelNumGprs];
-			uintptr_t pcrs[2];
+			uintptr_t pcrs[kHelNumProgramRegs];
 			HEL_CHECK(helLoadRegisters(thread.getHandle(), kHelRegsGeneral, &gprs));
 			HEL_CHECK(helLoadRegisters(thread.getHandle(), kHelRegsProgram, &pcrs));
 
