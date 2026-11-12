@@ -202,8 +202,10 @@ namespace thor::svm {
 		kSvmExitIntr = 0x60,
 		kSvmExitNmi = 0x61,
 		kSvmExitSmi = 0x62,
+		kSvmExitCpuid = 0x72,
 		kSvmExitHlt = 0x78,
 		kSvmExitShutdown = 0x7F,
+		kSvmExitVmmcall = 0x81,
 		kSvmExitNPTFault = 0x400,
 	};
 

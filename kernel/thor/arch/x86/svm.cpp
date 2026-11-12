@@ -218,6 +218,12 @@ namespace thor::svm {
 				reason.exitReason = kHelVmexitHlt;
 				return reason;
 
+			case kSvmExitCpuid:
+				return requestCpuidCompletion(vmcb->rax, gprState.rcx, vmcb->nextRip - vmcb->rip);
+
+			case kSvmExitVmmcall:
+				return requestHyperCallCompletion(vmcb->nextRip - vmcb->rip);
+
 			case kSvmExitExceptionDb:
 				// The CPU already updated DR6 in the VMCB.
 				queueException(DB_VECTOR, false, 0);
