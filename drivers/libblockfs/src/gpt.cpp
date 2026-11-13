@@ -3,6 +3,7 @@
 #include <format>
 #include <print>
 #include <array>
+#include <arch/bit.hpp>
 
 #include "gpt.hpp"
 
@@ -15,6 +16,29 @@ std::string Guid::toString() const {
 }
 
 namespace {
+	// Decode temporary read buffers at the disk boundary. Guid's in-memory
+	// representation remains native so constants and toString() keep their ABI.
+	Guid decodeGuid(Guid value) {
+		value.a = arch::from_endian<arch::little_endian, uint32_t>(value.a);
+		value.b = arch::from_endian<arch::little_endian, uint16_t>(value.b);
+		value.c = arch::from_endian<arch::little_endian, uint16_t>(value.c);
+		return value;
+	}
+	void decodeHeader(DiskHeader &header) {
+		header.revision = arch::from_endian<arch::little_endian, uint32_t>(header.revision);
+		header.headerSize = arch::from_endian<arch::little_endian, uint32_t>(header.headerSize);
+		header.headerCheckSum = arch::from_endian<arch::little_endian, uint32_t>(header.headerCheckSum);
+		header.reservedZero = arch::from_endian<arch::little_endian, uint32_t>(header.reservedZero);
+		header.numEntries = arch::from_endian<arch::little_endian, uint32_t>(header.numEntries);
+		header.entrySize = arch::from_endian<arch::little_endian, uint32_t>(header.entrySize);
+		header.tableCheckSum = arch::from_endian<arch::little_endian, uint32_t>(header.tableCheckSum);
+		header.signature = arch::from_endian<arch::little_endian, uint64_t>(header.signature);
+		header.currentLba = arch::from_endian<arch::little_endian, uint64_t>(header.currentLba);
+		header.backupLba = arch::from_endian<arch::little_endian, uint64_t>(header.backupLba);
+		header.firstLba = arch::from_endian<arch::little_endian, uint64_t>(header.firstLba);
+		header.lastLba = arch::from_endian<arch::little_endian, uint64_t>(header.lastLba);
+		header.entryTableLba = arch::from_endian<arch::little_endian, uint64_t>(header.entryTableLba);
+	}
 	constexpr std::array<size_t, 4> commonSectorSizes{512, 2048, 4096, 8192};
 
 	constexpr size_t gptSectorNumber = 1;
@@ -43,8 +67,10 @@ Table::probeSectorSize_(size_t sectorSize) {
 		co_return std::unexpected{headerRes.error()};
 
 	DiskHeader *header = reinterpret_cast<DiskHeader *>(static_cast<std::byte *>(headerBuffer.data()) + deviceGptOffset);
-	if (header->signature == 0x5452415020494645)
+	if (arch::from_endian<arch::little_endian, uint64_t>(header->signature) == 0x5452415020494645) {
+		decodeHeader(*header);
 		co_return std::make_pair(std::move(headerBuffer), header);
+	}
 
 	co_return std::make_pair(arch::dma_buffer{}, nullptr);
 }
@@ -105,10 +131,15 @@ async::result<std::expected<void, Error>> Table::parse() {
 		co_return std::unexpected{tableRes.error()};
 
 	for (uint32_t i = 0; i < header.second->numEntries; i++) {
-		DiskEntry *entry = reinterpret_cast<DiskEntry *>(
-		    static_cast<std::byte *>(tableBuffer.data()) + deviceTableOffset
-		    + i * header.second->entrySize
-		);
+		DiskEntry decoded;
+		memcpy(&decoded, static_cast<std::byte *>(tableBuffer.data()) + deviceTableOffset
+			+ i * header.second->entrySize, sizeof(decoded));
+		decoded.typeGuid = decodeGuid(decoded.typeGuid);
+		decoded.uniqueGuid = decodeGuid(decoded.uniqueGuid);
+		decoded.firstLba = arch::from_endian<arch::little_endian, uint64_t>(decoded.firstLba);
+		decoded.lastLba = arch::from_endian<arch::little_endian, uint64_t>(decoded.lastLba);
+		decoded.attrFlags = arch::from_endian<arch::little_endian, uint64_t>(decoded.attrFlags);
+		auto entry = &decoded;
 
 		if (entry->typeGuid == type_guids::null)
 			continue;
