@@ -17,7 +17,7 @@
 
 namespace {
 
-constexpr size_t pageSize = 0x1000;
+constexpr size_t pageSize = kHelPageSize;
 constexpr size_t swapPages = 64;
 constexpr size_t viewPages = 16;
 

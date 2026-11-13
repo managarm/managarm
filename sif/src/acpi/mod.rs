@@ -13,7 +13,7 @@ use anyhow::Result;
 use crate::uacpi::init;
 use crate::uacpi::runtime::Aml;
 
-pub(crate) const PAGE_SIZE: usize = 0x1000;
+pub(crate) const PAGE_SIZE: usize = hel::PAGE_SIZE;
 pub(crate) const PAGE_MASK: usize = PAGE_SIZE - 1;
 
 pub(crate) static RSDP: AtomicU64 = AtomicU64::new(0);

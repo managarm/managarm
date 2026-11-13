@@ -205,7 +205,7 @@ std::tuple<std::string, std::string, std::string> GfxDevice::driverInfo() {
 
 std::pair<std::shared_ptr<drm_core::BufferObject>, uint32_t>
 GfxDevice::createDumb(uint32_t width, uint32_t height, uint32_t bpp) {
-	auto size = ((width * height * bpp / 8) + (4096 - 1)) & ~(4096 - 1);
+	auto size = ((width * height * bpp / 8) + (kHelPageSize - 1)) & ~(kHelPageSize - 1);
 	arch::dma_buffer buf{&dmaPool(), size};
 
 	auto bo = std::make_shared<BufferObject>(this, _resourceIdAllocator.allocate(), std::move(buf), width, height);

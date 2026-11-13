@@ -22,7 +22,7 @@ constexpr uint64_t ptePpnMask = (((UINT64_C(1) << 44) - 1) << 10);
 physaddr_t pml4;
 
 void
-mapSingle4kPage(address_t address, address_t physical, uint32_t flags, CachingMode caching_mode) {
+mapSinglePage(address_t address, address_t physical, uint32_t flags, CachingMode caching_mode) {
 	assert(!(address & (pageSize - 1)));
 	assert(!(physical & (pageSize - 1)));
 	(void)caching_mode;
@@ -68,10 +68,10 @@ mapSingle4kPage(address_t address, address_t physical, uint32_t flags, CachingMo
 	table[vpn0] = pte0;
 }
 
-address_t getSingle4kPage(address_t address) {
+address_t getSinglePage(address_t address) {
 	assert(!(address & (pageSize - 1)));
 
-	// This needs to be determined before getSingle4kPage() is called.
+	// This needs to be determined before getSinglePage() is called.
 	assert(riscvConfig.numPtLevels);
 
 	auto *table = physToVirt<uint64_t>(pml4);

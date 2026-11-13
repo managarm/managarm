@@ -156,7 +156,7 @@ const struct vbt_header *lil_vbt_locate(LilGpu *gpu) {
 
 	void *vbt;
 	HEL_CHECK(helMapMemory(desc.getHandle(), kHelNullHandle,
-		nullptr, 0, (vbt_size + 0xFFF) & ~0xFFF,
+		nullptr, 0, (vbt_size + kHelPageSize - 1) & ~(kHelPageSize - 1),
 		kHelMapProtRead | kHelMapProtWrite, &vbt));
 
 	const struct vbt_header *vbt_header = vbt_get_header(vbt, vbt_size);

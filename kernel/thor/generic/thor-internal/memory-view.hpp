@@ -1187,7 +1187,7 @@ static_assert(HasDispose<ManagedSpace>);
 // Swap offsets are split into a region (e.g., a swap file) and the slot within the region.
 struct SwapSpace final : ManagedSpace, RcuProtected {
 	// Number of low bits of a swap offset (in pages) that select the slot within its region.
-	static constexpr int regionShift = 32;
+	static constexpr int regionShift = 44 - kPageShift;
 	// Swap offsets of all regions fit into the backing memory (see backingMemoryLength).
 	static constexpr unsigned int maxRegions = 1 << (62 - regionShift - kPageShift);
 	// The last offset of each region stays unused, such that runs of consecutive offsets

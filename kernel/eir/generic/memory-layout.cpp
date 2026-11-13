@@ -101,7 +101,7 @@ initgraph::Task setupKernelStackHeap{
     [] {
 	    // Setup the kernel stack.
 	    for (address_t page = 0; page < kernelStackSize; page += pageSize)
-		    mapSingle4kPage(kernelStack + page, allocPage(), PageFlags::write);
+		    mapSinglePage(kernelStack + page, allocPage(), PageFlags::write);
 	    mapKasanShadow(kernelStack, kernelStackSize);
 	    unpoisonKasanShadow(kernelStack, kernelStackSize);
 

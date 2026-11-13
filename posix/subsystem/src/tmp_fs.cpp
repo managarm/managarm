@@ -568,7 +568,7 @@ private:
 		//       objects can discard a range; writing zeros would allocate all of it.
 		_fileSize = new_size;
 
-		size_t aligned_size = (new_size + 0xFFF) & ~size_t(0xFFF);
+		size_t aligned_size = (new_size + kHelPageSize - 1) & ~size_t(kHelPageSize - 1);
 		if(aligned_size <= _areaSize)
 			co_return;
 

@@ -146,7 +146,7 @@ std::tuple<std::string, std::string, std::string> GfxDevice::driverInfo() {
 std::pair<std::shared_ptr<drm_core::BufferObject>, uint32_t>
 GfxDevice::createDumb(uint32_t width, uint32_t height, uint32_t bpp) {
 	HelHandle handle;
-	auto size = ((width * height * bpp / 8) + (4096 - 1)) & ~(4096 - 1);
+	auto size = ((width * height * bpp / 8) + (kHelPageSize - 1)) & ~(kHelPageSize - 1);
 	HEL_CHECK(helAllocateMemory(core::getProcessHierarchy(), size, 0, nullptr, &handle));
 
 	auto bo = std::make_shared<BufferObject>(this, size,

@@ -8,7 +8,7 @@ using address_t = uint64_t;
 void debugPrintChar(char c);
 
 void setupPaging();
-void mapSingle4kPage(
+void mapSinglePage(
     uint64_t address,
     uint64_t physical,
     uint32_t flags,

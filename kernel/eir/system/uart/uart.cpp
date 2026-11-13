@@ -75,9 +75,9 @@ static initgraph::Task setupBootUartMmio{
 
 		    auto window = allocateEarlyMmio(pages);
 		    for (size_t i = 0; i < pages; ++i) {
-			    mapSingle4kPage(
+			    mapSinglePage(
 			        window + i * pageSize,
-			        bootUartConfig.address + i * pageSize,
+			        (bootUartConfig.address & ~uint64_t(pageSize - 1)) + i * pageSize,
 			        PageFlags::write,
 			        CachingMode::mmio
 			    );
@@ -86,7 +86,7 @@ static initgraph::Task setupBootUartMmio{
 		    mapKasanShadow(window, pages * pageSize);
 		    unpoisonKasanShadow(window, pages * pageSize);
 
-		    bootUartConfig.window = window;
+		    bootUartConfig.window = window + (bootUartConfig.address & (pageSize - 1));
 	    }
     }
 };

@@ -8,7 +8,7 @@
 namespace helix {
 
 struct Mapping {
-	static constexpr size_t pageSize = 0x1000;
+	static constexpr size_t pageSize = kHelPageSize;
 
 	friend void swap(Mapping &x, Mapping &y) {
 		using std::swap;
@@ -41,7 +41,8 @@ struct Mapping {
 
 	~Mapping() {
 		if(_window) {
-			auto aligned_size = (_size + (pageSize - 1)) & ~(pageSize - 1);
+			auto aligned_size = ((_offset & (pageSize - 1)) + _size + (pageSize - 1))
+					& ~(pageSize - 1);
 			HEL_CHECK(helUnmapMemory(kHelNullHandle, _window, aligned_size));
 		}
 	}

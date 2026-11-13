@@ -128,7 +128,7 @@ struct PageAccessor {
 
 	PageAccessor(PhysicalAddr physical) {
 		assert(physical != PhysicalAddr(-1) && "trying to access invalid physical page");
-		assert(!(physical & 0xFFF) && "physical page is not aligned");
+		assert(!(physical & (kPageSize - 1)) && "physical page is not aligned");
 		assert(physical < 0x4000'0000'0000);
 		_pointer = reinterpret_cast<void *>(directPhysicalOffset() + physical);
 	}

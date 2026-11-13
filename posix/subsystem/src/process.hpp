@@ -223,7 +223,7 @@ public:
 	void setFdLimit(uint64_t limit) {
 		std::lock_guard lock{_mutex};
 		// TODO: increase the limit once we allow more than one shared fd -> HelHandle mapping page
-		fdLimit_ = std::min(limit, 0x1000 / sizeof(HelHandle));
+		fdLimit_ = std::min(limit, maxFileDescriptors);
 	}
 
 private:
@@ -244,9 +244,11 @@ private:
 	// Contents protected by _mutex.
 	helix::Mapping fileTableWindow_;
 
-	// TODO: increase the limit once we allow more than one shared fd -> HelHandle mapping page
+	// Keep the FD limit in sync with mlibc; the table occupies one native page.
+	static constexpr uint64_t maxFileDescriptors = 512;
+	static_assert(maxFileDescriptors * sizeof(HelHandle) <= kHelPageSize);
 	// Protected by _mutex.
-	uint64_t fdLimit_ = 0x1000 / sizeof(HelHandle);
+	uint64_t fdLimit_ = maxFileDescriptors;
 
 	HelHandle _clientMbusLane;
 };

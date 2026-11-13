@@ -219,7 +219,7 @@ impl BrcmStbPcie {
             return Err(BrcmStbError::NoReg);
         };
         let addr = reg.addr;
-        let size = ((reg.size + 0xFFF) & !0xFFF) as usize;
+        let size = ((reg.size + hel::PAGE_SIZE as u64 - 1) & !(hel::PAGE_SIZE as u64 - 1)) as usize;
 
         let handle = hel::access_physical(
             hardware_access_handle(),

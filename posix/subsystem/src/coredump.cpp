@@ -134,7 +134,7 @@ async::result<void> Process::coredump(TerminationState state) {
 	noteSize += sizeof(Elf64_Nhdr) + 8 + sizeof(user_fpregs_struct);
 
 	size_t memoryDumpOffset = sizeof(Elf64_Ehdr) + (phdrCount * sizeof(Elf64_Phdr)) + noteSize;
-	memoryDumpOffset = (memoryDumpOffset + 0x1000 - 1) & ~0xFFF;
+	memoryDumpOffset = (memoryDumpOffset + kHelPageSize - 1) & ~(kHelPageSize - 1);
 
 	auto resizeResult = co_await file->truncate(memoryDumpOffset + memoryDumpSize);
 	if (!resizeResult) {
@@ -207,7 +207,7 @@ async::result<void> Process::coredump(TerminationState state) {
 			.p_paddr = 0,
 			.p_filesz = dump ? area.size() : 0,
 			.p_memsz = area.size(),
-			.p_align = 0x1000,
+			.p_align = kHelPageSize,
 		};
 
 		dumpRegionOffset += phdr.p_filesz;
@@ -356,7 +356,7 @@ async::result<void> Process::coredump(TerminationState state) {
 
 		long info[2];
 		info[0] = noteFiles.size();
-		info[1] = 0x1000;
+		info[1] = kHelPageSize;
 
 		write(&info, sizeof(info));
 
@@ -367,7 +367,7 @@ async::result<void> Process::coredump(TerminationState state) {
 			long fileInfo[3];
 			fileInfo[0] = area.baseAddress();
 			fileInfo[1] = area.baseAddress() + area.size();
-			fileInfo[2] = area.backingFileOffset() / 0x1000;
+			fileInfo[2] = area.backingFileOffset() / kHelPageSize;
 			write(&fileInfo, sizeof(fileInfo));
 		}
 

@@ -80,7 +80,7 @@ void setupPaging() {
 }
 
 void
-mapSingle4kPage(address_t address, address_t physical, uint32_t flags, CachingMode caching_mode) {
+mapSinglePage(address_t address, address_t physical, uint32_t flags, CachingMode caching_mode) {
 	assert(address % pageSize == 0);
 	assert(physical % pageSize == 0);
 
@@ -143,7 +143,7 @@ mapSingle4kPage(address_t address, address_t physical, uint32_t flags, CachingMo
 	(physToVirt<uint64_t>(pt))[pt_index] = new_entry;
 }
 
-address_t getSingle4kPage(address_t address) {
+address_t getSinglePage(address_t address) {
 	assert(address % pageSize == 0);
 
 	int pml4_index = (int)((address >> 39) & 0x1FF);

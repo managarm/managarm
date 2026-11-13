@@ -35,9 +35,9 @@ frg::ticket_spinlock getpidLock{};
 
 } // namespace
 
-NvU32 os_page_size = 0x1000;
-NvU64 os_page_mask = ~0xFFF;
-NvU8 os_page_shift = 12;
+NvU32 os_page_size = kHelPageSize;
+NvU64 os_page_mask = ~(NvU64{kHelPageSize} - 1);
+NvU8 os_page_shift = kHelPageShift;
 NvBool os_cc_enabled = 0;
 NvBool os_cc_sev_snp_enabled = 0;
 NvBool os_cc_snp_vtom_enabled = 0;
@@ -208,8 +208,8 @@ void *NV_API_CALL os_map_kernel_space(NvU64 start, NvU64 size_bytes, NvU32 mode)
 
 	auto [offset, memory] = GfxDevice::accessMmio(start, size_bytes);
 
-	auto alignedOffset = offset & ~0xFFF;
-	auto alignedSize = ((offset + size_bytes + 0xFFF) & ~0xFFF) - alignedOffset;
+	auto alignedOffset = offset & ~(kHelPageSize - 1);
+	auto alignedSize = ((offset + size_bytes + (kHelPageSize - 1)) & ~(kHelPageSize - 1)) - alignedOffset;
 	auto mappingOffset = alignedOffset;
 
 	HelHandle handle = memory.getHandle();
@@ -231,12 +231,12 @@ void *NV_API_CALL os_map_kernel_space(NvU64 start, NvU64 size_bytes, NvU32 mode)
 	));
 	assert(window);
 
-	return reinterpret_cast<void *>(uintptr_t(window) + (offset & 0xFFF));
+	return reinterpret_cast<void *>(uintptr_t(window) + (offset & (kHelPageSize - 1)));
 }
 
 void NV_API_CALL os_unmap_kernel_space(void *ptr, NvU64 len) {
-	auto alignedAddr = uintptr_t(ptr) & ~0xFFF;
-	auto alignedSize = ((uintptr_t(ptr) + len + 0xFFF) & ~0xFFF) - alignedAddr;
+	auto alignedAddr = uintptr_t(ptr) & ~(kHelPageSize - 1);
+	auto alignedSize = ((uintptr_t(ptr) + len + (kHelPageSize - 1)) & ~(kHelPageSize - 1)) - alignedAddr;
 	HEL_CHECK(helUnmapMemory(kHelNullHandle, reinterpret_cast<void *>(alignedAddr), alignedSize));
 }
 
@@ -277,7 +277,7 @@ NV_STATUS NV_API_CALL os_registry_init(void) {
 	return NV_OK;
 }
 
-NvU64 NV_API_CALL os_get_max_user_va(void) { return (1ULL << 47) - 0x1000; }
+NvU64 NV_API_CALL os_get_max_user_va(void) { return (1ULL << 47) - kHelPageSize; }
 
 NV_STATUS NV_API_CALL os_schedule(void) { return NV_OK; }
 
@@ -599,15 +599,15 @@ void *NV_API_CALL nv_alloc_kernel_mapping(
 	auto info = reinterpret_cast<AllocInfo *>(pAllocPrivate);
 
 	assert(size);
-	size_t pages = (size + 0xFFF) / 0x1000;
+	size_t pages = (size + (kHelPageSize - 1)) / kHelPageSize;
 
 	void *ptr = nullptr;
 	HEL_CHECK(helMapMemory(
 	    info->handle,
 	    kHelNullHandle,
 	    nullptr,
-	    pageIndex << 12,
-	    pages << 12,
+	    pageIndex << kHelPageShift,
+	    pages << kHelPageShift,
 	    kHelMapProtRead | kHelMapProtWrite,
 	    &ptr
 	));
@@ -623,8 +623,8 @@ nv_free_kernel_mapping(nv_state_t *, void *pAllocPrivate, void *address, void *p
 	auto info [[maybe_unused]] = reinterpret_cast<AllocInfo *>(pAllocPrivate);
 	size_t page_count = (uintptr_t)pPrivate;
 
-	auto alignedStart = (uintptr_t(address) + 0xFFF) & ~0xFFF;
-	auto alignedEnd = (uintptr_t(address) + (page_count << 12)) & ~0xFFF;
+	auto alignedStart = (uintptr_t(address) + (kHelPageSize - 1)) & ~(kHelPageSize - 1);
+	auto alignedEnd = (uintptr_t(address) + (page_count << kHelPageShift)) & ~(kHelPageSize - 1);
 
 	HEL_CHECK(helUnmapMemory(
 	    kHelNullHandle, reinterpret_cast<void *>(alignedStart), alignedEnd - alignedStart
@@ -672,14 +672,14 @@ NV_STATUS NV_API_CALL nv_alloc_pages(
 	if (contiguous)
 		flags |= kHelAllocContinuous;
 
-	HEL_CHECK(helAllocateMemory(core::getProcessHierarchy(), page_count << 12, flags, nullptr, &handle));
+	HEL_CHECK(helAllocateMemory(core::getProcessHierarchy(), page_count << kHelPageShift, flags, nullptr, &handle));
 
 	if (cache_type == NV_MEMORY_DEFAULT || cache_type == NV_MEMORY_WRITECOMBINED) {
-		HEL_CHECK(helCreateSliceView(handle, 0, page_count << 12,
+		HEL_CHECK(helCreateSliceView(handle, 0, page_count << kHelPageShift,
 			kHelSliceCacheWriteCombine, &handle));
 	}
 
-	auto buf = gfx->dmaRealm().importMemory(helix::BorrowedDescriptor{handle}, 0, page_count << 12);
+	auto buf = gfx->dmaRealm().importMemory(helix::BorrowedDescriptor{handle}, 0, page_count << kHelPageShift);
 	auto info = new AllocInfo{handle, std::move(buf), page_count, 0};
 	*reinterpret_cast<AllocInfo **>(priv_data) = info;
 
@@ -692,7 +692,7 @@ NV_STATUS NV_API_CALL nv_alloc_pages(
 	if (!contiguous) {
 		for (size_t i = 0; i < page_count; i++) {
 			pte_array[i] = helix::addressToPhysical(
-			    reinterpret_cast<uintptr_t>(view.data()) + (i << 12)
+			    reinterpret_cast<uintptr_t>(view.data()) + (i << kHelPageShift)
 			);
 		}
 	} else {
@@ -745,7 +745,7 @@ NV_STATUS NV_API_CALL nv_dma_map_alloc(
 		va_array[0] = dev->space().iova_of(info->buf.view());
 	} else {
 		for (NvU64 i = 0; i < page_count; i++) {
-			va_array[i] = dev->space().iova_of(info->buf.view().subview(i << 12, 0x1000));
+			va_array[i] = dev->space().iova_of(info->buf.view().subview(i << kHelPageShift, kHelPageSize));
 		}
 	}
 

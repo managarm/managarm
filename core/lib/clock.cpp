@@ -40,7 +40,7 @@ async::result<void> fetchTrackerPage() {
 
 	globalTrackerPageMemory = pullMemory.descriptor();
 
-	trackerPageMapping = helix::Mapping{globalTrackerPageMemory, 0, 0x1000, kHelMapProtRead};
+	trackerPageMapping = helix::Mapping{globalTrackerPageMemory, 0, kHelPageSize, kHelMapProtRead};
 }
 
 } // anonymous namespace
