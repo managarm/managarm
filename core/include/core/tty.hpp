@@ -40,11 +40,14 @@ inline size_t ttyConvertSpeed(speed_t baud) {
 	}
 }
 
-inline void ttyCopyTermios(struct termios &src, struct termios &dest) {
+inline void ttyCopyTermios(const struct termios &src, struct termios &dest) {
 	dest.c_iflag = src.c_iflag;
 	dest.c_oflag = src.c_oflag;
 	dest.c_cflag = src.c_cflag;
 	dest.c_lflag = src.c_lflag;
+	dest.c_line = src.c_line;
+	dest.c_ibaud = src.c_ibaud;
+	dest.c_obaud = src.c_obaud;
 	for(int i = 0; i < NCCS; i++)
 		dest.c_cc[i] = src.c_cc[i];
 }

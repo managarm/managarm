@@ -187,7 +187,7 @@ async::result<void> observeThread(std::shared_ptr<Process> self,
 
 			// Copy registers from the current thread to the new one.
 			auto new_thread = child->threadDescriptor().getHandle();
-			uintptr_t pcrs[2], gprs[kHelNumGprs], thrs[2];
+			uintptr_t pcrs[kHelNumProgramRegs], gprs[kHelNumGprs], thrs[2];
 			HEL_CHECK(helLoadRegisters(thread.getHandle(), kHelRegsProgram, &pcrs));
 			HEL_CHECK(helLoadRegisters(thread.getHandle(), kHelRegsGeneral, &gprs));
 			HEL_CHECK(helLoadRegisters(thread.getHandle(), kHelRegsThread, &thrs));
@@ -548,38 +548,41 @@ async::result<void> observeThread(std::shared_ptr<Process> self,
 				std::cout << "posix: SIGALTSTACK supercall" << std::endl;
 
 			uintptr_t gprs[kHelNumGprs];
-			uintptr_t pcrs[2];
+			uintptr_t pcrs[kHelNumProgramRegs];
 			HEL_CHECK(helLoadRegisters(thread.getHandle(), kHelRegsGeneral, &gprs));
 			HEL_CHECK(helLoadRegisters(thread.getHandle(), kHelRegsProgram, &pcrs));
 
 			auto ss = gprs[kHelRegArg0];
 			auto oss = gprs[kHelRegArg1];
+			bool onAltStack = self->isAltStackEnabled() && self->isOnAltStack(pcrs[kHelRegSp]);
+			int error = 0;
 
 			if (oss) {
 				stack_t st{};
 				st.ss_sp = reinterpret_cast<void *>(self->altStackSp());
 				st.ss_size = self->altStackSize();
-				st.ss_flags = (self->isOnAltStack(pcrs[kHelRegSp]) ? SS_ONSTACK : 0)
-						| (self->isAltStackEnabled() ? 0 : SS_DISABLE);
+				st.ss_flags =
+				    (onAltStack ? SS_ONSTACK : 0) | (self->isAltStackEnabled() ? 0 : SS_DISABLE);
 
 				auto store = co_await helix_ng::writeMemory(self->vmContext()->getSpace(),
 						oss, sizeof(stack_t), &st);
-				HEL_CHECK(store.error());
+				if (store.error() != kHelErrNone)
+					error = store.error() == kHelErrNoMemory ? ENOMEM : EFAULT;
 			}
 
-			int error = 0;
-
-			if (ss) {
+			if (ss && !error) {
 				stack_t st{};
 
 				auto load = co_await helix_ng::readMemory(self->vmContext()->getSpace(),
 						ss, sizeof(stack_t), &st);
-				HEL_CHECK(load.error());
-
-				if (st.ss_flags & ~SS_DISABLE) {
+				if (load.error() != kHelErrNone) {
+					error = load.error() == kHelErrNoMemory ? ENOMEM : EFAULT;
+				} else if (st.ss_flags & ~SS_DISABLE) {
 					error = EINVAL;
-				} else if (self->isOnAltStack(pcrs[kHelRegSp])) {
+				} else if (onAltStack) {
 					error = EPERM;
+				} else if (!(st.ss_flags & SS_DISABLE) && st.ss_size < MINSIGSTKSZ) {
+					error = ENOMEM;
 				} else {
 					self->setAltStackSp(reinterpret_cast<uint64_t>(st.ss_sp), st.ss_size);
 					self->setAltStackEnabled(!(st.ss_flags & SS_DISABLE));
@@ -799,6 +802,9 @@ async::result<void> observeThread(std::shared_ptr<Process> self,
 
 			auto item = new SignalItem;
 			item->signalNumber = SIGILL;
+			uintptr_t program[kHelNumProgramRegs];
+			HEL_CHECK(helLoadRegisters(thread.getHandle(), kHelRegsProgram, program));
+			item->info = SynchronousFaultSignal{program[kHelRegIp], ILL_ILLOPC};
 			if(!self->checkSignalRaise())
 				std::cout << "\e[33m" "posix: Ignoring global signal flag "
 						"during synchronous SIGILL" "\e[39m" << std::endl;
@@ -818,6 +824,9 @@ async::result<void> observeThread(std::shared_ptr<Process> self,
 
 			auto item = new SignalItem;
 			item->signalNumber = SIGFPE;
+			uintptr_t program[kHelNumProgramRegs];
+			HEL_CHECK(helLoadRegisters(thread.getHandle(), kHelRegsProgram, program));
+			item->info = SynchronousFaultSignal{program[kHelRegIp], FPE_INTDIV};
 			if(!self->checkSignalRaise())
 				std::cout << "\e[33m" "posix: Ignoring global signal flag "
 						"during synchronous SIGFPE" "\e[39m" << std::endl;

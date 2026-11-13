@@ -8,6 +8,8 @@ src = [
 	'src/pipes.cpp',
 	'src/processgroups.cpp',
 	'src/signal.cpp',
+	'src/pty-correctness.cpp',
+	'src/signal-correctness.cpp',
 	'src/signalfd.cpp',
 	'src/stat.cpp',
 	'src/sync.cpp',

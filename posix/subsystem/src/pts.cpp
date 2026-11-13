@@ -1,14 +1,15 @@
 #include <asm/ioctls.h>
 #include <async/cancellation.hpp>
-#include <linux/magic.h>
 #include <limits.h>
+#include <linux/magic.h>
 #include <mutex>
 #include <numeric>
 #include <optional>
-#include <termios.h>
-#include <sys/epoll.h>
-#include <signal.h>
 #include <print>
+#include <signal.h>
+#include <sys/epoll.h>
+#include <termios.h>
+#include <unistd.h>
 
 #include <async/recurring-event.hpp>
 #include <bragi/helpers-std.hpp>
@@ -76,6 +77,7 @@ struct Channel {
 	}
 
 	async::result<void> commonIoctl(managarm::fs::GenericIoctlRequest req, helix::BorrowedDescriptor conversation);
+	void commitAttributes(const struct termios &attrs);
 
 	int ptsIndex;
 	ControllingTerminalState cts;
@@ -109,6 +111,8 @@ struct Channel {
 	std::deque<Packet> masterQueue;
 	// Protected by mutex.
 	std::deque<Packet> slaveQueue;
+	// Incomplete canonical input, protected by mutex.
+	Packet pendingInput;
 
 	// Protected by mutex.
 	size_t masterCount = 0;
@@ -145,6 +149,10 @@ void processOut(const char c, Packet &packet, Channel *channel) {
 
 // Must be called with the channel's mutex held.
 void processIn(const char character, Packet &packet, Channel *channel, DeferredEvents &deferred) {
+	auto isControl = [&](size_t index, char c) {
+		auto control = channel->activeSettings.c_cc[index];
+		return control != _POSIX_VDISABLE && static_cast<unsigned char>(c) == control;
+	};
 	auto enqueuePacket = [&](Packet packet) {
 		channel->slaveQueue.push_back(std::move(packet));
 		channel->slaveInSeq = ++channel->currentSeq;
@@ -210,22 +218,29 @@ void processIn(const char character, Packet &packet, Channel *channel, DeferredE
 	if(channel->activeSettings.c_lflag & ISIG) {
 		std::optional<int> signal = {};
 
-		if(c == static_cast<char>(channel->activeSettings.c_cc[VINTR])) {
+		if (isControl(VINTR, c)) {
 			signal = SIGINT;
-		} else if(c == static_cast<char>(channel->activeSettings.c_cc[VQUIT])) {
+		} else if (isControl(VQUIT, c)) {
 			signal = SIGQUIT;
-		} else if(c == static_cast<char>(channel->activeSettings.c_cc[VSUSP])) {
+		} else if (isControl(VSUSP, c)) {
 			signal = SIGTSTP;
 		}
 
 		if(signal.has_value()) {
+			if (!(channel->activeSettings.c_lflag & NOFLSH)) {
+				packet = Packet{};
+				channel->slaveQueue.clear();
+				channel->masterQueue.clear();
+				++channel->currentSeq;
+				deferred.raise = true;
+			}
 			deferred.signals.push_back(*signal);
 			return;
 		}
 	}
 
 	if(channel->activeSettings.c_lflag & ICANON) {
-		if(c == static_cast<char>(channel->activeSettings.c_cc[VKILL])) {
+		if (isControl(VKILL, c)) {
 			while(!packet.buffer.empty()) {
 				erase_char(channel->activeSettings.c_lflag & ECHOK);
 			}
@@ -233,13 +248,12 @@ void processIn(const char character, Packet &packet, Channel *channel, DeferredE
 			return;
 		}
 
-		if(c == static_cast<char>(channel->activeSettings.c_cc[VERASE])) {
+		if (isControl(VERASE, c)) {
 			erase_char(channel->activeSettings.c_lflag & ECHOE);
 			return;
 		}
 
-		if((channel->activeSettings.c_lflag & IEXTEN) &&
-		c == static_cast<char>(channel->activeSettings.c_cc[VWERASE])) {
+		if ((channel->activeSettings.c_lflag & IEXTEN) && isControl(VWERASE, c)) {
 			// remove trailing whitespace
 			while(!packet.buffer.empty() && packet.buffer.back() == ' ') {
 				erase_char(channel->activeSettings.c_lflag & ECHOE);
@@ -253,7 +267,7 @@ void processIn(const char character, Packet &packet, Channel *channel, DeferredE
 			return;
 		}
 
-		if(c == static_cast<char>(channel->activeSettings.c_cc[VEOF])) {
+		if (isControl(VEOF, c)) {
 			enqueuePacket(std::move(packet));
 			packet = Packet{};
 
@@ -286,9 +300,7 @@ void processIn(const char character, Packet &packet, Channel *channel, DeferredE
 			enqueueOut(std::move(echopacket));
 		}
 
-		if(c == '\n'
-		|| c == static_cast<char>(channel->activeSettings.c_cc[VEOL])
-		|| c == static_cast<char>(channel->activeSettings.c_cc[VEOL2])) {
+		if (c == '\n' || isControl(VEOL, c) || isControl(VEOL2, c)) {
 			if(!(channel->activeSettings.c_lflag & ECHO) && (channel->activeSettings.c_lflag & ECHONL)) {
 				Packet echopacket;
 				echopacket.buffer.push_back(c);
@@ -453,8 +465,6 @@ private:
 	async::cancellation_event cancelServe_;
 
 	std::shared_ptr<Channel> _channel;
-	// Protected by the channel's mutex.
-	Packet _packet{};
 
 	std::atomic<bool> _nonBlocking;
 };
@@ -513,6 +523,12 @@ public:
 			flags |= O_WRONLY;
 
 		co_return flags;
+	}
+
+	async::result<void> setFileFlags(int flags) override {
+		// Access mode bits returned by F_GETFL do not change through F_SETFL.
+		nonBlock_ = flags & O_NONBLOCK;
+		co_return;
 	}
 
 	helix::BorrowedDescriptor getPassthroughLane() override {
@@ -689,6 +705,17 @@ private:
 	// Protected by _mutex.
 	std::set<smarter::shared_ptr<Link, LinkRc>, LinkCompare> _entries;
 };
+
+void Channel::commitAttributes(const struct termios &attrs) {
+	// Caller holds mutex. Leaving canonical mode releases the partial line.
+	bool release = (activeSettings.c_lflag & ICANON) && !(attrs.c_lflag & ICANON);
+	ttyCopyTermios(attrs, activeSettings);
+	if (release && !pendingInput.buffer.empty()) {
+		slaveQueue.push_back(std::move(pendingInput));
+		pendingInput = Packet{};
+		slaveInSeq = ++currentSeq;
+	}
+}
 
 async::result<void>
 Channel::commonIoctl(managarm::fs::GenericIoctlRequest req, helix::BorrowedDescriptor conversation) {
@@ -958,15 +985,16 @@ MasterFile::writeAll(Process *, const void *data, size_t length) {
 
 		auto s = reinterpret_cast<const char *>(data);
 		for(size_t i = 0; i < length; i++) {
-			processIn(s[i], _packet, _channel.get(), deferred);
+			processIn(s[i], _channel->pendingInput, _channel.get(), deferred);
 		}
 
 		// Check whether all data was discarded above. An empty packet would read as EOF.
-		if(!(_channel->activeSettings.c_lflag & ICANON) && !_packet.buffer.empty()) {
-			_channel->slaveQueue.push_back(std::move(_packet));
+		if (!(_channel->activeSettings.c_lflag & ICANON)
+		    && !_channel->pendingInput.buffer.empty()) {
+			_channel->slaveQueue.push_back(std::move(_channel->pendingInput));
 			_channel->slaveInSeq = ++_channel->currentSeq;
 			deferred.raise = true;
-			_packet = Packet{};
+			_channel->pendingInput = Packet{};
 		}
 	}
 
@@ -1138,8 +1166,9 @@ struct MasterFile::HandleIoctl {
 			HEL_CHECK(recv_attrs.error());
 			{
 				std::lock_guard lock{self->_channel->mutex};
-				ttyCopyTermios(attrs, self->_channel->activeSettings);
+				self->_channel->commitAttributes(attrs);
 			}
+			self->_channel->statusBell.raise();
 
 			resp.set_error(managarm::fs::Errors::SUCCESS);
 
@@ -1253,6 +1282,9 @@ SlaveFile::readSome(Process *, void *data, size_t maxLength, async::cancellation
 				co_return chunk;
 			}
 
+			if (!_channel->masterCount)
+				co_return std::unexpected{Error::eof};
+
 			if(nonBlock_){
 				if(logReadWrite)
 					std::cout << "posix: tty would block" << std::endl;
@@ -1262,7 +1294,7 @@ SlaveFile::readSome(Process *, void *data, size_t maxLength, async::cancellation
 
 		auto waitResult = co_await _channel->statusBell.async_wait_if([&] {
 			std::lock_guard lock{_channel->mutex};
-			return _channel->slaveQueue.empty();
+			return _channel->slaveQueue.empty() && _channel->masterCount;
 		}, ce);
 		if (!waitResult) {
 			if (logReadWrite)
@@ -1456,8 +1488,9 @@ struct SlaveFile::HandleIoctl {
 
 			{
 				std::lock_guard lock{self->_channel->mutex};
-				ttyCopyTermios(attrs, self->_channel->activeSettings);
+				self->_channel->commitAttributes(attrs);
 			}
+			self->_channel->statusBell.raise();
 
 			resp.set_error(managarm::fs::Errors::SUCCESS);
 

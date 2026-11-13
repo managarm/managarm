@@ -130,10 +130,15 @@ private:
 	writeAll(Process *, const void *data, size_t length) override {
 		size_t progress = 0;
 		while(progress < length) {
-			size_t chunk = co_await _file.writeSome(
-					reinterpret_cast<const char *>(data) + progress,
-					length - progress);
-			progress += chunk;
+			auto chunk = co_await _file.writeSome(
+			    reinterpret_cast<const char *>(data) + progress, length - progress
+			);
+			if (!chunk || !*chunk) {
+				if (progress)
+					co_return progress;
+				co_return chunk ? Error::ioError : chunk.error() | toPosixError;
+			}
+			progress += *chunk;
 		}
 		co_return length;
 	}

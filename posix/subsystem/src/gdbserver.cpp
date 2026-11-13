@@ -338,7 +338,7 @@ async::result<frg::expected<ProtocolError>> GdbServer::handleRequest_() {
 		if(!req.fullyConsumed())
 			co_return ProtocolError::malformedPacket;
 
-		uintptr_t pcrs[2];
+		uintptr_t pcrs[kHelNumProgramRegs];
 		uintptr_t gprs[kHelNumGprs];
 
 		HEL_CHECK(helLoadRegisters(process_->threadDescriptor().getHandle(),
@@ -383,8 +383,7 @@ async::result<frg::expected<ProtocolError>> GdbServer::handleRequest_() {
 			for(int j = 0; j < 4; ++j)
 				resp.appendString("xx");
 #else
-		std::cout << "posix, gdbserver: Register access is not implemented for this architecture"
-				<< std::endl;
+		resp.appendString("E01");
 #endif
 	}else if(req.matchString("m")) { // Read memory.
 		uint64_t address;

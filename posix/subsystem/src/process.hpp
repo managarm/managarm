@@ -280,12 +280,13 @@ struct SegfaultSignal {
 	bool mapError = false;
 };
 
-using SignalInfo = std::variant<
-	UserSignal,
-	TimerSignal,
-	ChildSignal,
-	SegfaultSignal
->;
+struct SynchronousFaultSignal {
+	uintptr_t offendingAddress = 0;
+	int code = SI_KERNEL;
+};
+
+using SignalInfo =
+    std::variant<UserSignal, TimerSignal, ChildSignal, SegfaultSignal, SynchronousFaultSignal>;
 
 using SignalFlags = uint32_t;
 
@@ -385,6 +386,7 @@ struct CompileSignalInfo {
 	void operator() (const TimerSignal &info) const;
 	void operator() (const ChildSignal &info) const;
 	void operator() (const SegfaultSignal &info) const;
+	void operator()(const SynchronousFaultSignal &info) const;
 
 	siginfo_t *si;
 };
@@ -394,6 +396,7 @@ struct CompileSignalFdInfo {
 	void operator() (const TimerSignal &info) const;
 	void operator() (const ChildSignal &info) const;
 	void operator() (const SegfaultSignal &info) const;
+	void operator()(const SynchronousFaultSignal &info) const;
 
 	signalfd_siginfo *si;
 };

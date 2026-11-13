@@ -238,7 +238,7 @@ async::result<void> Process::coredump(TerminationState state) {
 		prstatus.pr_pid = pid();
 		prstatus.pr_ppid = getParent() ? getParent()->pid() : 0;
 
-		uintptr_t pcrs[2];
+		uintptr_t pcrs[kHelNumProgramRegs];
 		uintptr_t threadrs[2];
 		uintptr_t gprs[kHelNumGprs];
 
