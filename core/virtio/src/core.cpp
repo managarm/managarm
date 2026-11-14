@@ -609,12 +609,11 @@ void StandardPciTransport::runDevice() {
 	// Finally set the DRIVER_OK bit to finish the configuration.
 	_commonSpace().store(PCI_DEVICE_STATUS, _commonSpace().load(PCI_DEVICE_STATUS) | DRIVER_OK);
 
-	// The pin can be shared with other devices, so it always needs to be acked or nacked.
-	// MSI-X only suppresses this device's own use of it: the ISR register then stays clear
-	// and the IRQ loop does nothing but nack.
-	_processIrqs();
+	// With MSI-X, the transport never attaches to the (possibly shared) INTx pin.
 	if(_numMsis)
 		_processConfigMsi();
+	else
+		_processIrqs();
 }
 
 async::detached StandardPciTransport::_processIrqs() {
@@ -808,12 +807,6 @@ std::optional<std::string> capName(uint8_t type) {
 async::result<std::unique_ptr<Transport>>
 discover(protocols::hw::Device hw_device, DiscoverMode mode) {
 	auto info = co_await hw_device.getPciInfo();
-	auto irqOutcome = co_await hw_device.accessIrq();
-	if(!irqOutcome) {
-		std::cout << "virtio: Failed to access the IRQ" << std::endl;
-		co_return nullptr;
-	}
-	auto irq = std::move(*irqOutcome);
 	co_await hw_device.enableBusmaster();
 	co_await hw_device.enableDma(false);
 	auto dmaSpaceInfo = co_await hw_device.getDmaSpace();
@@ -869,11 +862,20 @@ discover(protocols::hw::Device hw_device, DiscoverMode mode) {
 
 			// Enable MSI-X.
 			// One vector is reserved for configuration changes, hence we need at least two vectors.
+			// With MSI-X, the device never uses its INTx pin (and it may not have one).
 			helix::UniqueDescriptor configMsi;
+			helix::UniqueDescriptor irq;
 			auto numMsis = info.numMsis >= (numReservedMsis + 1) ? info.numMsis : 0;
 			if (numMsis) {
 				co_await hw_device.enableMsi();
 				configMsi = co_await hw_device.installMsi(configMsiVector);
+			} else {
+				auto irqOutcome = co_await hw_device.accessIrq();
+				if(!irqOutcome) {
+					std::cout << "virtio: Failed to access the IRQ" << std::endl;
+					co_return nullptr;
+				}
+				irq = std::move(*irqOutcome);
 			}
 
 			// Set the ACKNOWLEDGE and DRIVER bits.
@@ -906,6 +908,12 @@ discover(protocols::hw::Device hw_device, DiscoverMode mode) {
 			std::println("virtio: using virtio devices with legacy PCI transport bypasses IOMMU");
 
 		if(info.barInfo[0].ioType == protocols::hw::IoType::kIoTypePort) {
+			auto irq = co_await hw_device.accessIrq();
+			if(!irq) {
+				std::cout << "virtio: Failed to access the IRQ" << std::endl;
+				co_return nullptr;
+			}
+
 			auto bar = co_await hw_device.accessBar(0);
 			HEL_CHECK(helEnableIo(bar.getHandle()));
 
@@ -923,7 +931,7 @@ discover(protocols::hw::Device hw_device, DiscoverMode mode) {
 
 			std::cout << "virtio: Using legacy PCI transport" << std::endl;
 			co_return std::make_unique<LegacyPciTransport>(std::move(hw_device),
-					legacy_space, std::move(bar), std::move(irq), std::move(dmaSpace));
+					legacy_space, std::move(bar), std::move(*irq), std::move(dmaSpace));
 		}
 #else
 		throw std::runtime_error("Legacy transports are unsupported on this architecture");
