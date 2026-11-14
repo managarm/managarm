@@ -4,6 +4,7 @@
 #include <arch/register.hpp>
 #include <thor-internal/arch/pic.hpp>
 #include <thor-internal/arch/hpet.hpp>
+#include <thor-internal/arch/kvm.hpp>
 #include <thor-internal/coroutine.hpp>
 #include <thor-internal/cpu-state.hpp>
 #include <thor-internal/debug.hpp>
@@ -292,17 +293,32 @@ void calibrateApicTimer() {
 
 	// Calibrate the TSC.
 	if (getCpuData() == getCpuData(0) || !getGlobalCpuFeatures()->haveInvariantTsc) {
-		auto tscStart = getRawTimestampCounter();
-		pollHpetSleepNano(nanos);
-		auto tscElapsed = getRawTimestampCounter() - tscStart;
+		// Only an invariant TSC can use the rate of the boot CPU's kvmclock on all CPUs.
+		std::optional<Pow2Fraction<Rounding::down>> kvmclockDuration;
+		if (getGlobalCpuFeatures()->haveInvariantTsc)
+			kvmclockDuration = getKvmclockTscTickDuration();
 
-		localApicContext()->tscTickDuration
-			= computePow2Fraction<Rounding::down>(nanos, tscElapsed);
-		localApicContext()->tscTickFreq
-			= computeReciprocal(localApicContext()->tscTickDuration);
+		if (kvmclockDuration) {
+			localApicContext()->tscTickDuration = *kvmclockDuration;
+			localApicContext()->tscTickFreq
+				= computeReciprocal(localApicContext()->tscTickDuration);
 
-		infoLogger() << "thor: TSC ticks/ms: " << (tscElapsed / millis)
-					<< " on CPU #" << getCpuData()->cpuIndex << frg::endlog;
+			infoLogger() << "thor: TSC ticks/ms (from kvmclock): "
+						<< (localApicContext()->tscTickFreq * 1'000'000)
+						<< " on CPU #" << getCpuData()->cpuIndex << frg::endlog;
+		} else {
+			auto tscStart = getRawTimestampCounter();
+			pollHpetSleepNano(nanos);
+			auto tscElapsed = getRawTimestampCounter() - tscStart;
+
+			localApicContext()->tscTickDuration
+				= computePow2Fraction<Rounding::down>(nanos, tscElapsed);
+			localApicContext()->tscTickFreq
+				= computeReciprocal(localApicContext()->tscTickDuration);
+
+			infoLogger() << "thor: TSC ticks/ms: " << (tscElapsed / millis)
+						<< " on CPU #" << getCpuData()->cpuIndex << frg::endlog;
+		}
 	} else {
 		// Linux assumes invariant TSC to be globally synchronized.
 		localApicContext()->tscTickDuration = apicContext.getFor(0).tscTickDuration;

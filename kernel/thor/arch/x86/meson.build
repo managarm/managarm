@@ -15,6 +15,7 @@ src += files(
 	'idle.cpp',
 	'idle-intel.cpp',
 	'ints.cpp',
+	'kvm.cpp',
 	'pic.cpp',
 	'npt.cpp',
 	'paging.cpp',
