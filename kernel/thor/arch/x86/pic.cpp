@@ -290,6 +290,25 @@ void calibrateApicTimer() {
 	constexpr uint64_t millis = 100;
 	constexpr uint64_t nanos = millis * 1'000'000;
 
+	// Calibrate the TSC.
+	if (getCpuData() == getCpuData(0) || !getGlobalCpuFeatures()->haveInvariantTsc) {
+		auto tscStart = getRawTimestampCounter();
+		pollHpetSleepNano(nanos);
+		auto tscElapsed = getRawTimestampCounter() - tscStart;
+
+		localApicContext()->tscTickDuration
+			= computePow2Fraction<Rounding::down>(nanos, tscElapsed);
+		localApicContext()->tscTickFreq
+			= computeReciprocal(localApicContext()->tscTickDuration);
+
+		infoLogger() << "thor: TSC ticks/ms: " << (tscElapsed / millis)
+					<< " on CPU #" << getCpuData()->cpuIndex << frg::endlog;
+	} else {
+		// Linux assumes invariant TSC to be globally synchronized.
+		localApicContext()->tscTickDuration = apicContext.getFor(0).tscTickDuration;
+		localApicContext()->tscTickFreq = apicContext.getFor(0).tscTickFreq;
+	}
+
 	// Calibrate the local APIC timer.
 	if (!localApicContext()->useTscMode) {
 		picBase.store(lApicInitCount, 0xFFFFFFFF);
@@ -306,26 +325,19 @@ void calibrateApicTimer() {
 				<< " on CPU #" << getCpuData()->cpuIndex << frg::endlog;
 	}
 
-	// Calibrate the TSC.
-	if (getCpuData() == getCpuData(0) || !getGlobalCpuFeatures()->haveInvariantTsc) {
-		auto tscStart = getRawTimestampCounter();
-		pollSleepNano(nanos);
-		auto tscElapsed = getRawTimestampCounter() - tscStart;
+	localApicContext()->timersAreCalibrated = true;
+}
 
-		localApicContext()->tscTickDuration
-			= computePow2Fraction<Rounding::down>(nanos, tscElapsed);
-		localApicContext()->tscTickFreq
-			= computeReciprocal(localApicContext()->tscTickDuration);
-
-		infoLogger() << "thor: TSC ticks/ms: " << (tscElapsed / millis)
-					<< " on CPU #" << getCpuData()->cpuIndex << frg::endlog;
-	} else {
-		// Linux assumes invariant TSC to be globally synchronized.
-		localApicContext()->tscTickDuration = apicContext.getFor(0).tscTickDuration;
-		localApicContext()->tscTickFreq = apicContext.getFor(0).tscTickFreq;
+// Once the TSC is calibrated, waiting does not need the HPET.
+void pollSleepNano(uint64_t nanotime) {
+	if(!getGlobalCpuFeatures()->haveInvariantTsc || !localApicContext()->tscTickFreq) {
+		pollHpetSleepNano(nanotime);
+		return;
 	}
 
-	localApicContext()->timersAreCalibrated = true;
+	auto goal = getRawTimestampCounter() + nanosToTscTicks(nanotime);
+	while(getRawTimestampCounter() < goal)
+		pause();
 }
 
 static initgraph::Task assessTimersTask{&globalInitEngine, "x86.assess-timers",

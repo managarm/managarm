@@ -131,6 +131,8 @@ void calibrateApicTimer();
 uint64_t tscTicksToNanos(uint64_t ticks);
 uint64_t nanosToTscTicks(uint64_t nanos);
 
+void pollSleepNano(uint64_t nanotime);
+
 void acknowledgeIpi();
 
 void raiseInitAssertIpi(uint32_t dest_apic_id);
