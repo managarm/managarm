@@ -130,7 +130,7 @@ private:
 frg::manual_box<HpetDevice> hpetDevice;
 ClockSource *hpetClockSource;
 
-bool haveTimer() {
+bool haveHpet() {
 	return hpetAvailable;
 }
 
@@ -202,7 +202,11 @@ void setupHpet(PhysicalAddr address) {
 	//arch::global_io.store(channel0, 0);
 }
 
-void pollSleepNano(uint64_t nanotime) {
+void pollHpetSleepNano(uint64_t nanotime) {
+	if(!hpetAvailable)
+		panicLogger() << "thor: No HPET available to wait for " << nanotime << " ns"
+				<< frg::endlog;
+
 	uint64_t counter = hpetBase.load(mainCounter);
 	uint64_t goal = counter + nanotime * kFemtosPerNano / hpetPeriod;
 	while(hpetBase.load(mainCounter) < goal) {

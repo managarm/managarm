@@ -41,7 +41,7 @@ struct E1000Nic : nic::Link {
 	async::result<size_t> receive(arch::dma_buffer_view) override;
 	async::result<void> send(const arch::dma_buffer_view) override;
 
-	async::result<void> init();
+	async::result<bool> init();
 
 	void pciRead(u32 reg, u32 *value);
 	void pciRead(u32 reg, u16 *value);

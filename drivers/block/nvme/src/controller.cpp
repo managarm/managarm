@@ -56,7 +56,8 @@ PciExpressController::PciExpressController(
   dmaSpace_{dmaRealm_.attachDmaSpace(ioSpace_, iommuActive)} {}
 
 async::detached PciExpressController::run(mbus_ng::EntityId subsystem) {
-	co_await reset();
+	if(!co_await reset())
+		co_return;
 	co_await scanNamespaces();
 
 	mbus_ng::Properties descriptor{
@@ -163,7 +164,7 @@ async::result<void> PciExpressController::setupIOQueueInterrupts(size_t queueId,
 	}
 }
 
-async::result<void> PciExpressController::reset() {
+async::result<bool> PciExpressController::reset() {
 	auto cap = regs_.load(regs::cap);
 	const auto doorbellsOffset = 0x1000;
 
@@ -183,8 +184,12 @@ async::result<void> PciExpressController::reset() {
 	} else {
 		irqMode_ = InterruptMode::LegacyIrq;
 		auto irq = co_await hwDevice_.accessIrq();
+		if(!irq) {
+			std::cout << "block/nvme: Failed to access the IRQ" << std::endl;
+			co_return false;
+		}
 		co_await hwDevice_.enableBusIrq();
-		handleIrqs(std::move(irq));
+		handleIrqs(std::move(*irq));
 	}
 
 	auto adminQ = std::make_unique<PciExpressQueue>(this, 0, 32, regs_.subspace(doorbellsOffset));
@@ -214,6 +219,7 @@ async::result<void> PciExpressController::reset() {
 	}
 
 	assert(activeQueues_.size() >= 2 && "At least need one IO queue");
+	co_return true;
 }
 
 async::result<Command::Result> PciExpressController::requestIoQueues(uint16_t sqs, uint16_t cqs) {

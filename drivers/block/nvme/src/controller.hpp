@@ -141,7 +141,7 @@ private:
 	uint64_t irqSequence_;
 	InterruptMode irqMode_;
 
-	async::result<void> reset();
+	async::result<bool> reset();
 
 	async::result<void> waitStatus(bool enabled);
 	async::result<void> enable();

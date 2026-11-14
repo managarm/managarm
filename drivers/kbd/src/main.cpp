@@ -138,16 +138,22 @@ async::detached Controller::init() {
 	_commandSpace = arch::global_io.subspace(_ioPorts[1]);
 
 	auto first_handle = co_await _primaryIrq->second->accessIrq(0);
-	assert(first_handle);
-	_port1Irq = helix::UniqueIrq{std::move(first_handle)};
+	if(!first_handle) {
+		std::println("ps2-hid: cannot access the IRQ of the first port, skipping further init");
+		co_return;
+	}
+	_port1Irq = helix::UniqueIrq{std::move(*first_handle)};
 
 	if(_secondaryIrq) {
 		// if the IRQs are on the same device, we use index 1; if not, it's index 0
 		auto irq_num = _secondaryIrq->second == _primaryIrq->second ? 1 : 0;
 
 		auto second_handle = co_await _secondaryIrq->second->accessIrq(irq_num);
-		assert(second_handle);
-		_port2Irq = helix::UniqueIrq{std::move(second_handle)};
+		if(!second_handle) {
+			std::println("ps2-hid: cannot access the IRQ of the second port, skipping further init");
+			co_return;
+		}
+		_port2Irq = helix::UniqueIrq{std::move(*second_handle)};
 	}
 
 	// disable both devices

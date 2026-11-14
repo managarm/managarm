@@ -94,7 +94,10 @@ UhdaStatus uhda_kernel_pci_allocate_irq(uintptr_t handle, UhdaIrqHint hint, Uhda
 		ctrl->useMsi = true;
 		irq = async::run(ctrl->device.installMsi(0), helix::currentDispatcher);
 	} else {
-		irq = async::run(ctrl->device.accessIrq(), helix::currentDispatcher);
+		auto intx = async::run(ctrl->device.accessIrq(), helix::currentDispatcher);
+		if (!intx)
+			return UHDA_STATUS_UNSUPPORTED;
+		irq = std::move(*intx);
 	}
 
 	handleIrqs(irq, fn, arg);

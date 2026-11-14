@@ -1138,6 +1138,10 @@ async::detached bindController(mbus_ng::Entity entity) {
 	auto [iommuActive, dmaSpaceHandle, _] = std::move(*dmaSpaceInfo);
 
 	auto irq = co_await device.accessIrq();
+	if(!irq) {
+		std::cout << "ehci: Failed to access the IRQ" << std::endl;
+		co_return;
+	}
 
 	helix::Mapping mapping{bar, info.barInfo[0].offset, info.barInfo[0].length};
 
@@ -1153,7 +1157,7 @@ async::detached bindController(mbus_ng::Entity entity) {
 		"ehci-controller", descriptor)).unwrap();
 
 	auto controller = std::make_shared<Controller>(std::move(device), std::move(ehciEntity), std::move(mapping),
-			std::move(bar), std::move(irq), iommuActive, std::move(dmaSpaceHandle));
+			std::move(bar), std::move(*irq), iommuActive, std::move(dmaSpaceHandle));
 	controller->initialize();
 	globalControllers.push_back(std::move(controller));
 }

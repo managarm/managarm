@@ -8,11 +8,11 @@
 
 namespace thor {
 
-bool haveTimer();
+bool haveHpet();
 
 void setupHpet(PhysicalAddr address);
 
-void pollSleepNano(uint64_t nanotime);
+void pollHpetSleepNano(uint64_t nanotime);
 
 initgraph::Stage *getHpetInitializedStage();
 

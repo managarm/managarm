@@ -89,7 +89,7 @@ public:
 	async::result<size_t> receive(arch::dma_buffer_view) override;
 	async::result<void> send(const arch::dma_buffer_view) override;
 
-	async::result<void> init();
+	async::result<bool> init();
 
 	void ringDoorbell();
 
