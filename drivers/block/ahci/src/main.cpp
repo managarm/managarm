@@ -26,7 +26,12 @@ async::detached bindController(mbus_ng::Entity hwEntity) {
 		irq = co_await device.installMsi(0);
 		co_await device.enableMsi();
 	} else {
-		irq = co_await device.accessIrq();
+		auto intx = co_await device.accessIrq();
+		if(!intx) {
+			std::cout << "ahci: Failed to access the IRQ" << std::endl;
+			co_return;
+		}
+		irq = std::move(*intx);
 	}
 
 	co_await device.enableBusmaster();

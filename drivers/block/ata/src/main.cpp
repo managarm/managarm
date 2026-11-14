@@ -451,11 +451,15 @@ async::detached bindController(mbus_ng::Entity hwEntity) {
 	auto mainBar = co_await device.accessBar(0);
 	auto altBar = co_await device.accessBar(1);
 	auto irq = co_await device.accessIrq();
+	if(!irq) {
+		std::cout << "block/ata: Failed to access the IRQ" << std::endl;
+		co_return;
+	}
 
 	auto controller = std::make_shared<Controller>(hwEntity.id(),
 			info.barInfo[0].address, info.barInfo[1].address,
 			std::move(mainBar), std::move(altBar),
-			std::move(irq));
+			std::move(*irq));
 	controller->run();
 	globalControllers.push_back(std::move(controller));
 }

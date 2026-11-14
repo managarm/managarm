@@ -808,7 +808,12 @@ std::optional<std::string> capName(uint8_t type) {
 async::result<std::unique_ptr<Transport>>
 discover(protocols::hw::Device hw_device, DiscoverMode mode) {
 	auto info = co_await hw_device.getPciInfo();
-	auto irq = co_await hw_device.accessIrq();
+	auto irqOutcome = co_await hw_device.accessIrq();
+	if(!irqOutcome) {
+		std::cout << "virtio: Failed to access the IRQ" << std::endl;
+		co_return nullptr;
+	}
+	auto irq = std::move(*irqOutcome);
 	co_await hw_device.enableBusmaster();
 	co_await hw_device.enableDma(false);
 	auto dmaSpaceInfo = co_await hw_device.getDmaSpace();

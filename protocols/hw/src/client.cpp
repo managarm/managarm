@@ -197,7 +197,7 @@ async::result<helix::UniqueDescriptor> Device::accessExpansionRom() {
 	co_return std::move(expansion_rom);
 }
 
-async::result<helix::UniqueDescriptor> Device::accessIrq(size_t index) {
+async::result<std::expected<helix::UniqueDescriptor, Error>> Device::accessIrq(size_t index) {
 	managarm::hw::AccessIrqRequest req;
 	req.set_index(index);
 
@@ -233,7 +233,8 @@ async::result<helix::UniqueDescriptor> Device::accessIrq(size_t index) {
 	auto ok = resp.decode_tail(reader);
 	assert(ok);
 
-	assert(resp.error() == managarm::hw::Errors::SUCCESS);
+	if(resp.error() != managarm::hw::Errors::SUCCESS)
+		co_return std::unexpected{translateError(resp.error())};
 
 	HEL_CHECK(pull_irq.error());
 

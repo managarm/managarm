@@ -169,7 +169,8 @@ struct Device {
 	async::result<PciInfo> getPciInfo();
 	async::result<helix::UniqueDescriptor> accessBar(int index);
 	async::result<helix::UniqueDescriptor> accessExpansionRom();
-	async::result<helix::UniqueDescriptor> accessIrq(size_t index = 0);
+	// Fails if the device has no (routed) interrupt pin.
+	async::result<std::expected<helix::UniqueDescriptor, Error>> accessIrq(size_t index = 0);
 	async::result<helix::UniqueDescriptor> installMsi(int index);
 
 	async::result<DtInfo> getDtInfo();

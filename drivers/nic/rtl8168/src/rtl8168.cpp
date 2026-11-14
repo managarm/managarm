@@ -428,7 +428,7 @@ async::result<bool> RealtekNic::startCard() {
 	co_return true;
 }
 
-async::result<void> RealtekNic::init() {
+async::result<bool> RealtekNic::init() {
 	auto pci_id = co_await _device.loadPciSpace(pci::Device, 2);
 
 	// TODO: Some cards that are realtek chipsets use different PCI device IDs.
@@ -477,7 +477,12 @@ async::result<void> RealtekNic::init() {
 	_rxQueue = co_await RxQueue::create(*this, NUM_RX_DESCRIPTORS);
 	_txQueue = co_await TxQueue::create(*this, NUM_TX_DESCRIPTORS);
 
-	_irq = co_await _device.accessIrq();
+	auto irq = co_await _device.accessIrq();
+	if(!irq) {
+		std::cout << "drivers/rtl8168: Failed to access the IRQ" << std::endl;
+		co_return false;
+	}
+	_irq = std::move(*irq);
 
 	co_await getMmio();
 
@@ -535,6 +540,7 @@ async::result<void> RealtekNic::init() {
 	printRegisters();
 
 	processIrqs();
+	co_return true;
 }
 
 // TODO: We really should not do this like this
@@ -665,7 +671,8 @@ async::result<std::shared_ptr<nic::Link>> makeShared(protocols::hw::Device devic
 	auto [iommuActive, dmaSpace, _] = std::move(*dmaSpaceInfo);
 
 	auto nic = std::make_shared<RealtekNic>(std::move(device), std::move(dmaSpace), iommuActive);
-	co_await nic->init();
+	if(!co_await nic->init())
+		co_return nullptr;
 	co_return std::move(nic);
 }
 

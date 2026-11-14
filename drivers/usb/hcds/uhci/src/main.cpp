@@ -1008,6 +1008,10 @@ async::detached bindController(mbus_ng::Entity entity) {
 	assert(info.barInfo[4].ioType == protocols::hw::IoType::kIoTypePort);
 	auto bar = co_await device.accessBar(4);
 	auto irq = co_await device.accessIrq();
+	if(!irq) {
+		std::cout << "uhci: Failed to access the IRQ" << std::endl;
+		co_return;
+	}
 
 	mbus_ng::Properties descriptor{
 		{"generic.devtype", mbus_ng::StringItem{"usb-controller"}},
@@ -1038,7 +1042,7 @@ async::detached bindController(mbus_ng::Entity entity) {
 
 	arch::io_space base = arch::global_io.subspace(info.barInfo[4].address);
 	auto controller = std::make_shared<Controller>(std::move(device), std::move(uhciEntity),
-			info.barInfo[4].address, base, std::move(irq), iommuActive, std::move(dmaSpaceHandle));
+			info.barInfo[4].address, base, std::move(*irq), iommuActive, std::move(dmaSpaceHandle));
 	co_await controller->initialize();
 
 	globalControllers.push_back(std::move(controller));

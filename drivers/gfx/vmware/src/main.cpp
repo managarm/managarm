@@ -228,7 +228,12 @@ async::result<void> GfxDevice::waitIrq(uint32_t irq_mask) {
 		writeRegister(register_index::irqmask, irq_mask);
 		writeRegister(register_index::sync, 1);
 
-		auto irq = co_await _hwDev.accessIrq();
+		auto irqOutcome = co_await _hwDev.accessIrq();
+		if (!irqOutcome) {
+			readRegister(register_index::busy);
+			co_return;
+		}
+		auto irq = std::move(*irqOutcome);
 
 		while (true) {
 			auto await = co_await helix_ng::awaitEvent(irq, irq_sequence);

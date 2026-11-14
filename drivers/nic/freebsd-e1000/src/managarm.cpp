@@ -54,9 +54,14 @@ E1000Nic::E1000Nic(protocols::hw::Device device, helix::UniqueDescriptor dmaSpac
   _rxIndex(0, RX_QUEUE_SIZE),
   _txIndex(0, TX_QUEUE_SIZE) {}
 
-async::result<void> E1000Nic::init() {
+async::result<bool> E1000Nic::init() {
 	auto info = co_await _device.getPciInfo();
-	_irq = co_await _device.accessIrq();
+	auto irq = co_await _device.accessIrq();
+	if(!irq) {
+		printf("e1000: Failed to access the IRQ\n");
+		co_return false;
+	}
+	_irq = std::move(*irq);
 
 	co_await identifyHardware();
 
@@ -91,7 +96,7 @@ async::result<void> E1000Nic::init() {
 		}
 		if (!found_io_bar) {
 			printf("e1000: Unable to locate IO BAR\n");
-			co_return;
+			co_return false;
 		}
 	}
 
@@ -113,7 +118,7 @@ async::result<void> E1000Nic::init() {
 		(_hw.mac.type == e1000_ich10lan) || (_hw.mac.type == e1000_pchlan) ||
 		(_hw.mac.type == e1000_pch2lan) || (_hw.mac.type == e1000_pch_lpt)) {
 		printf("e1000: Mapping of flash unimplemented\n");
-		co_return;
+		co_return false;
 	} else if (_hw.mac.type >= e1000_pch_spt) {
 		/**
 		 * In the new SPT device flash is not a separate BAR, rather it is also in BAR0,
@@ -166,13 +171,13 @@ async::result<void> E1000Nic::init() {
 			// I219 shares the NVM with the platform firmware; a bad checksum is common there
 			// and the MAC could still be recovered from RAR0, which we do not implement.
 			std::cout << "e1000: EEPROM checksum not valid\n";
-			co_return;
+			co_return false;
 		}
 	}
 
 	if(e1000_read_mac_addr(&_hw) < 0) {
 		std::cout << "e1000: error while reading MAC address" << std::endl;
-		co_return;
+		co_return false;
 	}
 
 	for(size_t i = 0; i < ETHER_ADDR_LEN; i++) {
@@ -251,6 +256,8 @@ async::result<void> E1000Nic::init() {
 	E1000_WRITE_REG(&_hw, E1000_IMS, IMS_ENABLE_MASK);
 
 	processIrqs();
+
+	co_return true;
 }
 
 async::result<size_t> E1000Nic::receive(arch::dma_buffer_view frame) {
@@ -345,7 +352,8 @@ async::result<std::shared_ptr<nic::Link>> makeShared(protocols::hw::Device devic
 	auto [iommuActive, dmaSpace, _] = std::move(*dmaSpaceInfo);
 
 	auto nic = std::make_shared<E1000Nic>(std::move(device), std::move(dmaSpace), iommuActive);
-	co_await nic->init();
+	if(!co_await nic->init())
+		co_return nullptr;
 	co_return std::move(nic);
 }
 
