@@ -17,6 +17,9 @@
 #include <thor-internal/io.hpp>
 #include <thor-internal/iommu.hpp>
 #include <thor-internal/ipc-queue.hpp>
+#ifdef THOR_HAS_KCOV
+#include <thor-internal/kcov.hpp>
+#endif
 #include <thor-internal/irq.hpp>
 #include <thor-internal/kernlet.hpp>
 #include <thor-internal/load-balancing.hpp>
@@ -568,6 +571,99 @@ HelError helAllocateMemory(HelHandle hierarchyHandle, size_t size, uint32_t flag
 	);
 
 	return kHelErrNone;
+}
+
+HelError helCreateKcovBuffer(size_t size, HelHandle *handle) {
+#ifndef THOR_HAS_KCOV
+	(void)size;
+	(void)handle;
+	return kHelErrUnsupportedOperation;
+#else
+	auto thisThread = getCurrentThread();
+	auto thisUniverse = thisThread->getUniverse();
+
+	auto memoryOutcome = KcovMemory::create(size);
+	if(!memoryOutcome)
+		return translateError(memoryOutcome.error());
+
+	*handle = thisUniverse->attachDescriptor(
+		AnyDescriptor::make<DescriptorType::memoryView>(
+			std::move(*memoryOutcome),
+			kHelRightRead | kHelRightWrite | kHelRightAssign
+		)
+	);
+
+	return kHelErrNone;
+#endif
+}
+
+HelError helEnableCoverage(HelHandle threadHandle, HelHandle bufferHandle, uint32_t mode) {
+#ifndef THOR_HAS_KCOV
+	(void)threadHandle;
+	(void)bufferHandle;
+	(void)mode;
+	return kHelErrUnsupportedOperation;
+#else
+	auto thisThread = getCurrentThread();
+	auto thisUniverse = thisThread->getUniverse();
+
+	smarter::shared_ptr<Thread> thread;
+	if(threadHandle == kHelThisThread) {
+		thread = thisThread.lock();
+	}else{
+		auto threadOutcome = thisUniverse->resolveObject<DescriptorType::thread>(
+			threadHandle, kHelRightManage
+		);
+		if(!threadOutcome)
+			return translateError(threadOutcome.error());
+		thread = smarter::rc_policy_downcast<smarter::default_rc_policy>(std::move(*threadOutcome));
+	}
+	auto memoryOutcome = thisUniverse->resolveObject<DescriptorType::memoryView>(
+		bufferHandle, kHelRightWrite
+	);
+	if(!memoryOutcome)
+		return translateError(memoryOutcome.error());
+
+	if(!(*memoryOutcome)->asKcovMemory())
+		return kHelErrUnsupportedOperation;
+
+	return translateError(KcovMemory::attach(
+			smarter::static_pointer_cast<KcovMemory>(std::move(*memoryOutcome)), thread.get(), mode));
+#endif
+}
+
+HelError helDisableCoverage(HelHandle threadHandle, HelHandle bufferHandle) {
+#ifndef THOR_HAS_KCOV
+	(void)threadHandle;
+	(void)bufferHandle;
+	return kHelErrUnsupportedOperation;
+#else
+	auto thisThread = getCurrentThread();
+	auto thisUniverse = thisThread->getUniverse();
+
+	smarter::shared_ptr<Thread> thread;
+	if(threadHandle == kHelThisThread) {
+		thread = thisThread.lock();
+	}else{
+		auto threadOutcome = thisUniverse->resolveObject<DescriptorType::thread>(
+			threadHandle, kHelRightManage
+		);
+		if(!threadOutcome)
+			return translateError(threadOutcome.error());
+		thread = smarter::rc_policy_downcast<smarter::default_rc_policy>(std::move(*threadOutcome));
+	}
+	auto memoryOutcome = thisUniverse->resolveObject<DescriptorType::memoryView>(
+		bufferHandle, kHelRightWrite
+	);
+	if(!memoryOutcome)
+		return translateError(memoryOutcome.error());
+
+	auto kcov = (*memoryOutcome)->asKcovMemory();
+	if(!kcov)
+		return kHelErrUnsupportedOperation;
+
+	return translateError(KcovMemory::detach(kcov, thread.get()));
+#endif
 }
 
 HelError doSubmitResizeMemory(HelHandle handle, smarter::shared_ptr<IpcQueue> queue,

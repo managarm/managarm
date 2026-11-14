@@ -38,7 +38,8 @@ enum Errors {
 	NOT_SUPPORTED = 35,
 	BAD_FILE_DESCRIPTOR = 36,
 	IO_ERROR = 37,
-	BUSY = 38
+	BUSY = 38,
+	NO_MEMORY = 39
 }
 
 consts FileType int64 {
@@ -557,6 +558,9 @@ head(128):
 		tag(49) int32 snd_pcm_ttstamp;
 		tag(50) uint64 snd_pcm_frames;
 		tag(51) int32 snd_device;
+
+		// kcov ioctls.
+		tag(52) int32 kcov_arg;
 	}
 }
 

@@ -69,6 +69,9 @@ template <typename T>
 concept AnyTag = (std::same_as<T, AsyncBlockCurrentNormalTag> || std::same_as<T, AsyncBlockCurrentInterruptibleTag>);
 
 struct Thread;
+#ifdef THOR_HAS_KCOV
+struct KcovMemory;
+#endif
 struct LbThreadState;
 
 smarter::borrowed_ptr<Thread> getCurrentThread();
@@ -434,6 +437,19 @@ public:
 	smarter::borrowed_ptr<Thread> self;
 
 	uint32_t flags;
+
+#ifdef THOR_HAS_KCOV
+	// Covers writes to kcov, kcovRef and kcovExited.
+	frg::ticket_spinlock kcovMutex;
+	// Buffer where coverage data gets written to.
+	KcovMemory *kcov{nullptr};
+	// As detaching a buffer does not immeditally release its reference to prevent a race
+	// with attach, keep a separate reference that will only be released on the next attach
+	// or on exit.
+	smarter::shared_ptr<KcovMemory> kcovRef;
+	// Set when the thread exits.
+	bool kcovExited{false};
+#endif
 
 private:
 	typedef frg::ticket_spinlock Mutex;
