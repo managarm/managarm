@@ -8,7 +8,7 @@
 
 namespace thor {
 
-bool haveTimer();
+bool haveHpet();
 
 void setupHpet(PhysicalAddr address);
 

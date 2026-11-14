@@ -352,6 +352,13 @@ static initgraph::Task assessTimersTask{&globalInitEngine, "x86.assess-timers",
 	}
 };
 
+bool haveTimer() {
+	// Like getClockNanos(), only rely on the HPET without an invariant TSC.
+	if(!getGlobalCpuFeatures()->haveInvariantTsc)
+		return haveHpet();
+	return localApicContext()->timersAreCalibrated;
+}
+
 uint64_t getClockNanos() {
 	assert(localApicContext()->timersAreCalibrated);
 	if(getGlobalCpuFeatures()->haveInvariantTsc) [[likely]] {

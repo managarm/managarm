@@ -130,7 +130,7 @@ private:
 frg::manual_box<HpetDevice> hpetDevice;
 ClockSource *hpetClockSource;
 
-bool haveTimer() {
+bool haveHpet() {
 	return hpetAvailable;
 }
 
