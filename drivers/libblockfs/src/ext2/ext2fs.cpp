@@ -2251,6 +2251,7 @@ async::result<std::vector<BlockRange>> FileSystem::lookupBlocksOnDisk(Inode *ino
 	size_t i_range = 12; // Direct blocks only.
 	size_t s_range = i_range + per_single; // Plus the first single indirect block.
 	size_t d_range = s_range + per_double; // Plus the first double indirect block.
+	size_t t_range = d_range + per_double * per_indirect; // Plus the triple indirect block.
 
 	std::vector<BlockRange> ranges;
 
@@ -2271,9 +2272,36 @@ async::result<std::vector<BlockRange>> FileSystem::lookupBlocksOnDisk(Inode *ino
 		const uint32_t *list = nullptr;
 		size_t count;
 
-		assert(index < d_range);
-		if(index >= d_range) {
-			assert(!"Fix triple indirect blocks");
+		assert(index < t_range);
+		if(index >= d_range) { // Use the triple indirect block.
+			auto rel = index - d_range;
+			auto double_frame = rel >> (2 * (blockShift - 2));
+			auto indirect_frame = (rel >> (blockShift - 2)) & (per_indirect - 1);
+			auto indirect_index = rel & (per_indirect - 1);
+			count = std::min<size_t>(remaining, per_indirect - indirect_index);
+
+			auto disk_inode = inode->diskInode();
+			uint32_t double_block = 0;
+			uint32_t indirect_block = 0;
+			if(disk_inode->data.blocks.tripleIndirect)
+				co_await readMetadata(disk_inode->data.blocks.tripleIndirect,
+						double_frame * 4, 4, &double_block);
+			if(double_block)
+				co_await readMetadata(double_block, indirect_frame * 4, 4, &indirect_block);
+
+			if(!indirect_block) {
+				// Nothing to do: the whole range is a hole.
+			} else if (remaining > indirectBufferSize) {
+				indirectWindow = co_await accessMetadata(indirect_block, false);
+
+				list = reinterpret_cast<const uint32_t *>(indirectWindow.get())
+						+ indirect_index;
+			} else {
+				co_await readMetadata(indirect_block,
+						indirect_index * 4, count * 4, indirectBuffer.data());
+
+				list = indirectBuffer.data();
+			}
 		}else if(index >= s_range) { // Use the double indirect block.
 			int64_t indirect_frame = (index - s_range) >> (blockShift - 2);
 			int64_t indirect_index = (index - s_range) & ((1 << (blockShift - 2)) - 1);
@@ -2354,8 +2382,26 @@ async::result<void> FileSystem::assignDataBlocks(Inode *inode,
 	size_t i_range = 12; // Direct blocks only.
 	size_t s_range = i_range + per_single; // Plus the first single indirect block.
 	size_t d_range = s_range + per_double; // Plus the first double indirect block.
+	size_t t_range = d_range + per_double * per_indirect; // Plus the triple indirect block.
 
 	auto disk_inode = inode->diskInode();
+
+	// Returns the indirect block in slot, allocating a zeroed one if the slot is empty.
+	auto ensureIndirect = [&] (uint32_t &slot) -> async::result<MetadataCache::BlockWindow> {
+		bool needsReset = false;
+		if(!slot) {
+			auto block = co_await allocateBlocks(1, inode->number);
+			assert(!block.empty() && "Out of disk space"); // TODO: Fix this.
+			disk_inode->blocks += (blockSize / 512);
+			slot = block[0];
+			needsReset = true;
+		}
+
+		auto window = co_await accessMetadata(slot, true);
+		if(needsReset)
+			memset(window.get(), 0, blockSize);
+		co_return window;
+	};
 
 	size_t prg = 0;
 	while(prg < num_blocks) {
@@ -2498,8 +2544,50 @@ async::result<void> FileSystem::assignDataBlocks(Inode *inode,
 				disk_inode->blocks += allocated.size() * (blockSize / 512);
 				prg += allocated.size();
 			}
+		}else if(block_offset + prg < t_range) {
+			auto tripleIndirectWindow = co_await ensureIndirect(
+					disk_inode->data.blocks.tripleIndirect);
+			auto triple_window = reinterpret_cast<uint32_t *>(tripleIndirectWindow.get());
+
+			while(prg < num_blocks
+					&& block_offset + prg < t_range) {
+				auto rel = block_offset + prg - d_range;
+				auto double_frame = rel >> (2 * (blockShift - 2));
+				auto indirect_frame = (rel >> (blockShift - 2)) & (per_indirect - 1);
+				auto indirect_index = rel & (per_indirect - 1);
+
+				auto doubleIndirectWindow = co_await ensureIndirect(triple_window[double_frame]);
+				auto double_window = reinterpret_cast<uint32_t *>(doubleIndirectWindow.get());
+
+				auto indirectWindow = co_await ensureIndirect(double_window[indirect_frame]);
+				auto window = reinterpret_cast<uint32_t *>(indirectWindow.get());
+
+				size_t range = 0;
+				for(size_t i = indirect_index; i < per_indirect; i++) {
+					if(prg + range >= num_blocks)
+						break;
+
+					if(window[i])
+						break;
+
+					range++;
+				}
+
+				if(!range) {
+					prg++;
+					continue;
+				}
+
+				auto allocated = co_await allocateBlocks(range, inode->number);
+				for (auto const [blocknum, block] : std::views::enumerate(allocated))
+					window[indirect_index + blocknum] = block;
+				inode->blockMapCache.insertList(block_offset + prg, allocated);
+
+				disk_inode->blocks += allocated.size() * (blockSize / 512);
+				prg += allocated.size();
+			}
 		}else{
-			assert(!"TODO: Implement allocation in triple indirect blocks");
+			assert(!"Block offset exceeds the maximum ext2 file size");
 		}
 	}
 
@@ -2688,9 +2776,6 @@ async::result<void> FileSystem::freeDataBlocks(Inode *inode, uint64_t firstBlock
 		co_await freeBlocks(std::move(entries));
 	};
 
-	// Triple indirect blocks are not supported by lookupBlocksOnDisk() either.
-	assert(!disk_inode->data.blocks.tripleIndirect);
-
 	if(firstBlock < i_range) {
 		std::vector<uint32_t> batch;
 		for(size_t i = firstBlock; i < i_range; i++) {
@@ -2719,6 +2804,15 @@ async::result<void> FileSystem::freeDataBlocks(Inode *inode, uint64_t firstBlock
 		if(!from)
 			disk_inode->data.blocks.doubleIndirect = 0;
 		co_await drainIndirect(doubleBlock, 2, from, !from);
+	}
+
+	if(disk_inode->data.blocks.tripleIndirect) {
+		auto tripleBlock = disk_inode->data.blocks.tripleIndirect;
+		auto from = firstBlock > d_range ? firstBlock - d_range : 0;
+
+		if(!from)
+			disk_inode->data.blocks.tripleIndirect = 0;
+		co_await drainIndirect(tripleBlock, 3, from, !from);
 	}
 
 	assert(disk_inode->blocks >= numFreed * (blockSize / 512));
