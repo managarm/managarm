@@ -206,9 +206,16 @@ Inode::writeSwap(uint64_t offset, arch::dma_buffer_view view) {
 	co_return {};
 }
 
-void Inode::setFileSize(size_t size) {
-	assert(!(size & ~uint64_t(0xFFFFFFFF)));
-	diskInode()->size = size;
+void Inode::setFileSize(uint64_t size) {
+	auto disk = diskInode();
+	if((disk->mode & EXT2_S_IFMT) == EXT2_S_IFREG) {
+		assert(fs.largeFile || size <= 0x7FFFFFFF);
+		disk->sizeHigh = size >> 32;
+	}else{
+		// For non-regular files, sizeHigh is the directory ACL (or reserved).
+		assert(!(size & ~uint64_t(0xFFFFFFFF)));
+	}
+	disk->size = static_cast<uint32_t>(size);
 }
 
 async::result<frg::expected<protocols::fs::Error, std::optional<DirEntry>>>
@@ -941,6 +948,10 @@ async::result<protocols::fs::Error> Inode::updateTimes(
 
 async::result<frg::expected<protocols::fs::Error>>
 Inode::resizeFile(size_t newSize) {
+	// Linux sets LARGE_FILE in the superblock on demand, but we never write the superblock back.
+	if(!fs.largeFile && newSize > 0x7FFFFFFF)
+		co_return protocols::fs::Error::notSupported;
+
 	auto oldSize = fileSize();
 	auto newMappingSize = (newSize + pageMask) & ~pageMask;
 
@@ -1088,6 +1099,7 @@ async::result<std::expected<void, protocols::fs::Error>> FileSystem::init() {
 	is64Bit = sb.featureIncompat & EXT4_INCOMPAT_64BIT;
 	usesExtents = sb.featureIncompat & EXT4_INCOMPAT_EXTENTS;
 	metadataChecksum = sb.featureRoCompat & EXT4_RO_COMPAT_METADATA_CSUM;
+	largeFile = sb.revLevel >= 1 && (sb.featureRoCompat & EXT2_RO_COMPAT_LARGE_FILE);
 	uint16_t blockGroupDescriptorSize = is64Bit ? sb.groupDescSize : 32;
 
 	if(logSuperblock) {
