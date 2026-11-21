@@ -1,5 +1,6 @@
 #pragma once
 
+#include <arch/endian.hpp>
 #include <string.h>
 #include <memory>
 #include <string>
@@ -25,9 +26,9 @@ struct Guid {
 	// Canonical lowercase form, as printed by Linux and blkid.
 	std::string toString() const;
 
-	uint32_t a;
-	uint16_t b;
-	uint16_t c;
+	arch::le_u32 a;
+	arch::le_u16 b;
+	arch::le_u16 c;
 	uint8_t d[2];
 	uint8_t e[6];
 };
@@ -48,20 +49,20 @@ namespace type_guids {
 // --------------------------------------------------------
 
 struct DiskHeader {
-	uint64_t signature;
-	uint32_t revision;
-	uint32_t headerSize;
-	uint32_t headerCheckSum;
-	uint32_t reservedZero;
-	uint64_t currentLba;
-	uint64_t backupLba;
-	uint64_t firstLba;
-	uint64_t lastLba;
+	arch::le_u64 signature;
+	arch::le_u32 revision;
+	arch::le_u32 headerSize;
+	arch::le_u32 headerCheckSum;
+	arch::le_u32 reservedZero;
+	arch::le_u64 currentLba;
+	arch::le_u64 backupLba;
+	arch::le_u64 firstLba;
+	arch::le_u64 lastLba;
 	uint8_t diskGuid[16];
-	uint64_t entryTableLba;
-	uint32_t numEntries;
-	uint32_t entrySize;
-	uint32_t tableCheckSum;
+	arch::le_u64 entryTableLba;
+	arch::le_u32 numEntries;
+	arch::le_u32 entrySize;
+	arch::le_u32 tableCheckSum;
 	uint8_t padding[420];
 };
 static_assert(sizeof(DiskHeader) == 512, "Bad GPT header struct size");
@@ -69,9 +70,9 @@ static_assert(sizeof(DiskHeader) == 512, "Bad GPT header struct size");
 struct DiskEntry {
 	Guid typeGuid;
 	Guid uniqueGuid;
-	uint64_t firstLba;
-	uint64_t lastLba;
-	uint64_t attrFlags;
+	arch::le_u64 firstLba;
+	arch::le_u64 lastLba;
+	arch::le_u64 attrFlags;
 	uint8_t partitionName[72];
 };
 static_assert(sizeof(DiskEntry) == 128, "Bad GPT entry struct size");
