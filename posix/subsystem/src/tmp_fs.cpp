@@ -167,7 +167,7 @@ private:
 	}
 
 public:
-	SymlinkNode(Superblock *superblock, std::string link);
+	SymlinkNode(Superblock *superblock, std::string link, uid_t uid, gid_t gid);
 
 	async::result<frg::expected<Error, FileStats>> getStats() override {
 		auto stats = baseStats();
@@ -195,7 +195,7 @@ private:
 	}
 
 public:
-	DeviceNode(Superblock *superblock, VfsType type, DeviceId id);
+	DeviceNode(Superblock *superblock, VfsType type, DeviceId id, mode_t mode, uid_t uid, gid_t gid);
 
 private:
 	VfsType _type;
@@ -390,16 +390,16 @@ private:
 	mkdir(FsLink *parent, Process *p, std::string name, mode_t mode) override;
 
 	async::result<std::variant<Error, smarter::shared_ptr<FsLink, LinkRc>>>
-	symlink(FsLink *parent, std::string name, std::string path) override;
+	symlink(FsLink *parent, Process *process, std::string name, std::string path) override;
 
-	async::result<frg::expected<Error, smarter::shared_ptr<FsLink, LinkRc>>> mkdev(FsLink *parent, std::string name,
-			VfsType type, DeviceId id) override;
+	async::result<frg::expected<Error, smarter::shared_ptr<FsLink, LinkRc>>> mkdev(FsLink *parent, Process *process, std::string name,
+			VfsType type, DeviceId id, mode_t mode) override;
 
-	async::result<frg::expected<Error, smarter::shared_ptr<FsLink, LinkRc>>> mkfifo(FsLink *parent, std::string name, mode_t mode, uid_t uid, gid_t gid) override;
+	async::result<frg::expected<Error, smarter::shared_ptr<FsLink, LinkRc>>> mkfifo(FsLink *parent, Process *process, std::string name, mode_t mode) override;
 
 	async::result<frg::expected<Error>> unlink(std::string name) override;
 
-	async::result<frg::expected<Error, smarter::shared_ptr<FsLink, LinkRc>>> mksocket(FsLink *parent, std::string name, mode_t mode, uid_t uid, gid_t gid) override;
+	async::result<frg::expected<Error, smarter::shared_ptr<FsLink, LinkRc>>> mksocket(FsLink *parent, Process *process, std::string name, mode_t mode) override;
 
 	async::result<frg::expected<Error>> rmdir(std::string name) override;
 
@@ -418,7 +418,8 @@ public:
 	getOrCreateDirectory(FsLink *parent, std::string name, int mode, uid_t uid, gid_t gid);
 
 	std::expected<smarter::shared_ptr<Link, LinkRc>, Error>
-	createDevice(FsLink *parent, std::string name, VfsType type, DeviceId id);
+	createDevice(FsLink *parent, std::string name, VfsType type, DeviceId id,
+			mode_t mode = 0, uid_t uid = 0, gid_t gid = 0);
 
 private:
 	using EntrySet = std::set<smarter::shared_ptr<Link, LinkRc>, LinkCompare>;
@@ -621,8 +622,9 @@ struct Superblock final : FsSuperblock {
 		deviceMinor_ = allocateUnnamedDeviceId();
 	}
 
-	FutureMaybe<smarter::shared_ptr<FsNode>> createRegular(Process *) override {
-		auto node = makeFsShared<MemoryNode>(this);
+	FutureMaybe<smarter::shared_ptr<FsNode>> createRegular(Process *process) override {
+		auto owner = creationOwnership(process);
+		auto node = makeFsShared<MemoryNode>(this, 0, owner.uid, owner.gid);
 		co_return std::move(node);
 	}
 
@@ -1060,16 +1062,21 @@ Node::Node(Superblock *superblock, FsNode::DefaultOps default_ops)
 // SymlinkNode implementation.
 // ----------------------------------------------------------------------------
 
-SymlinkNode::SymlinkNode(Superblock *superblock, std::string link)
-: Node{superblock}, _link(std::move(link)) { }
+SymlinkNode::SymlinkNode(Superblock *superblock, std::string link, uid_t uid, gid_t gid)
+: Node{superblock}, _link(std::move(link)) {
+	initializeMode(0777);
+	initializeOwner(uid, gid);
+}
 
 // ----------------------------------------------------------------------------
 // DeviceNode implementation.
 // ----------------------------------------------------------------------------
 
-DeviceNode::DeviceNode(Superblock *superblock, VfsType type, DeviceId id)
+DeviceNode::DeviceNode(Superblock *superblock, VfsType type, DeviceId id, mode_t mode, uid_t uid, gid_t gid)
 : Node{superblock}, _type(type), _id(id) {
 	assert(type == VfsType::charDevice || type == VfsType::blockDevice);
+	initializeMode(mode);
+	initializeOwner(uid, gid);
 }
 
 // ----------------------------------------------------------------------------
@@ -1137,9 +1144,10 @@ async::result<std::expected<smarter::shared_ptr<FsLink, LinkRc>, Error>>
 DirectoryNode::getLinkOrCreate(FsLink *parent, Process *process, std::string name, mode_t mode,
 		bool exclusive) {
 	auto result = getOrInsert(parent, name, false, [&] {
-		return makeFsShared<MemoryNode>(static_cast<Superblock *>(superblock()), mode,
-				process ? process->threadGroup()->euid() : 0,
-				process ? process->threadGroup()->egid() : 0);
+		auto stats = baseStats();
+		auto owner = creationOwnership(process, &stats);
+		return makeFsShared<MemoryNode>(static_cast<Superblock *>(superblock()),
+				creationMode(process, mode, owner), owner.uid, owner.gid);
 	});
 	if(!result)
 		co_return std::unexpected{result.error()};
@@ -1222,20 +1230,22 @@ async::result<std::variant<Error, smarter::shared_ptr<FsLink, LinkRc>>>
 DirectoryNode::mkdir(FsLink *parent, Process *proc, std::string name, mode_t mode) {
 	auto fsContext = proc ? proc->fsContext() : nullptr;
 	auto umask = fsContext ? fsContext->getUmask() : 0;
-	auto uid = proc ? proc->threadGroup()->uid() : 0;
-	auto gid = proc ? proc->threadGroup()->gid() : 0;
+	auto stats = baseStats();
+	auto owner = creationOwnership(proc, &stats);
 
-	auto result = createDirectory(parent, std::move(name), mode & ~umask, uid, gid);
+	auto result = createDirectory(parent, std::move(name), (mode & ~umask) | (owner.inheritSetgid ? S_ISGID : 0), owner.uid, owner.gid);
 	if(!result)
 		co_return result.error();
 	co_return smarter::shared_ptr<FsLink, LinkRc>{std::move(*result)};
 }
 
 async::result<std::variant<Error, smarter::shared_ptr<FsLink, LinkRc>>>
-DirectoryNode::symlink(FsLink *parent, std::string name, std::string path) {
+DirectoryNode::symlink(FsLink *parent, Process *process, std::string name, std::string path) {
 	auto result = insert(parent, name, false, [&] {
+		auto stats = baseStats();
+		auto owner = creationOwnership(process, &stats);
 		return makeFsShared<SymlinkNode>(static_cast<Superblock *>(superblock()),
-				std::move(path));
+				std::move(path), owner.uid, owner.gid);
 	});
 	if(!result)
 		co_return result.error();
@@ -1243,8 +1253,10 @@ DirectoryNode::symlink(FsLink *parent, std::string name, std::string path) {
 }
 
 async::result<frg::expected<Error, smarter::shared_ptr<FsLink, LinkRc>>>
-DirectoryNode::mkdev(FsLink *parent, std::string name, VfsType type, DeviceId id) {
-	auto result = createDevice(parent, std::move(name), type, id);
+DirectoryNode::mkdev(FsLink *parent, Process *process, std::string name, VfsType type, DeviceId id, mode_t mode) {
+	auto stats = baseStats();
+	auto owner = creationOwnership(process, &stats);
+	auto result = createDevice(parent, std::move(name), type, id, creationMode(process, mode, owner), owner.uid, owner.gid);
 	if(!result)
 		co_return result.error();
 	co_return smarter::shared_ptr<FsLink, LinkRc>{std::move(*result)};
@@ -1283,9 +1295,10 @@ DirectoryNode::getOrCreateDirectory(FsLink *parent, std::string name, int mode, 
 }
 
 std::expected<smarter::shared_ptr<Link, LinkRc>, Error>
-DirectoryNode::createDevice(FsLink *parent, std::string name, VfsType type, DeviceId id) {
+DirectoryNode::createDevice(FsLink *parent, std::string name, VfsType type, DeviceId id,
+		mode_t mode, uid_t uid, gid_t gid) {
 	auto result = insert(parent, name, false, [&] {
-		return makeFsShared<DeviceNode>(static_cast<Superblock *>(superblock()), type, id);
+		return makeFsShared<DeviceNode>(static_cast<Superblock *>(superblock()), type, id, mode, uid, gid);
 	});
 	if(!result)
 		return std::unexpected{result.error()};
@@ -1294,9 +1307,12 @@ DirectoryNode::createDevice(FsLink *parent, std::string name, VfsType type, Devi
 }
 
 async::result<frg::expected<Error, smarter::shared_ptr<FsLink, LinkRc>>>
-DirectoryNode::mkfifo(FsLink *parent, std::string name, mode_t mode, uid_t uid, gid_t gid) {
+DirectoryNode::mkfifo(FsLink *parent, Process *process, std::string name, mode_t mode) {
 	auto result = insert(parent, name, false, [&] {
-		return makeFsShared<FifoNode>(static_cast<Superblock *>(superblock()), mode, uid, gid);
+		auto stats = baseStats();
+		auto owner = creationOwnership(process, &stats);
+		return makeFsShared<FifoNode>(static_cast<Superblock *>(superblock()),
+				creationMode(process, mode, owner), owner.uid, owner.gid);
 	});
 	if(!result)
 		co_return result.error();
@@ -1304,9 +1320,12 @@ DirectoryNode::mkfifo(FsLink *parent, std::string name, mode_t mode, uid_t uid, 
 	co_return smarter::shared_ptr<FsLink, LinkRc>{std::move(*result)};
 }
 
-async::result<frg::expected<Error, smarter::shared_ptr<FsLink, LinkRc>>> DirectoryNode::mksocket(FsLink *parent, std::string name, mode_t mode, uid_t uid, gid_t gid) {
+async::result<frg::expected<Error, smarter::shared_ptr<FsLink, LinkRc>>> DirectoryNode::mksocket(FsLink *parent, Process *process, std::string name, mode_t mode) {
 	auto result = insert(parent, name, false, [&] {
-		return makeFsShared<SocketNode>(static_cast<Superblock *>(superblock()), mode, uid, gid);
+		auto stats = baseStats();
+		auto owner = creationOwnership(process, &stats);
+		return makeFsShared<SocketNode>(static_cast<Superblock *>(superblock()),
+				creationMode(process, mode, owner), owner.uid, owner.gid);
 	});
 	if(!result)
 		co_return result.error();
@@ -1394,13 +1413,14 @@ std::expected<smarter::shared_ptr<FsLink, LinkRc>, Error> createRoot(Process *p,
 		return std::unexpected(Error::illegalArguments);
 	}
 
+	auto owner = creationOwnership(p);
 	auto dir = DirectoryNode::createRootDirectory(
 	    new Superblock{},
 		// mounting tmpfs does not take umask into account
 	    mode.value_or(01777),
 		// On Linux, fsuid and fsgid are used instead.
-	    uid.value_or(p ? p->threadGroup()->uid() : 0),
-	    gid.value_or(p ? p->threadGroup()->gid() : 0)
+	    uid.value_or(owner.uid),
+	    gid.value_or(owner.gid)
 	);
 
 	return dir;

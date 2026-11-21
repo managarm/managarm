@@ -438,8 +438,8 @@ openNamedChannel(std::shared_ptr<MountView> mount, smarter::shared_ptr<FsLink, L
 	}
 }
 
-std::array<smarter::shared_ptr<File, FileHandle>, 2> createPair(bool nonBlock) {
-	auto link = SpecialLink::makeSpecialLink(VfsType::fifo, 0777);
+std::array<smarter::shared_ptr<File, FileHandle>, 2> createPair(CreationOwnership owner, bool nonBlock) {
+	auto link = SpecialLink::makeSpecialLink(VfsType::fifo, 0600, owner);
 	auto channel = std::make_shared<Channel>(defaultFifoBufferSize);
 	auto r_file = smarter::make_shared<OpenFile>(nullptr, link, true, false, nonBlock);
 	auto w_file = smarter::make_shared<OpenFile>(nullptr, link, false, true, nonBlock);

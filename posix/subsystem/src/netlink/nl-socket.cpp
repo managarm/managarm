@@ -73,9 +73,9 @@ smarter::shared_ptr<File> findPort(uint32_t port) {
 // OpenFile implementation.
 // ----------------------------------------------------------------------------
 
-OpenFile::OpenFile(int protocol, int type, bool nonBlock)
+OpenFile::OpenFile(CreationOwnership owner, int protocol, int type, bool nonBlock)
 		: FileWithDefaults{FileKind::unknown,  StructName::get("nl-socket"), nullptr,
-		SpecialLink::makeSpecialLink(VfsType::socket, 0777), File::defaultPipeLikeSeek},
+		SpecialLink::makeSpecialLink(VfsType::socket, 0777, owner), File::defaultPipeLikeSeek},
 		_protocol{protocol}, ops_(globalProtocolOpsMap.at(protocol)), _currentSeq{1},
 		_inSeq{0}, _socketPort{0}, _passCreds{false}, nonBlock_{nonBlock}, type_{type} { }
 
@@ -582,8 +582,8 @@ bool protocol_supported(int protocol) {
 	return globalProtocolOpsMap.contains(protocol);
 }
 
-smarter::shared_ptr<File, FileHandle> createSocketFile(int protocol, int type, bool nonBlock) {
-	auto file = smarter::make_shared<OpenFile>(protocol, type, nonBlock);
+smarter::shared_ptr<File, FileHandle> createSocketFile(CreationOwnership owner, int protocol, int type, bool nonBlock) {
+	auto file = smarter::make_shared<OpenFile>(owner, protocol, type, nonBlock);
 	file->setupWeakFile(file);
 	OpenFile::serve(file);
 	return File::constructHandle(std::move(file));

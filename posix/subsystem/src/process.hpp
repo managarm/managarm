@@ -234,6 +234,11 @@ public:
 	// Returns a copy of the file table.
 	std::unordered_map<int, FileDescriptor> snapshotFileTable();
 
+	size_t countOpenDescriptors() {
+		std::lock_guard lock{_mutex};
+		return _fileTable.size();
+	}
+
 	void setFdLimit(uint64_t limit) {
 		std::lock_guard lock{_mutex};
 		// TODO: increase the limit once we allow more than one shared fd -> HelHandle mapping page
@@ -941,7 +946,7 @@ struct ThreadGroup : std::enable_shared_from_this<ThreadGroup> {
 		}
 		std::lock_guard lock{credentialsMutex_};
 		if(isRootLocked_() || euid == _uid) {
-			_euid = euid;
+			setEffectiveUidLocked_(euid);
 			return Error::success;
 		}
 		return Error::accessDenied;
@@ -982,7 +987,7 @@ struct ThreadGroup : std::enable_shared_from_this<ThreadGroup> {
 		}
 		std::lock_guard lock{credentialsMutex_};
 		if(isRootLocked_() || _gid == egid || _egid == egid) {
-			_egid = egid;
+			setEffectiveGidLocked_(egid);
 			return Error::success;
 		}
 		return Error::accessDenied;
@@ -996,6 +1001,16 @@ struct ThreadGroup : std::enable_shared_from_this<ThreadGroup> {
 	std::pair<uid_t, gid_t> effectiveIds() {
 		std::lock_guard lock{credentialsMutex_};
 		return {_euid, _egid};
+	}
+
+	bool canRetainSetgid(gid_t gid) {
+		std::lock_guard lock{credentialsMutex_};
+		if(_euid == 0 || _egid == gid)
+			return true;
+		for(auto supplementary : supplementaryGids_)
+			if(supplementary == gid)
+				return true;
+		return false;
 	}
 
 	Error setSgid(gid_t sgid) {
@@ -1033,10 +1048,10 @@ struct ThreadGroup : std::enable_shared_from_this<ThreadGroup> {
 		return Error::success;
 	}
 
-	// Copies the user and group IDs (but not the supplementary groups) of another group.
+	// Copies credentials and dumpability from the parent thread group.
 	void inheritCredentials(ThreadGroup *other);
 
-	// Sets the IDs that exec() of a set-user-ID or set-group-ID binary changes.
+	// Updates credentials and dumpability when committing exec().
 	void setExecCredentials(uid_t euid, gid_t egid, uid_t suid, gid_t sgid);
 
 	ResourceUsage selfUsage() {
@@ -1060,7 +1075,15 @@ struct ThreadGroup : std::enable_shared_from_this<ThreadGroup> {
 	}
 
 	void setDumpable(bool dumpable) {
+		std::lock_guard lock{credentialsMutex_};
 		dumpable_ = dumpable;
+	}
+
+	std::pair<uid_t, gid_t> procfsOwnerIds(bool publicDirectory) {
+		std::lock_guard lock{credentialsMutex_};
+		if(publicDirectory || dumpable_)
+			return {_euid, _egid};
+		return {0, 0};
 	}
 
 	bool getDumpable() const {
@@ -1196,6 +1219,19 @@ private:
 	std::shared_ptr<ProcessGroup> pgPointer_;
 	// Protected by processGraphMutex.
 	frg::default_list_hook<ThreadGroup> pgHook_;
+
+	// Publish dumpability before the new effective IDs, as Linux commit_creds does.
+	void setEffectiveUidLocked_(uid_t uid) {
+		if(_euid != uid)
+			dumpable_ = false;
+		_euid = uid;
+	}
+
+	void setEffectiveGidLocked_(gid_t gid) {
+		if(_egid != gid)
+			dumpable_ = false;
+		_egid = gid;
+	}
 
 	bool isRootLocked_() {
 		return _uid == 0 || _euid == 0;

@@ -324,11 +324,9 @@ HandleRequest::operator()(managarm::posix::MkfifoAtRequest &&req,
 	}
 
 	auto result = co_await parent->mkfifo(
-		parentLink.get(),
+		parentLink.get(), self.get(),
 		resolver.nextComponent(),
-		req.mode() & ~self->fsContext()->getUmask(),
-		self->threadGroup()->euid(),
-		self->threadGroup()->egid()
+		req.mode() & ~self->fsContext()->getUmask()
 	);
 	if(!result) {
 		co_await sendErrorResponse<managarm::posix::MkfifoAtResponse>(conversation,
@@ -497,7 +495,7 @@ HandleRequest::operator()(managarm::posix::SymlinkAtRequest &&req,
 
 	auto parentLink = resolver.currentLink();
 	auto parent = parentLink->getTarget();
-	auto result = co_await parent->symlink(parentLink.get(), resolver.nextComponent(), req.target_path());
+	auto result = co_await parent->symlink(parentLink.get(), self.get(), resolver.nextComponent(), req.target_path());
 	if(auto error = std::get_if<Error>(&result); error) {
 		auto posixError = *error == Error::illegalOperationTarget
 			? managarm::posix::Errors::ILLEGAL_ARGUMENTS
@@ -1622,7 +1620,8 @@ HandleRequest::operator()(managarm::posix::MknodAtRequest &&req,
 		dev.first = major(req.device());
 		dev.second = minor(req.device());
 
-		auto result = co_await parent->mkdev(parentLink.get(), resolver.nextComponent(), type, dev);
+		auto result = co_await parent->mkdev(parentLink.get(), self.get(), resolver.nextComponent(), type, dev,
+				(req.mode() & 07777) & ~self->fsContext()->getUmask());
 		if(!result) {
 			if(result.error() == Error::illegalOperationTarget) {
 				co_await sendErrorResponse<managarm::posix::MknodAtResponse>(conversation, managarm::posix::Errors::ILLEGAL_ARGUMENTS);
@@ -1635,11 +1634,9 @@ HandleRequest::operator()(managarm::posix::MknodAtRequest &&req,
 		}
 	} else if(type == VfsType::fifo) {
 		auto result = co_await parent->mkfifo(
-			parentLink.get(),
+			parentLink.get(), self.get(),
 			resolver.nextComponent(),
-			req.mode() & ~self->fsContext()->getUmask(),
-			self->threadGroup()->euid(),
-			self->threadGroup()->egid()
+			(req.mode() & 07777) & ~self->fsContext()->getUmask()
 		);
 		if(!result) {
 			if(result.error() == Error::illegalOperationTarget) {
@@ -1652,7 +1649,8 @@ HandleRequest::operator()(managarm::posix::MknodAtRequest &&req,
 			}
 		}
 	} else if(type == VfsType::socket) {
-		auto result = co_await parent->mksocket(parentLink.get(), resolver.nextComponent(), (req.mode() & ~self->fsContext()->getUmask()), self->threadGroup()->uid(), self->threadGroup()->gid());
+		auto result = co_await parent->mksocket(parentLink.get(), self.get(), resolver.nextComponent(),
+				(req.mode() & 07777) & ~self->fsContext()->getUmask());
 		if(!result) {
 			if(result.error() == Error::illegalOperationTarget) {
 				co_await sendErrorResponse<managarm::posix::MknodAtResponse>(conversation, managarm::posix::Errors::ILLEGAL_ARGUMENTS);

@@ -24,6 +24,26 @@ SuperBlock procfsSuperblock;
 
 namespace {
 
+// Procfs metadata follows the represented process, not the process that
+// created or is inspecting its procfs entries. Linux exempts 0555 process
+// directories from the non-dumpable root-ownership fallback.
+void setProcessOwner(FileStats &stats, ThreadGroup *group, bool directory = false) {
+	auto [uid, gid] = group->procfsOwnerIds(directory && stats.mode == 0555);
+	stats.uid = uid;
+	stats.gid = gid;
+}
+
+FileStats directoryStats(ThreadGroup *group, mode_t mode, timespec createdAt) {
+	FileStats stats{};
+	stats.mode = mode;
+	stats.numLinks = 2;
+	stats.atimeSecs = stats.mtimeSecs = stats.ctimeSecs = createdAt.tv_sec;
+	stats.atimeNanos = stats.mtimeNanos = stats.ctimeNanos = createdAt.tv_nsec;
+	if(group)
+		setProcessOwner(stats, group, true);
+	return stats;
+}
+
 // Threads that exited have no open files.
 std::unordered_map<int, FileDescriptor> snapshotFileTableOf(Process *process) {
 	auto fileContext = process->fileContext();
@@ -289,8 +309,7 @@ async::result<frg::expected<Error, FileStats>> RegularNode::getStatsInternal(Thr
 	stats.numLinks = 1;
 	stats.fileSize = 4096; // Same as in Linux.
 	stats.mode = 0666; // TODO: Some files can be written.
-	stats.uid = tg->uid();
-	stats.gid = tg->gid();
+	setProcessOwner(stats, tg);
 	stats.atimeSecs = now.tv_sec;
 	stats.atimeNanos = now.tv_nsec;
 	stats.mtimeSecs = now.tv_sec;
@@ -371,7 +390,14 @@ smarter::shared_ptr<Link, LinkRc> DirectoryNode::createRootDirectory() {
 }
 
 DirectoryNode::DirectoryNode()
-: FsNode{&procfsSuperblock} { }
+: FsNode{&procfsSuperblock}, _createdAt{clk::getRealtime()} { }
+
+DirectoryNode::DirectoryNode(std::weak_ptr<ThreadGroup> owner, bool retainOwner)
+: FsNode{&procfsSuperblock}, _owner{std::move(owner)}, _createdAt{clk::getRealtime()},
+		_retainOwner{retainOwner} {
+	if(auto group = _owner->lock())
+		_lastOwner = group->procfsOwnerIds(true);
+}
 
 smarter::shared_ptr<Link, LinkRc> DirectoryNode::directMkregular(FsLink *parent, std::string name,
 		smarter::shared_ptr<RegularNode> regular) {
@@ -381,7 +407,7 @@ smarter::shared_ptr<Link, LinkRc> DirectoryNode::directMkregular(FsLink *parent,
 }
 
 smarter::shared_ptr<Link, LinkRc> DirectoryNode::directMkdir(FsLink *parent, std::string name) {
-	auto node = makeFsShared<DirectoryNode>();
+	auto node = _owner ? makeFsShared<DirectoryNode>(*_owner, true) : makeFsShared<DirectoryNode>();
 	auto link = makeFsShared<Link>(parent->sharedFromThis(), std::move(name), std::move(node));
 	directInsert(link);
 	return link;
@@ -401,7 +427,7 @@ smarter::shared_ptr<Link, LinkRc> DirectoryNode::directMknode(FsLink *parent, st
 
 // The caller publishes the directory once it is complete.
 smarter::shared_ptr<Link, LinkRc> DirectoryNode::createProcDirectory(FsLink *parent, Process *process) {
-	auto node = makeFsShared<DirectoryNode>();
+	auto node = makeFsShared<DirectoryNode>(process->threadGroup()->weak_from_this());
 	auto proc_dir = node.get();
 	auto link = makeFsShared<Link>(parent->sharedFromThis(), std::to_string(process->pid()), std::move(node));
 
@@ -446,7 +472,7 @@ smarter::shared_ptr<Link, LinkRc> DirectoryNode::createProcTaskDirectory(FsLink 
 	}
 	auto task_dir = static_cast<DirectoryNode *>(taskLink->getTarget().get());
 
-	auto tid_node = makeFsShared<DirectoryNode>();
+	auto tid_node = makeFsShared<DirectoryNode>(process->threadGroup()->weak_from_this());
 	auto tid_dir = tid_node.get();
 	auto tid_link = makeFsShared<Link>(taskLink->sharedFromThis(), std::to_string(process->tid()),
 			std::move(tid_node));
@@ -469,9 +495,27 @@ async::result<frg::expected<Error, smarter::shared_ptr<FsLink, LinkRc>>> Directo
 	co_return Error::noSuchFile;
 }
 
+std::pair<uid_t, gid_t> DirectoryNode::refreshRetainedOwner(ThreadGroup *owner) {
+	if(owner) {
+		auto ids = owner->procfsOwnerIds(true);
+		std::unique_lock lock{treeMutex};
+		return _lastOwner = ids;
+	}
+	std::shared_lock lock{treeMutex};
+	return _lastOwner;
+}
+
 async::result<frg::expected<Error, FileStats>> DirectoryNode::getStats() {
-	std::cout << "\e[31mposix: Fix procfs Directory::getStats()\e[39m" << std::endl;
-	co_return FileStats{};
+	auto owner = _owner ? _owner->lock() : nullptr;
+	auto stats = directoryStats(_retainOwner ? nullptr : owner.get(), 0555, _createdAt);
+	if(_retainOwner)
+		std::tie(stats.uid, stats.gid) = refreshRetainedOwner(owner.get());
+
+	std::shared_lock lock{treeMutex};
+	for(const auto &entry : _entries)
+		if(entry->getTarget()->getType() == VfsType::directory)
+			++stats.numLinks;
+	co_return stats;
 }
 
 async::result<frg::expected<Error, smarter::shared_ptr<File, FileHandle>>>
@@ -485,6 +529,8 @@ DirectoryNode::open(Process *, std::shared_ptr<MountView> mount, smarter::shared
 		co_return Error::illegalArguments;
 	}
 
+	if(_retainOwner)
+		refreshRetainedOwner(_owner->lock().get());
 	auto file = smarter::make_shared<DirectoryFile>(std::move(mount), std::move(link));
 	file->setupWeakFile(file);
 	DirectoryFile::serve(file);
@@ -500,6 +546,13 @@ async::result<frg::expected<Error, smarter::shared_ptr<FsLink, LinkRc>>> Directo
 			co_return Error::noSuchFile;
 		link = *it;
 	}
+	// Like procfs lookup on Linux, refresh retained directory ownership even
+	// when the caller opens the inode without first requesting its metadata.
+	auto target = link->getTarget();
+	if(auto *dir = dynamic_cast<DirectoryNode *>(target.get()); dir && dir->_retainOwner)
+		dir->refreshRetainedOwner(dir->_owner->lock().get());
+	else if(auto *fdInfo = dynamic_cast<FdInfoDirectoryNode *>(target.get()))
+		fdInfo->refreshRetainedOwner(fdInfo->_process.lock().get());
 	co_return link;
 }
 
@@ -536,8 +589,7 @@ async::result<frg::expected<Error, FileStats>> LinkNode::getStatsInternal(Proces
 	stats.numLinks = 1;
 	stats.fileSize = 4096; // Same as in Linux.
 	stats.mode = 0666; // TODO: Some files can be written.
-	stats.uid = proc->threadGroup()->uid();
-	stats.gid = proc->threadGroup()->gid();
+	setProcessOwner(stats, proc->threadGroup());
 	stats.atimeSecs = now.tv_sec;
 	stats.atimeNanos = now.tv_nsec;
 	stats.mtimeSecs = now.tv_sec;
@@ -1260,15 +1312,20 @@ helix::BorrowedDescriptor FdDirectoryFile::getPassthroughLane() {
 }
 
 FdDirectoryNode::FdDirectoryNode(Process *process)
-: FsNode(&procfsSuperblock), _process{process->weak_from_this()} {}
+: FsNode(&procfsSuperblock), _process{process->weak_from_this()}, _createdAt{clk::getRealtime()} {}
 
 VfsType FdDirectoryNode::getType() {
 	return VfsType::directory;
 }
 
 async::result<frg::expected<Error, FileStats>> FdDirectoryNode::getStats() {
-	std::cout << "\e[31mposix: Fix procfs FdDirectoryNode::getStats()\e[39m" << std::endl;
-	co_return FileStats{};
+	auto process = _process.lock();
+	if(!process)
+		co_return Error::noSuchFile;
+	auto stats = directoryStats(process->threadGroup(), 0500, _createdAt);
+	if(auto fileContext = process->fileContext())
+		stats.fileSize = fileContext->countOpenDescriptors();
+	co_return stats;
 }
 
 async::result<frg::expected<Error, smarter::shared_ptr<File, FileHandle>>>
@@ -1336,8 +1393,7 @@ async::result<frg::expected<Error, FileStats>> SymlinkNode::getStats() {
 
 	stats.fileSize = 64; // Same as Linux.
 	stats.mode = 0777;
-	stats.uid = p->threadGroup()->uid();
-	stats.gid = p->threadGroup()->gid();
+	setProcessOwner(stats, p->threadGroup());
 
 	co_return stats;
 }
@@ -1468,15 +1524,27 @@ async::result<frg::expected<Error, FileStats>> MountInfoNode::getStats() {
 }
 
 FdInfoDirectoryNode::FdInfoDirectoryNode(Process* process)
-: FsNode(&procfsSuperblock), _process{process->weak_from_this()} {}
+: FsNode(&procfsSuperblock), _process{process->weak_from_this()}, _createdAt{clk::getRealtime()},
+		_lastOwner{process->threadGroup()->procfsOwnerIds(true)} {}
 
 VfsType FdInfoDirectoryNode::getType() {
 	return VfsType::directory;
 }
 
+std::pair<uid_t, gid_t> FdInfoDirectoryNode::refreshRetainedOwner(Process *process) {
+	if(process) {
+		auto ids = process->threadGroup()->procfsOwnerIds(true);
+		std::unique_lock lock{treeMutex};
+		return _lastOwner = ids;
+	}
+	std::shared_lock lock{treeMutex};
+	return _lastOwner;
+}
+
 async::result<frg::expected<Error, FileStats>> FdInfoDirectoryNode::getStats() {
-	std::cout << "\e[31mposix: Fix procfs FdInfoDirectoryNode::getStats()\e[39m" << std::endl;
-	co_return FileStats{};
+	auto stats = directoryStats(nullptr, 0555, _createdAt);
+	std::tie(stats.uid, stats.gid) = refreshRetainedOwner(_process.lock().get());
+	co_return stats;
 }
 
 async::result<frg::expected<Error, smarter::shared_ptr<File, FileHandle>>>
@@ -1494,6 +1562,7 @@ FdInfoDirectoryNode::open(Process *, std::shared_ptr<MountView> mount, smarter::
 	if (!p)
 		co_return Error::noSuchProcess;
 
+	refreshRetainedOwner(p.get());
 	auto file = smarter::make_shared<FdInfoDirectoryFile>(std::move(mount), std::move(link), p.get());
 	file->setupWeakFile(file);
 	FdInfoDirectoryFile::serve(file);

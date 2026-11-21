@@ -48,6 +48,9 @@ struct CreationOwnership {
 // Uses effective credentials (so EUID/EGID). Null creator means internal root creation.
 CreationOwnership creationOwnership(Process *creator, const FileStats *parent = nullptr);
 
+// Non-directories cannot acquire executable setgid privilege in an unrelated group.
+mode_t creationMode(Process *creator, mode_t mode, const CreationOwnership &owner);
+
 // Internal representation of struct statfs.
 // Data types match the corresponding Bragi message.
 struct FsStats {
@@ -235,13 +238,13 @@ public:
 
 	//! Creates a new symlink (directories only).
 	virtual async::result<std::variant<Error, smarter::shared_ptr<FsLink, LinkRc>>>
-	symlink(FsLink *parent, std::string name, std::string path);
+	symlink(FsLink *parent, Process *process, std::string name, std::string path);
 
 	//! Creates a new device file (directories only).
-	virtual async::result<frg::expected<Error, smarter::shared_ptr<FsLink, LinkRc>>> mkdev(FsLink *parent, std::string name,
-			VfsType type, DeviceId id);
+	virtual async::result<frg::expected<Error, smarter::shared_ptr<FsLink, LinkRc>>> mkdev(FsLink *parent, Process *process, std::string name,
+			VfsType type, DeviceId id, mode_t mode);
 
-	virtual async::result<frg::expected<Error, smarter::shared_ptr<FsLink, LinkRc>>> mkfifo(FsLink *parent, std::string name, mode_t mode, uid_t uid, gid_t gid);
+	virtual async::result<frg::expected<Error, smarter::shared_ptr<FsLink, LinkRc>>> mkfifo(FsLink *parent, Process *process, std::string name, mode_t mode);
 
 	virtual async::result<frg::expected<Error>> unlink(std::string name);
 
@@ -273,7 +276,7 @@ public:
 	virtual async::result<std::expected<void, Error>> swapon();
 
 	// Creates an socket
-	virtual async::result<frg::expected<Error, smarter::shared_ptr<FsLink, LinkRc>>> mksocket(FsLink *parent, std::string name, mode_t mode, uid_t uid, gid_t gid);
+	virtual async::result<frg::expected<Error, smarter::shared_ptr<FsLink, LinkRc>>> mksocket(FsLink *parent, Process *process, std::string name, mode_t mode);
 
 	// Recursive path traversal
 	virtual bool hasTraverseLinks();
@@ -340,12 +343,28 @@ private:
 	struct PrivateTag { }; // To tag-dispatch to private methods.
 
 public:
-	static smarter::shared_ptr<SpecialLink, LinkRc> makeSpecialLink(VfsType fileType, int mode) {
-		return makeFsShared<SpecialLink>(PrivateTag{}, fileType, mode);
+	static smarter::shared_ptr<SpecialLink, LinkRc> makeSpecialLink(VfsType fileType, int mode, CreationOwnership owner) {
+		return makeFsShared<SpecialLink>(PrivateTag{}, fileType, mode, owner);
 	}
 
-	SpecialLink(PrivateTag, VfsType fileType, int mode)
-	: node_{makeFsShared<SpecialNode>(fileType, mode)} { }
+	// Linux epoll, eventfd, signalfd, timerfd and inotify share a boot-created,
+	// root-owned anonymous inode. Its stat mode has no file-type bits.
+	static smarter::shared_ptr<SpecialLink, LinkRc> makeAnonymousLink() {
+		static auto node = makeFsShared<SpecialNode>(VfsType::null, 0600,
+				CreationOwnership{0, 0, false});
+		return makeFsShared<SpecialLink>(PrivateTag{}, node);
+	}
+
+	// Pidfds have their own metadata policy rather than creator ownership.
+	static smarter::shared_ptr<SpecialLink, LinkRc> makePidfdLink() {
+		return makeSpecialLink(VfsType::regular, 0700, CreationOwnership{0, 0, false});
+	}
+
+	SpecialLink(PrivateTag, smarter::shared_ptr<FsNode> node)
+	: node_{std::move(node)} { }
+
+	SpecialLink(PrivateTag, VfsType fileType, int mode, CreationOwnership owner)
+	: node_{makeFsShared<SpecialNode>(fileType, mode, owner)} { }
 
 public:
 	smarter::shared_ptr<FsNode> getTarget() override {
@@ -365,11 +384,11 @@ public:
 	}
 
 private:
-	// SpecialLinks can never be linked into "real" file systems,
-	// hence the can only ever be one link per node.
+	// SpecialLinks cannot be linked into ordinary filesystems. Anonymous links
+	// can share a node without adding directory entries or increasing its link count.
 	struct SpecialNode final : FsNode {
-		SpecialNode(VfsType fileType, int mode)
-		: FsNode{getAnonymousSuperblock()}, fileType_{fileType}, mode_{mode} { }
+		SpecialNode(VfsType fileType, int mode, CreationOwnership owner)
+		: FsNode{getAnonymousSuperblock()}, fileType_{fileType}, mode_{mode}, owner_{owner} { }
 
 		VfsType getType() override {
 			return fileType_;
@@ -382,8 +401,8 @@ private:
 			stats.fileSize = 0;
 			stats.numLinks = 1;
 			stats.mode = mode_;
-			stats.uid = 0;
-			stats.gid = 0;
+			stats.uid = owner_.uid;
+			stats.gid = owner_.gid;
 			// TODO: Linux returns the current time for all timestamps.
 			co_return stats;
 		}
@@ -391,7 +410,8 @@ private:
 	private:
 		VfsType fileType_;
 		int mode_;
+		CreationOwnership owner_;
 	};
 
-	smarter::shared_ptr<SpecialNode> node_;
+	smarter::shared_ptr<FsNode> node_;
 };

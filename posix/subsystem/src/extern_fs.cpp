@@ -996,7 +996,7 @@ private:
 	}
 
 	async::result<std::variant<Error, smarter::shared_ptr<FsLink, LinkRc>>>
-	symlink(FsLink *parent, std::string name, std::string path) override {
+	symlink(FsLink *parent, Process *, std::string name, std::string path) override {
 		managarm::fs::CntRequest req;
 		req.set_req_type(managarm::fs::CntReqType::NODE_SYMLINK);
 		req.set_name_length(name.size());
@@ -1038,7 +1038,7 @@ private:
 		}
 	}
 
-	async::result<frg::expected<Error, smarter::shared_ptr<FsLink, LinkRc>>> mkdev(FsLink *parent, std::string name, VfsType type, DeviceId id) override {
+	async::result<frg::expected<Error, smarter::shared_ptr<FsLink, LinkRc>>> mkdev(FsLink *parent, Process *, std::string name, VfsType type, DeviceId id, mode_t) override {
 		(void)parent;
 		(void)name;
 		(void)type;

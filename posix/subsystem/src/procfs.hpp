@@ -3,6 +3,7 @@
 #include <mutex>
 #include <optional>
 #include <string>
+#include <time.h>
 
 #include <async/cancellation.hpp>
 #include <async/mutex.hpp>
@@ -165,6 +166,7 @@ struct DirectoryNode final : FsNode {
 	static smarter::shared_ptr<Link, LinkRc> createRootDirectory();
 
 	DirectoryNode();
+	explicit DirectoryNode(std::weak_ptr<ThreadGroup> owner, bool retainOwner = false);
 
 	smarter::shared_ptr<Link, LinkRc> directMkregular(FsLink *parent, std::string name,
 			smarter::shared_ptr<RegularNode> regular);
@@ -192,6 +194,14 @@ struct DirectoryNode final : FsNode {
 private:
 	smarter::shared_ptr<Link, LinkRc> createProcDirectory(FsLink *parent, Process *process);
 	void directInsert(smarter::shared_ptr<Link, LinkRc> link);
+	std::pair<uid_t, gid_t> refreshRetainedOwner(ThreadGroup *owner);
+
+	// Absent for global directories; weak to avoid keeping a process alive.
+	std::optional<std::weak_ptr<ThreadGroup>> _owner;
+	timespec _createdAt;
+	bool _retainOwner = false;
+	// Protected by treeMutex; task directories retain their last observed owner.
+	std::pair<uid_t, gid_t> _lastOwner{};
 
 	// Protected by treeMutex in procfs.cpp.
 	std::set<smarter::shared_ptr<Link, LinkRc>, LinkCompare> _entries;
@@ -426,6 +436,7 @@ public:
 	async::result<frg::expected<Error, smarter::shared_ptr<FsLink, LinkRc>>> getLink(FsLink *parent, std::string name) override;
 private:
 	std::weak_ptr<Process> _process;
+	timespec _createdAt;
 };
 
 struct SymlinkNode final : LinkNode {
@@ -477,7 +488,12 @@ public:
 			SemanticFlags semantic_flags) override;
 	async::result<frg::expected<Error, smarter::shared_ptr<FsLink, LinkRc>>> getLink(FsLink *parent, std::string name) override;
 private:
+	std::pair<uid_t, gid_t> refreshRetainedOwner(Process *process);
+
 	std::weak_ptr<Process> _process;
+	timespec _createdAt;
+	// Protected by treeMutex; retained after the process is reaped.
+	std::pair<uid_t, gid_t> _lastOwner;
 };
 
 struct FdInfoDirectoryFile final : FileWithDefaults {

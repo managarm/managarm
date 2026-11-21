@@ -306,7 +306,7 @@ execute(ViewPath root, ViewPath workdir,
 	auto link = execFile->associatedLink();
 	auto stats = FRG_CO_TRY(co_await link->getTarget()->getStats());
 	bool hasSetuid = stats.mode & S_ISUID;
-	bool hasSetgid = stats.mode & S_ISGID;
+	bool hasSetgid = (stats.mode & (S_ISGID | S_IXGRP)) == (S_ISGID | S_IXGRP);
 	uid_t newUid = hasSetuid ? stats.uid : self->threadGroup()->euid();
 	gid_t newGid = hasSetgid ? stats.gid : self->threadGroup()->egid();
 

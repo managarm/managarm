@@ -86,12 +86,12 @@ private:
 	struct PrivateTag { }; // To tag-dispatch to private methods.
 
 public:
-	static smarter::shared_ptr<MemoryFileLink, LinkRc> makeMemoryFileLink(int mode) {
-		return makeFsShared<MemoryFileLink>(PrivateTag{}, mode);
+	static smarter::shared_ptr<MemoryFileLink, LinkRc> makeMemoryFileLink(int mode, CreationOwnership owner) {
+		return makeFsShared<MemoryFileLink>(PrivateTag{}, mode, owner);
 	}
 
-	MemoryFileLink(PrivateTag, int mode)
-	: node_{makeFsShared<MemoryFileNode>(mode)} { }
+	MemoryFileLink(PrivateTag, int mode, CreationOwnership owner)
+	: node_{makeFsShared<MemoryFileNode>(mode, owner)} { }
 
 	void setFile(smarter::shared_ptr<MemoryFile> file) {
 		node_->setFile(std::move(file));
@@ -118,8 +118,8 @@ private:
 	// MemoryFileLink can never be linked into "real" file systems,
 	// hence the can only ever be one link per node.
 	struct MemoryFileNode final : FsNode {
-		MemoryFileNode(int mode)
-		: FsNode{getAnonymousSuperblock()}, mode_{mode} { }
+		MemoryFileNode(int mode, CreationOwnership owner)
+		: FsNode{getAnonymousSuperblock()}, mode_{mode}, owner_{owner} { }
 
 		void setFile(smarter::shared_ptr<MemoryFile> file) {
 			file_ = std::move(file);
@@ -135,8 +135,8 @@ private:
 			stats.fileSize = file_->fileSize();
 			stats.numLinks = 1;
 			stats.mode = mode_;
-			stats.uid = 0;
-			stats.gid = 0;
+			stats.uid = owner_.uid;
+			stats.gid = owner_.gid;
 			// TODO: Linux returns the current time for all timestamps.
 			co_return stats;
 		}
@@ -144,6 +144,7 @@ private:
 	private:
 		smarter::shared_ptr<MemoryFile> file_;
 		int mode_;
+		CreationOwnership owner_;
 	};
 
 	smarter::shared_ptr<MemoryFileNode> node_;
