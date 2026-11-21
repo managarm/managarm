@@ -771,8 +771,8 @@ async::result<std::expected<DirEntry, protocols::fs::Error>> Inode::mkdir(std::s
 	co_await submit.async_wait();
 	HEL_CHECK(lockMemory.error());
 
-	dirNode->diskInode()->uid = uid;
-	dirNode->diskInode()->gid = gid;
+	dirNode->diskInode()->setOwnerUid(uid);
+	dirNode->diskInode()->setOwnerGid(gid);
 	dirNode->diskInode()->mode = EXT2_S_IFDIR | mode;
 
 	size_t offset = 0;
@@ -907,9 +907,9 @@ async::result<protocols::fs::Error> Inode::chown(std::optional<uid_t> uid, std::
 	co_await readyEvent.wait();
 
 	if (uid)
-		diskInode()->uid = *uid;
+		diskInode()->setOwnerUid(*uid);
 	if (gid)
-		diskInode()->gid = *gid;
+		diskInode()->setOwnerGid(*gid);
 
 	updateInodeChecksum(fs, diskInode(), number);
 
@@ -1271,8 +1271,8 @@ async::result<std::shared_ptr<BaseInode>> FileSystem::createRegular(int uid, int
 	disk_inode->atime = time.tv_sec;
 	disk_inode->ctime = time.tv_sec;
 	disk_inode->mtime = time.tv_sec;
-	disk_inode->uid = uid;
-	disk_inode->gid = gid;
+	disk_inode->setOwnerUid(uid);
+	disk_inode->setOwnerGid(gid);
 
 	if(usesExtents) {
 		auto &hdr = disk_inode->data.extents.hdr;

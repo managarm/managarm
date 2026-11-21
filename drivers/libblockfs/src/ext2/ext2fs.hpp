@@ -272,6 +272,11 @@ struct DiskGroupDesc {
 static_assert(sizeof(DiskGroupDesc) == 64, "Bad DiskGroupDesc struct size");
 
 struct DiskInode {
+	uint32_t ownerUid() const { return uint32_t{uid} | (uint32_t{osd2.uidHigh} << 16); }
+	uint32_t ownerGid() const { return uint32_t{gid} | (uint32_t{osd2.gidHigh} << 16); }
+	void setOwnerUid(uint32_t value) { uid = value; osd2.uidHigh = value >> 16; }
+	void setOwnerGid(uint32_t value) { gid = value; osd2.gidHigh = value >> 16; }
+
 	uint16_t mode;
 	uint16_t uid;
 	uint32_t size;
