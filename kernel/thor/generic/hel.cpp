@@ -2794,14 +2794,14 @@ HelError helLoadRegisters(HelHandle handle, int set, void *image) {
 		if(!thread) {
 			return kHelErrIllegalArgs;
 		}
-		uintptr_t regs[2];
+		uintptr_t regs[kHelNumProgramRegs];
 		auto accessOutcome = thread->accessRegisters([&](Executor *executor) {
 			regs[0] = *executor->ip();
 			regs[1] = *executor->sp();
 		});
 		if(!accessOutcome)
 			return translateError(accessOutcome.error());
-		if(!writeUserArray(reinterpret_cast<uintptr_t *>(image), regs, 2))
+		if (!writeUserArray(reinterpret_cast<uintptr_t *>(image), regs, kHelNumProgramRegs))
 			return kHelErrFault;
 	}else if(set == kHelRegsGeneral) {
 		if(!thread) {
@@ -3108,8 +3108,8 @@ HelError helStoreRegisters(HelHandle handle, int set, const void *image) {
 		if(!thread) {
 			return kHelErrIllegalArgs;
 		}
-		uintptr_t regs[2];
-		if(!readUserArray(reinterpret_cast<const uintptr_t *>(image), regs, 2))
+		uintptr_t regs[kHelNumProgramRegs];
+		if (!readUserArray(reinterpret_cast<const uintptr_t *>(image), regs, kHelNumProgramRegs))
 			return kHelErrFault;
 		auto accessOutcome = thread->accessRegisters([&](Executor *executor) {
 			*executor->ip() = regs[0];
@@ -4752,7 +4752,7 @@ HelError helQueryRegisterInfo(int set, HelRegisterInfo *info) {
 
 	switch (set) {
 		case kHelRegsProgram:
-			outInfo.setSize = 2 * sizeof(uintptr_t);
+			outInfo.setSize = kHelNumProgramRegs * sizeof(uintptr_t);
 			break;
 
 		case kHelRegsGeneral:

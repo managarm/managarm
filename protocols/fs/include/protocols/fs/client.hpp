@@ -30,7 +30,7 @@ struct File {
 	async::result<int64_t> seekEof(int64_t offset);
 
 	async::result<ReadResult> readSome(void *data, size_t max_length, async::cancellation_token);
-	async::result<size_t> writeSome(const void *data, size_t max_length);
+	async::result<std::expected<size_t, Error>> writeSome(const void *data, size_t max_length);
 
 	async::result<frg::expected<Error, PollWaitResult>>
 	pollWait(uint64_t sequence, int mask, async::cancellation_token cancellation = {});
