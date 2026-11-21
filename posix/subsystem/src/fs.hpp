@@ -231,7 +231,7 @@ public:
 	virtual async::result<frg::expected<Error, smarter::shared_ptr<FsLink, LinkRc>>> mkdev(FsLink *parent, std::string name,
 			VfsType type, DeviceId id);
 
-	virtual async::result<frg::expected<Error, smarter::shared_ptr<FsLink, LinkRc>>> mkfifo(FsLink *parent, std::string name, mode_t mode);
+	virtual async::result<frg::expected<Error, smarter::shared_ptr<FsLink, LinkRc>>> mkfifo(FsLink *parent, std::string name, mode_t mode, uid_t uid, gid_t gid);
 
 	virtual async::result<frg::expected<Error>> unlink(std::string name);
 

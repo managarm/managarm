@@ -326,7 +326,9 @@ HandleRequest::operator()(managarm::posix::MkfifoAtRequest &&req,
 	auto result = co_await parent->mkfifo(
 		parentLink.get(),
 		resolver.nextComponent(),
-		req.mode() & ~self->fsContext()->getUmask()
+		req.mode() & ~self->fsContext()->getUmask(),
+		self->threadGroup()->euid(),
+		self->threadGroup()->egid()
 	);
 	if(!result) {
 		co_await sendErrorResponse<managarm::posix::MkfifoAtResponse>(conversation,
@@ -1635,7 +1637,9 @@ HandleRequest::operator()(managarm::posix::MknodAtRequest &&req,
 		auto result = co_await parent->mkfifo(
 			parentLink.get(),
 			resolver.nextComponent(),
-			req.mode() & ~self->fsContext()->getUmask()
+			req.mode() & ~self->fsContext()->getUmask(),
+			self->threadGroup()->euid(),
+			self->threadGroup()->egid()
 		);
 		if(!result) {
 			if(result.error() == Error::illegalOperationTarget) {

@@ -140,7 +140,7 @@ async::result<frg::expected<Error, smarter::shared_ptr<FsLink, LinkRc>>> FsNode:
 	co_return Error::illegalOperationTarget;
 }
 
-async::result<frg::expected<Error, smarter::shared_ptr<FsLink, LinkRc>>> FsNode::mkfifo(FsLink *, std::string, mode_t) {
+async::result<frg::expected<Error, smarter::shared_ptr<FsLink, LinkRc>>> FsNode::mkfifo(FsLink *, std::string, mode_t, uid_t, gid_t) {
 	std::cout << "posix: mkfifo() is not implemented for this FsNode" << std::endl;
 	co_return Error::illegalOperationTarget;
 }

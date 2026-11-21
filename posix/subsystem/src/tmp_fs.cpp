@@ -222,10 +222,11 @@ private:
 	}
 
 public:
-	FifoNode(Superblock *superblock, mode_t mode)
+	FifoNode(Superblock *superblock, mode_t mode, uid_t uid, gid_t gid)
 	:Node{superblock} {
 		fifo::createNamedChannel(this);
 		initializeMode(mode);
+		initializeOwner(uid, gid);
 	}
 
 	~FifoNode() {
@@ -394,7 +395,7 @@ private:
 	async::result<frg::expected<Error, smarter::shared_ptr<FsLink, LinkRc>>> mkdev(FsLink *parent, std::string name,
 			VfsType type, DeviceId id) override;
 
-	async::result<frg::expected<Error, smarter::shared_ptr<FsLink, LinkRc>>> mkfifo(FsLink *parent, std::string name, mode_t mode) override;
+	async::result<frg::expected<Error, smarter::shared_ptr<FsLink, LinkRc>>> mkfifo(FsLink *parent, std::string name, mode_t mode, uid_t uid, gid_t gid) override;
 
 	async::result<frg::expected<Error>> unlink(std::string name) override;
 
@@ -532,7 +533,7 @@ private:
 struct MemoryNode final : Node {
 	friend struct MemoryFile;
 
-	MemoryNode(Superblock *superblock, mode_t mode = 0);
+	MemoryNode(Superblock *superblock, mode_t mode = 0, uid_t uid = 0, gid_t gid = 0);
 	~MemoryNode();
 
 	VfsType getType() override {
@@ -766,9 +767,10 @@ std::shared_mutex &topologyMutexOf(FsSuperblock *superblock) {
 // MemoryNode and MemoryFile implementation.
 // ----------------------------------------------------------------------------
 
-MemoryNode::MemoryNode(Superblock *superblock, mode_t mode)
+MemoryNode::MemoryNode(Superblock *superblock, mode_t mode, uid_t uid, gid_t gid)
 : Node{superblock, FsNode::defaultSupportsObservers}, _areaSize{0}, _fileSize{0} {
 	initializeMode(mode);
+	initializeOwner(uid, gid);
 }
 
 MemoryNode::~MemoryNode() {
@@ -1132,10 +1134,12 @@ DirectoryNode::insert(FsLink *parent, const std::string &name, bool isDirectory,
 }
 
 async::result<std::expected<smarter::shared_ptr<FsLink, LinkRc>, Error>>
-DirectoryNode::getLinkOrCreate(FsLink *parent, Process *, std::string name, mode_t mode,
+DirectoryNode::getLinkOrCreate(FsLink *parent, Process *process, std::string name, mode_t mode,
 		bool exclusive) {
 	auto result = getOrInsert(parent, name, false, [&] {
-		return makeFsShared<MemoryNode>(static_cast<Superblock *>(superblock()), mode);
+		return makeFsShared<MemoryNode>(static_cast<Superblock *>(superblock()), mode,
+				process ? process->threadGroup()->euid() : 0,
+				process ? process->threadGroup()->egid() : 0);
 	});
 	if(!result)
 		co_return std::unexpected{result.error()};
@@ -1290,9 +1294,9 @@ DirectoryNode::createDevice(FsLink *parent, std::string name, VfsType type, Devi
 }
 
 async::result<frg::expected<Error, smarter::shared_ptr<FsLink, LinkRc>>>
-DirectoryNode::mkfifo(FsLink *parent, std::string name, mode_t mode) {
+DirectoryNode::mkfifo(FsLink *parent, std::string name, mode_t mode, uid_t uid, gid_t gid) {
 	auto result = insert(parent, name, false, [&] {
-		return makeFsShared<FifoNode>(static_cast<Superblock *>(superblock()), mode);
+		return makeFsShared<FifoNode>(static_cast<Superblock *>(superblock()), mode, uid, gid);
 	});
 	if(!result)
 		co_return result.error();
