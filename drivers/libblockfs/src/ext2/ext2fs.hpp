@@ -442,7 +442,7 @@ struct Inode final : BaseInode, std::enable_shared_from_this<Inode> {
 
 	// Callers must hold topologyMutex (shared or exclusive).
 	// Callers must hold inodeMutex (exclusive).
-	async::result<std::expected<DirEntry, protocols::fs::Error>> symlink(std::string name, std::string target);
+	async::result<std::expected<DirEntry, protocols::fs::Error>> symlink(std::string name, std::string target, uid_t uid, gid_t gid);
 
 	// Callers must hold inodeMutex (exclusive).
 	async::result<protocols::fs::Error> chmod(int mode);

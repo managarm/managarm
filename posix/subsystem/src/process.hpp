@@ -18,6 +18,7 @@
 #include <core/cancel-events.hpp>
 #include <frg/expected.hpp>
 #include <frg/intrusive.hpp>
+#include <protocols/fs/common.hpp>
 #include <protocols/posix/data.hpp>
 #include <protocols/posix/supercalls.hpp>
 #include <sys/time.h>
@@ -1001,6 +1002,11 @@ struct ThreadGroup : std::enable_shared_from_this<ThreadGroup> {
 	std::pair<uid_t, gid_t> effectiveIds() {
 		std::lock_guard lock{credentialsMutex_};
 		return {_euid, _egid};
+	}
+
+	protocols::fs::CreationCredentials creationCredentials() {
+		std::lock_guard lock{credentialsMutex_};
+		return {_euid, _egid, supplementaryGids_};
 	}
 
 	bool canRetainSetgid(gid_t gid) {

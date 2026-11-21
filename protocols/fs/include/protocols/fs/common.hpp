@@ -14,6 +14,12 @@
 namespace protocols {
 namespace fs {
 
+struct CreationCredentials {
+	uid_t uid;
+	gid_t gid;
+	std::vector<gid_t> supplementaryGroups;
+};
+
 enum class SynchronizeFlags : uint32_t {
 	none = 0,
 	dataOnly = 1,

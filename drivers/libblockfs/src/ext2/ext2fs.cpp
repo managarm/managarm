@@ -813,7 +813,7 @@ async::result<std::expected<DirEntry, protocols::fs::Error>> Inode::mkdir(std::s
 	co_return result.value();
 }
 
-async::result<std::expected<DirEntry, protocols::fs::Error>> Inode::symlink(std::string name, std::string target) {
+async::result<std::expected<DirEntry, protocols::fs::Error>> Inode::symlink(std::string name, std::string target, uid_t uid, gid_t gid) {
 	assert(!name.empty() && name != "." && name != "..");
 
 	co_await readyEvent.wait();
@@ -832,6 +832,8 @@ async::result<std::expected<DirEntry, protocols::fs::Error>> Inode::symlink(std:
 	co_await newNode->inodeMutex.async_lock();
 	frg::unique_lock newNodeLock{frg::adopt_lock, newNode->inodeMutex};
 
+	newNode->diskInode()->setOwnerUid(uid);
+	newNode->diskInode()->setOwnerGid(gid);
 	newNode->setFileSize(target.size());
 
 	if (target.size() <= 60) {

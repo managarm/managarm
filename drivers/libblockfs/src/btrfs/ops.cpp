@@ -171,7 +171,7 @@ mkdir(std::shared_ptr<void> object, std::string name, uid_t, gid_t, mode_t) {
 }
 
 async::result<std::expected<protocols::fs::SymlinkResult, protocols::fs::Error>>
-symlink(std::shared_ptr<void> object, std::string name, std::string target) {
+symlink(std::shared_ptr<void> object, std::string name, std::string target, uid_t, gid_t) {
 	(void)object;
 	(void)name;
 	(void)target;
@@ -191,8 +191,7 @@ async::result<std::expected<protocols::fs::GetLinkResult, protocols::fs::Error>>
     std::string name,
     mode_t mode,
     bool exclusive,
-    uid_t uid,
-    gid_t gid
+    protocols::fs::CreationCredentials
 ) {
 	auto self = std::static_pointer_cast<btrfs::Inode>(object);
 	auto findResult = co_await self->findEntry(name);
@@ -224,8 +223,6 @@ async::result<std::expected<protocols::fs::GetLinkResult, protocols::fs::Error>>
 	}
 
 	(void)mode;
-	(void)uid;
-	(void)gid;
 	std::println("libblockfs/btrfs: getLinkOrCreate unimplemented!");
 	co_return std::unexpected{protocols::fs::Error::internalError};
 }
