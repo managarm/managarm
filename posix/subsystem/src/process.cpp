@@ -2336,7 +2336,7 @@ Error ThreadGroup::setUid(uid_t uid) {
 		setEffectiveUidLocked_(uid);
 		return Error::success;
 	}
-	return Error::accessDenied;
+	return Error::insufficientPermissions;
 }
 
 Error ThreadGroup::setGid(gid_t gid) {
@@ -2354,7 +2354,7 @@ Error ThreadGroup::setGid(gid_t gid) {
 		setEffectiveGidLocked_(gid);
 		return Error::success;
 	}
-	return Error::accessDenied;
+	return Error::insufficientPermissions;
 }
 
 Error ThreadGroup::setResuid(uint64_t ruid, uint64_t euid, uint64_t suid) {

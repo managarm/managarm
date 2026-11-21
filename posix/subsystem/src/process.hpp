@@ -946,11 +946,11 @@ struct ThreadGroup : std::enable_shared_from_this<ThreadGroup> {
 			return Error::illegalArguments;
 		}
 		std::lock_guard lock{credentialsMutex_};
-		if(isRootLocked_() || euid == _uid) {
+		if(isRootLocked_() || euid == _uid || euid == _euid || euid == _suid) {
 			setEffectiveUidLocked_(euid);
 			return Error::success;
 		}
-		return Error::accessDenied;
+		return Error::insufficientPermissions;
 	}
 
 	uid_t euid() {
@@ -987,11 +987,11 @@ struct ThreadGroup : std::enable_shared_from_this<ThreadGroup> {
 			return Error::illegalArguments;
 		}
 		std::lock_guard lock{credentialsMutex_};
-		if(isRootLocked_() || _gid == egid || _egid == egid) {
+		if(isRootLocked_() || egid == _gid || egid == _egid || egid == _sgid) {
 			setEffectiveGidLocked_(egid);
 			return Error::success;
 		}
-		return Error::accessDenied;
+		return Error::insufficientPermissions;
 	}
 
 	gid_t egid() {
@@ -1240,7 +1240,9 @@ private:
 	}
 
 	bool isRootLocked_() {
-		return _uid == 0 || _euid == 0;
+		// Without capabilities, privilege follows the effective UID. A real or
+		// saved UID of zero only permits the corresponding ID transitions.
+		return _euid == 0;
 	}
 
 	// Leaf lock.
