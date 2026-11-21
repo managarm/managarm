@@ -38,6 +38,16 @@ struct FileStats {
 	uint64_t ctimeSecs, ctimeNanos;
 };
 
+struct CreationOwnership {
+	uid_t uid;
+	gid_t gid;
+	// Only new directories inherit the parent's set-group-ID mode bit.
+	bool inheritSetgid;
+};
+
+// Uses effective credentials (so EUID/EGID). Null creator means internal root creation.
+CreationOwnership creationOwnership(Process *creator, const FileStats *parent = nullptr);
+
 // Internal representation of struct statfs.
 // Data types match the corresponding Bragi message.
 struct FsStats {

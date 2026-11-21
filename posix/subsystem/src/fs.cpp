@@ -2,9 +2,25 @@
 #include <linux/magic.h>
 #include <string.h>
 #include <sys/sysmacros.h>
+#include <sys/stat.h>
 #include <mutex>
 
 #include "fs.hpp"
+#include "process.hpp"
+
+CreationOwnership creationOwnership(Process *creator, const FileStats *parent) {
+	CreationOwnership ownership{0, 0, false};
+	if(creator) {
+		auto [uid, gid] = creator->threadGroup()->effectiveIds();
+		ownership.uid = uid;
+		ownership.gid = gid;
+	}
+	if(parent && (parent->mode & S_ISGID)) {
+		ownership.gid = parent->gid;
+		ownership.inheritSetgid = true;
+	}
+	return ownership;
+}
 
 namespace {
 

@@ -7,6 +7,7 @@
 #include <shared_mutex>
 #include <sys/signalfd.h>
 #include <unordered_map>
+#include <utility>
 #include <vector>
 
 #include <async/mutex.hpp>
@@ -990,6 +991,11 @@ struct ThreadGroup : std::enable_shared_from_this<ThreadGroup> {
 	gid_t egid() {
 		std::lock_guard lock{credentialsMutex_};
 		return _egid;
+	}
+
+	std::pair<uid_t, gid_t> effectiveIds() {
+		std::lock_guard lock{credentialsMutex_};
+		return {_euid, _egid};
 	}
 
 	Error setSgid(gid_t sgid) {
