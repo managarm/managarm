@@ -812,6 +812,16 @@ void CompileSignalInfo::operator() (const SegfaultSignal &info) const {
 	}
 }
 
+void CompileSignalInfo::operator()(const SynchronousFaultSignal &info) const {
+	si->si_addr = reinterpret_cast<void *>(info.offendingAddress);
+	si->si_code = info.code;
+}
+
+void CompileSignalFdInfo::operator()(const SynchronousFaultSignal &info) const {
+	si->ssi_addr = info.offendingAddress;
+	si->ssi_code = info.code;
+}
+
 void CompileSignalFdInfo::operator() (const SegfaultSignal &info) const {
 	si->ssi_addr = info.offendingAddress;
 	if (info.accessError)
@@ -1150,7 +1160,7 @@ async::result<void> SignalContext::raiseContext(SignalItem *item, Process *proce
 	memcpy(&sf.ucontext.uc_sigmask, &rawProcessMask, sizeof(rawProcessMask));
 
 	if (!(handling.handler.flags & signalReentrant))
-		rawHandlerMask |= (1 << (item->signalNumber - 1));
+		rawHandlerMask |= (uint64_t{1} << (item->signalNumber - 1));
 
 	process->setSignalMask(rawHandlerMask);
 
@@ -1257,7 +1267,7 @@ async::result<void> SignalContext::acceptSignalAndRaiseContext(SignalItem *item,
 }
 
 async::result<void> SignalContext::restoreContext(helix::BorrowedDescriptor thread, Process *process) {
-	uintptr_t pcrs[2];
+	uintptr_t pcrs[kHelNumProgramRegs];
 	HEL_CHECK(helLoadRegisters(thread.getHandle(), kHelRegsProgram, &pcrs));
 	auto frame = pcrs[kHelRegSp] - stackCallMisalign;
 
@@ -1491,7 +1501,7 @@ void Process::dumpRegisters() {
 	printf("\e[35m");
 	auto thread = threadDescriptor();
 
-	uintptr_t pcrs[2];
+	uintptr_t pcrs[kHelNumProgramRegs];
 	HEL_CHECK(helLoadRegisters(thread.getHandle(), kHelRegsProgram, pcrs));
 
 	uintptr_t gprs[kHelNumGprs];
@@ -2845,9 +2855,8 @@ bool ProcessGroup::isOrphanedLocked() {
 		// a) is in the same session as the ProcessGroup, and
 		// b) is not a member of the process group,
 		// then the ProcessGroup is NOT orphaned
-		if (processRef->parent_
-		    && processRef->parent_->pgPointer_->getSession() == getSession()
-		    && processRef->pgPointer_ != getHull()->getProcessGroup())
+		if (processRef->parent_ && processRef->parent_->pgPointer_->getSession() == getSession()
+		    && processRef->parent_->pgPointer_ != getHull()->getProcessGroup())
 			return false;
 	}
 
