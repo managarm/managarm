@@ -21,6 +21,7 @@
     - [Policy on AI use](contributing/ai-policy.md)
     - [Wireshark analysis](contributing/wireshark.md)
     - [Hardware CI](contributing/hwci.md)
+    - [Fuzzing](contributing/fuzzing.md)
 
 - [System Architecture](sys-arch/index.md)
     - [Components](sys-arch/components.md)
