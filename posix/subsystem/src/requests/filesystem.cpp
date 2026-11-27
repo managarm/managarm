@@ -252,7 +252,7 @@ HandleRequest::operator()(managarm::posix::MkdirAtRequest &&req,
 		parentLink.get(),
 	    self.get(),
 	    resolver.nextComponent(),
-	    req.mode()
+	    req.mode() & ~S_ISGID
 	);
 	if(auto error = std::get_if<Error>(&result); error) {
 		co_await sendErrorResponse<managarm::posix::MkdirAtResponse>(conversation, *error | toPosixProtoError);
