@@ -19,6 +19,7 @@ pub trait Scalar:
 {
     const ZERO: Self;
     const BITS: u32;
+    fn swap_bytes(self) -> Self;
 }
 
 macro_rules! impl_bit_convertible {
@@ -42,6 +43,9 @@ macro_rules! impl_scalar {
         impl Scalar for $b {
             const ZERO: Self = 0;
             const BITS: u32 = <$b>::BITS;
+            fn swap_bytes(self) -> Self {
+                <$b>::swap_bytes(self)
+            }
         }
 
         impl BitConvertible<$b> for bool {

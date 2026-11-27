@@ -888,7 +888,7 @@ async::result<void> publishPartitions(BlockDevice *device, raw::RawFs *diskRawFs
 		auto type = table->getPartition(i).type();
 		auto partuuid = table->getPartition(i).id().toString();
 		printf("Partition %lu, type: %.8X-%.4X-%.4X-%.2X%.2X-%.2X%.2X%.2X%.2X%.2X%.2X, partuuid: %s\n",
-				i, type.a, type.b, type.c, type.d[0], type.d[1],
+				i, uint32_t(type.a), uint16_t(type.b), uint16_t(type.c), type.d[0], type.d[1],
 				type.e[0], type.e[1], type.e[2], type.e[3], type.e[4], type.e[5],
 				partuuid.c_str());
 

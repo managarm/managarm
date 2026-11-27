@@ -11,7 +11,7 @@ namespace gpt {
 
 std::string Guid::toString() const {
 	return std::format("{:08x}-{:04x}-{:04x}-{:02x}{:02x}-{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}",
-			a, b, c, d[0], d[1], e[0], e[1], e[2], e[3], e[4], e[5]);
+			uint32_t(a), uint16_t(b), uint16_t(c), d[0], d[1], e[0], e[1], e[2], e[3], e[4], e[5]);
 }
 
 namespace {
@@ -43,8 +43,9 @@ Table::probeSectorSize_(size_t sectorSize) {
 		co_return std::unexpected{headerRes.error()};
 
 	DiskHeader *header = reinterpret_cast<DiskHeader *>(static_cast<std::byte *>(headerBuffer.data()) + deviceGptOffset);
-	if (header->signature == 0x5452415020494645)
+	if (header->signature == 0x5452415020494645) {
 		co_return std::make_pair(std::move(headerBuffer), header);
+	}
 
 	co_return std::make_pair(arch::dma_buffer{}, nullptr);
 }
@@ -105,10 +106,9 @@ async::result<std::expected<void, Error>> Table::parse() {
 		co_return std::unexpected{tableRes.error()};
 
 	for (uint32_t i = 0; i < header.second->numEntries; i++) {
-		DiskEntry *entry = reinterpret_cast<DiskEntry *>(
-		    static_cast<std::byte *>(tableBuffer.data()) + deviceTableOffset
-		    + i * header.second->entrySize
-		);
+		auto entry = reinterpret_cast<DiskEntry *>(
+			static_cast<std::byte *>(tableBuffer.data()) + deviceTableOffset
+			+ i * header.second->entrySize);
 
 		if (entry->typeGuid == type_guids::null)
 			continue;
