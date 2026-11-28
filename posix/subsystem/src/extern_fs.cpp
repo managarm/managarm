@@ -1,5 +1,6 @@
 #include <async/cancellation.hpp>
 #include <sys/epoll.h>
+#include <sys/stat.h>
 #include <algorithm>
 #include <atomic>
 #include <map>
@@ -757,12 +758,18 @@ private:
 			bool exclusive) override {
 		assert(this->getType() == VfsType::directory);
 
+		// The filesystem derives inheritance from its locked parent inode.
+		auto credentials = process ? process->threadGroup()->creationCredentials()
+				: protocols::fs::CreationCredentials{0, 0, {}};
+
 		managarm::fs::GetLinkOrCreateRequest req;
 		req.set_mode(mode);
 		req.set_exclusive(exclusive);
 		req.set_name(name);
-		req.set_uid(process->threadGroup()->uid());
-		req.set_gid(process->threadGroup()->gid());
+		req.set_uid(credentials.uid);
+		req.set_gid(credentials.gid);
+		for(auto group : credentials.supplementaryGroups)
+			req.add_groups(group);
 		PendingMutation pending{_sb, this, name};
 
 		auto [offer, send_head, send_tail, recv_resp, pull_node] = co_await helix_ng::exchangeMsgs(
@@ -958,11 +965,13 @@ private:
 		auto fsContext = proc ? proc->fsContext() : nullptr;
 		auto umask = fsContext ? fsContext->getUmask() : 0;
 
+		auto owner = creationOwnership(proc);
+
 		managarm::fs::MkdirRequest req;
 		req.set_path(name);
 		req.set_mode(mode & ~umask);
-		req.set_uid(proc ? proc->threadGroup()->uid() : 0);
-		req.set_gid(proc ? proc->threadGroup()->gid() : 0);
+		req.set_uid(owner.uid);
+		req.set_gid(owner.gid);
 		PendingMutation pending{_sb, this, name};
 
 		auto [offer, sendReq, sendTail, recvResp, pullNode] = co_await helix_ng::exchangeMsgs(
@@ -996,11 +1005,15 @@ private:
 	}
 
 	async::result<std::variant<Error, smarter::shared_ptr<FsLink, LinkRc>>>
-	symlink(FsLink *parent, std::string name, std::string path) override {
+	symlink(FsLink *parent, Process *process, std::string name, std::string path) override {
+		auto owner = creationOwnership(process);
+
 		managarm::fs::CntRequest req;
 		req.set_req_type(managarm::fs::CntReqType::NODE_SYMLINK);
 		req.set_name_length(name.size());
 		req.set_target_length(path.size());
+		req.set_uid(owner.uid);
+		req.set_gid(owner.gid);
 		PendingMutation pending{_sb, this, name};
 
 		auto ser = req.SerializeAsString();
@@ -1038,7 +1051,7 @@ private:
 		}
 	}
 
-	async::result<frg::expected<Error, smarter::shared_ptr<FsLink, LinkRc>>> mkdev(FsLink *parent, std::string name, VfsType type, DeviceId id) override {
+	async::result<frg::expected<Error, smarter::shared_ptr<FsLink, LinkRc>>> mkdev(FsLink *parent, Process *, std::string name, VfsType type, DeviceId id, mode_t) override {
 		(void)parent;
 		(void)name;
 		(void)type;
@@ -1316,10 +1329,11 @@ async::result<Error> Superblock::synchronize(protocols::fs::SynchronizeFlags fla
 }
 
 FutureMaybe<smarter::shared_ptr<FsNode>> Superblock::createRegular(Process *process) {
+	auto owner = creationOwnership(process);
 	managarm::fs::CntRequest req;
 	req.set_req_type(managarm::fs::CntReqType::SB_CREATE_REGULAR);
-	req.set_uid(process->threadGroup()->uid());
-	req.set_gid(process->threadGroup()->gid());
+	req.set_uid(owner.uid);
+	req.set_gid(owner.gid);
 
 	auto [offer, send_req, recv_resp, pull_node] = co_await helix_ng::exchangeMsgs(
 		_lane,

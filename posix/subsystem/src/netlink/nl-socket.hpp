@@ -8,6 +8,7 @@
 
 #include "core/netlink.hpp"
 #include "../file.hpp"
+#include "../fs.hpp"
 
 namespace netlink::nl_socket {
 
@@ -41,7 +42,7 @@ public:
 				file, &File::fileOperations, file->_cancelServe));
 	}
 
-	OpenFile(int protocol, int type, bool nonBlock = false);
+	OpenFile(CreationOwnership owner, int protocol, int type, bool nonBlock = false);
 
 	void deliver(core::netlink::Packet packet) override;
 
@@ -149,7 +150,7 @@ void broadcast(int proto_idx, uint32_t grp_idx, std::string buffer);
 
 bool protocol_supported(int protocol);
 
-smarter::shared_ptr<File, FileHandle> createSocketFile(int proto_idx, int type, bool nonBlock);
+smarter::shared_ptr<File, FileHandle> createSocketFile(CreationOwnership owner, int proto_idx, int type, bool nonBlock);
 
 } // namespace netlink::nl_socket
 

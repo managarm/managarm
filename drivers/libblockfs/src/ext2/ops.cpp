@@ -1,6 +1,7 @@
 #include <core/clock.hpp>
 #include <async/result.hpp>
 #include <fcntl.h>
+#include <sys/stat.h>
 #include <protocols/fs/server.hpp>
 #include <frg/scope_exit.hpp>
 
@@ -259,8 +260,8 @@ getStats(std::shared_ptr<void> object) {
 	stats.linkCount = self->diskInode()->linksCount;
 	stats.fileSize = self->fileSize();
 	stats.mode = self->diskInode()->mode & 0xFFF;
-	stats.uid = self->diskInode()->uid;
-	stats.gid = self->diskInode()->gid;
+	stats.uid = self->diskInode()->ownerUid();
+	stats.gid = self->diskInode()->ownerGid();
 	stats.accessTime.tv_sec = self->diskInode()->atime;
 	stats.dataModifyTime.tv_sec = self->diskInode()->mtime;;
 	stats.anyChangeTime.tv_sec = self->diskInode()->ctime;
@@ -306,6 +307,8 @@ mkdir(std::shared_ptr<void> object, std::string name, uid_t uid, gid_t gid, mode
 		);
 	}};
 
+	co_await self->readyEvent.wait();
+
 	co_await self->fs.topologyMutex.async_lock_shared();
 	frg::shared_lock topologyLock{frg::adopt_lock, self->fs.topologyMutex};
 
@@ -313,6 +316,11 @@ mkdir(std::shared_ptr<void> object, std::string name, uid_t uid, gid_t gid, mode
 	frg::unique_lock inodeLock{frg::adopt_lock, self->inodeMutex};
 	lockDone = timer.elapsed();
 
+	// Parent mode and ownership are protected by inodeLock.
+	if(self->diskInode()->mode & S_ISGID) {
+		gid = self->diskInode()->ownerGid();
+		mode |= S_ISGID;
+	}
 	auto entry = co_await self->mkdir(std::move(name), uid, gid, mode);
 
 	if(!entry)
@@ -324,7 +332,7 @@ mkdir(std::shared_ptr<void> object, std::string name, uid_t uid, gid_t gid, mode
 }
 
 async::result<std::expected<protocols::fs::SymlinkResult, protocols::fs::Error>>
-symlink(std::shared_ptr<void> object, std::string name, std::string target) {
+symlink(std::shared_ptr<void> object, std::string name, std::string target, uid_t uid, gid_t gid) {
 	auto self = std::static_pointer_cast<ext2fs::Inode>(object);
 
 	protocols::ostrace::Timer timer;
@@ -337,6 +345,8 @@ symlink(std::shared_ptr<void> object, std::string name, std::string target) {
 		);
 	}};
 
+	co_await self->readyEvent.wait();
+
 	co_await self->fs.topologyMutex.async_lock_shared();
 	frg::shared_lock topologyLock{frg::adopt_lock, self->fs.topologyMutex};
 
@@ -344,7 +354,9 @@ symlink(std::shared_ptr<void> object, std::string name, std::string target) {
 	frg::unique_lock inodeLock{frg::adopt_lock, self->inodeMutex};
 	lockDone = timer.elapsed();
 
-	auto entry = co_await self->symlink(std::move(name), std::move(target));
+	if(self->diskInode()->mode & S_ISGID)
+		gid = self->diskInode()->ownerGid();
+	auto entry = co_await self->symlink(std::move(name), std::move(target), uid, gid);
 
 	if(!entry)
 		co_return std::unexpected{entry.error()};
@@ -378,7 +390,7 @@ async::result<protocols::fs::Error> chown(std::shared_ptr<void> object, std::opt
 
 async::result<std::expected<protocols::fs::GetLinkResult, protocols::fs::Error>>
 getLinkOrCreate(std::shared_ptr<void> object, std::string name, mode_t mode, bool exclusive,
-		uid_t uid, gid_t gid) {
+		protocols::fs::CreationCredentials credentials) {
 	auto self = std::static_pointer_cast<ext2fs::Inode>(object);
 
 	protocols::ostrace::Timer timer;
@@ -398,6 +410,8 @@ getLinkOrCreate(std::shared_ptr<void> object, std::string name, mode_t mode, boo
 			ostAttrFound(existed)
 		);
 	}};
+
+	co_await self->readyEvent.wait();
 
 	co_await self->fs.topologyMutex.async_lock_shared();
 	frg::shared_lock topologyLock{frg::adopt_lock, self->fs.topologyMutex};
@@ -438,7 +452,18 @@ getLinkOrCreate(std::shared_ptr<void> object, std::string name, mode_t mode, boo
 				self->dirSerial};
 	}
 
-	auto baseInode = co_await self->fs.createRegular(uid, gid, self->number);
+	auto gid = credentials.gid;
+	// Inherit from the same parent snapshot used to create the directory entry.
+	if(self->diskInode()->mode & S_ISGID) {
+		auto inheritedGid = self->diskInode()->ownerGid();
+		bool member = gid == inheritedGid;
+		for(auto group : credentials.supplementaryGroups)
+			member |= group == inheritedGid;
+		if((mode & (S_ISGID | S_IXGRP)) == (S_ISGID | S_IXGRP) && credentials.uid != 0 && !member)
+			mode &= ~S_ISGID;
+		gid = inheritedGid;
+	}
+	auto baseInode = co_await self->fs.createRegular(credentials.uid, gid, self->number);
 	auto inode = std::static_pointer_cast<ext2fs::Inode>(baseInode);
 
 	// Lock the new inode immediately as it is published by link() below.

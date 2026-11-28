@@ -123,7 +123,7 @@ HandleRequest::operator()(managarm::posix::SocketRequest &&req,
 			co_return {};
 		}
 
-		auto un = un_socket::createSocketFile(req.flags() & SOCK_NONBLOCK, req.socktype());
+		auto un = un_socket::createSocketFile(self.get(), req.flags() & SOCK_NONBLOCK, req.socktype());
 
 		if(!un) {
 			co_await sendErrorResponse<managarm::posix::SocketResponse>(conversation, un.error() | toPosixProtoError);
@@ -138,7 +138,7 @@ HandleRequest::operator()(managarm::posix::SocketRequest &&req,
 		}
 		// NL_ROUTE gets handled by the netserver.
 		if(req.protocol() == NETLINK_ROUTE) {
-			auto ext = co_await extern_socket::createSocket(
+			auto ext = co_await extern_socket::createSocket(self.get(),
 				co_await net::getNetLane(),
 				req.domain(),
 				req.socktype(), req.protocol(),
@@ -150,7 +150,8 @@ HandleRequest::operator()(managarm::posix::SocketRequest &&req,
 			}
 			file = std::move(ext.value());
 		}else if(netlink::nl_socket::protocol_supported(req.protocol()))
-			file = netlink::nl_socket::createSocketFile(req.protocol(), req.socktype(), req.flags() & SOCK_NONBLOCK);
+			file = netlink::nl_socket::createSocketFile(creationOwnership(self.get()),
+				req.protocol(), req.socktype(), req.flags() & SOCK_NONBLOCK);
 		else {
 			std::cout << std::format("posix: unhandled netlink protocol 0x{:X}",
 				req.protocol()) << std::endl;
@@ -164,7 +165,7 @@ HandleRequest::operator()(managarm::posix::SocketRequest &&req,
 			co_return {};
 		}
 
-		auto ext = co_await extern_socket::createSocket(
+		auto ext = co_await extern_socket::createSocket(self.get(),
 			co_await net::getNetLane(),
 			req.domain(),
 			req.socktype(), req.protocol(),
@@ -190,7 +191,7 @@ HandleRequest::operator()(managarm::posix::SocketRequest &&req,
 			co_return {};
 		}
 
-		auto ext = co_await extern_socket::createSocket(
+		auto ext = co_await extern_socket::createSocket(self.get(),
 			*lane,
 			req.domain(),
 			req.socktype(), req.protocol(),

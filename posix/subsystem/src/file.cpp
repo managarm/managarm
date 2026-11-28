@@ -551,4 +551,4 @@ async::result<protocols::fs::Error> FileWithDefaults::flock(int flags) {
 
 PassthroughFile::PassthroughFile(helix::UniqueLane lane)
 : File{FileKind::unknown, StructName::get("passthrough"), nullptr,
-		SpecialLink::makeSpecialLink(VfsType::regular, 0777)}, _file{std::move(lane)} { }
+		SpecialLink::makeSpecialLink(VfsType::regular, 0777, CreationOwnership{0, 0, false})}, _file{std::move(lane)} { }

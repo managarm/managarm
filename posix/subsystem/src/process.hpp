@@ -7,6 +7,7 @@
 #include <shared_mutex>
 #include <sys/signalfd.h>
 #include <unordered_map>
+#include <utility>
 #include <vector>
 
 #include <async/mutex.hpp>
@@ -17,6 +18,7 @@
 #include <core/cancel-events.hpp>
 #include <frg/expected.hpp>
 #include <frg/intrusive.hpp>
+#include <protocols/fs/common.hpp>
 #include <protocols/posix/data.hpp>
 #include <protocols/posix/supercalls.hpp>
 #include <sys/time.h>
@@ -232,6 +234,11 @@ public:
 
 	// Returns a copy of the file table.
 	std::unordered_map<int, FileDescriptor> snapshotFileTable();
+
+	size_t countOpenDescriptors() {
+		std::lock_guard lock{_mutex};
+		return _fileTable.size();
+	}
 
 	void setFdLimit(uint64_t limit) {
 		std::lock_guard lock{_mutex};
@@ -939,11 +946,11 @@ struct ThreadGroup : std::enable_shared_from_this<ThreadGroup> {
 			return Error::illegalArguments;
 		}
 		std::lock_guard lock{credentialsMutex_};
-		if(isRootLocked_() || euid == _uid) {
-			_euid = euid;
+		if(isRootLocked_() || euid == _uid || euid == _euid || euid == _suid) {
+			setEffectiveUidLocked_(euid);
 			return Error::success;
 		}
-		return Error::accessDenied;
+		return Error::insufficientPermissions;
 	}
 
 	uid_t euid() {
@@ -980,16 +987,36 @@ struct ThreadGroup : std::enable_shared_from_this<ThreadGroup> {
 			return Error::illegalArguments;
 		}
 		std::lock_guard lock{credentialsMutex_};
-		if(isRootLocked_() || _gid == egid || _egid == egid) {
-			_egid = egid;
+		if(isRootLocked_() || egid == _gid || egid == _egid || egid == _sgid) {
+			setEffectiveGidLocked_(egid);
 			return Error::success;
 		}
-		return Error::accessDenied;
+		return Error::insufficientPermissions;
 	}
 
 	gid_t egid() {
 		std::lock_guard lock{credentialsMutex_};
 		return _egid;
+	}
+
+	std::pair<uid_t, gid_t> effectiveIds() {
+		std::lock_guard lock{credentialsMutex_};
+		return {_euid, _egid};
+	}
+
+	protocols::fs::CreationCredentials creationCredentials() {
+		std::lock_guard lock{credentialsMutex_};
+		return {_euid, _egid, supplementaryGids_};
+	}
+
+	bool canRetainSetgid(gid_t gid) {
+		std::lock_guard lock{credentialsMutex_};
+		if(_euid == 0 || _egid == gid)
+			return true;
+		for(auto supplementary : supplementaryGids_)
+			if(supplementary == gid)
+				return true;
+		return false;
 	}
 
 	Error setSgid(gid_t sgid) {
@@ -1027,10 +1054,10 @@ struct ThreadGroup : std::enable_shared_from_this<ThreadGroup> {
 		return Error::success;
 	}
 
-	// Copies the user and group IDs (but not the supplementary groups) of another group.
+	// Copies credentials and dumpability from the parent thread group.
 	void inheritCredentials(ThreadGroup *other);
 
-	// Sets the IDs that exec() of a set-user-ID or set-group-ID binary changes.
+	// Updates credentials and dumpability when committing exec().
 	void setExecCredentials(uid_t euid, gid_t egid, uid_t suid, gid_t sgid);
 
 	ResourceUsage selfUsage() {
@@ -1054,7 +1081,15 @@ struct ThreadGroup : std::enable_shared_from_this<ThreadGroup> {
 	}
 
 	void setDumpable(bool dumpable) {
+		std::lock_guard lock{credentialsMutex_};
 		dumpable_ = dumpable;
+	}
+
+	std::pair<uid_t, gid_t> procfsOwnerIds(bool publicDirectory) {
+		std::lock_guard lock{credentialsMutex_};
+		if(publicDirectory || dumpable_)
+			return {_euid, _egid};
+		return {0, 0};
 	}
 
 	bool getDumpable() const {
@@ -1191,8 +1226,23 @@ private:
 	// Protected by processGraphMutex.
 	frg::default_list_hook<ThreadGroup> pgHook_;
 
+	// Publish dumpability before the new effective IDs, as Linux commit_creds does.
+	void setEffectiveUidLocked_(uid_t uid) {
+		if(_euid != uid)
+			dumpable_ = false;
+		_euid = uid;
+	}
+
+	void setEffectiveGidLocked_(gid_t gid) {
+		if(_egid != gid)
+			dumpable_ = false;
+		_egid = gid;
+	}
+
 	bool isRootLocked_() {
-		return _uid == 0 || _euid == 0;
+		// Without capabilities, privilege follows the effective UID. A real or
+		// saved UID of zero only permits the corresponding ID transitions.
+		return _euid == 0;
 	}
 
 	// Leaf lock.

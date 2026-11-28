@@ -1667,7 +1667,7 @@ struct HandleNodeRequest {
 			HEL_CHECK(recvName.error());
 			HEL_CHECK(recvTarget.error());
 
-			auto result = co_await node_ops->symlink(node, std::move(name), std::move(target));
+			auto result = co_await node_ops->symlink(node, std::move(name), std::move(target), req.uid(), req.gid());
 
 			if (result) {
 				helix::UniqueLane local_lane, remote_lane;
@@ -2228,8 +2228,11 @@ struct HandleNodeRequest {
 			co_return std::unexpected(tailRes.error());
 		logBragiRequest(req);
 
+		CreationCredentials credentials{static_cast<uid_t>(req.uid()), static_cast<gid_t>(req.gid()), {}};
+		for(auto group : req.groups())
+			credentials.supplementaryGroups.push_back(group);
 		auto result = co_await node_ops->getLinkOrCreate(node, req.name(), req.mode(), req.exclusive(),
-			req.uid(), req.gid());
+			std::move(credentials));
 
 		managarm::fs::GetLinkOrCreateResponse resp;
 		if (result) {

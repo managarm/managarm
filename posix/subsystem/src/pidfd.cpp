@@ -21,7 +21,7 @@ void OpenFile::serve(smarter::shared_ptr<OpenFile> file) {
 
 OpenFile::OpenFile(std::weak_ptr<ThreadGroup> proc, bool nonBlock)
 : FileWithDefaults{FileKind::pidfd,  StructName::get("pidfd"), nullptr,
-	SpecialLink::makeSpecialLink(VfsType::regular, 0777), defaultPipeLikeSeek},
+	SpecialLink::makePidfdLink(), defaultPipeLikeSeek},
 	nonBlock_{nonBlock}, process_{std::move(proc)} { }
 
 async::result<std::expected<size_t, Error>>

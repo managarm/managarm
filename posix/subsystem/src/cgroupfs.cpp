@@ -220,8 +220,8 @@ async::result<frg::expected<Error, FileStats>> RegularNode::getStats() {
 	stats.numLinks = 1;
 	stats.fileSize = 4096; // Same as in Linux.
 	stats.mode = 0666; // TODO: Some files can be written.
-	stats.uid = 0;
-	stats.gid = 0;
+	stats.uid = owner_.uid;
+	stats.gid = owner_.gid;
 	stats.atimeSecs = now.tv_sec;
 	stats.atimeNanos = now.tv_nsec;
 	stats.mtimeSecs = now.tv_sec;
@@ -278,11 +278,12 @@ smarter::shared_ptr<Link, LinkRc> DirectoryNode::createRootDirectory() {
 	return link;
 }
 
-DirectoryNode::DirectoryNode()
-: FsNode{&cgroupfsSuperblock} { }
+DirectoryNode::DirectoryNode(CreationOwnership owner, mode_t mode)
+: FsNode{&cgroupfsSuperblock}, owner_{owner}, mode_{mode} { }
 
 smarter::shared_ptr<Link, LinkRc> DirectoryNode::directMkregular(FsLink *parent, std::string name,
 		smarter::shared_ptr<RegularNode> regular) {
+	regular->initializeOwner(owner_);
 	auto link = makeFsShared<Link>(parent->sharedFromThis(), name, std::move(regular));
 	std::unique_lock lock{treeMutex};
 	assert(_entries.find(name) == _entries.end());
@@ -290,8 +291,13 @@ smarter::shared_ptr<Link, LinkRc> DirectoryNode::directMkregular(FsLink *parent,
 	return link;
 }
 
-async::result<std::variant<Error, smarter::shared_ptr<FsLink, LinkRc>>> DirectoryNode::mkdir(FsLink *parent, Process *, std::string name, mode_t) {
-	auto link = createCgroupDirectory(parent, std::move(name));
+async::result<std::variant<Error, smarter::shared_ptr<FsLink, LinkRc>>> DirectoryNode::mkdir(FsLink *parent, Process *process, std::string name, mode_t mode) {
+	// Cgroup directories and control files use creator IDs, without parent
+	// set-group-ID inheritance.
+	auto owner = creationOwnership(process);
+	auto umask = process ? process->fsContext()->getUmask() : 0;
+	mode &= ~umask;
+	auto link = createCgroupDirectory(parent, std::move(name), owner, mode);
 	if(!link)
 		co_return Error::alreadyExists;
 	co_return link;
@@ -321,9 +327,9 @@ async::result<frg::expected<Error, FileStats>> DirectoryNode::getStats() {
 	stats.inodeNumber = 0; // FIXME
 	stats.numLinks = 1;
 	stats.fileSize = 0; // Same as in Linux.
-	stats.mode = 0644; // TODO: Some files can be written.
-	stats.uid = 0;
-	stats.gid = 0;
+	stats.mode = mode_;
+	stats.uid = owner_.uid;
+	stats.gid = owner_.gid;
 	// TODO: Verify the times are correct and fix them
 	stats.atimeSecs = now.tv_sec;
 	stats.atimeNanos = now.tv_nsec;
@@ -375,8 +381,8 @@ async::result<frg::expected<Error>> DirectoryNode::unlink(std::string name) {
 	co_return frg::expected<Error>{};
 }
 
-smarter::shared_ptr<Link, LinkRc> DirectoryNode::createCgroupDirectory(FsLink *parent, std::string name) {
-	auto node = makeFsShared<DirectoryNode>();
+smarter::shared_ptr<Link, LinkRc> DirectoryNode::createCgroupDirectory(FsLink *parent, std::string name, CreationOwnership owner, mode_t mode) {
+	auto node = makeFsShared<DirectoryNode>(owner, mode);
 	auto cgroup_dir = node.get();
 	auto link = makeFsShared<Link>(parent->sharedFromThis(), name, std::move(node));
 

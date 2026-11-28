@@ -6,9 +6,9 @@
 
 namespace {
 struct Socket : File {
-	Socket(helix::UniqueLane ctrlLane, helix::UniqueLane ptLane)
+	Socket(CreationOwnership owner, helix::UniqueLane ctrlLane, helix::UniqueLane ptLane)
 	: File{FileKind::unknown, StructName::get("extern-socket"), nullptr,
-			SpecialLink::makeSpecialLink(VfsType::socket, 0777)},
+			SpecialLink::makeSpecialLink(VfsType::socket, 0777, owner)},
 		_control{std::move(ctrlLane)},
 		_file{std::move(ptLane)} { }
 
@@ -51,7 +51,7 @@ struct Socket : File {
 		co_return resp.error() | protocols::fs::toFsProtoError;
 	}
 
-	async::result<frg::expected<Error, AcceptResult>> accept(Process *) override {
+	async::result<frg::expected<Error, AcceptResult>> accept(Process *creator) override {
 		managarm::fs::AcceptRequest req;
 
 		auto [offer, sendReq, recvResp, pullCtrl, pullPt] = co_await helix_ng::exchangeMsgs(
@@ -76,7 +76,7 @@ struct Socket : File {
 		HEL_CHECK(pullCtrl.error());
 		HEL_CHECK(pullPt.error());
 
-		auto file = smarter::make_shared<Socket>(pullCtrl.descriptor(), pullPt.descriptor());
+		auto file = smarter::make_shared<Socket>(creationOwnership(creator), pullCtrl.descriptor(), pullPt.descriptor());
 		file->setupWeakFile(file);
 		co_return File::constructHandle(file);
 	}
@@ -98,7 +98,7 @@ private:
 
 namespace extern_socket {
 
-async::result<std::expected<smarter::shared_ptr<File, FileHandle>, Error>> createSocket(helix::BorrowedLane lane,
+async::result<std::expected<smarter::shared_ptr<File, FileHandle>, Error>> createSocket(Process *creator, helix::BorrowedLane lane,
 		int domain, int type, int proto, int flags) {
 	managarm::fs::CntRequest req;
 	req.set_req_type(managarm::fs::CntReqType::CREATE_SOCKET);
@@ -129,7 +129,7 @@ async::result<std::expected<smarter::shared_ptr<File, FileHandle>, Error>> creat
 	HEL_CHECK(pullCtrl.error());
 	HEL_CHECK(pullPt.error());
 
-	auto file = smarter::make_shared<Socket>(pullCtrl.descriptor(), pullPt.descriptor());
+	auto file = smarter::make_shared<Socket>(creationOwnership(creator), pullCtrl.descriptor(), pullPt.descriptor());
 	file->setupWeakFile(file);
 	co_return File::constructHandle(file);
 }

@@ -18,6 +18,7 @@
 
 #include <deque>
 #include <memory>
+#include <vector>
 
 namespace managarm::fs {
 	struct CntRequest;
@@ -270,7 +271,7 @@ struct NodeOperations {
 	async::result<std::expected<MkdirResult, protocols::fs::Error>> (*mkdir)(std::shared_ptr<void> object, std::string name, uid_t uid, gid_t gid, mode_t mode);
 
 	async::result<std::expected<SymlinkResult, protocols::fs::Error>> (*symlink)(std::shared_ptr<void> object, std::string name,
-			std::string path);
+			std::string path, uid_t uid, gid_t gid);
 
 	async::result<Error> (*chmod)(std::shared_ptr<void> object, int mode);
 	async::result<Error> (*chown)(std::shared_ptr<void> object, std::optional<uid_t>, std::optional<gid_t>);
@@ -282,7 +283,7 @@ struct NodeOperations {
 	async::result<TraverseLinksResult> (*traverseLinks)(std::shared_ptr<void> object, std::deque<std::string> path);
 
 	async::result<std::expected<protocols::fs::GetLinkResult, protocols::fs::Error>> (*getLinkOrCreate)(std::shared_ptr<void> object,
-		std::string name, mode_t mode, bool exclusive, uid_t uid, gid_t gid);
+		std::string name, mode_t mode, bool exclusive, CreationCredentials credentials);
 
 	// Starts swapping to a regular file. Without it, swapon() on the node's files fails with EINVAL.
 	async::result<Error> (*swapon)(std::shared_ptr<void> object) = nullptr;

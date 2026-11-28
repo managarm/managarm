@@ -272,6 +272,11 @@ struct DiskGroupDesc {
 static_assert(sizeof(DiskGroupDesc) == 64, "Bad DiskGroupDesc struct size");
 
 struct DiskInode {
+	uint32_t ownerUid() const { return uint32_t{uid} | (uint32_t{osd2.uidHigh} << 16); }
+	uint32_t ownerGid() const { return uint32_t{gid} | (uint32_t{osd2.gidHigh} << 16); }
+	void setOwnerUid(uint32_t value) { uid = value; osd2.uidHigh = value >> 16; }
+	void setOwnerGid(uint32_t value) { gid = value; osd2.gidHigh = value >> 16; }
+
 	uint16_t mode;
 	uint16_t uid;
 	uint32_t size;
@@ -437,7 +442,7 @@ struct Inode final : BaseInode, std::enable_shared_from_this<Inode> {
 
 	// Callers must hold topologyMutex (shared or exclusive).
 	// Callers must hold inodeMutex (exclusive).
-	async::result<std::expected<DirEntry, protocols::fs::Error>> symlink(std::string name, std::string target);
+	async::result<std::expected<DirEntry, protocols::fs::Error>> symlink(std::string name, std::string target, uid_t uid, gid_t gid);
 
 	// Callers must hold inodeMutex (exclusive).
 	async::result<protocols::fs::Error> chmod(int mode);

@@ -127,7 +127,7 @@ public:
 	}
 
 	OpenFile(bool nonBlock = false)
-	: FileWithDefaults{FileKind::inotify,  StructName::get("inotify"), nullptr, SpecialLink::makeSpecialLink(VfsType::regular, 0777)}, nonBlock_{nonBlock} { }
+	: FileWithDefaults{FileKind::inotify,  StructName::get("inotify"), nullptr, SpecialLink::makeAnonymousLink()}, nonBlock_{nonBlock} { }
 
 	~OpenFile() override { }
 

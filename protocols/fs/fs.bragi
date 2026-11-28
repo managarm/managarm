@@ -249,7 +249,7 @@ head(128):
 
 		tag(84) int32 seals;
 
-		// used by SB_CREATE_REGULAR
+		// used by SB_CREATE_REGULAR and NODE_SYMLINK
 		tag(86) int64 uid;
 		tag(87) int64 gid;
 
@@ -815,6 +815,7 @@ head(128):
 	int64 gid;
 tail:
 	string name;
+	uint32[] groups;
 }
 
 message GetLinkOrCreateResponse 32 {

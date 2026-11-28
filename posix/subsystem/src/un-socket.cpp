@@ -124,7 +124,7 @@ public:
 
 	OpenFile(Process *process = nullptr, bool nonBlock = false, int32_t socktype = SOCK_STREAM, bool socketpair = false)
 	: FileWithDefaults{FileKind::unknown,  StructName::get("un-socket"), nullptr,
-		SpecialLink::makeSpecialLink(VfsType::socket, 0777),
+		SpecialLink::makeSpecialLink(VfsType::socket, 0777, creationOwnership(process)),
 			File::defaultPipeLikeSeek}, _currentState{State::null},
 			_currentSeq{1}, _inSeq{0}, _ownerPid{0}, _ownerUid{0}, _ownerGid{0},
 			_passCreds{false}, nonBlock_{nonBlock},
@@ -826,8 +826,8 @@ public:
 				co_return protocols::fs::Error::addressInUse;
 
 			auto parentLink = resolver.currentLink();
-			auto nodeResult = co_await parentLink->getTarget()->mksocket(parentLink.get(),
-					resolver.nextComponent(), (0666 & ~fsContext->getUmask()), process->threadGroup()->uid(), process->threadGroup()->gid());
+			auto nodeResult = co_await parentLink->getTarget()->mksocket(parentLink.get(), process,
+					resolver.nextComponent(), (0666 & ~fsContext->getUmask()));
 			if(!nodeResult) {
 				co_return nodeResult.error() | protocols::fs::toFsProtoError;
 			}
@@ -1361,11 +1361,11 @@ private:
 };
 
 std::expected<smarter::shared_ptr<File, FileHandle>, Error>
-createSocketFile(bool nonBlock, int32_t socktype) {
+createSocketFile(Process *process, bool nonBlock, int32_t socktype) {
 	if(std::ranges::find(supportedSocketTypes, socktype) == std::end(supportedSocketTypes)) [[unlikely]]
 		return std::unexpected{Error::unsupportedSocketType};
 
-	auto file = smarter::make_shared<OpenFile>(nullptr, nonBlock, socktype);
+	auto file = smarter::make_shared<OpenFile>(process, nonBlock, socktype);
 	file->setupWeakFile(file);
 	OpenFile::serve(file);
 	return File::constructHandle(std::move(file));

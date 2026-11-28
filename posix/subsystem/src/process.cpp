@@ -2287,6 +2287,8 @@ std::shared_ptr<ThreadGroup> ThreadGroup::create(std::shared_ptr<PidHull> hull) 
 void ThreadGroup::inheritCredentials(ThreadGroup *other) {
 	uid_t uid, euid, suid;
 	gid_t gid, egid, sgid;
+	bool dumpable;
+	std::vector<gid_t> groups;
 	{
 		std::lock_guard lock{other->credentialsMutex_};
 		uid = other->_uid;
@@ -2295,6 +2297,8 @@ void ThreadGroup::inheritCredentials(ThreadGroup *other) {
 		gid = other->_gid;
 		egid = other->_egid;
 		sgid = other->_sgid;
+		dumpable = other->dumpable_;
+		groups = other->supplementaryGids_;
 	}
 	std::lock_guard lock{credentialsMutex_};
 	_uid = uid;
@@ -2303,10 +2307,14 @@ void ThreadGroup::inheritCredentials(ThreadGroup *other) {
 	_gid = gid;
 	_egid = egid;
 	_sgid = sgid;
+	dumpable_ = dumpable;
+	supplementaryGids_ = std::move(groups);
 }
 
 void ThreadGroup::setExecCredentials(uid_t euid, gid_t egid, uid_t suid, gid_t sgid) {
 	std::lock_guard lock{credentialsMutex_};
+	// Ordinary exec starts a dumpable image. Split or changing effective IDs keep it protected.
+	dumpable_ = _uid == _euid && _gid == _egid && _euid == euid && _egid == egid;
 	_euid = euid;
 	_egid = egid;
 	_suid = suid;
@@ -2320,15 +2328,15 @@ Error ThreadGroup::setUid(uid_t uid) {
 	std::lock_guard lock{credentialsMutex_};
 	if(isRootLocked_()) {
 		_uid = uid;
-		_euid = uid;
+		setEffectiveUidLocked_(uid);
 		_suid = uid;
 		return Error::success;
 	}
 	if(uid == _uid || uid == _suid) {
-		_euid = uid;
+		setEffectiveUidLocked_(uid);
 		return Error::success;
 	}
-	return Error::accessDenied;
+	return Error::insufficientPermissions;
 }
 
 Error ThreadGroup::setGid(gid_t gid) {
@@ -2338,15 +2346,15 @@ Error ThreadGroup::setGid(gid_t gid) {
 	std::lock_guard lock{credentialsMutex_};
 	if(isRootLocked_()) {
 		_gid = gid;
-		_egid = gid;
+		setEffectiveGidLocked_(gid);
 		_sgid = gid;
 		return Error::success;
 	}
 	if(gid == _gid || gid == _sgid) {
-		_egid = gid;
+		setEffectiveGidLocked_(gid);
 		return Error::success;
 	}
-	return Error::accessDenied;
+	return Error::insufficientPermissions;
 }
 
 Error ThreadGroup::setResuid(uint64_t ruid, uint64_t euid, uint64_t suid) {
@@ -2377,7 +2385,7 @@ Error ThreadGroup::setResuid(uint64_t ruid, uint64_t euid, uint64_t suid) {
 	}
 
 	_uid = newUid;
-	_euid = newEuid;
+	setEffectiveUidLocked_(newEuid);
 	_suid = newSuid;
 	return Error::success;
 }
@@ -2410,7 +2418,7 @@ Error ThreadGroup::setResgid(uint64_t rgid, uint64_t egid, uint64_t sgid) {
 	}
 
 	_gid = newGid;
-	_egid = newEgid;
+	setEffectiveGidLocked_(newEgid);
 	_sgid = newSgid;
 	return Error::success;
 }
@@ -2445,7 +2453,7 @@ Error ThreadGroup::setReuid(uint64_t ruid, uint64_t euid) {
 		newSuid = newEuid;
 
 	_uid = newUid;
-	_euid = newEuid;
+	setEffectiveUidLocked_(newEuid);
 	_suid = newSuid;
 	return Error::success;
 }
@@ -2480,7 +2488,7 @@ Error ThreadGroup::setRegid(uint64_t rgid, uint64_t egid) {
 		newSgid = newEgid;
 
 	_gid = newGid;
-	_egid = newEgid;
+	setEffectiveGidLocked_(newEgid);
 	_sgid = newSgid;
 	return Error::success;
 }

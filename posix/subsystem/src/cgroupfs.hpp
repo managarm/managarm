@@ -112,6 +112,7 @@ struct RegularNode : FsNode {
 	friend struct RegularFile;
 
 	RegularNode();
+	void initializeOwner(CreationOwnership owner) { owner_ = owner; }
 	virtual ~RegularNode() = default;
 
 	VfsType getType() override;
@@ -125,6 +126,7 @@ struct RegularNode : FsNode {
 	}
 
 protected:
+	CreationOwnership owner_{0, 0, false};
 	virtual async::result<std::string> show() = 0;
 	virtual async::result<void> store(std::string buffer) = 0;
 };
@@ -158,7 +160,7 @@ struct DirectoryNode final : FsNode {
 
 	static smarter::shared_ptr<Link, LinkRc> createRootDirectory();
 
-	DirectoryNode();
+	DirectoryNode(CreationOwnership owner = {0, 0, false}, mode_t mode = 0755);
 
 	smarter::shared_ptr<Link, LinkRc> directMkregular(FsLink *parent, std::string name,
 			smarter::shared_ptr<RegularNode> regular);
@@ -184,10 +186,12 @@ struct DirectoryNode final : FsNode {
 	}
 
 	// Returns nullptr if the name already exists.
-	smarter::shared_ptr<Link, LinkRc> createCgroupDirectory(FsLink *parent, std::string name);
+	smarter::shared_ptr<Link, LinkRc> createCgroupDirectory(FsLink *parent, std::string name, CreationOwnership owner, mode_t mode);
 	void createCgroupFiles(FsLink *parent);
 
 private:
+	CreationOwnership owner_;
+	mode_t mode_;
 	// Protected by treeMutex in cgroupfs.cpp.
 	std::set<smarter::shared_ptr<Link, LinkRc>, LinkCompare> _entries;
 };

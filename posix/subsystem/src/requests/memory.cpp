@@ -165,7 +165,7 @@ HandleRequest::operator()(managarm::posix::MemFdCreateRequest &&req,
 		co_return {};
 	}
 
-	auto link = MemoryFileLink::makeMemoryFileLink(0777);
+	auto link = MemoryFileLink::makeMemoryFileLink(0777, creationOwnership(self.get()));
 	auto memFile = smarter::make_shared<MemoryFile>(nullptr, link, (req.flags() & MFD_ALLOW_SEALING));
 	link->setFile(memFile);
 	MemoryFile::serve(memFile);

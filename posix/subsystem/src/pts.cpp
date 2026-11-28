@@ -403,7 +403,7 @@ public:
 	}
 
 	MasterFile(std::shared_ptr<MountView> mount, smarter::shared_ptr<FsLink, LinkRc> link,
-			bool nonBlocking);
+			CreationOwnership owner, bool nonBlocking);
 
 	async::result<std::expected<size_t, Error>>
 	readSome(Process *, void *data, size_t maxLength, async::cancellation_token ce) override;
@@ -597,16 +597,19 @@ struct LinkCompare {
 
 struct DeviceNode final : FsNode {
 public:
-	DeviceNode(DeviceId id)
-	: FsNode(&ptsSuperblock), _type{VfsType::charDevice}, _id{id} { }
+	DeviceNode(DeviceId id, CreationOwnership owner)
+	: FsNode(&ptsSuperblock), _type{VfsType::charDevice}, _id{id}, uid_{owner.uid}, gid_{owner.gid} { }
 
 	VfsType getType() override {
 		return _type;
 	}
 
 	async::result<frg::expected<Error, FileStats>> getStats() override {
-		std::cout << "\e[31mposix: Fix pts DeviceNode::getStats()\e[39m" << std::endl;
 		FileStats stats{};
+		stats.inodeNumber = _id.second + 3;
+		stats.numLinks = 1;
+		// Match devpts slave defaults; no umask or parent-group inheritance.
+		stats.mode = 0600;
 		{
 			std::lock_guard lock{ownerMutex_};
 			stats.uid = uid_;
@@ -880,7 +883,7 @@ Channel::commonIoctl(managarm::fs::GenericIoctlRequest req, helix::BorrowedDescr
 //-----------------------------------------------------------------------------
 
 async::result<frg::expected<Error, smarter::shared_ptr<File, FileHandle>>>
-MasterDevice::open(Process *, std::shared_ptr<MountView> mount, smarter::shared_ptr<FsLink, LinkRc> link,
+MasterDevice::open(Process *process, std::shared_ptr<MountView> mount, smarter::shared_ptr<FsLink, LinkRc> link,
 		SemanticFlags semantic_flags) {
 	if(semantic_flags & ~(semanticNonBlock | semanticRead | semanticWrite)){
 		std::cout << "\e[31mposix: pts MasterDevice open() received illegal arguments:"
@@ -891,21 +894,21 @@ MasterDevice::open(Process *, std::shared_ptr<MountView> mount, smarter::shared_
 	}
 
 	auto file = smarter::make_shared<MasterFile>(std::move(mount), std::move(link),
-			semantic_flags & semanticNonBlock);
+			creationOwnership(process), semantic_flags & semanticNonBlock);
 	file->setupWeakFile(file);
 	MasterFile::serve(file);
 	co_return File::constructHandle(std::move(file));
 }
 
 MasterFile::MasterFile(std::shared_ptr<MountView> mount, smarter::shared_ptr<FsLink, LinkRc> link,
-		bool nonBlocking)
+		CreationOwnership owner, bool nonBlocking)
 : FileWithDefaults{FileKind::unknown,  StructName::get("pts.master"), std::move(mount), std::move(link), File::defaultPipeLikeSeek},
 		_channel{std::make_shared<Channel>(nextPtsIndex++)}, _nonBlocking{nonBlocking} {
 	auto slave_device = std::make_shared<SlaveDevice>(_channel);
 	charRegistry.install(std::move(slave_device));
 
 	globalRootLink->rootNode()->linkDevice(globalRootLink.get(), std::to_string(_channel->ptsIndex),
-			makeFsShared<DeviceNode>(DeviceId{136, _channel->ptsIndex}));
+			makeFsShared<DeviceNode>(DeviceId{136, _channel->ptsIndex}, owner));
 }
 
 async::result<std::expected<size_t, Error>>

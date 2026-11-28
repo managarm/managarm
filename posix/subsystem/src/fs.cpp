@@ -2,9 +2,32 @@
 #include <linux/magic.h>
 #include <string.h>
 #include <sys/sysmacros.h>
+#include <sys/stat.h>
 #include <mutex>
 
 #include "fs.hpp"
+#include "process.hpp"
+
+CreationOwnership creationOwnership(Process *creator, const FileStats *parent) {
+	CreationOwnership ownership{0, 0, false};
+	if(creator) {
+		auto [uid, gid] = creator->threadGroup()->effectiveIds();
+		ownership.uid = uid;
+		ownership.gid = gid;
+	}
+	if(parent && (parent->mode & S_ISGID)) {
+		ownership.gid = parent->gid;
+		ownership.inheritSetgid = true;
+	}
+	return ownership;
+}
+
+mode_t creationMode(Process *creator, mode_t mode, const CreationOwnership &owner) {
+	if(owner.inheritSetgid && (mode & (S_ISGID | S_IXGRP)) == (S_ISGID | S_IXGRP)
+			&& creator && !creator->threadGroup()->canRetainSetgid(owner.gid))
+		mode &= ~S_ISGID;
+	return mode;
+}
 
 namespace {
 
@@ -130,17 +153,17 @@ FsNode::mkdir(FsLink *, Process *, std::string, mode_t) {
 }
 
 async::result<std::variant<Error, smarter::shared_ptr<FsLink, LinkRc>>>
-FsNode::symlink(FsLink *, std::string, std::string) {
+FsNode::symlink(FsLink *, Process *, std::string, std::string) {
 	std::cout << "posix: symlink() is not implemented for this FsNode" << std::endl;
 	co_return Error::illegalOperationTarget;
 }
 
-async::result<frg::expected<Error, smarter::shared_ptr<FsLink, LinkRc>>> FsNode::mkdev(FsLink *, std::string, VfsType, DeviceId) {
+async::result<frg::expected<Error, smarter::shared_ptr<FsLink, LinkRc>>> FsNode::mkdev(FsLink *, Process *, std::string, VfsType, DeviceId, mode_t) {
 	std::cout << "posix: mkdev() is not implemented for this FsNode" << std::endl;
 	co_return Error::illegalOperationTarget;
 }
 
-async::result<frg::expected<Error, smarter::shared_ptr<FsLink, LinkRc>>> FsNode::mkfifo(FsLink *, std::string, mode_t) {
+async::result<frg::expected<Error, smarter::shared_ptr<FsLink, LinkRc>>> FsNode::mkfifo(FsLink *, Process *, std::string, mode_t) {
 	std::cout << "posix: mkfifo() is not implemented for this FsNode" << std::endl;
 	co_return Error::illegalOperationTarget;
 }
@@ -205,11 +228,9 @@ async::result<std::expected<void, Error>> FsNode::swapon() {
 	co_return std::unexpected{Error::illegalOperationTarget};
 }
 
-async::result<frg::expected<Error, smarter::shared_ptr<FsLink, LinkRc>>> FsNode::mksocket(FsLink *, std::string name, mode_t mode, uid_t uid, gid_t gid) {
+async::result<frg::expected<Error, smarter::shared_ptr<FsLink, LinkRc>>> FsNode::mksocket(FsLink *, Process *, std::string name, mode_t mode) {
 	(void) name;
 	(void) mode;
-	(void) uid;
-	(void) gid;
 
 	std::cout << "\e[31m" "posix: mksocket() is not implemented for this FsNode" "\e[39m" << std::endl;
 	co_return Error::illegalOperationTarget;

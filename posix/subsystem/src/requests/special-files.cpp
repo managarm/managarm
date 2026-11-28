@@ -468,7 +468,7 @@ HandleRequest::operator()(managarm::posix::PipeCreateRequest &&req,
 	if(req.flags() & O_NONBLOCK)
 		nonBlock = true;
 
-	auto pair = fifo::createPair(nonBlock);
+	auto pair = fifo::createPair(creationOwnership(self.get()), nonBlock);
 	auto r_fd = self->fileContext()->attachFile(std::get<0>(pair),
 			req.flags() & O_CLOEXEC);
 	auto w_fd = self->fileContext()->attachFile(std::get<1>(pair),

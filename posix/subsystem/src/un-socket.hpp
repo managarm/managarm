@@ -4,7 +4,7 @@
 
 namespace un_socket {
 
-std::expected<smarter::shared_ptr<File, FileHandle>, Error> createSocketFile(bool nonBlock, int32_t socktype);
+std::expected<smarter::shared_ptr<File, FileHandle>, Error> createSocketFile(Process *process, bool nonBlock, int32_t socktype);
 std::array<smarter::shared_ptr<File, FileHandle>, 2> createSocketPair(Process *process, bool nonBlock, int32_t socktype);
 
 } // namespace un_socket
