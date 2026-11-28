@@ -60,7 +60,7 @@ coroutine<bool> createMfsFile(frg::string_view path, const void *buffer, size_t 
 	if(!memoryOutcome)
 		panicLogger() << "thor: Failed to create memory" << frg::endlog;
 	auto memory = std::move(*memoryOutcome);
-	auto copyOutcome = co_await memory->copyTo(0, buffer, size);
+	auto copyOutcome = co_await memory->copyTo(0, buffer, size, fetchNone, {});
 	assert(copyOutcome);
 
 	auto irqLock = frg::guard(&irqMutex());
@@ -184,7 +184,7 @@ coroutine<ImageInfo> loadModuleImage(
 
 	// parse the ELf file format
 	Elf64_Ehdr ehdr;
-	auto copyEhdrOutcome = co_await image->copyFrom(0, &ehdr, sizeof(Elf64_Ehdr));
+	auto copyEhdrOutcome = co_await image->copyFrom(0, &ehdr, sizeof(Elf64_Ehdr), fetchNone, {});
 	assert(copyEhdrOutcome);
 	assert(ehdr.e_ident[0] == 0x7F
 			&& ehdr.e_ident[1] == 'E'
@@ -198,7 +198,7 @@ coroutine<ImageInfo> loadModuleImage(
 	for(int i = 0; i < ehdr.e_phnum; i++) {
 		Elf64_Phdr phdr;
 		auto copyPhdrOutcome = co_await image->copyFrom(ehdr.e_phoff + i * ehdr.e_phentsize,
-				&phdr, sizeof(Elf64_Phdr));
+				&phdr, sizeof(Elf64_Phdr), fetchNone, {});
 		assert(copyPhdrOutcome);
 		
 		if(phdr.p_type == PT_LOAD) {
@@ -217,7 +217,7 @@ coroutine<ImageInfo> loadModuleImage(
 				panicLogger() << "thor: Failed to create memory" << frg::endlog;
 			auto memory = std::move(*memoryOutcome);
 			auto copyResult = co_await copyBetweenViews(memory.get(), phdr.p_vaddr - virt_address,
-					image.get(), phdr.p_offset, phdr.p_filesz);
+					image.get(), phdr.p_offset, phdr.p_filesz, {});
 			assert(copyResult);
 
 			auto viewOutcome = MemorySlice::create(std::move(memory), 0, virt_length);
@@ -249,7 +249,7 @@ coroutine<ImageInfo> loadModuleImage(
 		}else if(phdr.p_type == PT_INTERP) {
 			info.interpreter.resize(phdr.p_filesz);
 			auto copyInterpOutcome = co_await image->copyFrom(phdr.p_offset,
-					info.interpreter.data(), phdr.p_filesz);
+					info.interpreter.data(), phdr.p_filesz, fetchNone, {});
 			assert(copyInterpOutcome);
 		}else if(phdr.p_type == PT_PHDR) {
 			info.phdrPtr = reinterpret_cast<void *>(base + phdr.p_vaddr);
@@ -329,7 +329,7 @@ coroutine<void> executeModule(managarm::svrctl::Description<KernelAlloc> &desc, 
 
 	uintptr_t data_disp = stack_size - data_area.size();
 	auto copyDataOutcome = co_await stack_memory->copyTo(data_disp,
-			data_area.data(), data_area.size());
+			data_area.data(), data_area.size(), fetchNone, {});
 	assert(copyDataOutcome);
 
 	// build the stack tail area (containing the aux vector).
@@ -384,7 +384,7 @@ coroutine<void> executeModule(managarm::svrctl::Description<KernelAlloc> &desc, 
 	uintptr_t tail_disp = data_disp - tail_area.size();
 	assert(!(tail_disp % 16));
 	auto copyPtrsOutcome = co_await stack_memory->copyTo(tail_disp,
-			tail_area.data(), tail_area.size());
+			tail_area.data(), tail_area.size(), fetchNone, {});
 	assert(copyPtrsOutcome);
 
 	// create a thread for the module
@@ -501,7 +501,7 @@ coroutine<managarm::svrctl::Description<KernelAlloc>> parseServerFromInitrd(frg:
 	auto file = static_cast<MfsRegular *>(module);
 
 	frg::unique_memory<KernelAlloc> buffer{*kernelAlloc, file->size()};
-	auto copyOutcome = co_await file->getMemory()->copyFrom(0, buffer.data(), file->size());
+	auto copyOutcome = co_await file->getMemory()->copyFrom(0, buffer.data(), file->size(), fetchNone, {});
 	assert(copyOutcome);
 
 	managarm::svrctl::Description<KernelAlloc> desc(*kernelAlloc);

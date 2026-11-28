@@ -6,6 +6,7 @@
 #include <span>
 
 #include <async/algorithm.hpp>
+#include <async/cancellation.hpp>
 #include <async/oneshot-event.hpp>
 #include <async/recurring-event.hpp>
 #include <async/wait-group.hpp>
@@ -250,8 +251,10 @@ inline constexpr CachingFlags cacheWriteCombine = 1;
 // Charges a single page to hierarchy, then allocates a fungible frame.
 // The frame is allocated at the floor of hierarchy, or at the current context's floor
 // if flags contains fetchSynchronous.
+// Completes with Error::cancelled on cancellation.
 coroutine<std::expected<PhysicalAddr, Error>>
-chargeAndAllocate(Hierarchy *hierarchy, PhysicalKind kind, FetchFlags flags);
+chargeAndAllocate(Hierarchy *hierarchy, PhysicalKind kind, FetchFlags flags,
+		async::cancellation_token ct);
 
 // Like chargeAndAllocate() but fails instead of waiting.
 // In contrast to chargeAndAllocate(), this can handle non-fungible allocations.
@@ -421,11 +424,11 @@ public:
 
 	virtual coroutine<frg::expected<Error>> copyTo(uintptr_t offset,
 			const void *pointer, size_t size,
-			FetchFlags flags = 0);
+			FetchFlags flags, async::cancellation_token ct);
 
 	virtual coroutine<frg::expected<Error>> copyFrom(uintptr_t offset,
 			void *pointer, size_t size,
-			FetchFlags flags = 0);
+			FetchFlags flags, async::cancellation_token ct);
 
 	// Acquire/release a lock on a memory range.
 	// While a lock is active, results of peekRange() stay consistent.
@@ -450,7 +453,8 @@ public:
 	// - The offset and sizeHint are not necessarily page aligned.
 	// - The offset is not necessarily within the memory object's current size.
 	virtual coroutine<frg::expected<Error, size_t>>
-	touchRange(uintptr_t offset, size_t sizeHint, FetchFlags flags) = 0;
+	touchRange(uintptr_t offset, size_t sizeHint, FetchFlags flags,
+			async::cancellation_token ct) = 0;
 
 	// Tries to synchronously accesses the range at a given offset.
 	// Invokes fn(ptr, chunk) on the range if it is present with chunk <= size.
@@ -478,7 +482,8 @@ public:
 			uintptr_t offset, size_t size, CachingFlags flags);
 
 	coroutine<frg::expected<Error>>
-	touchFullRange(uintptr_t offset, size_t size, FetchFlags flags);
+	touchFullRange(uintptr_t offset, size_t size, FetchFlags flags,
+			async::cancellation_token ct);
 
 private:
 	frg::intrusive_shared_ptr<EvictionQueue, Allocator> evictionQueue_;
@@ -522,7 +527,8 @@ private:
 
 coroutine<frg::expected<Error>> copyBetweenViews(
 		MemoryView *destView, uintptr_t destOffset,
-		MemoryView *srcView, uintptr_t srcOffset, size_t size);
+		MemoryView *srcView, uintptr_t srcOffset, size_t size,
+		async::cancellation_token ct);
 
 // ----------------------------------------------------------------------------------
 
@@ -552,7 +558,8 @@ public:
 	void unlockRange(uintptr_t offset, size_t size) override;
 	PhysicalRange peekRange(uintptr_t offset, FetchFlags flags) override;
 	coroutine<frg::expected<Error, size_t>>
-			touchRange(uintptr_t offset, size_t sizeHint, FetchFlags flags) override;
+			touchRange(uintptr_t offset, size_t sizeHint, FetchFlags flags,
+					async::cancellation_token ct) override;
 	std::expected<size_t, Error> accessRange(uintptr_t offset, size_t size,
 			FetchFlags flags, PageAccessFn fn) override;
 
@@ -668,7 +675,8 @@ public:
 	void unlockRange(uintptr_t offset, size_t size) override;
 	PhysicalRange peekRange(uintptr_t offset, FetchFlags flags) override;
 	coroutine<frg::expected<Error, size_t>>
-			touchRange(uintptr_t offset, size_t sizeHint, FetchFlags flags) override;
+			touchRange(uintptr_t offset, size_t sizeHint, FetchFlags flags,
+					async::cancellation_token ct) override;
 	std::expected<size_t, Error> accessRange(uintptr_t offset, size_t size,
 			FetchFlags flags, PageAccessFn fn) override;
 
@@ -711,7 +719,8 @@ public:
 	void unlockRange(uintptr_t offset, size_t size) override;
 	PhysicalRange peekRange(uintptr_t offset, FetchFlags flags) override;
 	coroutine<frg::expected<Error, size_t>>
-			touchRange(uintptr_t offset, size_t sizeHint, FetchFlags flags) override;
+			touchRange(uintptr_t offset, size_t sizeHint, FetchFlags flags,
+					async::cancellation_token ct) override;
 	std::expected<size_t, Error> accessRange(uintptr_t offset, size_t size,
 			FetchFlags flags, PageAccessFn fn) override;
 
@@ -1290,7 +1299,8 @@ public:
 	void unlockRange(uintptr_t offset, size_t size) override;
 	PhysicalRange peekRange(uintptr_t offset, FetchFlags flags) override;
 	coroutine<frg::expected<Error, size_t>>
-			touchRange(uintptr_t offset, size_t sizeHint, FetchFlags flags) override;
+			touchRange(uintptr_t offset, size_t sizeHint, FetchFlags flags,
+					async::cancellation_token ct) override;
 	std::expected<size_t, Error> accessRange(uintptr_t offset, size_t size,
 			FetchFlags flags, PageAccessFn fn) override;
 	coroutine<frg::expected<Error, MemoryNotification>> pollNotification() override;
@@ -1324,7 +1334,8 @@ public:
 	void unlockRange(uintptr_t offset, size_t size) override;
 	PhysicalRange peekRange(uintptr_t offset, FetchFlags flags) override;
 	coroutine<frg::expected<Error, size_t>>
-			touchRange(uintptr_t offset, size_t sizeHint, FetchFlags flags) override;
+			touchRange(uintptr_t offset, size_t sizeHint, FetchFlags flags,
+					async::cancellation_token ct) override;
 	std::expected<size_t, Error> accessRange(uintptr_t offset, size_t size,
 			FetchFlags flags, PageAccessFn fn) override;
 
@@ -1362,7 +1373,8 @@ public:
 	void unlockRange(uintptr_t offset, size_t size) override;
 	PhysicalRange peekRange(uintptr_t offset, FetchFlags flags) override;
 	coroutine<frg::expected<Error, size_t>>
-			touchRange(uintptr_t offset, size_t sizeHint, FetchFlags flags) override;
+			touchRange(uintptr_t offset, size_t sizeHint, FetchFlags flags,
+					async::cancellation_token ct) override;
 	std::expected<size_t, Error> accessRange(uintptr_t offset, size_t size,
 			FetchFlags flags, PageAccessFn fn) override;
 
@@ -1407,7 +1419,8 @@ public:
 	void unlockRange(uintptr_t offset, size_t size) override;
 	PhysicalRange peekRange(uintptr_t offset, FetchFlags flags) override;
 	coroutine<frg::expected<Error, size_t>>
-			touchRange(uintptr_t offset, size_t sizeHint, FetchFlags flags) override;
+			touchRange(uintptr_t offset, size_t sizeHint, FetchFlags flags,
+					async::cancellation_token ct) override;
 	std::expected<size_t, Error> accessRange(uintptr_t offset, size_t size,
 			FetchFlags flags, PageAccessFn fn) override;
 
@@ -1479,7 +1492,8 @@ public:
 	void unlockRange(uintptr_t offset, size_t size) override;
 	PhysicalRange peekRange(uintptr_t offset, FetchFlags flags) override;
 	coroutine<frg::expected<Error, size_t>>
-			touchRange(uintptr_t offset, size_t sizeHint, FetchFlags flags) override;
+			touchRange(uintptr_t offset, size_t sizeHint, FetchFlags flags,
+					async::cancellation_token ct) override;
 	std::expected<size_t, Error> accessRange(uintptr_t offset, size_t size,
 			FetchFlags flags, PageAccessFn fn) override;
 
@@ -1488,7 +1502,8 @@ private:
 	void unchargePages_(size_t n);
 
 	// Allocate/free an owned copy of a page.
-	coroutine<std::expected<PhysicalAddr, Error>> _allocateCopy(FetchFlags flags);
+	coroutine<std::expected<PhysicalAddr, Error>> _allocateCopy(FetchFlags flags,
+			async::cancellation_token ct);
 	void _freeCopy(PhysicalAddr physical);
 
 public:
@@ -1504,7 +1519,8 @@ private:
 
 	// Ensures the materialized page is resident, no-op for unswappable views.
 	// The caller must keep the page alive.
-	coroutine<frg::expected<Error>> _ensureResident(CowPage *page, FetchFlags flags);
+	coroutine<frg::expected<Error>> _ensureResident(CowPage *page, FetchFlags flags,
+			async::cancellation_token ct);
 
 	// Locks/unlocks a page. For swappable views locks of materialized pages are
 	// mirrored into the swap page.
@@ -1513,7 +1529,8 @@ private:
 	void _unlockPage(CowPage *page, bool &raiseDiscard);
 
 	// Copies the content of a materialized page into the given frame.
-	coroutine<frg::expected<Error>> _copyFromCowPage(CowPage *src, PhysicalAddr dst, FetchFlags flags);
+	coroutine<frg::expected<Error>> _copyFromCowPage(CowPage *src, PhysicalAddr dst, FetchFlags flags,
+			async::cancellation_token ct);
 
 	// Publishes the given frame as the page's content (state becomes hasCopy).
 	// Swappable views install the frame dirty into the swap space and transfer the lock count.
@@ -1528,7 +1545,7 @@ private:
 	//                or moves it back into null state on failure.
 	coroutine<frg::expected<Error>> _materializePage(uintptr_t offset,
 			smarter::shared_ptr<CowPage> cowPage, smarter::shared_ptr<CowPage> sharedPage,
-			FetchFlags flags);
+			FetchFlags flags, async::cancellation_token ct);
 
 	frg::ticket_spinlock _mutex;
 

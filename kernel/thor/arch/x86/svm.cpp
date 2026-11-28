@@ -419,7 +419,7 @@ namespace thor::svm {
 					flags |= AddressSpace::kFaultExecute;
 
 				auto faultOutcome = Thread::asyncBlockCurrent(
-					space->handleFault(address, flags),
+					space->handleFault(address, flags, {}),
 					getCurrentThread()->pagingWorkQueue().get()
 				);
 				if(!faultOutcome) {

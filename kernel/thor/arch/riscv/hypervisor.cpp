@@ -337,7 +337,7 @@ bool Vcpu::handlePageFault_(HelVmexitReason &exitReason, uint32_t flags) {
 	uint64_t address = (htval_ << 2) | (stval_ & 0b11);
 
 	auto faultOutcome = Thread::asyncBlockCurrent(
-	    space_->handleFault(address, flags | AddressSpace::kFaultSynchronous),
+	    space_->handleFault(address, flags | AddressSpace::kFaultSynchronous, {}),
 	    getCurrentThread()->pagingWorkQueue().get()
 	);
 	if (!faultOutcome) {

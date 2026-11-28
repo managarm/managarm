@@ -804,7 +804,7 @@ public:
 	unmap(VirtualAddr address, size_t length);
 
 	coroutine<frg::expected<Error>>
-	handleFault(VirtualAddr address, uint32_t flags);
+	handleFault(VirtualAddr address, uint32_t flags, async::cancellation_token ct);
 
 	// Returns a snapshot. Unless the page is locked, it can be evicted or reclaimed afterwards.
 	coroutine<frg::expected<Error, PhysicalAddr>>
@@ -880,7 +880,7 @@ public:
 				// Otherwise, try to make the page available.
 				// Futex syscalls block the calling thread.
 				FRG_CO_TRY(co_await mapping->view->touchRange(
-					mapping->viewOffset + alignedOffset, kPageSize, fetchSynchronous
+					mapping->viewOffset + alignedOffset, kPageSize, fetchSynchronous, {}
 				));
 			}
 		}

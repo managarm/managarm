@@ -322,7 +322,7 @@ extern "C" void thorMain() {
 						panicLogger() << "thor: Failed to create memory" << frg::endlog;
 					auto memory = std::move(*memoryOutcome);
 					auto copyOutcome = KernelFiber::asyncBlockCurrent(memory->copyTo(0,
-							data, file_size));
+							data, file_size, fetchNone, {}));
 					assert(copyOutcome);
 
 					auto name = frg::string<KernelAlloc>{*kernelAlloc,
@@ -460,7 +460,7 @@ void handlePageFault(FaultImageAccessor image, uintptr_t address, Word errorCode
 
 	auto wq = this_thread->pagingWorkQueue();
 	auto handledError =
-	    Thread::asyncBlockCurrent(address_space->handleFault(address, flags), wq.get());
+	    Thread::asyncBlockCurrent(address_space->handleFault(address, flags, {}), wq.get());
 	// if the page fault was handled, return.
 	if(handledError)
 		return;
