@@ -205,7 +205,7 @@ namespace initrd {
 				frg::unique_memory<KernelAlloc> dataBuffer{*kernelAlloc,
 						frg::min(req->size(), file->module->size() - file->offset)};
 				auto copyOutcome = co_await file->module->getMemory()->copyFrom(file->offset,
-					dataBuffer.data(), dataBuffer.size());
+					dataBuffer.data(), dataBuffer.size(), fetchNone, {});
 				assert(copyOutcome);
 				file->offset += dataBuffer.size();
 
@@ -527,7 +527,7 @@ namespace posix {
 					continue;
 				openFiles[fd] = file;
 				auto copyOutcome = co_await fileTableMemory->copyTo(sizeof(Handle) * fd,
-						&handle, sizeof(Handle));
+						&handle, sizeof(Handle), fetchNone, {});
 				assert(copyOutcome);
 				co_return fd;
 			}
@@ -535,7 +535,7 @@ namespace posix {
 			int fd = openFiles.size();
 			openFiles.push(file);
 			auto copyOutcome = co_await fileTableMemory->copyTo(sizeof(Handle) * fd,
-					&handle, sizeof(Handle));
+					&handle, sizeof(Handle), fetchNone, {});
 			assert(copyOutcome);
 			co_return fd;
 		}

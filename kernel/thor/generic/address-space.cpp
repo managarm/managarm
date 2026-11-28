@@ -666,7 +666,8 @@ VirtualSpace::synchronize(VirtualAddr address, size_t size) {
 }
 
 coroutine<frg::expected<Error>>
-VirtualSpace::handleFault(VirtualAddr address, uint32_t faultFlags) {
+VirtualSpace::handleFault(VirtualAddr address, uint32_t faultFlags,
+		async::cancellation_token ct) {
 	assert(currentIpl() == ipl::exceptionalWork);
 
 	PageMagazine tables;
@@ -712,7 +713,7 @@ VirtualSpace::handleFault(VirtualAddr address, uint32_t faultFlags) {
 		// Calling touchRange() on stale mappings is allowed,
 		// so we do not enter a critical section here.
 		FRG_CO_TRY(co_await mapping->view->touchRange(
-				mapping->viewOffset + offset, kPageSize, fetchFlags));
+				mapping->viewOffset + offset, kPageSize, fetchFlags, ct));
 
 		auto caching = CachingMode::null;
 		if(mapping->slice->getCachingFlags() == cacheWriteCombine)
@@ -802,7 +803,7 @@ VirtualSpace::retrievePhysical(VirtualAddr address) {
 
 		// helPointerPhysical() blocks the calling thread.
 		FRG_CO_TRY(co_await mapping->view->touchRange(
-				mapping->viewOffset + offset, kPageSize, fetchFlags | fetchSynchronous));
+				mapping->viewOffset + offset, kPageSize, fetchFlags | fetchSynchronous, {}));
 
 		LocalRcuEngine::Guard exposeGuard{mapping->exposeRcu};
 		auto physicalRange = mapping->view->peekRange(mapping->viewOffset + offset, fetchFlags);
@@ -1228,7 +1229,7 @@ coroutine<std::expected<size_t, Error>> VirtualSpace::readPartialSpace(uintptr_t
 		auto copyOutcome = co_await mapping->view->copyFrom(
 				mapping->viewOffset + startInMapping,
 				reinterpret_cast<std::byte *>(buffer) + progress,
-				limitInMapping, fetchFlags);
+				limitInMapping, fetchFlags, {});
 		if(!copyOutcome) {
 			if(!progress)
 				co_return std::unexpected{copyOutcome.error()};
@@ -1273,7 +1274,7 @@ coroutine<std::expected<size_t, Error>> VirtualSpace::writePartialSpace(uintptr_
 		auto copyOutcome = co_await mapping->view->copyTo(
 				mapping->viewOffset + startInMapping,
 				reinterpret_cast<const std::byte *>(buffer) + progress,
-				limitInMapping, fetchFlags);
+				limitInMapping, fetchFlags, {});
 		if(!copyOutcome) {
 			if(!progress)
 				co_return std::unexpected{copyOutcome.error()};

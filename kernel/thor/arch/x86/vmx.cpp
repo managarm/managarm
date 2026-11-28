@@ -805,7 +805,7 @@ namespace thor::vmx {
 
 				leaveResidency();
 				auto faultOutcome = Thread::asyncBlockCurrent(
-					space->handleFault(eptAddress, flags),
+					space->handleFault(eptAddress, flags, {}),
 					getCurrentThread()->pagingWorkQueue().get()
 				);
 				if(!faultOutcome) {

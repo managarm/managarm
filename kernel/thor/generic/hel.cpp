@@ -1145,7 +1145,7 @@ HelError doSubmitPopulateSpace(HelHandle handle, smarter::shared_ptr<IpcQueue> q
 		frg::expected<Error> outcome{};
 
 		for (size_t progress = 0; progress < len; progress += kPageSize) {
-			outcome = co_await onExceptionalWq(space->handleFault(addr + progress, 0));
+			outcome = co_await onExceptionalWq(space->handleFault(addr + progress, 0, {}));
 			if (!outcome)
 				break;
 		}
@@ -2116,7 +2116,8 @@ HelError doSubmitReadMemory(HelHandle handle, smarter::shared_ptr<IpcQueue> queu
 			size_t progress = 0;
 			while(progress < length) {
 				auto chunk = frg::min(length - progress, size_t{4096});
-				auto copyOutcome = co_await onExceptionalWq(view->copyFrom(address + progress, temp, chunk));
+				auto copyOutcome = co_await onExceptionalWq(view->copyFrom(address + progress, temp, chunk,
+						fetchNone, {}));
 				if(!copyOutcome) {
 					error = copyOutcome.error();
 					break;
@@ -2251,7 +2252,8 @@ HelError doSubmitWriteMemory(HelHandle handle, smarter::shared_ptr<IpcQueue> que
 					break;
 				}
 
-				auto copyOutcome = co_await onExceptionalWq(view->copyTo(address + progress, temp, chunk));
+				auto copyOutcome = co_await onExceptionalWq(view->copyTo(address + progress, temp, chunk,
+						fetchNone, {}));
 				if(!copyOutcome) {
 					error = copyOutcome.error();
 					break;
@@ -2467,7 +2469,7 @@ HelError doSubmitLockMemoryView(HelHandle handle, smarter::shared_ptr<IpcQueue> 
 
 		// Touch the memory range.
 		// TODO: this should be optional (it is only really useful for no-backing mappings).
-		auto touchOutcome = co_await onExceptionalWq(memory->touchFullRange(offset, size, fetchRequireMutable));
+		auto touchOutcome = co_await onExceptionalWq(memory->touchFullRange(offset, size, fetchRequireMutable, {}));
 		if(!touchOutcome) {
 			HelHandleResult helResult{.error = translateError(touchOutcome.error())};
 			QueueSource ipcSource{&helResult, sizeof(HelHandleResult), nullptr};
@@ -4623,7 +4625,7 @@ HelError helBindKernlet(HelHandle handle, const HelKernletData *data, size_t num
 				return translateError(e);
 
 			auto touchOutcome = Thread::asyncBlockCurrent(
-					memory->touchFullRange(0, memorySize, fetchSynchronous),
+					memory->touchFullRange(0, memorySize, fetchSynchronous, {}),
 					this_thread->pagingWorkQueue().get());
 			if(!touchOutcome) {
 				memory->unlockRange(0, memorySize);

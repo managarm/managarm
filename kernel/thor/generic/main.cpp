@@ -322,7 +322,7 @@ extern "C" void thorMain() {
 						panicLogger() << "thor: Failed to create memory" << frg::endlog;
 					auto memory = std::move(*memoryOutcome);
 					auto copyOutcome = KernelFiber::asyncBlockCurrent(memory->copyTo(0,
-							data, file_size));
+							data, file_size, fetchNone, {}));
 					assert(copyOutcome);
 
 					auto name = frg::string<KernelAlloc>{*kernelAlloc,
@@ -459,8 +459,20 @@ void handlePageFault(FaultImageAccessor image, uintptr_t address, Word errorCode
 		flags |= AddressSpace::kFaultExecute;
 
 	auto wq = this_thread->pagingWorkQueue();
-	auto handledError =
-	    Thread::asyncBlockCurrent(address_space->handleFault(address, flags), wq.get());
+	// Interrupts and termination cancel waits for memory, such that threads that cannot make
+	// progress can still be killed. The fault is taken again if the thread resumes.
+	// Faults in the kernel are not cancelled since their system calls cannot be restarted.
+	auto handledError = Thread::asyncBlockCurrentInterruptible(
+		[&] (async::cancellation_token ct) {
+			return address_space->handleFault(address, flags, ct);
+		},
+		wq.get(),
+		image.inUserMode() ? Condition{0} : cancelConditions
+	);
+	if(!handledError && handledError.error() == Error::cancelled) {
+		assert(image.inUserMode());
+		return;
+	}
 	// if the page fault was handled, return.
 	if(handledError)
 		return;

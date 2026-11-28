@@ -49,13 +49,14 @@ namespace {
 }
 
 coroutine<std::expected<PhysicalAddr, Error>>
-chargeAndAllocate(Hierarchy *hierarchy, PhysicalKind kind, FetchFlags flags) {
+chargeAndAllocate(Hierarchy *hierarchy, PhysicalKind kind, FetchFlags flags,
+		async::cancellation_token ct) {
 	assert(currentIpl() == ipl::exceptionalWork);
 
 	if(auto charge = hierarchy->tryChargeMemory(kPageSize); !charge)
 		co_return std::unexpected{charge.error()};
 	auto physical = co_await physicalAllocator->allocateAwaitable(
-			userAllocationPolicy(hierarchy, flags), kind, async::cancellation_token{});
+			userAllocationPolicy(hierarchy, flags), kind, ct);
 	if(!physical) {
 		hierarchy->unchargeMemory(kPageSize);
 		co_return std::unexpected{physical.error()};
@@ -968,7 +969,7 @@ namespace {
 
 coroutine<frg::expected<Error>> MemoryView::copyTo(uintptr_t offset,
 		const void *pointer, size_t size,
-		FetchFlags flags) {
+		FetchFlags flags, async::cancellation_token ct) {
 	// fetchRequireMutable is managed by this function.
 	assert(!(flags & fetchRequireMutable));
 	assert(currentIpl() == ipl::exceptionalWork);
@@ -983,7 +984,7 @@ coroutine<frg::expected<Error>> MemoryView::copyTo(uintptr_t offset,
 		if(progress == size)
 			break;
 		auto fetchOffset = (offset + progress) & ~(kPageSize - 1);
-		FRG_CO_TRY(co_await touchRange(fetchOffset, kPageSize, flags | fetchRequireMutable));
+		FRG_CO_TRY(co_await touchRange(fetchOffset, kPageSize, flags | fetchRequireMutable, ct));
 	}
 
 	co_return {};
@@ -991,7 +992,7 @@ coroutine<frg::expected<Error>> MemoryView::copyTo(uintptr_t offset,
 
 coroutine<frg::expected<Error>> MemoryView::copyFrom(uintptr_t offset,
 		void *pointer, size_t size,
-		FetchFlags flags) {
+		FetchFlags flags, async::cancellation_token ct) {
 	// fetchRequireMutable is managed by this function.
 	assert(!(flags & fetchRequireMutable));
 	assert(currentIpl() == ipl::exceptionalWork);
@@ -1006,17 +1007,18 @@ coroutine<frg::expected<Error>> MemoryView::copyFrom(uintptr_t offset,
 		if(progress == size)
 			break;
 		auto fetchOffset = (offset + progress) & ~(kPageSize - 1);
-		FRG_CO_TRY(co_await touchRange(fetchOffset, kPageSize, flags));
+		FRG_CO_TRY(co_await touchRange(fetchOffset, kPageSize, flags, ct));
 	}
 
 	co_return {};
 }
 
 coroutine<frg::expected<Error>>
-MemoryView::touchFullRange(uintptr_t offset, size_t size, FetchFlags flags) {
+MemoryView::touchFullRange(uintptr_t offset, size_t size, FetchFlags flags,
+		async::cancellation_token ct) {
 	size_t progress = 0;
 	while (progress < size) {
-		auto chunk = FRG_CO_TRY(co_await touchRange(offset + progress, size - progress, flags));
+		auto chunk = FRG_CO_TRY(co_await touchRange(offset + progress, size - progress, flags, ct));
 		progress += chunk;
 	}
 	co_return {};
@@ -1049,7 +1051,8 @@ Error MemoryView::setIndirection(size_t, smarter::shared_ptr<MemoryView>,
 
 coroutine<frg::expected<Error>> copyBetweenViews(
 		MemoryView *destView, uintptr_t destOffset,
-		MemoryView *srcView, uintptr_t srcOffset, size_t size) {
+		MemoryView *srcView, uintptr_t srcOffset, size_t size,
+		async::cancellation_token ct) {
 	size_t progress = 0;
 	while(true) {
 		bool srcMissing = false;
@@ -1062,10 +1065,10 @@ coroutine<frg::expected<Error>> copyBetweenViews(
 			break;
 		if(srcMissing) {
 			auto fetchOffset = (srcOffset + progress) & ~(kPageSize - 1);
-			FRG_CO_TRY(co_await srcView->touchRange(fetchOffset, kPageSize, fetchNone));
+			FRG_CO_TRY(co_await srcView->touchRange(fetchOffset, kPageSize, fetchNone, ct));
 		} else {
 			auto fetchOffset = (destOffset + progress) & ~(kPageSize - 1);
-			FRG_CO_TRY(co_await destView->touchRange(fetchOffset, kPageSize, fetchRequireMutable));
+			FRG_CO_TRY(co_await destView->touchRange(fetchOffset, kPageSize, fetchRequireMutable, ct));
 		}
 	}
 
@@ -1106,7 +1109,7 @@ public:
 	}
 
 	coroutine<frg::expected<Error>> copyFrom(uintptr_t, void *buffer, size_t size,
-			FetchFlags) override {
+			FetchFlags, async::cancellation_token) override {
 		memset(buffer, 0, size);
 		co_return {};
 	}
@@ -1146,7 +1149,7 @@ public:
 	}
 
 	coroutine<frg::expected<Error, size_t>>
-	touchRange(uintptr_t offset, size_t, FetchFlags flags) override {
+	touchRange(uintptr_t offset, size_t, FetchFlags flags, async::cancellation_token) override {
 		if(flags & fetchRequireMutable)
 			co_return Error::badPermissions;
 
@@ -1289,7 +1292,7 @@ std::expected<size_t, Error> ImmediateMemory::accessRange(uintptr_t offset, size
 }
 
 coroutine<frg::expected<Error, size_t>>
-ImmediateMemory::touchRange(uintptr_t offset, size_t, FetchFlags) {
+ImmediateMemory::touchRange(uintptr_t offset, size_t, FetchFlags, async::cancellation_token) {
 	assert(currentIpl() == ipl::exceptionalWork);
 
 	auto index = offset >> kPageShift;
@@ -1424,7 +1427,7 @@ std::expected<size_t, Error> HardwareMemory::accessRange(uintptr_t, size_t,
 }
 
 coroutine<frg::expected<Error, size_t>>
-HardwareMemory::touchRange(uintptr_t offset, size_t, FetchFlags) {
+HardwareMemory::touchRange(uintptr_t offset, size_t, FetchFlags, async::cancellation_token) {
 	assert(currentIpl() == ipl::exceptionalWork);
 
 	if(offset >= _length)
@@ -1572,7 +1575,8 @@ std::expected<size_t, Error> AllocatedMemory::accessRange(uintptr_t offset, size
 }
 
 coroutine<frg::expected<Error, size_t>>
-AllocatedMemory::touchRange(uintptr_t offset, size_t, FetchFlags flags) {
+AllocatedMemory::touchRange(uintptr_t offset, size_t, FetchFlags flags,
+		async::cancellation_token ct) {
 	assert(currentIpl() == ipl::exceptionalWork);
 
 	auto index = offset / _chunkSize;
@@ -1591,7 +1595,7 @@ AllocatedMemory::touchRange(uintptr_t offset, size_t, FetchFlags flags) {
 	auto kind = _chunkSize > kPageSize ? PhysicalKind::contiguous : PhysicalKind::pinned;
 	std::expected<PhysicalAddr, Error> physicalOutcome;
 	if(_chunkSize == kPageSize && _addressBits >= 64) {
-		physicalOutcome = co_await chargeAndAllocate(_hierarchy.get(), kind, flags);
+		physicalOutcome = co_await chargeAndAllocate(_hierarchy.get(), kind, flags, ct);
 	}else{
 		physicalOutcome = tryChargeAndAllocate(_hierarchy.get(), _chunkSize,
 				kind, _addressBits, flags);
@@ -3108,7 +3112,8 @@ std::expected<size_t, Error> BackingMemory::accessRange(uintptr_t offset, size_t
 }
 
 coroutine<frg::expected<Error, size_t>>
-BackingMemory::touchRange(uintptr_t offset, size_t, FetchFlags flags) {
+BackingMemory::touchRange(uintptr_t offset, size_t, FetchFlags flags,
+		async::cancellation_token ct) {
 	assert(currentIpl() == ipl::exceptionalWork);
 
 	auto index = offset >> kPageShift;
@@ -3158,7 +3163,7 @@ BackingMemory::touchRange(uintptr_t offset, size_t, FetchFlags flags) {
 		// Faulting threads attach frames before they request initialization (see initializePage()),
 		// so this is only reached if the manager touches pages outside of initialization.
 		auto physicalOutcome = co_await chargeAndAllocate(_managed->hierarchy.get(),
-				PhysicalKind::evictable, flags);
+				PhysicalKind::evictable, flags, ct);
 		if(!physicalOutcome)
 			co_return physicalOutcome.error();
 		freshPhysical = *physicalOutcome;
@@ -3593,7 +3598,8 @@ std::expected<size_t, Error> FrontalMemory::accessRange(uintptr_t offset, size_t
 }
 
 coroutine<frg::expected<Error, size_t>>
-FrontalMemory::touchRange(uintptr_t offset, size_t, FetchFlags flags) {
+FrontalMemory::touchRange(uintptr_t offset, size_t, FetchFlags flags,
+		async::cancellation_token ct) {
 	assert(currentIpl() == ipl::exceptionalWork);
 
 	auto index = offset >> kPageShift;
@@ -3654,7 +3660,7 @@ FrontalMemory::touchRange(uintptr_t offset, size_t, FetchFlags flags) {
 			// initializePage() needs a frame, allocate one without the mutex held and retry.
 			assert(freshPhysical == PhysicalAddr(-1));
 			auto physicalOutcome = co_await chargeAndAllocate(_managed->hierarchy.get(),
-					PhysicalKind::evictable, flags);
+					PhysicalKind::evictable, flags, ct);
 			if(!physicalOutcome)
 				co_return physicalOutcome.error();
 			freshPhysical = *physicalOutcome;
@@ -3854,7 +3860,8 @@ std::expected<size_t, Error> SwappableMemory::accessRange(uintptr_t offset, size
 }
 
 coroutine<frg::expected<Error, size_t>>
-SwappableMemory::touchRange(uintptr_t offset, size_t, FetchFlags flags) {
+SwappableMemory::touchRange(uintptr_t offset, size_t, FetchFlags flags,
+		async::cancellation_token ct) {
 	assert(currentIpl() == ipl::exceptionalWork);
 
 	auto index = offset >> kPageShift;
@@ -3919,7 +3926,7 @@ SwappableMemory::touchRange(uintptr_t offset, size_t, FetchFlags flags) {
 
 		assert(freshPhysical == PhysicalAddr(-1));
 		auto physicalOutcome = co_await chargeAndAllocate(_space->hierarchy.get(),
-				PhysicalKind::evictable, flags);
+				PhysicalKind::evictable, flags, ct);
 		if(!physicalOutcome)
 			co_return physicalOutcome.error();
 		freshPhysical = *physicalOutcome;
@@ -4046,7 +4053,8 @@ std::expected<size_t, Error> IndirectMemory::accessRange(uintptr_t offset, size_
 }
 
 coroutine<frg::expected<Error, size_t>>
-IndirectMemory::touchRange(uintptr_t offset, size_t sizeHint, FetchFlags flags) {
+IndirectMemory::touchRange(uintptr_t offset, size_t sizeHint, FetchFlags flags,
+		async::cancellation_token ct) {
 	assert(currentIpl() == ipl::exceptionalWork);
 
 	auto slot = offset >> 32;
@@ -4068,7 +4076,7 @@ IndirectMemory::touchRange(uintptr_t offset, size_t sizeHint, FetchFlags flags) 
 		co_return Error::fault;
 
 	auto affectedSize = FRG_CO_TRY(
-		co_await indirection->memory->touchRange(indirection->offset + inSlotOffset, sizeHint, flags)
+		co_await indirection->memory->touchRange(indirection->offset + inSlotOffset, sizeHint, flags, ct)
 	);
 	co_return frg::min(affectedSize, indirection->size - inSlotOffset);
 }
@@ -4155,7 +4163,8 @@ PhysicalAddr CopyOnWriteMemory::_getResident(CowPage *page) {
 }
 
 coroutine<frg::expected<Error>>
-CopyOnWriteMemory::_ensureResident(CowPage *page, FetchFlags flags) {
+CopyOnWriteMemory::_ensureResident(CowPage *page, FetchFlags flags,
+		async::cancellation_token ct) {
 	assert(page->state == CowState::hasCopy);
 	if(!_space)
 		co_return {};
@@ -4195,7 +4204,7 @@ CopyOnWriteMemory::_ensureResident(CowPage *page, FetchFlags flags) {
 		// initializePage() needs a frame, allocate one without the mutex held and retry.
 		assert(freshPhysical == PhysicalAddr(-1));
 		auto physicalOutcome = co_await chargeAndAllocate(_space->hierarchy.get(),
-				PhysicalKind::evictable, flags);
+				PhysicalKind::evictable, flags, ct);
 		if(!physicalOutcome)
 			co_return physicalOutcome.error();
 		freshPhysical = *physicalOutcome;
@@ -4225,7 +4234,8 @@ void CopyOnWriteMemory::_unlockPage(CowPage *page, bool &raiseDiscard) {
 }
 
 coroutine<frg::expected<Error>>
-CopyOnWriteMemory::_copyFromCowPage(CowPage *src, PhysicalAddr dst, FetchFlags flags) {
+CopyOnWriteMemory::_copyFromCowPage(CowPage *src, PhysicalAddr dst, FetchFlags flags,
+		async::cancellation_token ct) {
 	assert(src->state == CowState::hasCopy);
 	PageAccessor dstAccessor{dst};
 
@@ -4243,7 +4253,7 @@ CopyOnWriteMemory::_copyFromCowPage(CowPage *src, PhysicalAddr dst, FetchFlags f
 
 		_space->lockPage(src->swapPage);
 	}
-	auto outcome = co_await _ensureResident(src, flags);
+	auto outcome = co_await _ensureResident(src, flags, ct);
 	if(outcome) {
 		PhysicalAddr srcPhysical;
 		{
@@ -4369,7 +4379,7 @@ coroutine<frg::expected<Error, smarter::shared_ptr<MemoryView>>> CopyOnWriteMemo
 
 	// Copy all the pages that were locked.
 	for(auto [pg, src] : lockedCopies) {
-		auto physicalOutcome = co_await _allocateCopy(fetchNone);
+		auto physicalOutcome = co_await _allocateCopy(fetchNone, {});
 		if(!physicalOutcome)
 			co_return physicalOutcome.error();
 		auto copyPhysical = *physicalOutcome;
@@ -4379,7 +4389,7 @@ coroutine<frg::expected<Error, smarter::shared_ptr<MemoryView>>> CopyOnWriteMemo
 
 		// The lock observed above may have been dropped concurrently, so the source
 		// is pinned again by the copy itself.
-		if(auto outcome = co_await _copyFromCowPage(src.get(), copyPhysical, 0); !outcome)
+		if(auto outcome = co_await _copyFromCowPage(src.get(), copyPhysical, 0, {}); !outcome)
 			co_return outcome.error();
 
 		auto copyPage = smarter::allocate_shared<CowPage>(*kernelAlloc);
@@ -4567,7 +4577,8 @@ std::expected<size_t, Error> CopyOnWriteMemory::accessRange(uintptr_t offset, si
 }
 
 coroutine<frg::expected<Error, size_t>>
-CopyOnWriteMemory::touchRange(uintptr_t offset, size_t sizeHint, FetchFlags flags) {
+CopyOnWriteMemory::touchRange(uintptr_t offset, size_t sizeHint, FetchFlags flags,
+		async::cancellation_token ct) {
 	assert(currentIpl() == ipl::exceptionalWork);
 
 	auto misalign = offset & (kPageSize - 1);
@@ -4621,7 +4632,7 @@ CopyOnWriteMemory::touchRange(uintptr_t offset, size_t sizeHint, FetchFlags flag
 
 		if(touchOwned) {
 			// The copy may be swapped out.
-			FRG_CO_TRY(co_await _ensureResident(cowPage.get(), flags));
+			FRG_CO_TRY(co_await _ensureResident(cowPage.get(), flags, ct));
 			co_return kPageSize - misalign;
 		}
 
@@ -4633,13 +4644,13 @@ CopyOnWriteMemory::touchRange(uintptr_t offset, size_t sizeHint, FetchFlags flag
 		if(passthrough) {
 			if(sharedPage) {
 				// The shared page may be swapped out.
-				FRG_CO_TRY(co_await _ensureResident(sharedPage.get(), flags));
+				FRG_CO_TRY(co_await _ensureResident(sharedPage.get(), flags, ct));
 				co_return kPageSize - misalign;
 			}
 
 			// Note: totalOffset is not necessarily page aligned.
 			auto totalOffset = _viewOffset + offset;
-			auto affectedSize = FRG_CO_TRY(co_await _view->touchRange(totalOffset, sizeHint, flags));
+			auto affectedSize = FRG_CO_TRY(co_await _view->touchRange(totalOffset, sizeHint, flags, ct));
 			co_return frg::min(affectedSize, kPageSize - misalign);
 		}
 
@@ -4660,7 +4671,7 @@ CopyOnWriteMemory::touchRange(uintptr_t offset, size_t sizeHint, FetchFlags flag
 			continue;
 		}
 
-		FRG_CO_TRY(co_await _materializePage(offset, cowPage, sharedPage, flags));
+		FRG_CO_TRY(co_await _materializePage(offset, cowPage, sharedPage, flags, ct));
 		co_return kPageSize - misalign;
 	}
 }
@@ -4668,7 +4679,7 @@ CopyOnWriteMemory::touchRange(uintptr_t offset, size_t sizeHint, FetchFlags flag
 coroutine<frg::expected<Error>>
 CopyOnWriteMemory::_materializePage(uintptr_t offset,
 		smarter::shared_ptr<CowPage> cowPage, smarter::shared_ptr<CowPage> sharedPage,
-		FetchFlags flags) {
+		FetchFlags flags, async::cancellation_token ct) {
 	auto alignedOffset = offset & ~(kPageSize - 1);
 	// Note: offset is not necessarily page aligned.
 	auto pageOffset = (_viewOffset + offset) & ~(kPageSize - 1);
@@ -4699,7 +4710,7 @@ CopyOnWriteMemory::_materializePage(uintptr_t offset,
 			unchargePages_(1);
 	}};
 
-	auto physicalOutcome = co_await _allocateCopy(flags);
+	auto physicalOutcome = co_await _allocateCopy(flags, ct);
 	if(!physicalOutcome)
 		co_return physicalOutcome.error();
 	auto physical = *physicalOutcome;
@@ -4710,10 +4721,11 @@ CopyOnWriteMemory::_materializePage(uintptr_t offset,
 	// Copy from the shared page (outside of the locks; it remains in hasCopy state)
 	// or from the root view.
 	if(sharedPage) {
-		FRG_CO_TRY(co_await _copyFromCowPage(sharedPage.get(), physical, flags));
+		FRG_CO_TRY(co_await _copyFromCowPage(sharedPage.get(), physical, flags, ct));
 	}else{
 		PageAccessor accessor{physical};
-		FRG_CO_TRY(co_await _view->copyFrom(pageOffset, accessor.get(), kPageSize));
+		FRG_CO_TRY(co_await _view->copyFrom(pageOffset, accessor.get(), kPageSize,
+				fetchNone, ct));
 	}
 
 	// To make CoW unobservable, we first need to evict the page here.
@@ -4763,14 +4775,13 @@ void CopyOnWriteMemory::unchargePages_(size_t n) {
 }
 
 coroutine<std::expected<PhysicalAddr, Error>>
-CopyOnWriteMemory::_allocateCopy(FetchFlags flags) {
+CopyOnWriteMemory::_allocateCopy(FetchFlags flags, async::cancellation_token ct) {
 	if(_space)
 		co_return co_await chargeAndAllocate(_space->hierarchy.get(), PhysicalKind::evictable,
-				flags);
+				flags, ct);
 	// Non-swappable CopyOnWriteMemory only needs the charge in tryChargePages_().
 	co_return co_await physicalAllocator->allocateAwaitable(
-			userAllocationPolicy(_hierarchy.get(), flags), PhysicalKind::pinned,
-			async::cancellation_token{});
+			userAllocationPolicy(_hierarchy.get(), flags), PhysicalKind::pinned, ct);
 }
 
 void CopyOnWriteMemory::_freeCopy(PhysicalAddr physical) {
