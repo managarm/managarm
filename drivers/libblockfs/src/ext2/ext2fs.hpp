@@ -240,6 +240,7 @@ enum {
 };
 
 enum {
+	EXT2_RO_COMPAT_LARGE_FILE = 0x2,
 	EXT4_RO_COMPAT_METADATA_CSUM = 0x400
 };
 
@@ -287,7 +288,7 @@ struct DiskInode {
 	FileData data;
 	uint32_t generation;
 	uint32_t fileAcl;
-	uint32_t dirAcl;
+	uint32_t sizeHigh;
 	uint32_t faddr;
 	union {
 		uint8_t data[12];
@@ -395,7 +396,10 @@ struct Inode final : BaseInode, std::enable_shared_from_this<Inode> {
 	// Returns the size of the file in bytes.
 	// Callers must hold inodeMutex (shared).
 	uint64_t fileSize() {
-		return diskInode()->size;
+		auto disk = diskInode();
+		if((disk->mode & EXT2_S_IFMT) != EXT2_S_IFREG)
+			return disk->size;
+		return disk->size | (uint64_t{disk->sizeHigh} << 32);
 	}
 
 	// Callers must hold inodeMutex (exclusive).
@@ -674,6 +678,7 @@ struct FileSystem final : BaseFileSystem {
 	bool is64Bit;
 	bool usesExtents;
 	bool metadataChecksum;
+	bool largeFile;
 	bool bgdtChecksum;
 
 	std::mutex activeInodesMutex;
