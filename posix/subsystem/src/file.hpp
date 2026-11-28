@@ -14,6 +14,8 @@
 #include <protocols/fs/client.hpp>
 #include <protocols/fs/file-locks.hpp>
 #include <posix.bragi.hpp>
+#include <asm/ioctl.h>
+#include <asm/ioctls.h>
 #include <sys/socket.h>
 #include <helix/dispatcher-pool.hpp>
 
@@ -25,6 +27,21 @@ struct MountView;
 struct FsLink;
 struct Process;
 struct ControllingTerminalState;
+
+// Probes such as isatty() send terminal ioctls to all kinds of files; they fail with ENOTTY.
+inline bool isTerminalIoctl(uint32_t id) {
+	switch(id) {
+	// These generic file ioctls share the 'T' type with the terminal ioctls.
+	case FIONREAD:
+	case FIONBIO:
+	case FIOASYNC:
+	case FIOCLEX:
+	case FIONCLEX:
+	case FIOQSIZE:
+		return false;
+	}
+	return _IOC_TYPE(id) == 'T';
+}
 
 // Synthesizes "." and ".." for filesystems that do not store them: yields each
 // in turn and then std::nullopt, with `phase` tracking progress across calls.
@@ -391,6 +408,8 @@ public:
 	static inline constexpr DefaultOps defaultIsTerminal = 1 << 1;
 	static inline constexpr DefaultOps defaultPipeLikeSeek = 1 << 2;
 	static inline constexpr DefaultOps defaultMapsAnonymously = 1 << 3;
+	// Like Linux's noop_llseek(): seeking succeeds but the position stays at zero.
+	static inline constexpr DefaultOps defaultNoopSeek = 1 << 4;
 
 	// ------------------------------------------------------------------------
 	// File protocol adapters.
